@@ -8,6 +8,9 @@ public class MovecadeKart : ModuleRules
 		// Files keep file-local helpers and log categories; unity batches would collide them as the module grows.
 		bUseUnity = false;
 
+		// Track data is read from <Project>/Data/Tracks at runtime; stage it with packaged builds.
+		RuntimeDependencies.Add("$(ProjectDir)/Data/Tracks/*.json", StagedFileType.UFS);
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",

@@ -65,6 +65,12 @@ worked. Anything marked _verify_ gets checked in a live web race before we decid
 
 ## Open risks
 
+- **Native host Origin (confirmed by the network agent).** On Windows, UE's WebSocket client always sends
+  `Origin: http://<party host>` and can't replace it (adding our own makes a duplicate, which the server rejects
+  with 4003). Local dev allow-lists `http://localhost` / `http://127.0.0.1`. Production would send
+  `http://party.movecade.com`, which the https-only allow-list rejects, so shipping phone play needs a server
+  change (a native-host credential, or allow-listing that exact origin) or a patched WebSocket module. Phones
+  also don't act on the `collision` haptic events yet (controller change).
 - **Native host is blocked by the room server.** The server only accepts a host socket that sends an
   allow-listed `Origin` header. The quick path is for UE to send an `Origin` header and add that origin to
   `EXTRA_ALLOWED_ORIGINS` in the PartyKit config. A proper native-host credential needs a server change in
@@ -82,20 +88,20 @@ worked. Anything marked _verify_ gets checked in a live web race before we decid
 
 ## Phases
 
-_Phases 0–9 below. Detail grows as each phase starts._
+Status as of 2026-10-19 (night). ✅ done · 🔄 in progress · ⏳ not started.
 
-0. **Setup.** VS 2022 with C++, git + LFS baseline, UE MCP connected, a C++ game module added to the project.
-1. **Data export.** A Node exporter, kept in this project under `Tools/`, that reads the movecade repo without
+0. ✅ **Setup.** VS 2022 with C++, git + LFS baseline, UE MCP connected, a C++ game module added to the project.
+1. ✅ **Data export.** (1b props/meshes/textures: 🔄 tracks agent) A Node exporter, kept in this project under `Tools/`, that reads the movecade repo without
    changing it. It writes each track (centerline, widths, surfaces, checkpoints, grid, item boxes, boost pads,
    scenery placements) to JSON using the schema in spec 03. `store.ts` constants are copied by hand, and an
    esbuild stub exposes `buildHarborScenery`. Canvas-drawn textures are rendered separately.
-2. **Core kart.** Arcade movement component, keyboard/gamepad input, chase camera. Tuned against spec 01.
-3. **Tracks (graybox).** A track-builder actor driven by the JSON. Harbor and Violet are drivable, with laps and checkpoints.
-4. **Race flow.** GameMode/GameState, countdown, live positions, finish, results (fixing GAMES-01/02 and adding a time cap), bots.
-5. **Items.** Data-driven items with all the current powerups, item boxes, hit effects, VFX and SFX.
-6. **Phone host.** WebSocket room client, lobby with join code and QR, tilt frames → steering, host → phone feedback, score submission.
-7. **Audio.** MetaSound engine layering and every cue from spec 04.
-8. **Upgrade pass.** Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
-9. **Ship.** Win64 packaging, performance, QA against the web version.
+2. ✅ **Core kart.** Arcade movement component, keyboard/gamepad input, chase camera. Tuned against spec 01.
+3. 🔄 **Tracks.** Harbor ✅; Violet Loop and Harbor scenery 🔄 (tracks agent). A track-builder actor driven by the JSON. Harbor and Violet are drivable, with laps and checkpoints.
+4. ✅ **Race flow.** GameMode/GameState, countdown, live positions, finish, results (fixing GAMES-01/02 and adding a time cap), bots.
+5. ✅ **Items.** (VFX upgrade 🔄 FX agent) Data-driven items with all the current powerups, item boxes, hit effects, VFX and SFX.
+6. ✅ **Phone host.** Local PartyKit only; real deployment needs the Origin decision (open risks). WebSocket room client, lobby with join code and QR, tilt frames → steering, host → phone feedback, score submission.
+7. ✅ **Audio.** (UAudioComponent layers, not MetaSounds; same maths, golden-tested.) MetaSound engine layering and every cue from spec 04.
+8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ⏳. Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
+9. 🔄 **Ship.** Win64 packaging in progress. Win64 packaging, performance, QA against the web version.
 
 Phases 3, 5 and 6 can run in parallel (one agent each) once phase 2 has a drivable kart.
