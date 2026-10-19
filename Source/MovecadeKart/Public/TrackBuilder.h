@@ -40,6 +40,9 @@ public:
 	/** The parsed track, loading it on first use. Null if the file is missing or invalid. */
 	TSharedPtr<const MovecadeKart::FTrack> GetTrack();
 
+	/** The static item boxes are an editor preview; the race's item presenter draws the live ones. */
+	void SetPreviewItemBoxesVisible(bool bVisible);
+
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void Tick(float DeltaSeconds) override;
 

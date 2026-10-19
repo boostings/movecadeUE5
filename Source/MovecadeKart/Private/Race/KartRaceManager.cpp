@@ -11,6 +11,7 @@
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
+#include "Race/KartItemPresenter.h"
 #include "Race/SKartRaceOverlay.h"
 
 using namespace MovecadeKart;
@@ -132,6 +133,13 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		ResultsCamera->GetCameraComponent()->bConstrainAspectRatio = false;
 	}
 
+	Items.Init(Track.Get(), Track->ItemBoxes, Racers.Num(), 1234);
+	if (!ItemPresenter)
+	{
+		ItemPresenter = GetWorld()->SpawnActor<AKartItemPresenter>();
+	}
+	ItemPresenter->Bind(this);
+
 	RestartRace();
 }
 
@@ -150,7 +158,11 @@ void AKartRaceManager::RestartRace()
 		Racer.LapMs.Reset();
 		Racer.bFinished = false;
 		Racer.FinishMs = 0.0;
+		Racer.bUseItemHeld = false;
 	}
+	++RaceNumber;
+	Items.Reset(1234 + RaceNumber);
+	PendingItemEvents.Reset();
 	Results.Reset();
 	LeaderFinishMs = 0.0;
 	RaceSteps = 0;
@@ -439,12 +451,37 @@ void AKartRaceManager::StepRace()
 	{
 		Contexts.Add(MakeContext(Racer));
 	}
+	const double ItemTime = GetItemTime();
+	TArray<FKartItemRacer> ItemRacers;
 	for (int32 i = 0; i < Racers.Num(); ++i)
 	{
-		const FKartInput Input = GatherInput(Racers[i], true);
-		Racers[i].Kart->GetKartMovement()->StepOnce(Input, Contexts[i]);
-		EmitStepEvents(Racers[i]);
+		FKartRacer& Racer = Racers[i];
+		FKartInput Input = GatherInput(Racer, true);
+		const bool bUsePressed = Input.bUseItem && !Racer.bUseItemHeld;
+		Racer.bUseItemHeld = Input.bUseItem;
+		if (Items.IsRocket(i, ItemTime))
+		{
+			Input = RocketAutopilot(Racer);
+		}
+		else if (Items.IsInputLocked(i, ItemTime))
+		{
+			Input = FKartInput();
+		}
+		Racer.Kart->GetKartMovement()->StepOnce(Input, Contexts[i]);
+		EmitStepEvents(Racer);
+
+		FKartItemRacer& ItemRacer = ItemRacers.AddDefaulted_GetRef();
+		const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+		ItemRacer.Sim = &Racer.Kart->GetKartMovement()->MutableSim();
+		ItemRacer.Laps = S.LapsCompleted;
+		ItemRacer.Progress = S.ProgressPercent;
+		ItemRacer.bFinished = Racer.bFinished;
+		ItemRacer.bUseItem = bUsePressed;
+		ItemRacer.bBot = Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal);
 	}
+	TArray<FKartItemEvent> ItemEvents;
+	Items.Step(ItemRacers, ItemTime, ItemEvents);
+	DispatchItemEvents(ItemEvents);
 
 	for (FKartRacer& Racer : Racers)
 	{
@@ -500,6 +537,85 @@ void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
 		Racer.LastTerrainRumble = S.Time;
 		OnHaptic.Broadcast(Racer.Seat, 0.075f, TEXT("terrain"), true);
 	}
+}
+
+FKartInput AKartRaceManager::RocketAutopilot(const FKartRacer& Racer) const
+{
+	// MultiplayerKart.tsx:996-1042: full gas, aim at waypoint nearest + 3, gain 2.5, and blend toward the
+	// nearest kart ahead within 30 m (gain 3).
+	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+	const TArray<FVector2D>& Path = Track->Waypoints;
+	const FVector2D Target = Path[(Track->NearestWaypoint(S.Pos) + 3) % Path.Num()];
+	auto AngleTo = [&S](const FVector2D& P)
+	{
+		const FVector2D D = P - S.Pos;
+		return FMath::FindDeltaAngleRadians(S.Yaw, FMath::Atan2(-D.X, -D.Y));
+	};
+	double Steer = FMath::Clamp(AngleTo(Target) * 2.5, -1.0, 1.0);
+	double Nearest = 30.0;
+	const FKartRacer* Rival = nullptr;
+	for (const FKartRacer& Other : Racers)
+	{
+		const double D = FVector2D::Distance(Other.Kart->GetKartMovement()->SimState().Pos, S.Pos);
+		if (Other.Place < Racer.Place && D < Nearest)
+		{
+			Nearest = D;
+			Rival = &Other;
+		}
+	}
+	if (Rival)
+	{
+		const double Blend = FMath::Max(0.0, 1.0 - Nearest / 30.0);
+		Steer = Steer * (1.0 - Blend) + FMath::Clamp(AngleTo(Rival->Kart->GetKartMovement()->SimState().Pos) * 3.0, -1.0, 1.0) * Blend;
+	}
+	FKartInput Input;
+	Input.bForward = true;
+	Input.SteeringX = Steer;
+	return Input;
+}
+
+void AKartRaceManager::DispatchItemEvents(const TArray<FKartItemEvent>& Events)
+{
+	// Cue names follow app/src/audio/kartCues.ts.
+	for (const FKartItemEvent& E : Events)
+	{
+		switch (E.Type)
+		{
+		case EKartItemEventType::Pickup: OnCue.Broadcast(E.Seat, TEXT("kart.item-pickup")); break;
+		case EKartItemEventType::Ready: OnCue.Broadcast(E.Seat, TEXT("kart.item-ready")); break;
+		case EKartItemEventType::Launch:
+			OnCue.Broadcast(E.Seat, TEXT("kart.projectile-launch"));
+			if (E.Item == EKartItem::Seeker || E.Item == EKartItem::SkySeeker)
+			{
+				OnCue.Broadcast(-1, TEXT("kart.warning"));
+			}
+			break;
+		case EKartItemEventType::Drop: OnCue.Broadcast(E.Seat, TEXT("kart.hazard-drop")); break;
+		case EKartItemEventType::Bounce: OnCue.Broadcast(E.Other, TEXT("kart.projectile-bounce")); break;
+		case EKartItemEventType::Hit: OnCue.Broadcast(E.Seat, TEXT("kart.projectile-hit")); break;
+		case EKartItemEventType::SpinOut:
+			OnCue.Broadcast(E.Seat, TEXT("kart.spinout"));
+			OnHaptic.Broadcast(E.Seat, 0.8f, TEXT("item"), false);
+			break;
+		case EKartItemEventType::Explosion:
+			OnCue.Broadcast(-1, TEXT("kart.explosion"));
+			for (const FKartRacer& Racer : Racers)
+			{
+				if (FVector2D::Distance(Racer.Kart->GetKartMovement()->SimState().Pos, E.Position) < E.Radius)
+				{
+					OnHaptic.Broadcast(Racer.Seat, 1.0f, TEXT("item"), false);
+				}
+			}
+			break;
+		case EKartItemEventType::Lightning: OnCue.Broadcast(E.Seat, TEXT("kart.lightning")); break;
+		case EKartItemEventType::Inked: OnCue.Broadcast(E.Seat, TEXT("kart.ink")); break;
+		case EKartItemEventType::Invincible: OnCue.Broadcast(E.Seat, TEXT("kart.invincible-start")); break;
+		case EKartItemEventType::RocketStart: OnCue.Broadcast(E.Seat, TEXT("kart.boost")); break;
+		case EKartItemEventType::Bump: OnHaptic.Broadcast(E.Seat, 0.6f, TEXT("kart"), false); break;
+		default: break;
+		}
+	}
+	PendingItemEvents.Append(Events);
 }
 
 void AKartRaceManager::UpdateStandings()

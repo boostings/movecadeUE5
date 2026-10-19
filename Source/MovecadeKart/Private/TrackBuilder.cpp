@@ -322,6 +322,11 @@ void ATrackBuilder::Build()
 	Sun->SetWorldRotation((-Coords::DirToUE(T.SunDirection).GetSafeNormal()).Rotation());
 }
 
+void ATrackBuilder::SetPreviewItemBoxesVisible(bool bVisible)
+{
+	ItemBoxes->SetVisibility(bVisible);
+}
+
 void ATrackBuilder::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);

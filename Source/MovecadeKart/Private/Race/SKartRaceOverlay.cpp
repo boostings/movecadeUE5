@@ -40,11 +40,15 @@ namespace
 		}
 	};
 
-	FString StatusLine(const FKartRacer& Racer)
+	FString StatusLine(const AKartRaceManager& Race, const FKartRacer& Racer)
 	{
 		const MovecadeKart::FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+		const MovecadeKart::FKartItemSlot& Slot = Race.GetItems().Slots()[Racer.Seat];
+		// KartHud.tsx cue priority: Finished > Wrong way > Choosing item > item > drift > Boosting > Off-road > Race clean.
 		if (Racer.bFinished) return TEXT("Finished");
 		if (S.bWrongWay) return TEXT("Wrong way!");
+		if (Slot.bRolling) return TEXT("Choosing item...");
+		if (Slot.Held != MovecadeKart::EKartItem::None) return MovecadeKart::ItemName(Slot.Held);
 		if (S.DriftDirection != 0.0)
 		{
 			return S.DriftPower >= 1.8 ? TEXT("Ultra drift") : S.DriftPower >= 1.15 ? TEXT("Super drift") : S.DriftPower >= 0.65 ? TEXT("Mini drift") : TEXT("Drifting");
@@ -151,7 +155,7 @@ int32 SKartRaceOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 			P.Box(FVector2D(Size.X - RailW - 16.0, Y), FVector2D(6.0, 46.0), Racer.Paint);
 			P.Text(Ordinal(Racer.Place), FVector2D(Size.X - RailW, Y + 6.0), 18, FLinearColor::White);
 			P.Text(Racer.Name, FVector2D(Size.X - RailW + 50.0, Y + 4.0), 14, FLinearColor::White);
-			P.Text(FString::Printf(TEXT("Lap %d · %s"), Lap, *StatusLine(Racer)), FVector2D(Size.X - RailW + 50.0, Y + 24.0), 11, Soft);
+			P.Text(FString::Printf(TEXT("Lap %d · %s"), Lap, *StatusLine(*Race, Racer)), FVector2D(Size.X - RailW + 50.0, Y + 24.0), 11, Soft);
 			Y += 52.0;
 		}
 		return LayerId + 3;

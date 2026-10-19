@@ -337,6 +337,12 @@ namespace MovecadeKart
 			Out.RecoverySkipWaypoints = static_cast<int32>(Num(Recovery, TEXT("skipWaypoints"), 3));
 		}
 
+		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("itemBoxes")))
+		{
+			const TSharedPtr<FJsonObject> B = V->AsObject();
+			Out.ItemBoxes.Add(FVector(Num(B, TEXT("x")), Num(B, TEXT("y"), 1.0), Num(B, TEXT("z"))));
+		}
+
 		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("staticCameras")))
 		{
 			const TSharedPtr<FJsonObject> C = V->AsObject();

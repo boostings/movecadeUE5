@@ -25,6 +25,7 @@ void AKartPlayerController::BeginPlay()
 	Gas = MakeAction(TEXT("IA_Gas"), false);
 	Brake = MakeAction(TEXT("IA_Brake"), false);
 	Drift = MakeAction(TEXT("IA_Drift"), false);
+	UseItem = MakeAction(TEXT("IA_UseItem"), false);
 
 	FEnhancedActionKeyMapping& Stick = Context->MapKey(SteerAxis, EKeys::Gamepad_LeftX);
 	UInputModifierDeadZone* DeadZone = NewObject<UInputModifierDeadZone>(this);
@@ -37,6 +38,7 @@ void AKartPlayerController::BeginPlay()
 	for (const FKey& Key : { EKeys::W, EKeys::Up, EKeys::Gamepad_FaceButton_Bottom, EKeys::Gamepad_RightTriggerAxis }) { Context->MapKey(Gas, Key); }
 	for (const FKey& Key : { EKeys::S, EKeys::Down, EKeys::Gamepad_FaceButton_Right, EKeys::Gamepad_LeftTriggerAxis }) { Context->MapKey(Brake, Key); }
 	for (const FKey& Key : { EKeys::SpaceBar, EKeys::Gamepad_RightShoulder, EKeys::Gamepad_LeftShoulder }) { Context->MapKey(Drift, Key); }
+	for (const FKey& Key : { EKeys::E, EKeys::LeftShift, EKeys::Gamepad_FaceButton_Left, EKeys::Gamepad_FaceButton_Top }) { Context->MapKey(UseItem, Key); }
 
 	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
 	{
@@ -66,4 +68,5 @@ void AKartPlayerController::PlayerTick(float DeltaTime)
 	LocalInput.bForward = Held(Gas);
 	LocalInput.bBackward = Held(Brake);
 	LocalInput.bJump = Held(Drift);
+	LocalInput.bUseItem = Held(UseItem);
 }

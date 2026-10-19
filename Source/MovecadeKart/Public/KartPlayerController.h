@@ -11,7 +11,7 @@ class UInputMappingContext;
 /**
  * One local viewport, and for a Local seat its keyboard/gamepad input. Bindings follow the web host
  * (MultiplayerApp.tsx:43-50, MultiplayerKart.tsx:908-943): W/Up gas, S/Down brake, A/D/Left/Right
- * steer (added on top of the stick), Space drift, plus a gamepad layout. The actions are built in
+ * steer (added on top of the stick), Space drift, E/Left Shift item, plus a gamepad layout. The actions are built in
  * code, so no input assets are needed. AKartRaceManager reads GetLocalInput each sim step.
  */
 UCLASS()
@@ -50,6 +50,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UInputAction> Drift;
+
+	UPROPERTY()
+	TObjectPtr<UInputAction> UseItem;
 
 	MovecadeKart::FKartInput LocalInput;
 };

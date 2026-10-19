@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Race/KartBotDriver.h"
+#include "Sim/KartItems.h"
 #include "Sim/KartSim.h"
 #include "Sim/KartTrack.h"
 
@@ -236,6 +237,117 @@ bool FKartBotLapTest::RunTest(const FString&)
 	TestTrue(TEXT("at most one stuck recovery per lap"), Sim.State().TeleportCount <= 3u);
 	TestTrue(TEXT("drifted for boosts"), Sim.State().DriftBoostCount > 0);
 	AddInfo(FString::Printf(TEXT("bot: %.2f s for 3 laps, %u drift boosts"), Seconds, Sim.State().DriftBoostCount));
+	return true;
+}
+
+namespace
+{
+	/** Two karts on Harbor's start straight: seat 0 on the grid, seat 1 `Gap` metres ahead of it. */
+	struct FItemRig
+	{
+		FTrack Track;
+		FKartSim Karts[2];
+		FKartItemWorld Items;
+		TArray<FKartItemRacer> Racers;
+		TArray<FKartItemEvent> Events;
+		double Now = 0.0;
+
+		bool Init(FAutomationTestBase& Test, double Gap)
+		{
+			if (!LoadHarbor(Test, Track)) return false;
+			Karts[0].Init(&Track, 0);
+			Karts[1].Init(&Track, 0);
+			Karts[1].MutableState().Pos = Karts[0].State().Pos + FVector2D(0.0, -Gap);
+			Items.Init(&Track, TArray<FVector>(), 2, 7);
+			Racers.SetNum(2);
+			for (int32 i = 0; i < 2; ++i) Racers[i].Sim = &Karts[i];
+			Racers[1].Progress = 10.0; // seat 1 is ahead
+			return true;
+		}
+
+		void Step(bool bUse0 = false)
+		{
+			Now += FKartSim::StepSeconds;
+			Racers[0].bUseItem = bUse0;
+			Items.Step(Racers, Now, Events);
+		}
+
+		bool Saw(EKartItemEventType Type, int32 Seat = -2) const
+		{
+			return Events.ContainsByPredicate([&](const FKartItemEvent& E) { return E.Type == Type && (Seat == -2 || E.Seat == Seat); });
+		}
+	};
+}
+
+// spec 02 §2.3: the leader of four only ever rolls the FRONT pool; last place can roll the Rocket and Sky Seeker.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartItemOddsTest, "MovecadeKart.Items.OddsBrackets", KartTestFlags)
+bool FKartItemOddsTest::RunTest(const FString&)
+{
+	FKartItemWorld Items;
+	FTrack Dummy;
+	Items.Init(&Dummy, TArray<FVector>(), 4, 42);
+	TSet<EKartItem> Leader, Last, LeaderOfTwo;
+	for (int32 i = 0; i < 4000; ++i)
+	{
+		Leader.Add(Items.RollItem(1, 4, 0.0));
+		Last.Add(Items.RollItem(4, 4, 1.0));
+		LeaderOfTwo.Add(Items.RollItem(1, 2, 0.0));
+	}
+	TestTrue(TEXT("leader: front pool only"), Leader.Num() == 4 && Leader.Contains(EKartItem::Banana) && Leader.Contains(EKartItem::Shot) && Leader.Contains(EKartItem::Nitro) && Leader.Contains(EKartItem::Seeker));
+	TestTrue(TEXT("last of four: rocket and sky seeker possible"), Last.Contains(EKartItem::Rocket) && Last.Contains(EKartItem::SkySeeker));
+	TestFalse(TEXT("last of four: no bananas"), Last.Contains(EKartItem::Banana));
+	TestTrue(TEXT("leader of two: front pool"), !LeaderOfTwo.Contains(EKartItem::Bomb) && LeaderOfTwo.Contains(EKartItem::Banana));
+	return true;
+}
+
+// Box pickup starts a ~3 s roulette; the item can't be used until it ends.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartItemRouletteTest, "MovecadeKart.Items.Roulette", KartTestFlags)
+bool FKartItemRouletteTest::RunTest(const FString&)
+{
+	FItemRig Rig;
+	if (!Rig.Init(*this, 40.0)) return false;
+	const FVector2D P = Rig.Karts[0].State().Pos;
+	Rig.Items.Init(&Rig.Track, { FVector(P.X, 1.0, P.Y) }, 2, 7);
+	Rig.Step();
+	TestTrue(TEXT("picked up"), Rig.Saw(EKartItemEventType::Pickup, 0) && Rig.Items.Slots()[0].bRolling);
+	TestFalse(TEXT("box hidden only when everyone has it"), !Rig.Items.IsBoxVisible(0, Rig.Now));
+	for (int32 i = 0; i < 60; ++i) Rig.Step(true);
+	TestFalse(TEXT("no use while rolling"), Rig.Saw(EKartItemEventType::Used));
+	for (int32 i = 0; i < 125; ++i) Rig.Step();
+	TestTrue(TEXT("ready after ~3 s"), Rig.Saw(EKartItemEventType::Ready, 0) && !Rig.Items.Slots()[0].bRolling);
+	return true;
+}
+
+// A Shot flies straight at 80 m/s and spins out the kart ahead (B1: hits are real).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartItemShotTest, "MovecadeKart.Items.ShotSpinsOut", KartTestFlags)
+bool FKartItemShotTest::RunTest(const FString&)
+{
+	FItemRig Rig;
+	if (!Rig.Init(*this, 12.0)) return false;
+	Rig.Karts[1].MutableState().Speed = 30.0;
+	Rig.Items.Give(0, EKartItem::Shot, Rig.Now);
+	Rig.Step(true);
+	TestTrue(TEXT("launched"), Rig.Saw(EKartItemEventType::Launch, 0));
+	for (int32 i = 0; i < 30 && !Rig.Saw(EKartItemEventType::SpinOut); ++i) Rig.Step();
+	TestTrue(TEXT("hit and spun out the kart ahead"), Rig.Saw(EKartItemEventType::Hit, 1) && Rig.Saw(EKartItemEventType::SpinOut, 1));
+	TestTrue(TEXT("victim slowed"), Rig.Karts[1].State().Speed < 5.0);
+	TestTrue(TEXT("victim input locked"), Rig.Items.IsInputLocked(1, Rig.Now));
+	TestEqual(TEXT("projectile consumed"), Rig.Items.Projectiles().Num(), 0);
+	return true;
+}
+
+// A Bomb lands ~46 m downrange after ~1.5 s and explodes with radius 8.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartItemBombTest, "MovecadeKart.Items.BombExplodes", KartTestFlags)
+bool FKartItemBombTest::RunTest(const FString&)
+{
+	FItemRig Rig;
+	if (!Rig.Init(*this, 46.0)) return false;
+	Rig.Items.Give(0, EKartItem::Bomb, Rig.Now);
+	Rig.Step(true);
+	int32 Steps = 0;
+	while (!Rig.Saw(EKartItemEventType::Explosion) && Steps++ < 300) Rig.Step();
+	TestTrue(FString::Printf(TEXT("exploded after %.2f s"), Rig.Now), Rig.Saw(EKartItemEventType::Explosion) && Rig.Now > 1.2 && Rig.Now < 1.8);
+	TestTrue(TEXT("kart near the landing point stopped"), Rig.Karts[1].State().Speed == 0.0 && Rig.Karts[1].State().BoostMultiplier == 0.2);
 	return true;
 }
 

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Race/KartBotDriver.h"
+#include "Sim/KartItems.h"
 #include "Sim/KartSim.h"
 #include "KartRaceManager.generated.h"
 
@@ -75,6 +76,7 @@ struct FKartRacer
 	bool bFinished = false;
 	double FinishMs = 0.0;
 	double LastTerrainRumble = -1000.0;
+	bool bUseItemHeld = false;
 };
 
 USTRUCT(BlueprintType)
@@ -152,6 +154,11 @@ public:
 	const FKartRacer* FindRacer(const AKartPawn* Kart) const;
 	const MovecadeKart::FTrack* GetTrack() const { return Track.Get(); }
 	double ProgressScore(const FKartRacer& Racer) const;
+	const MovecadeKart::FKartItemWorld& GetItems() const { return Items; }
+	/** The item world's clock (race seconds). */
+	double GetItemTime() const { return RaceSteps / 60.0; }
+	/** Item events since the last call (for presentation); clears the queue. */
+	TArray<MovecadeKart::FKartItemEvent> ConsumeItemEvents() { return MoveTemp(PendingItemEvents); }
 
 	/** Input for Phone seats; returns false if the seat has no input yet. */
 	TFunction<bool(int32 /*Seat*/, MovecadeKart::FKartInput& /*Out*/)> ExternalInput;
@@ -182,6 +189,8 @@ private:
 	MovecadeKart::FKartInput GatherInput(FKartRacer& Racer, bool bRacing);
 	MovecadeKart::FKartRaceContext MakeContext(const FKartRacer& Racer) const;
 	void EmitStepEvents(FKartRacer& Racer);
+	void DispatchItemEvents(const TArray<MovecadeKart::FKartItemEvent>& Events);
+	MovecadeKart::FKartInput RocketAutopilot(const FKartRacer& Racer) const;
 	void EndRace();
 	void UpdateCameras(float DeltaSeconds);
 	void UseRaceViews();
@@ -209,4 +218,11 @@ private:
 	int32 LastCountdownCue = 0;
 	FVector ResultsCameraPos = FVector::ZeroVector;
 	TSharedPtr<SKartRaceOverlay> Overlay;
+
+	MovecadeKart::FKartItemWorld Items;
+	TArray<MovecadeKart::FKartItemEvent> PendingItemEvents;
+	int32 RaceNumber = 0;
+
+	UPROPERTY()
+	TObjectPtr<class AKartItemPresenter> ItemPresenter;
 };

@@ -65,7 +65,14 @@ AKartPawn::AKartPawn()
 			WheelSlots[i], FVector(Radius, Radius, 0.3), FRotator(0, 0, 90)));
 	}
 
-	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
+	// Prism: the body cycles through the rainbow instead of the web's translucent yellow sphere.
+	Aura = MakePart(this, SlipPivot, TEXT("Aura"), SphereMesh.Object, FVector(0, 0, 8), FVector(2.6, 2.2, 0.06));
+	Aura->SetVisibility(false);
+	// Rocket: a capsule-ish shell along the kart (the web laid it across, spec 02 checklist 11).
+	RocketShell = MakePart(this, SlipPivot, TEXT("RocketShell"), CylinderMesh.Object, FVector(0, 0, 70), FVector(1.3, 1.3, 2.9), FRotator(90, 0, 0));
+	RocketShell->SetVisibility(false);
+
+	Camera =CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(Root);
 	Camera->SetUsingAbsoluteLocation(true);
 	Camera->SetUsingAbsoluteRotation(true);
@@ -97,6 +104,11 @@ void AKartPawn::BeginPlay()
 		UMaterialInstanceDynamic* Suit = UMaterialInstanceDynamic::Create(Base, this);
 		Suit->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.9f, 0.9f, 0.92f));
 		Driver->SetMaterial(0, Suit);
+		UMaterialInstanceDynamic* Shell = UMaterialInstanceDynamic::Create(Base, this);
+		Shell->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.006f, 0.006f, 0.006f)); // #111111
+		RocketShell->SetMaterial(0, Shell);
+		AuraMaterial = UMaterialInstanceDynamic::Create(Base, this);
+		Aura->SetMaterial(0, AuraMaterial);
 	}
 	SnapCamera();
 }
@@ -124,9 +136,26 @@ void AKartPawn::UpdateVisual()
 {
 	using MovecadeKart::Coords::YawToUE;
 	const MovecadeKart::FKartState& S = Movement->SimState();
-	SlipPivot->SetRelativeRotation(FRotator(0, YawToUE(S.SlipYaw), 0));
-	BodyPivot->SetRelativeLocationAndRotation(FVector(0, 0, S.HopOffset * 100.0),
-		FRotator(0, YawToUE(S.GroupYaw), FMath::RadiansToDegrees(-S.Lean)));
+	SlipPivot->SetRelativeRotation(FRotator(0, YawToUE(S.SlipYaw) + ItemVisual.SpinDegrees, 0));
+	BodyPivot->SetRelativeLocationAndRotation(FVector(0, 0, S.HopOffset * 100.0 + ItemVisual.PopCm),
+		FRotator(0, YawToUE(S.GroupYaw), FMath::RadiansToDegrees(-S.Lean) + ItemVisual.TumbleDegrees));
+	// Lightning shrink eases in and out.
+	const double Scale = FMath::FInterpTo(BodyPivot->GetRelativeScale3D().X, ItemVisual.Scale, GetWorld()->GetDeltaSeconds(), 8.0);
+	BodyPivot->SetRelativeScale3D(FVector(Scale));
+
+	const double Time = GetWorld()->GetTimeSeconds();
+	Aura->SetVisibility(ItemVisual.bAura);
+	if (PaintMaterial)
+	{
+		const FLinearColor Rainbow = FLinearColor::MakeFromHSV8(static_cast<uint8>(FMath::Fmod(Time * 600.0, 256.0)), 200, 255);
+		PaintMaterial->SetVectorParameterValue(TEXT("Color"), ItemVisual.bAura ? Rainbow : PaintColor);
+		if (AuraMaterial)
+		{
+			AuraMaterial->SetVectorParameterValue(TEXT("Color"), Rainbow);
+		}
+	}
+	RocketShell->SetVisibility(ItemVisual.bRocket);
+	Body->SetVisibility(!ItemVisual.bRocket);
 	// Front wheels steer with yRot * 30 (Kart.jsx:202-242).
 	const double Steer = YawToUE(S.SteerVisual * 30.0);
 	for (int32 i = 0; i < 2; ++i)
@@ -142,6 +171,14 @@ void AKartPawn::SetPaint(const FLinearColor& Color)
 	{
 		PaintMaterial->SetVectorParameterValue(TEXT("Color"), PaintColor);
 	}
+}
+
+void AKartPawn::AddShake(double PeakMetres)
+{
+	const double Now = GetWorld()->GetTimeSeconds();
+	const double Remaining = ShakePeak * FMath::Exp(-6.5 * (Now - ShakeStart));
+	ShakePeak = FMath::Max(PeakMetres, Remaining);
+	ShakeStart = Now;
 }
 
 void AKartPawn::SnapCamera()
@@ -179,7 +216,21 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 		CameraPos = FMath::Lerp(CameraPos, EyeTarget, Alpha);
 		CameraLook = FMath::Lerp(CameraLook, LookTarget, Alpha);
 	}
-	Camera->SetWorldLocationAndRotation(CameraPos, (CameraLook - CameraPos).Rotation());
+	// kartFxBus.ts shake: applied on top of the follow, never accumulated into it.
+	FRotator View = (CameraLook - CameraPos).Rotation();
+	FVector Eye = CameraPos;
+	const double Now = GetWorld()->GetTimeSeconds();
+	const double Amp = ShakePeak * FMath::Exp(-6.5 * (Now - ShakeStart));
+	if (Amp > 0.001)
+	{
+		const FRotationMatrix Axes(View);
+		const double X = (FMath::Sin(Now * 47.3) * 0.6 + FMath::Sin(Now * 83.1 + 1.3) * 0.4) * Amp;
+		const double Y = (FMath::Sin(Now * 53.7 + 2.1) * 0.6 + FMath::Sin(Now * 91.9 + 0.4) * 0.4) * Amp * 0.7;
+		const double Roll = (FMath::Sin(Now * 39.1 + 0.7) * 0.6 + FMath::Sin(Now * 71.3 + 2.9) * 0.4) * Amp * 0.06;
+		Eye += Axes.GetUnitAxis(EAxis::Y) * X * 100.0 + Axes.GetUnitAxis(EAxis::Z) * Y * 100.0;
+		View.Roll += FMath::RadiansToDegrees(Roll);
+	}
+	Camera->SetWorldLocationAndRotation(Eye, View);
 
 	// Vertical FOV: 75 in split-screen, 72 + speed in a single view; converted to UE's horizontal FOV
 	// for this player's part of the screen.

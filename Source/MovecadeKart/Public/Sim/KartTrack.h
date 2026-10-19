@@ -100,6 +100,8 @@ namespace MovecadeKart
 		int32 StartCheckpoint = 1;
 		TArray<FSpawnSlot> Grid;
 		TArray<FStaticCamera> StaticCameras;
+		/** Item box centres (three.js x, y, z). */
+		TArray<FVector> ItemBoxes;
 		/** Minimap bounds in metres: X = minX..maxX, Y = minZ..maxZ. */
 		FBox2D MinimapBounds = FBox2D(ForceInit);
 

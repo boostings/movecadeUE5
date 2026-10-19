@@ -32,6 +32,8 @@ namespace MovecadeKart
 		bool bBackward = false;
 		/** Hop / drift. */
 		bool bJump = false;
+		/** Item button (held). The race layer turns it into a press edge; the kart sim ignores it. */
+		bool bUseItem = false;
 	};
 
 	struct FDriftBoost
