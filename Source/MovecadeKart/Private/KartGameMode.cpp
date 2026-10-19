@@ -9,6 +9,7 @@
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
+#include "Net/KartLobbyWidget.h"
 #include "TrackBuilder.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartGameMode, Log, All);
@@ -42,6 +43,11 @@ void AKartGameMode::StartPlay()
 				}
 			}, Seconds, false);
 		}
+	}
+	if (FParse::Param(FCommandLine::Get(), TEXT("KartLobby")))
+	{
+		// Phone lobby (join code, QR, seats); it opens the room. The race layer will call Show() itself.
+		UKartLobbyWidget::Show(GetWorld()->GetFirstPlayerController());
 	}
 	float QuitAfter = 0.f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
