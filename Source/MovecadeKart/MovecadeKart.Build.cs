@@ -15,6 +15,11 @@ public class MovecadeKart : ModuleRules
 			"EnhancedInput",
 			"ProceduralMeshComponent",
 			"Json",
+			// Phone host (Net/): room server socket and the lobby UI.
+			"WebSockets",
+			"UMG",
+			"Slate",
+			"SlateCore",
 		});
 	}
 }
