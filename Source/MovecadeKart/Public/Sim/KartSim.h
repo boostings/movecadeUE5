@@ -98,6 +98,8 @@ namespace MovecadeKart
 		double WatchSeen = -1000.0;
 		/** Increments on every teleport, so the presentation can snap instead of interpolate. */
 		uint32 TeleportCount = 0;
+		/** Why the last teleport happened: off-track, stuck, checkpoint-stall or teleport (for logs and tests). */
+		FString LastRespawnReason;
 
 		// Presentation (Kart.jsx visual layers), driven from the sim so they stay deterministic
 		double InputTurn = 0.0;

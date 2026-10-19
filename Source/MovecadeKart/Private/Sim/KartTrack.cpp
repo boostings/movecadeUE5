@@ -97,6 +97,23 @@ namespace MovecadeKart
 		return false;
 	}
 
+	// ---- FDirtGrid ------------------------------------------------------------------------------
+
+	bool FDirtGrid::IsDirt(const FVector2D& P) const
+	{
+		if (!IsValid())
+		{
+			return false;
+		}
+		const int32 Col = FMath::FloorToInt32((P.X - Min.X) / CellSize);
+		const int32 Row = FMath::FloorToInt32((P.Y - Min.Y) / CellSize);
+		if (Col < 0 || Row < 0 || Col >= Cols || Row >= Rows)
+		{
+			return false;
+		}
+		return Cells[Row * Cols + Col];
+	}
+
 	// ---- FTrack ---------------------------------------------------------------------------------
 
 	double FTrack::NearestCentre(const FVector2D& P, FVector2D& OutPoint, double& OutOffset) const
@@ -301,8 +318,45 @@ namespace MovecadeKart
 				return Num(A, TEXT("side")) < Num(B, TEXT("side"));
 			});
 			TArray<FWallSegment> Segments;
+			TArray<FWallSegment> ProbeSegments;
 			for (const TSharedPtr<FJsonObject>& W : Walls)
 			{
+				// Mesh walls (Violet): explicit [ax, az, bx, bz, nx, nz] segments with the face normal the web's
+				// raycast reports, for the sweep ("sweep"), the probe rays ("probe") or both (no role).
+				const TArray<TSharedPtr<FJsonValue>>& Explicit = Arr(W, TEXT("segments"));
+				if (Explicit.Num() > 0)
+				{
+					FString Role;
+					W->TryGetStringField(TEXT("role"), Role);
+					for (const TSharedPtr<FJsonValue>& SV : Explicit)
+					{
+						const TArray<TSharedPtr<FJsonValue>>& E = SV->AsArray();
+						if (E.Num() < 6)
+						{
+							continue;
+						}
+						FWallSegment S;
+						S.A = FVector2D(E[0]->AsNumber(), E[1]->AsNumber());
+						S.D = FVector2D(E[2]->AsNumber(), E[3]->AsNumber()) - S.A;
+						S.LengthSq = S.D.SizeSquared();
+						S.FaceNormal = FVector2D(E[4]->AsNumber(), E[5]->AsNumber());
+						if (S.LengthSq <= 0.0)
+						{
+							continue;
+						}
+						if (Role != TEXT("probe"))
+						{
+							Segments.Add(S);
+						}
+						if (Role != TEXT("sweep"))
+						{
+							ProbeSegments.Add(S);
+						}
+					}
+					Out.bRadialWallPush = true;
+					continue;
+				}
+
 				const double Side = Num(W, TEXT("side"), 1);
 				bool bClosed = false;
 				W->TryGetBoolField(TEXT("closed"), bClosed);
@@ -329,6 +383,42 @@ namespace MovecadeKart
 				}
 			}
 			Out.Walls.Reset(MoveTemp(Segments));
+			if (Out.bRadialWallPush)
+			{
+				Out.ProbeWalls.Reset(MoveTemp(ProbeSegments));
+			}
+		}
+
+		if (const TSharedPtr<FJsonObject> Dirt = Obj(Collision, TEXT("dirtGrid")))
+		{
+			FDirtGrid& G = Out.DirtGrid;
+			G.CellSize = Num(Dirt, TEXT("cellM"));
+			G.Min = FVector2D(Num(Dirt, TEXT("minX")), Num(Dirt, TEXT("minZ")));
+			G.Cols = static_cast<int32>(Num(Dirt, TEXT("cols")));
+			G.Rows = static_cast<int32>(Num(Dirt, TEXT("rows")));
+			if (G.IsValid())
+			{
+				G.Cells.Init(false, G.Cols * G.Rows);
+				for (const TSharedPtr<FJsonValue>& RV : Arr(Dirt, TEXT("runs")))
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Run = RV->AsArray();
+					if (Run.Num() < 3)
+					{
+						continue;
+					}
+					const int32 Row = static_cast<int32>(Run[0]->AsNumber());
+					const int32 First = FMath::Max(0, static_cast<int32>(Run[1]->AsNumber()));
+					const int32 Last = FMath::Min(G.Cols - 1, static_cast<int32>(Run[2]->AsNumber()));
+					if (Row < 0 || Row >= G.Rows)
+					{
+						continue;
+					}
+					for (int32 Col = First; Col <= Last; ++Col)
+					{
+						G.Cells[Row * G.Cols + Col] = true;
+					}
+				}
+			}
 		}
 
 		if (const TSharedPtr<FJsonObject> Recovery = Obj(Root, TEXT("recovery")))

@@ -6,10 +6,20 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { processVioletMesh } from './src/violetMesh.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(here, '../..');
-const movecade = path.resolve(process.env.MOVECADE_ROOT ?? path.join(projectDir, '../../Projects/movecade/movecade-v2'));
+// Default: <Documents>/Projects/movecade/movecade-v2 next to <Documents>/Unreal Projects/MyProject,
+// found from any ancestor so git worktrees (MyProject/.claude/worktrees/...) resolve it too.
+function findMovecade() {
+  for (let dir = projectDir; ; dir = path.dirname(dir)) {
+    const candidate = path.join(dir, '../Projects/movecade/movecade-v2');
+    if (existsSync(path.join(candidate, 'app/src'))) return candidate;
+    if (path.dirname(dir) === dir) return path.join(projectDir, '../../Projects/movecade/movecade-v2');
+  }
+}
+const movecade = path.resolve(process.env.MOVECADE_ROOT ?? findMovecade());
 const appSrc = path.join(movecade, 'app/src');
 if (!existsSync(appSrc)) {
   console.error(`movecade-v2 not found at ${movecade}. Set MOVECADE_ROOT.`);
@@ -60,5 +70,18 @@ try {
 
 const { exportTracks } = await import(pathToFileURL(outfile).href);
 const outTracks = path.join(projectDir, 'Data/Tracks');
-const written = await exportTracks({ outDir: outTracks, commit: dirty ? `${commit}-dirty` : commit, movecadeRoot: movecade });
+// Generated binaries (decoded GLBs, prefab meshes, canvas PNGs) go to out/, which git ignores;
+// Tools/ue/import_track_assets.py imports them into Content/Tracks.
+const outAssets = path.join(here, 'out');
+const violetMesh = async (samples, rebaseY) => {
+  const res = await processVioletMesh({
+    glbPath: path.join(movecade, 'app/public/models/violet-loop.glb'),
+    outDir: path.join(outAssets, 'violet'),
+    samples,
+    rebaseY,
+  });
+  console.log(`decoded ${path.relative(projectDir, res.glb)}; walls: ${res.walls.sweep.length / 6} sweep, ${res.walls.probe.length / 6} probe segments; dirt cells ${res.dirtGrid.dirtCells}`);
+  return res;
+};
+const written = await exportTracks({ outDir: outTracks, commit: dirty ? `${commit}-dirty` : commit, movecadeRoot: movecade, violetMesh });
 for (const f of written) console.log(`wrote ${path.relative(projectDir, f)}`);

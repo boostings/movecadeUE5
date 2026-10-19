@@ -320,7 +320,31 @@ function exportHarbor(commit: string) {
 
 // ---- Violet Loop ------------------------------------------------------------------------------------
 
-function exportViolet(commit: string) {
+/** What src/violetMesh.mjs measures off the decoded GLB (see that file for the rules). */
+export interface VioletMeshData {
+  glb: string;
+  stats: Record<string, unknown>;
+  walls: { sweep: number[]; probe: number[]; sweepPieces: number; probePieces: number };
+  dirtGrid: { cellM: number; minX: number; minZ: number; cols: number; rows: number; dirtCells: number; runs: number[] };
+}
+export type VioletMeshHook = (samples: readonly { x: number; z: number }[], rebaseY: number) => Promise<VioletMeshData>;
+
+/** Where the editor import script (Tools/ue/import_track_assets.py) puts the Violet GLB's meshes. */
+const VIOLET_UE_DIR = '/Game/Tracks/VioletLoop';
+
+/** The rules violetMesh.mjs applies, recorded next to the data (Docs/Port/01 §5, §7.2, §7.5). */
+const VIOLET_WALL_RULES = {
+  wall: 'a GLB triangle (any rendered mesh) with |normal.y| < 0.7, centroid within 80 m of the centreline',
+  sweep:
+    'constrainMeshMovement tests a 1.15 m sphere at the logical plane y=0, so a wall triangle counts when it reaches into y -1.15..1.15; ' +
+    'its segment is the triangle sliced at the height in that range nearest y=0 (the closest point, flattened). Lower faces (the sand verge lip, kerb edges) never collide on the web either.',
+  probe: 'checkHorizontalCollisionFast rays run at y=0.5, so probe segments are the wall triangles sliced at y=0.5; materials are double-sided, so both faces hit',
+  normal: '[nx, nz] = the triangle geometric normal (as three.js reports face.normal), x and z of the unit 3D vector, not renormalised',
+  merge: 'collinear touching pieces facing the same way are joined; the union of lines is unchanged',
+  format: 'segments: flat [ax, az, bx, bz, nx, nz, ...] in three.js world metres, no rebase',
+};
+
+async function exportViolet(commit: string, violetMesh?: VioletMeshHook) {
   cat.configureKartTrack('violet-loop');
   const c = catalogBlock('violet-loop');
 
@@ -360,6 +384,8 @@ function exportViolet(commit: string) {
     for (const run2 of runs) walls.push({ side: s, height: Math.max(...run2.tops), closed: full, polyline: run2.polyline, tops: run2.tops });
   }
 
+  const mesh = violetMesh ? await violetMesh(samples, -c.groundY) : undefined;
+
   const plan = planTrackside(samples);
   const place = (prefab: string, p: { x: number; y: number; z: number; yaw: number; side: 1 | -1 }, extra: Record<string, unknown> = {}) => ({
     prefab, x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw, 6), side: p.side, ...extra,
@@ -395,8 +421,11 @@ function exportViolet(commit: string) {
     ...common('violet-loop', c, startWidth),
     collision: {
       ...SWEEP,
-      walls,
-      wallsAreFallback: true,
+      // The GLB's own walls when the mesh pass ran (the sim's sweep and probes), else the profile fallback.
+      walls: mesh ? meshWalls(mesh) : walls,
+      wallsAreFallback: !mesh,
+      profileWalls: walls,
+      ...(mesh ? { wallRules: VIOLET_WALL_RULES, dirtGrid: dirtGrid(mesh) } : {}),
       meshColliders: VIOLET_GLB_NODES.map((n) => ({ file: 'violet-loop.glb', ...n })),
     },
     meshes: [
@@ -408,6 +437,13 @@ function exportViolet(commit: string) {
         collision: true,
         nanite: true,
         encoding: ['KHR_draco_mesh_compression', 'EXT_texture_webp'],
+        // The decoded copy UE imports: mount and rebase baked into the vertices, so it sits at the origin.
+        decoded: 'Tools/track-export/out/violet/violet_loop.glb',
+        transformBaked: true,
+        bakedRebaseY: -c.groundY,
+        ueAssetDir: VIOLET_UE_DIR,
+        ueAssets: VIOLET_GLB_NODES.map((n) => `${VIOLET_UE_DIR}/${n.node}`),
+        withoutVoxelTrees: true,
       },
     ],
     scenery: {
@@ -423,19 +459,43 @@ function exportViolet(commit: string) {
     },
     textures: [],
     exportNotes: [
-      'Collision comes from the GLB meshes (any triangle with |normal.y| < 0.7 is a wall). collision.walls is a fallback traced from the baked profile.',
-      'Phase 1b: GLB conversion (decode Draco + WebP, bake the mount transform), prefab meshes (kerbs, grandstand, lamp, banner board, trees), banner and sign textures are not exported yet.',
+      mesh
+        ? 'collision.walls holds the GLB wall faces as the web sweep (role "sweep") and probe rays (role "probe") meet them (collision.wallRules); collision.dirtGrid marks where the first floor hit under the kart is Object_11 "ground dirt". collision.profileWalls is the older profile trace, for reference.'
+        : 'collision.walls is a fallback traced from the baked profile (the GLB pass did not run).',
       'Licence of violet-loop.glb is unverified (Docs/Port/00-PLAN.md, open risks).',
     ],
   };
 }
 
-export async function exportTracks(opts: { outDir: string; commit: string; movecadeRoot: string }) {
+function meshWalls(mesh: VioletMeshData) {
+  const tuples = (flat: number[]) => Array.from({ length: flat.length / 6 }, (_, i) => flat.slice(i * 6, i * 6 + 6));
+  return [
+    { side: 0, role: 'sweep', source: 'violet-loop.glb', pieces: mesh.walls.sweepPieces, segments: tuples(mesh.walls.sweep) },
+    { side: 0, role: 'probe', source: 'violet-loop.glb', pieces: mesh.walls.probePieces, segments: tuples(mesh.walls.probe) },
+  ];
+}
+
+function dirtGrid(mesh: VioletMeshData) {
+  const g = mesh.dirtGrid;
+  return {
+    rule: 'cell centre down-ray from y=1, far 3: the first hit with |normal.y| >= 0.7 is dirt if its mesh is Object_11 "ground dirt" (MultiplayerKart.tsx:1588-1610)',
+    cellM: g.cellM, minX: g.minX, minZ: g.minZ, cols: g.cols, rows: g.rows, dirtCells: g.dirtCells,
+    runsFormat: '[row, firstCol, lastCol]; cell (col,row) covers x minX+col*cellM.., z minZ+row*cellM..',
+    runs: Array.from({ length: g.runs.length / 3 }, (_, i) => g.runs.slice(i * 3, i * 3 + 3)),
+  };
+}
+
+/** Pretty JSON with every leaf array of numbers on one line (points, segments, runs). */
+function stringify(data: unknown) {
+  return JSON.stringify(data, null, 1).replace(/\[\s*(?:-?[\d.eE+-]+|null)(?:\s*,\s*(?:-?[\d.eE+-]+|null))*\s*\]/g, (m) => m.replace(/\s+/g, ''));
+}
+
+export async function exportTracks(opts: { outDir: string; commit: string; movecadeRoot: string; violetMesh?: VioletMeshHook }) {
   mkdirSync(opts.outDir, { recursive: true });
   const out: string[] = [];
-  for (const data of [exportHarbor(opts.commit), exportViolet(opts.commit)]) {
+  for (const data of [exportHarbor(opts.commit), await exportViolet(opts.commit, opts.violetMesh)]) {
     const file = path.join(opts.outDir, `${data.track.id}.track.json`);
-    writeFileSync(file, JSON.stringify(data, null, 1) + '\n');
+    writeFileSync(file, stringify(data) + '\n');
     out.push(file);
   }
   cat.configureKartTrack('violet-loop');

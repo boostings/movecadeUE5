@@ -40,6 +40,19 @@ namespace MovecadeKart
 		double CellSize = 8.0;
 	};
 
+	/** Where the first floor under the kart is a dirt mesh (Violet: Object_11 "ground dirt"), rasterised offline. */
+	struct MOVECADEKART_API FDirtGrid
+	{
+		double CellSize = 0.0;
+		FVector2D Min = FVector2D::ZeroVector;
+		int32 Cols = 0;
+		int32 Rows = 0;
+		TBitArray<> Cells;
+
+		bool IsValid() const { return Cols > 0 && Rows > 0 && CellSize > 0.0; }
+		bool IsDirt(const FVector2D& P) const;
+	};
+
 	struct FBoostPad
 	{
 		FVector2D Position = FVector2D::ZeroVector;
@@ -99,7 +112,16 @@ namespace MovecadeKart
 		double BoostPadding = 1.5;
 
 		TArray<FGroundBand> GroundBands;
+		FDirtGrid DirtGrid;
+		/** The swept disc constraint's walls. */
 		FWallSet Walls;
+		/** The horizontal probe rays' walls when they differ from the sweep's (Violet: the GLB faces at the
+		 *  probe height, y + 0.5). Empty means the probes use Walls (Harbor). */
+		FWallSet ProbeWalls;
+		const FWallSet& RayWalls() const { return ProbeWalls.Segments().Num() > 0 ? ProbeWalls : Walls; }
+		/** Mesh walls (meshBoundary.ts) push the disc away from the closest point; Harbor's analytic
+		 *  sweep (harborBoundary.ts) pushes along the segment normal. */
+		bool bRadialWallPush = false;
 		/** Harbor: the walls are offsets of the centreline, so the sweep also pulls back a start outside them. */
 		bool bAnalyticWalls = false;
 		double WallOffset = 16.3;

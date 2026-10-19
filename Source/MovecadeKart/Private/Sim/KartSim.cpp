@@ -143,6 +143,7 @@ namespace MovecadeKart
 	void FKartSim::Teleport(const FVector2D& Position, double Yaw)
 	{
 		Respawn(Position, Yaw);
+		S.LastRespawnReason = TEXT("teleport");
 	}
 
 	void FKartSim::Respawn(const FVector2D& Position, double Yaw)
@@ -187,6 +188,7 @@ namespace MovecadeKart
 			else if (S.Time - S.OffTrackSince >= OffTrackRespawnSeconds)
 			{
 				Respawn(RecoverPos, RecoverYaw);
+				S.LastRespawnReason = TEXT("off-track");
 				S.OffTrackSince = -1.0;
 			}
 		}
@@ -311,7 +313,7 @@ namespace MovecadeKart
 		{
 			double Distance = 0.0;
 			FVector2D Normal;
-			if (T->Walls.Raycast(S.Pos, Normalize(MoveDir), 1.0, Distance, Normal) && Distance < 0.6)
+			if (T->RayWalls().Raycast(S.Pos, Normalize(MoveDir), 1.0, Distance, Normal) && Distance < 0.6)
 			{
 				S.Speed *= 0.3;
 			}
@@ -392,7 +394,7 @@ namespace MovecadeKart
 			const FVector2D Dir(FMath::Sin(Angle), FMath::Cos(Angle));
 			double Distance = 0.0;
 			FVector2D Normal;
-			if (!T->Walls.Raycast(S.Pos, Dir, ContinuousProbeDistance, Distance, Normal))
+			if (!T->RayWalls().Raycast(S.Pos, Dir, ContinuousProbeDistance, Distance, Normal))
 			{
 				continue;
 			}
@@ -422,7 +424,7 @@ namespace MovecadeKart
 		FBarrier B;
 		auto Ray = [this](const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal)
 		{
-			return T->Walls.Raycast(S.Pos, Normalize(Dir), Far, OutDistance, OutNormal);
+			return T->RayWalls().Raycast(S.Pos, Normalize(Dir), Far, OutDistance, OutNormal);
 		};
 
 		double DForward = 999.0, DLeft = 999.0, DRight = 999.0, DForwardLeft = 999.0, DForwardRight = 999.0;
@@ -504,8 +506,17 @@ namespace MovecadeKart
 				const double U = FMath::Clamp(FVector2D::DotProduct(P - W.A, W.D) / W.LengthSq, 0.0, 1.0);
 				const FVector2D Proj = W.A + W.D * U;
 				const FVector2D V = P - Proj;
-				if (V.SizeSquared() >= Radius * Radius)
+				const double DistSq = V.SizeSquared();
+				if (DistSq >= Radius * Radius)
 				{
+					continue;
+				}
+				bCollided = true;
+				if (T->bRadialWallPush)
+				{
+					// meshBoundary.ts pushOutOfMesh: away from the closest point, or along the face normal dead on it.
+					const double Dist = FMath::Sqrt(DistSq);
+					P += Dist > 1e-6 ? V * ((Radius - Dist) / Dist) : Normalize(W.FaceNormal) * Radius;
 					continue;
 				}
 				FVector2D N = FVector2D(-W.D.Y, W.D.X) / FMath::Sqrt(W.LengthSq);
@@ -514,7 +525,6 @@ namespace MovecadeKart
 					N = -N;
 				}
 				P += N * (Radius - FVector2D::DotProduct(V, N));
-				bCollided = true;
 			}
 		}
 		InOutDesired = P;
@@ -523,6 +533,10 @@ namespace MovecadeKart
 
 	bool FKartSim::IsOnDirt(const FVector2D& Position) const
 	{
+		if (T->DirtGrid.IsValid())
+		{
+			return T->DirtGrid.IsDirt(Position);
+		}
 		if (T->GroundBands.Num() == 0)
 		{
 			return false;
@@ -599,6 +613,7 @@ namespace MovecadeKart
 			{
 				const FSpawnSlot& Spawn = T->Grid[Slot];
 				Respawn(Next ? Next->ApproachPosition : Spawn.Position, Next ? Next->ApproachYaw : Spawn.Yaw);
+				S.LastRespawnReason = TEXT("stuck");
 				S.AnchorPos = S.Pos;
 				S.AnchorSince = S.AnchorSeen = S.Time;
 			}
@@ -615,6 +630,7 @@ namespace MovecadeKart
 		{
 			S.WatchSince = S.WatchSeen = S.Time;
 			Respawn(Next->ApproachPosition, Next->ApproachYaw);
+			S.LastRespawnReason = TEXT("checkpoint-stall");
 			S.AnchorPos = S.Pos;
 			S.AnchorSince = S.AnchorSeen = S.Time;
 		}

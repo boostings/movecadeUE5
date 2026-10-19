@@ -27,3 +27,5 @@ Plugins/**/Intermediate/
 .cache/
 node_modules/
 *.log
+# Track exporter binaries (reproducible: cd Tools/track-export && npm run export)
+Tools/track-export/out/
