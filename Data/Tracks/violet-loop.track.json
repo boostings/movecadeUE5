@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-19T20:37:18.078Z",
+  "exportedAt": "2026-10-19T21:24:05.399Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",
@@ -15,6 +15,11 @@
    "app/src/games/kart/scene/violetTrees.ts",
    "app/src/games/kart/scene/kartLook.ts",
    "app/src/legacy/Experience/kart/engine/spawnGrid.ts",
+   "app/src/games/kart/scene/tracksideGeometry.ts",
+   "app/src/games/kart/tracks/VioletTrackside.tsx (banner faces), violetBanner.tsx",
+   "app/src/games/kart/tracks/HarborTrack.tsx (harborRibbon, buildHarborScenery), harborGeometry.ts, harborTextures.ts",
+   "mirrored: app/src/games/kart/tracks/HarborMotion.tsx (animated parts), HarborTrack.tsx start sign",
+   "app/public/models/violet-loop.glb (decoded)",
    "copied: app/src/legacy/Experience/kart/engine/store.ts (checkpoints, RACE_CONFIG)",
    "copied: app/src/games/kart/tracks/HarborTrack.tsx (ribbons)",
    "copied: legacy MultiplayerPowerups.tsx, BoostPads.jsx, trackRecovery.ts, MultiplayerKart.tsx (constants)"
@@ -70189,17 +70194,37 @@
    "bakedRebaseY": 1.605,
    "ueAssetDir": "/Game/Tracks/VioletLoop",
    "ueAssets": [
-    "/Game/Tracks/VioletLoop/Object_10",
-    "/Game/Tracks/VioletLoop/Object_11",
-    "/Game/Tracks/VioletLoop/Object_12",
-    "/Game/Tracks/VioletLoop/Object_13",
-    "/Game/Tracks/VioletLoop/Object_18",
-    "/Game/Tracks/VioletLoop/Object_24",
-    "/Game/Tracks/VioletLoop/Object_25",
-    "/Game/Tracks/VioletLoop/Object_27",
-    "/Game/Tracks/VioletLoop/Object_47"
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_10",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_11",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_12",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_13",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_18",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_24",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_25",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_27",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_47"
    ],
    "withoutVoxelTrees": true
+  },
+  {
+   "file": "violet_kerbs.glb",
+   "decoded": "Tools/track-export/out/violet/violet_kerbs.glb",
+   "worldSpace": true,
+   "collision": false,
+   "nanite": false,
+   "ueAssets": [
+    "/Game/Tracks/VioletLoop/violet_kerbs/StaticMeshes/violet_kerbs"
+   ],
+   "parts": [
+    {
+     "node": "violet_kerbs",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_kerbs/StaticMeshes/violet_kerbs",
+     "material": {
+      "shader": "vertexColor",
+      "roughness": 0.55
+     }
+    }
+   ]
   }
  ],
  "scenery": {
@@ -72839,10 +72864,122 @@
     "toSample": 453
    }
   ],
+  "prefabs": {
+   "grandstand": {
+    "node": "grandstand",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/grandstand",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.78
+    }
+   },
+   "lamp_post": {
+    "node": "lamp_post",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/lamp_post",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.45,
+     "metalness": 0.6
+    }
+   },
+   "lamp_head": {
+    "node": "lamp_head",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/lamp_head",
+    "material": {
+     "shader": "vertexColor",
+     "color": "#fff4d6",
+     "roughness": 0.3,
+     "emissive": 0.4
+    }
+   },
+   "banner_board": {
+    "node": "banner_board",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/banner_board",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.6,
+     "texture": "violet_banner_{variant}"
+    }
+   },
+   "tree_canopy": {
+    "node": "tree_canopy",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/tree_canopy",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.88
+    }
+   },
+   "tree_trunk": {
+    "node": "tree_trunk",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/tree_trunk",
+    "material": {
+     "shader": "vertexColor",
+     "color": "#6b4a30",
+     "roughness": 0.95
+    }
+   },
+   "sign_plane": {
+    "node": "sign_plane",
+    "ueAsset": "/Game/Tracks/Shared/violet_prefabs/StaticMeshes/sign_plane",
+    "material": {
+     "shader": "unlitTexture"
+    }
+   }
+  },
   "animated": [],
-  "signs": []
+  "signs": [
+   {
+    "name": "violet-start-banner",
+    "position": [0.86,13.94,-30.82],
+    "size": [26.4,4.4],
+    "yaw": 0,
+    "texture": "violet_start_banner",
+    "unlit": true
+   }
+  ]
  },
- "textures": [],
+ "textures": [
+  {
+   "name": "violet_banner_0",
+   "file": "violet_banner_0.png",
+   "ueAsset": "/Game/Tracks/VioletLoop/Textures/violet_banner_0",
+   "srgb": true,
+   "width": 512,
+   "height": 102
+  },
+  {
+   "name": "violet_banner_1",
+   "file": "violet_banner_1.png",
+   "ueAsset": "/Game/Tracks/VioletLoop/Textures/violet_banner_1",
+   "srgb": true,
+   "width": 512,
+   "height": 102
+  },
+  {
+   "name": "violet_banner_2",
+   "file": "violet_banner_2.png",
+   "ueAsset": "/Game/Tracks/VioletLoop/Textures/violet_banner_2",
+   "srgb": true,
+   "width": 512,
+   "height": 102
+  },
+  {
+   "name": "violet_banner_3",
+   "file": "violet_banner_3.png",
+   "ueAsset": "/Game/Tracks/VioletLoop/Textures/violet_banner_3",
+   "srgb": true,
+   "width": 512,
+   "height": 102
+  },
+  {
+   "name": "violet_start_banner",
+   "file": "violet_start_banner.png",
+   "ueAsset": "/Game/Tracks/VioletLoop/Textures/violet_start_banner",
+   "srgb": true,
+   "width": 1920,
+   "height": 320
+  }
+ ],
  "exportNotes": [
   "collision.walls holds the GLB wall faces as the web sweep (role \"sweep\") and probe rays (role \"probe\") meet them (collision.wallRules); collision.dirtGrid marks where the first floor hit under the kart is Object_11 \"ground dirt\". collision.profileWalls is the older profile trace, for reference.",
   "Licence of violet-loop.glb is unverified (Docs/Port/00-PLAN.md, open risks)."

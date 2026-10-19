@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-19T20:37:17.064Z",
+  "exportedAt": "2026-10-19T21:24:04.239Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",
@@ -15,6 +15,11 @@
    "app/src/games/kart/scene/violetTrees.ts",
    "app/src/games/kart/scene/kartLook.ts",
    "app/src/legacy/Experience/kart/engine/spawnGrid.ts",
+   "app/src/games/kart/scene/tracksideGeometry.ts",
+   "app/src/games/kart/tracks/VioletTrackside.tsx (banner faces), violetBanner.tsx",
+   "app/src/games/kart/tracks/HarborTrack.tsx (harborRibbon, buildHarborScenery), harborGeometry.ts, harborTextures.ts",
+   "mirrored: app/src/games/kart/tracks/HarborMotion.tsx (animated parts), HarborTrack.tsx start sign",
+   "app/public/models/violet-loop.glb (decoded)",
    "copied: app/src/legacy/Experience/kart/engine/store.ts (checkpoints, RACE_CONFIG)",
    "copied: app/src/games/kart/tracks/HarborTrack.tsx (ribbons)",
    "copied: legacy MultiplayerPowerups.tsx, BoostPads.jsx, trackRecovery.ts, MultiplayerKart.tsx (constants)"
@@ -33247,7 +33252,580 @@
    "collision": "none"
   }
  ],
- "meshes": [],
+ "meshes": [
+  {
+   "file": "harbor_ribbons.glb",
+   "decoded": "Tools/track-export/out/harbor/harbor_ribbons.glb",
+   "worldSpace": true,
+   "replacesRibbons": true,
+   "collision": false,
+   "nanite": false,
+   "ueAssets": [
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_road",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftEdge",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightEdge",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_shoulder",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftBeach",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightBeach",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftSurf",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightSurf",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftShallows",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightShallows",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCurb",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCurb",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftWall",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightWall",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCap",
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCap"
+   ],
+   "parts": [
+    {
+     "node": "ribbon_road",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_road",
+     "material": {
+      "shader": "textured",
+      "color": "#5c6a6b",
+      "texture": "harbor_asphalt",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "ribbon_leftEdge",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftEdge",
+     "material": {
+      "shader": "vertexColor",
+      "color": "#fff0cc",
+      "roughness": 0.9
+     }
+    },
+    {
+     "node": "ribbon_rightEdge",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightEdge",
+     "material": {
+      "shader": "vertexColor",
+      "color": "#fff0cc",
+      "roughness": 0.9
+     }
+    },
+    {
+     "node": "ribbon_shoulder",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_shoulder",
+     "material": {
+      "shader": "textured",
+      "color": "#d5b58a",
+      "texture": "harbor_cobble",
+      "roughness": 1
+     }
+    },
+    {
+     "node": "ribbon_leftBeach",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftBeach",
+     "material": {
+      "shader": "textured",
+      "color": "#e6cc9e",
+      "texture": "harbor_sand",
+      "roughness": 1
+     }
+    },
+    {
+     "node": "ribbon_rightBeach",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightBeach",
+     "material": {
+      "shader": "textured",
+      "color": "#e6cc9e",
+      "texture": "harbor_sand",
+      "roughness": 1
+     }
+    },
+    {
+     "node": "ribbon_leftSurf",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftSurf",
+     "material": {
+      "shader": "translucent",
+      "color": "#f4f7ec",
+      "opacity": 0.85
+     }
+    },
+    {
+     "node": "ribbon_rightSurf",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightSurf",
+     "material": {
+      "shader": "translucent",
+      "color": "#f4f7ec",
+      "opacity": 0.85
+     }
+    },
+    {
+     "node": "ribbon_leftShallows",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftShallows",
+     "material": {
+      "shader": "translucent",
+      "color": "#7fd0cc",
+      "opacity": 0.7
+     }
+    },
+    {
+     "node": "ribbon_rightShallows",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightShallows",
+     "material": {
+      "shader": "translucent",
+      "color": "#7fd0cc",
+      "opacity": 0.7
+     }
+    },
+    {
+     "node": "ribbon_leftCurb",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCurb",
+     "material": {
+      "shader": "vertexColor",
+      "roughness": 0.85
+     }
+    },
+    {
+     "node": "ribbon_rightCurb",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCurb",
+     "material": {
+      "shader": "vertexColor",
+      "roughness": 0.85
+     }
+    },
+    {
+     "node": "ribbon_leftWall",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftWall",
+     "material": {
+      "shader": "textured",
+      "color": "#8fb0ad",
+      "texture": "harbor_stone",
+      "roughness": 0.8
+     }
+    },
+    {
+     "node": "ribbon_rightWall",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightWall",
+     "material": {
+      "shader": "textured",
+      "color": "#8fb0ad",
+      "texture": "harbor_stone",
+      "roughness": 0.8
+     }
+    },
+    {
+     "node": "ribbon_leftCap",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCap",
+     "material": {
+      "shader": "vertexColor",
+      "color": "#fff0cc",
+      "roughness": 0.8
+     }
+    },
+    {
+     "node": "ribbon_rightCap",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCap",
+     "material": {
+      "shader": "vertexColor",
+      "color": "#fff0cc",
+      "roughness": 0.8
+     }
+    }
+   ]
+  },
+  {
+   "file": "harbor_scenery.glb",
+   "decoded": "Tools/track-export/out/harbor/harbor_scenery.glb",
+   "worldSpace": true,
+   "collision": false,
+   "nanite": true,
+   "ueAssets": [
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b48d69",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_cba77c",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_829278",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_a87a51",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ba9168",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_63926a",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_417b64",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e8dac0",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_fff0cc",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d86f50",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_325e68",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f5d486",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_c78d70",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_dfa483",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ffe1a0",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e88c68",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b9664d",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ce8663",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_efcf99",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_eadbb6",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e3ba68",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_6da9a0",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_98b5b5",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_8b968b",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_9aa89b",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b69a5c",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_a2874f",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e6cc9e",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_7fd0cc",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_2f3a3d",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f0a58a",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d9c39a",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f4f7ec",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_96aaa2",
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_71b9b7"
+   ],
+   "parts": [
+    {
+     "node": "hs_b48d69",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b48d69",
+     "material": {
+      "shader": "textured",
+      "color": "#b48d69",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_cba77c",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_cba77c",
+     "material": {
+      "shader": "textured",
+      "color": "#cba77c",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_829278",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_829278",
+     "material": {
+      "shader": "textured",
+      "color": "#829278",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_a87a51",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_a87a51",
+     "material": {
+      "shader": "textured",
+      "color": "#a87a51",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_ba9168",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ba9168",
+     "material": {
+      "shader": "textured",
+      "color": "#ba9168",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_63926a",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_63926a",
+     "material": {
+      "shader": "textured",
+      "color": "#63926a",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_417b64",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_417b64",
+     "material": {
+      "shader": "textured",
+      "color": "#417b64",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_e8dac0",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e8dac0",
+     "material": {
+      "shader": "textured",
+      "color": "#e8dac0",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_fff0cc",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_fff0cc",
+     "material": {
+      "shader": "textured",
+      "color": "#fff0cc",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_d86f50",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d86f50",
+     "material": {
+      "shader": "textured",
+      "color": "#d86f50",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_325e68",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_325e68",
+     "material": {
+      "shader": "textured",
+      "color": "#325e68",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_f5d486",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f5d486",
+     "material": {
+      "shader": "textured",
+      "color": "#f5d486",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_c78d70",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_c78d70",
+     "material": {
+      "shader": "textured",
+      "color": "#c78d70",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_dfa483",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_dfa483",
+     "material": {
+      "shader": "textured",
+      "color": "#dfa483",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_ffe1a0",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ffe1a0",
+     "material": {
+      "shader": "textured",
+      "color": "#ffe1a0",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_e88c68",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e88c68",
+     "material": {
+      "shader": "textured",
+      "color": "#e88c68",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_b9664d",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b9664d",
+     "material": {
+      "shader": "textured",
+      "color": "#b9664d",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_ce8663",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ce8663",
+     "material": {
+      "shader": "textured",
+      "color": "#ce8663",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_efcf99",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_efcf99",
+     "material": {
+      "shader": "textured",
+      "color": "#efcf99",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_eadbb6",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_eadbb6",
+     "material": {
+      "shader": "textured",
+      "color": "#eadbb6",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_e3ba68",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e3ba68",
+     "material": {
+      "shader": "textured",
+      "color": "#e3ba68",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_6da9a0",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_6da9a0",
+     "material": {
+      "shader": "textured",
+      "color": "#6da9a0",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_98b5b5",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_98b5b5",
+     "material": {
+      "shader": "textured",
+      "color": "#98b5b5",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_8b968b",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_8b968b",
+     "material": {
+      "shader": "textured",
+      "color": "#8b968b",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_9aa89b",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_9aa89b",
+     "material": {
+      "shader": "textured",
+      "color": "#9aa89b",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_b69a5c",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b69a5c",
+     "material": {
+      "shader": "textured",
+      "color": "#b69a5c",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_a2874f",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_a2874f",
+     "material": {
+      "shader": "textured",
+      "color": "#a2874f",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_e6cc9e",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e6cc9e",
+     "material": {
+      "shader": "textured",
+      "color": "#e6cc9e",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_7fd0cc",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_7fd0cc",
+     "material": {
+      "shader": "textured",
+      "color": "#7fd0cc",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_2f3a3d",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_2f3a3d",
+     "material": {
+      "shader": "textured",
+      "color": "#2f3a3d",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_f0a58a",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f0a58a",
+     "material": {
+      "shader": "textured",
+      "color": "#f0a58a",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_d9c39a",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d9c39a",
+     "material": {
+      "shader": "textured",
+      "color": "#d9c39a",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_f4f7ec",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f4f7ec",
+     "material": {
+      "shader": "textured",
+      "color": "#f4f7ec",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_96aaa2",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_96aaa2",
+     "material": {
+      "shader": "textured",
+      "color": "#96aaa2",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    },
+    {
+     "node": "hs_71b9b7",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_71b9b7",
+     "material": {
+      "shader": "textured",
+      "color": "#71b9b7",
+      "texture": "harbor_grain",
+      "roughness": 0.86
+     }
+    }
+   ]
+  }
+ ],
  "scenery": {
   "instances": [
    {
@@ -33260,12 +33838,397 @@
     "tint": "#5fb3b3"
    }
   ],
-  "animated": [],
-  "signs": []
+  "motionParts": {
+   "lighthouse_beams": {
+    "node": "lighthouse_beams",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/lighthouse_beams",
+    "material": {
+     "shader": "additive",
+     "color": "#ffe9a8",
+     "opacity": 0.16
+    }
+   },
+   "lighthouse_lamp": {
+    "node": "lighthouse_lamp",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/lighthouse_lamp",
+    "material": {
+     "shader": "translucent",
+     "color": "#fff6cc",
+     "opacity": 1
+    }
+   },
+   "ferris_frame": {
+    "node": "ferris_frame",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.65
+    }
+   },
+   "ferris_wheel": {
+    "node": "ferris_wheel",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_wheel",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.6
+    }
+   },
+   "ferris_gondola_0": {
+    "node": "ferris_gondola_0",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_gondola_0",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.7
+    }
+   },
+   "ferris_gondola_1": {
+    "node": "ferris_gondola_1",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_gondola_1",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.7
+    }
+   },
+   "ferris_gondola_2": {
+    "node": "ferris_gondola_2",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_gondola_2",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.7
+    }
+   },
+   "ferris_gondola_3": {
+    "node": "ferris_gondola_3",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_gondola_3",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.7
+    }
+   },
+   "ferris_gondola_4": {
+    "node": "ferris_gondola_4",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferris_gondola_4",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.7
+    }
+   },
+   "ferry": {
+    "node": "ferry",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferry",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.8
+    }
+   },
+   "ferry_smoke": {
+    "node": "ferry_smoke",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/ferry_smoke",
+    "material": {
+     "shader": "translucent",
+     "color": "#b8c4c4",
+     "opacity": 0.55
+    }
+   },
+   "cargo_ship": {
+    "node": "cargo_ship",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/cargo_ship",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.8
+    }
+   },
+   "jet_ski_0": {
+    "node": "jet_ski_0",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/jet_ski_0",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "jet_ski_1": {
+    "node": "jet_ski_1",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/jet_ski_1",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "jet_ski_2": {
+    "node": "jet_ski_2",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/jet_ski_2",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "jet_wake": {
+    "node": "jet_wake",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/jet_wake",
+    "material": {
+     "shader": "translucent",
+     "color": "#f4f7ec",
+     "opacity": 0.45
+    }
+   },
+   "gull_body": {
+    "node": "gull_body",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/gull_body",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "gull_wing_l": {
+    "node": "gull_wing_l",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/gull_wing_l",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "gull_wing_r": {
+    "node": "gull_wing_r",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/gull_wing_r",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "fountain_jet": {
+    "node": "fountain_jet",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/fountain_jet",
+    "material": {
+     "shader": "translucent",
+     "color": "#e6fbff",
+     "opacity": 0.75
+    }
+   },
+   "fountain_spray": {
+    "node": "fountain_spray",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/fountain_spray",
+    "material": {
+     "shader": "translucent",
+     "color": "#f4f7ec",
+     "opacity": 0.5
+    }
+   },
+   "buoy_0": {
+    "node": "buoy_0",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/buoy_0",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.6
+    }
+   },
+   "buoy_1": {
+    "node": "buoy_1",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/buoy_1",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.6
+    }
+   },
+   "buoy_lamp": {
+    "node": "buoy_lamp",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_motion/StaticMeshes/buoy_lamp",
+    "material": {
+     "shader": "translucent",
+     "color": "#ffe9a8",
+     "opacity": 1
+    }
+   }
+  },
+  "sea": {
+   "texture": "harbor_water",
+   "repeat": 160,
+   "roughness": 0.34,
+   "metalness": 0.15,
+   "scroll": [0.012,0.006]
+  },
+  "animated": [
+   {
+    "type": "lighthouseBeam",
+    "position": [-11,33,-190],
+    "params": {
+     "yawRadPerS": 0.7
+    },
+    "ref": "HarborMotion.tsx:12, :21-42"
+   },
+   {
+    "type": "ferrisWheel",
+    "position": [281.5327,-6.3052,-143.1506],
+    "yaw": -2.6621,
+    "params": {
+     "hubY": 11.6,
+     "radius": 9,
+     "seats": 10,
+     "rollRadPerS": 0.25
+    },
+    "ref": "HarborMotion.tsx:45-113"
+   },
+   {
+    "type": "ferry",
+    "position": [130,-3.5,-35],
+    "params": {
+     "radiusX": 330,
+     "radiusZ": 300,
+     "angularRadPerS": 0.02
+    },
+    "ref": "HarborMotion.tsx:116-141"
+   },
+   {
+    "type": "cargoShip",
+    "position": [130,-3.5,-35],
+    "params": {
+     "radiusX": 420,
+     "radiusZ": 400,
+     "angularRadPerS": -0.012,
+     "phase": 2.2
+    },
+    "ref": "HarborMotion.tsx:126-153"
+   },
+   {
+    "type": "jetSki",
+    "position": [110,-6.6,-45],
+    "params": {
+     "count": 3,
+     "radius": 24,
+     "angularRadPerS": 0.55
+    },
+    "ref": "HarborMotion.tsx:159-196"
+   },
+   {
+    "type": "gullFlock",
+    "position": [-23.0151,0,45.1493],
+    "params": {
+     "count": 9
+    },
+    "ref": "HarborMotion.tsx:199-237"
+   },
+   {
+    "type": "fountain",
+    "position": [-61.3033,0,155.4864],
+    "params": {
+     "pulseRadPerS": 1.6,
+     "sprayRadPerS": 0.8
+    },
+    "ref": "HarborMotion.tsx:240-268"
+   },
+   {
+    "type": "buoy",
+    "position": [14.7004,-6.6,-177.0129],
+    "variant": 0,
+    "params": {
+     "phase": 0
+    },
+    "ref": "HarborMotion.tsx:271-304"
+   },
+   {
+    "type": "buoy",
+    "position": [8.2624,-6.6,-199.4193],
+    "variant": 1,
+    "params": {
+     "phase": 1.7
+    },
+    "ref": "HarborMotion.tsx:271-304"
+   },
+   {
+    "type": "buoy",
+    "position": [1.0541,-6.6,-184.7821],
+    "variant": 0,
+    "params": {
+     "phase": 3.4
+    },
+    "ref": "HarborMotion.tsx:271-304"
+   },
+   {
+    "type": "buoy",
+    "position": [20.8557,-6.6,-183.3085],
+    "variant": 1,
+    "params": {
+     "phase": 5.1
+    },
+    "ref": "HarborMotion.tsx:271-304"
+   }
+  ],
+  "signs": [
+   {
+    "name": "harbor-start-banner",
+    "position": [3,13,-29.48],
+    "size": [32,4],
+    "yaw": 0,
+    "texture": "harbor_start_sign",
+    "unlit": true
+   }
+  ]
  },
- "textures": [],
+ "textures": [
+  {
+   "name": "harbor_asphalt",
+   "file": "harbor_asphalt.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_asphalt",
+   "srgb": true,
+   "width": 512,
+   "height": 512,
+   "tileM": 8
+  },
+  {
+   "name": "harbor_sand",
+   "file": "harbor_sand.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_sand",
+   "srgb": true,
+   "width": 512,
+   "height": 512,
+   "tileM": 8
+  },
+  {
+   "name": "harbor_water",
+   "file": "harbor_water.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_water",
+   "srgb": true,
+   "width": 512,
+   "height": 512,
+   "tileM": 8
+  },
+  {
+   "name": "harbor_stone",
+   "file": "harbor_stone.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_stone",
+   "srgb": true,
+   "width": 512,
+   "height": 512,
+   "tileM": 8
+  },
+  {
+   "name": "harbor_grain",
+   "file": "harbor_grain.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_grain",
+   "srgb": true,
+   "width": 256,
+   "height": 256,
+   "tileM": 8
+  },
+  {
+   "name": "harbor_cobble",
+   "file": "harbor_cobble.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_cobble",
+   "srgb": true,
+   "width": 512,
+   "height": 512,
+   "tileM": 8
+  },
+  {
+   "name": "harbor_start_sign",
+   "file": "harbor_start_sign.png",
+   "ueAsset": "/Game/Tracks/SunsetHarbor/Textures/harbor_start_sign",
+   "srgb": true,
+   "width": 1536,
+   "height": 192
+  }
+ ],
  "exportNotes": [
-  "Phase 1b: static props from HarborTrack.tsx#buildHarborScenery (~35 colour batches), the coral tunnel vault and ribs, start banner and signs, the 8 animated actors (HarborMotion.tsx) and the canvas textures are not exported yet.",
+  "Scenery binaries (ribbons with their UVs and tones, ~35 prop colour batches incl. the coral tunnel, the HarborMotion parts, canvas textures) are in Tools/track-export/out/harbor; meshes[].parts and scenery.motionParts give each UE asset and its material.",
   "Positions authored in spline t (sectors, items, pads) are not arc length; use the exported xyz or the spline input key t*29."
  ]
 }

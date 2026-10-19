@@ -28,6 +28,7 @@ import {
 import { TREE_BARK, VIOLET_TREES, foliageColorFor, placeTrees } from '@app/games/kart/scene/violetTrees';
 import { kartTrackLook } from '@app/games/kart/scene/kartLook';
 import { SPAWN_POSITIONS } from '@legacy/Experience/kart/engine/spawnGrid';
+import { exportHarborScenery, exportVioletScenery } from './scenery';
 
 type TrackId = cat.KartTrackId;
 type XZ = [number, number];
@@ -119,6 +120,11 @@ const SOURCE_FILES = [
   'app/src/games/kart/scene/violetTrees.ts',
   'app/src/games/kart/scene/kartLook.ts',
   'app/src/legacy/Experience/kart/engine/spawnGrid.ts',
+  'app/src/games/kart/scene/tracksideGeometry.ts',
+  'app/src/games/kart/tracks/VioletTrackside.tsx (banner faces), violetBanner.tsx',
+  'app/src/games/kart/tracks/HarborTrack.tsx (harborRibbon, buildHarborScenery), harborGeometry.ts, harborTextures.ts',
+  'mirrored: app/src/games/kart/tracks/HarborMotion.tsx (animated parts), HarborTrack.tsx start sign',
+  'app/public/models/violet-loop.glb (decoded)',
   'copied: app/src/legacy/Experience/kart/engine/store.ts (checkpoints, RACE_CONFIG)',
   'copied: app/src/games/kart/tracks/HarborTrack.tsx (ribbons)',
   'copied: legacy MultiplayerPowerups.tsx, BoostPads.jsx, trackRecovery.ts, MultiplayerKart.tsx (constants)',
@@ -247,8 +253,9 @@ function common(id: TrackId, c: ReturnType<typeof catalogBlock>, startWidth: num
 
 // ---- Sunset Harbor ----------------------------------------------------------------------------------
 
-function exportHarbor(commit: string) {
+async function exportHarbor(commit: string, assetsDir?: string) {
   cat.configureKartTrack('sunset-harbor');
+  const art = assetsDir ? await exportHarborScenery(assetsDir, HARBOR_RIBBONS) : undefined;
   const c = catalogBlock('sunset-harbor');
 
   const raw: (PathSample & { t: number; yaw: number })[] = [];
@@ -302,17 +309,20 @@ function exportHarbor(commit: string) {
       walls: [wall(1), wall(-1)],
     },
     ribbons: HARBOR_RIBBONS,
-    meshes: [],
+    meshes: art?.meshes ?? [],
     scenery: {
       instances: [
         { prefab: 'sea_plane', x: 100, y: -7, z: -40, yaw: 0, scale: [5000, 1, 5000], tint: '#5fb3b3' },
       ],
-      animated: [],
-      signs: [],
+      ...(art ? { motionParts: art.motionParts, sea: art.sea } : {}),
+      animated: art?.animated ?? [],
+      signs: art?.signs ?? [],
     },
-    textures: [],
+    textures: art?.textures ?? [],
     exportNotes: [
-      'Phase 1b: static props from HarborTrack.tsx#buildHarborScenery (~35 colour batches), the coral tunnel vault and ribs, start banner and signs, the 8 animated actors (HarborMotion.tsx) and the canvas textures are not exported yet.',
+      art
+        ? 'Scenery binaries (ribbons with their UVs and tones, ~35 prop colour batches incl. the coral tunnel, the HarborMotion parts, canvas textures) are in Tools/track-export/out/harbor; meshes[].parts and scenery.motionParts give each UE asset and its material.'
+        : 'Scenery binaries were not exported (run npm run export).',
       'Positions authored in spline t (sectors, items, pads) are not arc length; use the exported xyz or the spline input key t*29.',
     ],
   };
@@ -344,7 +354,7 @@ const VIOLET_WALL_RULES = {
   format: 'segments: flat [ax, az, bx, bz, nx, nz, ...] in three.js world metres, no rebase',
 };
 
-async function exportViolet(commit: string, violetMesh?: VioletMeshHook) {
+async function exportViolet(commit: string, violetMesh?: VioletMeshHook, assetsDir?: string) {
   cat.configureKartTrack('violet-loop');
   const c = catalogBlock('violet-loop');
 
@@ -387,6 +397,7 @@ async function exportViolet(commit: string, violetMesh?: VioletMeshHook) {
   const mesh = violetMesh ? await violetMesh(samples, -c.groundY) : undefined;
 
   const plan = planTrackside(samples);
+  const art = assetsDir ? await exportVioletScenery(assetsDir, samples, plan.kerbs) : undefined;
   const place = (prefab: string, p: { x: number; y: number; z: number; yaw: number; side: 1 | -1 }, extra: Record<string, unknown> = {}) => ({
     prefab, x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw, 6), side: p.side, ...extra,
   });
@@ -442,9 +453,11 @@ async function exportViolet(commit: string, violetMesh?: VioletMeshHook) {
         transformBaked: true,
         bakedRebaseY: -c.groundY,
         ueAssetDir: VIOLET_UE_DIR,
-        ueAssets: VIOLET_GLB_NODES.map((n) => `${VIOLET_UE_DIR}/${n.node}`),
+        // Interchange puts a GLB's meshes in <dir>/<file>/StaticMeshes; they keep the GLB's own materials.
+        ueAssets: VIOLET_GLB_NODES.map((n) => `${VIOLET_UE_DIR}/violet_loop/StaticMeshes/${n.node}`),
         withoutVoxelTrees: true,
       },
+      ...(art?.meshes ?? []),
     ],
     scenery: {
       instances: [
@@ -454,10 +467,11 @@ async function exportViolet(commit: string, violetMesh?: VioletMeshHook) {
         ...trees,
       ],
       kerbRuns: plan.kerbs.map((k) => ({ side: k.side, fromSample: k.from, toSample: k.to })),
+      ...(art ? { prefabs: art.prefabs } : {}),
       animated: [],
-      signs: [],
+      signs: art?.signs ?? [],
     },
-    textures: [],
+    textures: art?.textures ?? [],
     exportNotes: [
       mesh
         ? 'collision.walls holds the GLB wall faces as the web sweep (role "sweep") and probe rays (role "probe") meet them (collision.wallRules); collision.dirtGrid marks where the first floor hit under the kart is Object_11 "ground dirt". collision.profileWalls is the older profile trace, for reference.'
@@ -490,10 +504,10 @@ function stringify(data: unknown) {
   return JSON.stringify(data, null, 1).replace(/\[\s*(?:-?[\d.eE+-]+|null)(?:\s*,\s*(?:-?[\d.eE+-]+|null))*\s*\]/g, (m) => m.replace(/\s+/g, ''));
 }
 
-export async function exportTracks(opts: { outDir: string; commit: string; movecadeRoot: string; violetMesh?: VioletMeshHook }) {
+export async function exportTracks(opts: { outDir: string; commit: string; movecadeRoot: string; violetMesh?: VioletMeshHook; assetsDir?: string }) {
   mkdirSync(opts.outDir, { recursive: true });
   const out: string[] = [];
-  for (const data of [exportHarbor(opts.commit), await exportViolet(opts.commit, opts.violetMesh)]) {
+  for (const data of [await exportHarbor(opts.commit, opts.assetsDir), await exportViolet(opts.commit, opts.violetMesh, opts.assetsDir)]) {
     const file = path.join(opts.outDir, `${data.track.id}.track.json`);
     writeFileSync(file, stringify(data) + '\n');
     out.push(file);
