@@ -17,6 +17,8 @@
  * - B3: the shared boostPower fallback after a failed drift release is not ported.
  * - B4: slipstream thresholds and boosts are scaled by SlipstreamScale (0.4) to the 40 SU speed range.
  * - B5: fixed 60 Hz step instead of frame-rate-dependent handling.
+ * - B11: wall hits scale with the angle of impact, and a wedged kart can turn away (bLegacyStickyWalls
+ *   restores the web's behaviour).
  */
 namespace MovecadeKart
 {
@@ -162,6 +164,9 @@ namespace MovecadeKart
 	public:
 		static constexpr double StepSeconds = 1.0 / 60.0;
 		static constexpr double SlipstreamScale = 0.4;
+
+		/** B11: true keeps the web's sticky walls (a wall within 2.5 m ahead stops forward motion). */
+		bool bLegacyStickyWalls = false;
 
 		void Init(const FTrack* InTrack, int32 GridSlot);
 		void Step(const FKartInput& Input);

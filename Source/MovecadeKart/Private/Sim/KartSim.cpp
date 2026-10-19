@@ -323,7 +323,10 @@ namespace MovecadeKart
 
 		// Yaw: a direct per-step turn (:1188-1199).
 		S.InputTurn = (SteeringX + Keys + S.DriftDirection) * TurnPerStep;
-		S.Yaw += S.InputTurn * FMath::Min(S.Speed, TurnSpeedReference) / TurnSpeedReference;
+		// B11: a kart pressed against a wall on the gas can still turn away (the web left it wedged).
+		const bool bWedged = !bLegacyStickyWalls && S.bCollidingBarrier && bForward && !bBackward;
+		const double TurnSpeed = bWedged ? FMath::Max(S.Speed, 10.0) : S.Speed;
+		S.Yaw += S.InputTurn * FMath::Min(TurnSpeed, TurnSpeedReference) / TurnSpeedReference;
 
 		// Hop and drift (:1202-1244).
 		if (bJump && !S.bJumpHeld && S.HopTime < 0.0)
@@ -418,18 +421,34 @@ namespace MovecadeKart
 		else if (Barrier.bBlocked && AbsSpeed > 0.0)
 		{
 			const double Closeness = Barrier.Distance != 0.0 ? 1.0 - FMath::Min(Barrier.Distance / BarrierCollisionDistance, 1.0) : 0.5;
-			if (Barrier.bHasNormal && AbsSpeed > 30.0)
-			{
-				S.Pos += Barrier.Normal * ((AbsSpeed / MaxSpeed) * BounceStrength);
-			}
-			S.Speed *= bNearWall
+			const double LegacyMult = bNearWall
 				? FMath::Max(0.1, MinCollisionSpeedMult - Closeness * 0.5)
 				: FMath::Max(MinCollisionSpeedMult, 1.0 - Closeness * 0.6);
-			if (Barrier.bHasNormal)
+			if (bLegacyStickyWalls)
 			{
-				const FVector2D Slide = Normalize(MoveDir - Barrier.Normal * FVector2D::DotProduct(MoveDir, Barrier.Normal));
-				const double SlideSpeed = AbsSpeed * (bNearWall ? 0.15 : 0.4) * Dt;
-				S.Pos += Slide * SlideSpeed * (bReversing ? -1.0 : 1.0);
+				if (Barrier.bHasNormal && AbsSpeed > 30.0)
+				{
+					S.Pos += Barrier.Normal * ((AbsSpeed / MaxSpeed) * BounceStrength);
+				}
+				S.Speed *= LegacyMult;
+				if (Barrier.bHasNormal)
+				{
+					const FVector2D Slide = Normalize(MoveDir - Barrier.Normal * FVector2D::DotProduct(MoveDir, Barrier.Normal));
+					const double SlideSpeed = AbsSpeed * (bNearWall ? 0.15 : 0.4) * Dt;
+					S.Pos += Slide * SlideSpeed * (bReversing ? -1.0 : 1.0);
+				}
+			}
+			else
+			{
+				// B11: scale the web's wall response by how square-on the kart meets the wall. Head-on still
+				// bites as hard; a glancing hit keeps its speed and slides along the wall.
+				const double HeadOn = Barrier.bHasNormal ? FMath::Abs(FVector2D::DotProduct(Normalize(MoveDir), Barrier.Normal)) : 1.0;
+				S.Speed *= 1.0 - (1.0 - LegacyMult) * HeadOn;
+				if (Barrier.bHasNormal)
+				{
+					const FVector2D Slide = Normalize(MoveDir - Barrier.Normal * FVector2D::DotProduct(MoveDir, Barrier.Normal));
+					S.Pos += Slide * (AbsSpeed * (1.0 - 0.7 * HeadOn) * Dt) * (bReversing ? -1.0 : 1.0);
+				}
 			}
 		}
 		else if (!bNearWall || S.NearestWall > CollisionSoftDistance)

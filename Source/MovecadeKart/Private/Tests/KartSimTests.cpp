@@ -36,7 +36,10 @@ bool FKartTrackLoadTest::RunTest(const FString&)
 	TestEqual(TEXT("9 checkpoints"), Track.Checkpoints.Num(), 9);
 	TestEqual(TEXT("4 grid slots"), Track.Grid.Num(), 4);
 	TestEqual(TEXT("3 boost pads"), Track.BoostPads.Num(), 3);
-	TestEqual(TEXT("1740 wall segments"), Track.Walls.Segments().Num(), 1740);
+	// 2 x 870 offset segments, minus the folded ones inside the tight bends (B14).
+	const int32 WallSegments = Track.Walls.Segments().Num();
+	TestTrue(FString::Printf(TEXT("wall segments (%d of 1740 kept)"), WallSegments), WallSegments > 1600 && WallSegments < 1740);
+	AddInfo(FString::Printf(TEXT("Harbor walls: %d of 1740 segments kept"), WallSegments));
 	TestTrue(TEXT("analytic walls"), Track.bAnalyticWalls);
 	TestEqual(TEXT("wall offset"), Track.WallOffset, 16.3);
 	return true;
@@ -203,40 +206,59 @@ bool FKartLapTest::RunTest(const FString&)
 	return true;
 }
 
-// The lobby bot (kartPilot.ts) laps Harbor on its own, drifting through the tight bends, with no respawns.
+namespace
+{
+	/** Drives the lobby bot round Harbor for 3 laps; returns false if the track failed to load. */
+	bool RunBotLaps(FAutomationTestBase& Test, bool bLegacyWalls, double& OutSeconds, int32& OutOffTrack, uint32& OutTeleports, uint32& OutDriftBoosts)
+	{
+		FTrack Track;
+		if (!LoadHarbor(Test, Track)) return false;
+		FKartSim Sim;
+		Sim.bLegacyStickyWalls = bLegacyWalls;
+		Sim.Init(&Track, 0);
+		FKartBotDriver Bot;
+		int32 Steps = 0;
+		uint32 Teleports = 0;
+		OutOffTrack = 0;
+		while (!Sim.State().bFinished && Steps < 60 * 180)
+		{
+			const FVector2D Before = Sim.State().Pos;
+			Sim.Step(Bot.Update(Sim.State(), Track.Waypoints, true, Steps / 60.0));
+			++Steps;
+			if (Sim.State().TeleportCount != Teleports)
+			{
+				Teleports = Sim.State().TeleportCount;
+				OutOffTrack += Sim.State().LastRespawnReason == TEXT("offtrack") ? 1 : 0;
+				Test.AddInfo(FString::Printf(TEXT("%s walls: respawn '%s' at %.2f s from (%.1f, %.1f)"), bLegacyWalls ? TEXT("legacy") : TEXT("port"),
+					*Sim.State().LastRespawnReason, Steps / 60.0, Before.X, Before.Y));
+			}
+		}
+		OutSeconds = Sim.State().bFinished ? Steps / 60.0 : -1.0;
+		OutTeleports = Sim.State().TeleportCount;
+		OutDriftBoosts = Sim.State().DriftBoostCount;
+		return true;
+	}
+}
+
+// The lobby bot (kartPilot.ts) laps Harbor on its own, drifting through the tight bends. With the B11 wall
+// fix it never wedges; with the web's sticky walls it needs the stuck watchdog about once a lap.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartBotLapTest, "MovecadeKart.Race.BotLaps", KartTestFlags)
 bool FKartBotLapTest::RunTest(const FString&)
 {
-	FTrack Track;
-	if (!LoadHarbor(*this, Track)) return false;
-	FKartSim Sim;
-	Sim.Init(&Track, 0);
-	FKartBotDriver Bot;
-	int32 Steps = 0;
-	uint32 Teleports = 0;
+	double Seconds = 0.0;
 	int32 OffTrack = 0;
-	while (!Sim.State().bFinished && Steps < 60 * 180)
-	{
-		const FVector2D Before = Sim.State().Pos;
-		Sim.Step(Bot.Update(Sim.State(), Track.Waypoints, true, Steps / 60.0));
-		++Steps;
-		if (Sim.State().TeleportCount != Teleports)
-		{
-			Teleports = Sim.State().TeleportCount;
-			OffTrack += Sim.State().LastRespawnReason == TEXT("offtrack") ? 1 : 0;
-			AddInfo(FString::Printf(TEXT("respawn '%s' at %.2f s from (%.1f, %.1f), next checkpoint %d, lap %d"),
-				*Sim.State().LastRespawnReason, Steps / 60.0, Before.X, Before.Y, Sim.State().NextCheckpoint, Sim.State().LapsCompleted));
-		}
-	}
-	const double Seconds = Steps / 60.0;
-	TestTrue(FString::Printf(TEXT("finished 3 laps (%.1f s)"), Seconds), Sim.State().bFinished);
-	TestTrue(TEXT("faster than 3 x 45 s"), Seconds < 135.0);
-	// The legacy "blocked" branch can wedge a boosted kart nose-first into a wall (spec 01 bug 9); the
-	// stuck watchdog recovers it, as on the web. Leaving the track is still a failure.
-	TestEqual(TEXT("no off-track respawns"), OffTrack, 0);
-	TestTrue(TEXT("at most one stuck recovery per lap"), Sim.State().TeleportCount <= 3u);
-	TestTrue(TEXT("drifted for boosts"), Sim.State().DriftBoostCount > 0);
-	AddInfo(FString::Printf(TEXT("bot: %.2f s for 3 laps, %u drift boosts"), Seconds, Sim.State().DriftBoostCount));
+	uint32 Teleports = 0, Boosts = 0;
+	if (!RunBotLaps(*this, false, Seconds, OffTrack, Teleports, Boosts)) return false;
+	TestTrue(FString::Printf(TEXT("finished 3 laps (%.1f s)"), Seconds), Seconds > 0.0 && Seconds < 135.0);
+	TestEqual(TEXT("no respawns with the wall fix"), Teleports, 0u);
+	TestTrue(TEXT("drifted for boosts"), Boosts > 0);
+	AddInfo(FString::Printf(TEXT("bot (port walls): %.2f s for 3 laps, %u drift boosts"), Seconds, Boosts));
+
+	if (!RunBotLaps(*this, true, Seconds, OffTrack, Teleports, Boosts)) return false;
+	TestTrue(TEXT("legacy walls: finished"), Seconds > 0.0);
+	TestEqual(TEXT("legacy walls: no off-track respawns"), OffTrack, 0);
+	TestTrue(TEXT("legacy walls: at most one stuck recovery per lap"), Teleports <= 3u);
+	AddInfo(FString::Printf(TEXT("bot (legacy walls): %.2f s, %u stuck recoveries"), Seconds, Teleports));
 	return true;
 }
 

@@ -103,6 +103,7 @@ void AKartGameMode::StartPlay()
 	RaceManager = GetWorld()->SpawnActor<AKartRaceManager>();
 	RaceManager->bAutoDriveLocal = FParse::Param(Cmd, TEXT("KartAutoDrive"));
 	RaceManager->bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
+	RaceManager->bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
 	RaceManager->Setup(Track, Seats, Viewers);
 }
 

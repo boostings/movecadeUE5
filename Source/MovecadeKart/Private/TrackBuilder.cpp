@@ -202,11 +202,28 @@ void ATrackBuilder::Build()
 			const bool bWall = FMath::IsNearlyEqual(Inner, Outer);
 			const int32 StripePeriod = static_cast<int32>(JsonNum(R, TEXT("stripePeriodSamples"), 0));
 
+			// B14: skip quads where the offset curve folds back inside a bend tighter than the offset.
+			TArray<bool> Folded;
+			Folded.Init(false, Rows);
+			for (int32 i = 0; i < Rows; ++i)
+			{
+				for (const double Offset : { Inner, Outer })
+				{
+					FVector2D Nearest;
+					double Lateral = 0.0;
+					const FVector2D P = T.Centre[i] + Right(i) * Offset;
+					if (FMath::Abs(Offset) > 1.0 && T.NearestCentre(P, Nearest, Lateral) < FMath::Abs(Offset) - 0.25)
+					{
+						Folded[i] = true;
+					}
+				}
+			}
+
 			auto Emit = [&](int32 Stripe, TArray<FVector>& V, TArray<int32>& Tri, TArray<FVector>& N)
 			{
 				for (int32 i = 0; i < Rows; ++i)
 				{
-					if (StripePeriod > 0 && (i / StripePeriod) % 2 != Stripe)
+					if ((StripePeriod > 0 && (i / StripePeriod) % 2 != Stripe) || Folded[i] || Folded[(i + 1) % Rows])
 					{
 						continue;
 					}

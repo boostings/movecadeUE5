@@ -46,8 +46,9 @@ worked. Anything marked _verify_ gets checked in a live web race before we decid
 | B8 | The HUD converts speed as if km/h, but the sim's value is mph. | 04 | Fix |
 | B9 | The host never sends the `scores-ack` frame. | 04 | Fix (send it) |
 | B10 | The host sends the phone no item, position or lap feedback. | 04 | Upgrade-pass candidate (show the item and position on the phone) |
-| B11 | Sticky walls (spec 01 bug 9): any wall within 2.5 m ahead stops forward motion. A kart boosted nose-first into a wall slows to ~2 SU, can't turn away, and waits 2.5 s for the stuck watchdog. The lobby bot does this in Harbor's final hairpin every lap (port test MovecadeKart.Race.BotLaps). | 01, port | Keep for parity now; first handling fix in the upgrade pass |
+| B11 | Sticky walls (spec 01 bug 9): any wall within 2.5 m ahead stops forward motion. A kart boosted nose-first into a wall slows to ~2 SU, can't turn away, and waits 2.5 s for the stuck watchdog. The lobby bot does this in Harbor's final hairpin every lap (port test MovecadeKart.Race.BotLaps). | 01, port | Fixed: wall response scales with the angle of impact, and a wedged kart on the gas can still turn (`-KartLegacyWalls` restores the web) |
 | B12 | Speed units (B8): the port treats SU as m/s and shows km/h (×3.6, top speed 144 km/h). | port | Decided |
+| B14 | Harbor's walls are ±16.3 m offsets of the centreline. Where a bend is tighter than that, the inner offset folds back over the road; in the final hairpin it leaves a wall across the racing line that wedged the lobby bot every lap (this was the real cause of B11's stuck bot). | port | Fixed: folded wall segments (63 of 1740) and ribbon quads are dropped; the analytic sweep still contains karts |
 | B13 | Standings: the web sorts by laps, then the raw next-checkpoint index, which puts a kart that only has the finish left last within its lap. The port ranks by laps × 100 + lap progress %. | port | Fixed |
 
 ## Key technical decisions

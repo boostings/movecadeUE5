@@ -301,6 +301,21 @@ namespace MovecadeKart
 				return Num(A, TEXT("side")) < Num(B, TEXT("side"));
 			});
 			TArray<FWallSegment> Segments;
+			// B14: where a bend is tighter than the wall offset, the inner offset curve folds back on itself
+			// and leaves wall segments across the road (Harbor's final hairpin). A real wall point is a full
+			// offset away from the centreline; drop segments that come closer. The analytic sweep still pulls
+			// back any kart more than offset + radius out, so the trimmed apex can't leak.
+			auto Folded = [&Out](const FVector2D& A, const FVector2D& B)
+			{
+				if (!Out.bAnalyticWalls)
+				{
+					return false;
+				}
+				FVector2D Nearest;
+				double Offset = 0.0;
+				const double Limit = Out.WallOffset - 0.25;
+				return Out.NearestCentre(A, Nearest, Offset) < Limit || Out.NearestCentre(B, Nearest, Offset) < Limit;
+			};
 			for (const TSharedPtr<FJsonObject>& W : Walls)
 			{
 				const double Side = Num(W, TEXT("side"), 1);
@@ -319,7 +334,7 @@ namespace MovecadeKart
 					S.A = Line[i];
 					S.D = Line[(i + 1) % Line.Num()] - S.A;
 					S.LengthSq = S.D.SizeSquared();
-					if (S.LengthSq <= 0.0)
+					if (S.LengthSq <= 0.0 || Folded(S.A, S.A + S.D))
 					{
 						continue;
 					}

@@ -174,6 +174,8 @@ public:
 	bool bSkipIntro = false;
 	/** B2: kart-to-kart contact (dead on the web). */
 	bool bKartContact = true;
+	/** B11: -KartLegacyWalls keeps the web's sticky walls. */
+	bool bLegacyWalls = false;
 
 	virtual void Tick(float DeltaSeconds) override;
 

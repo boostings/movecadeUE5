@@ -126,6 +126,7 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 			FTransform(FRotator(0.0, Coords::YawToUE(Slot.Yaw), 0.0), Coords::ToUE(Slot.Position)), Params);
 		Kart->SetPaint(Seats[Seat].Paint);
 		Kart->GetKartMovement()->SetExternallyStepped(true);
+		Kart->GetKartMovement()->MutableSim().bLegacyStickyWalls = bLegacyWalls;
 		Kart->GetKartMovement()->InitSim(Track, Seat);
 
 		FKartRacer& Racer = Racers.AddDefaulted_GetRef();
