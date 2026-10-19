@@ -27,3 +27,5 @@ Plugins/**/Intermediate/
 .cache/
 node_modules/
 *.log
+# Agent worktrees and local Claude state
+.claude/
