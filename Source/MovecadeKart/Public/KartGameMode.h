@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Sim/KartTrack.h"
 #include "KartGameMode.generated.h"
 
 class AKartRaceManager;
@@ -40,6 +41,29 @@ public:
 
 private:
 	void SetupTestHooks();
+	void SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track);
+	TArray<APlayerController*> MakeViewers(int32 Karts, int32 LocalPlayers, bool bSoloView);
+
+	// Room mode (-KartRoom): phones join through the lobby; the room starts the race (spec 04 §5).
+	void SetupRoom();
+	void BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track);
+	void SendLiveScores();
+
+	UFUNCTION()
+	void HandleRoomStart(const FString& MapId);
+
+	UFUNCTION()
+	void HandleRoomLobby();
+
+	UFUNCTION()
+	void HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId);
+
+	bool bRoomMode = false;
+	bool bRaceBuilt = false;
+	/** Race seat -> room seat index (0..3), or -1 for a bot. */
+	TArray<int32> RoomSeatOf;
+	TArray<FString> RoomPlayerOf;
+	FTimerHandle LiveScoreTimer;
 
 	UPROPERTY()
 	TObjectPtr<ATrackBuilder> TrackBuilder;

@@ -97,6 +97,14 @@ int32 SKartRaceOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 	const double T = Race->GetPhaseSeconds();
 	const int32 Laps = Race->GetTrack()->Laps;
 
+	if (Race->IsPaused())
+	{
+		P.Box(FVector2D(Cx - 300.0, Size.Y * 0.4), FVector2D(600.0, 110.0), Ink);
+		P.Text(TEXT("PAUSED"), FVector2D(Cx, Size.Y * 0.4 + 14.0), 32, Accent, 0.5);
+		P.Text(TEXT("Waiting for a phone to reconnect..."), FVector2D(Cx, Size.Y * 0.4 + 64.0), 16, Soft, 0.5);
+		return LayerId + 3;
+	}
+
 	if (Phase == EKartRacePhase::Waiting || Phase == EKartRacePhase::Intro)
 	{
 		// GameIntro (gameIntros.ts): title, objective, steps.

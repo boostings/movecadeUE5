@@ -316,7 +316,14 @@ void AKartRaceManager::HandleHostKeys()
 	}
 	else if (Phase == EKartRacePhase::Finished)
 	{
-		RestartRace();
+		if (OnRestartRequested)
+		{
+			OnRestartRequested();
+		}
+		else
+		{
+			RestartRace();
+		}
 	}
 }
 
@@ -325,6 +332,11 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	if (!Track.IsValid() || Racers.Num() == 0)
 	{
+		return;
+	}
+	if (bPaused)
+	{
+		// Everything freezes while the room waits for a phone (pauseLifecycle.ts).
 		return;
 	}
 	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0);

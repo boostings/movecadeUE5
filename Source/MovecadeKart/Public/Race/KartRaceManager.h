@@ -160,6 +160,13 @@ public:
 	/** Item events since the last call (for presentation); clears the queue. */
 	TArray<MovecadeKart::FKartItemEvent> ConsumeItemEvents() { return MoveTemp(PendingItemEvents); }
 
+	/** Room pause (a phone disconnected): the race clock, sims and countdown freeze. */
+	void SetPaused(bool bInPaused, const FString& Reason = FString()) { bPaused = bInPaused; PauseReason = Reason; }
+	bool IsPaused() const { return bPaused; }
+
+	/** If set, "race again" on the results screen calls this (room mode sends the room back to the lobby). */
+	TFunction<void()> OnRestartRequested;
+
 	/** Input for Phone seats; returns false if the seat has no input yet. */
 	TFunction<bool(int32 /*Seat*/, MovecadeKart::FKartInput& /*Out*/)> ExternalInput;
 
@@ -218,6 +225,8 @@ private:
 	double LeaderFinishMs = 0.0;
 	int32 IntroShot = -1;
 	int32 LastCountdownCue = 0;
+	bool bPaused = false;
+	FString PauseReason;
 	FVector ResultsCameraPos = FVector::ZeroVector;
 	TSharedPtr<SKartRaceOverlay> Overlay;
 
