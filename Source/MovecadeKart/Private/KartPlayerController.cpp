@@ -9,6 +9,7 @@
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "Misc/CommandLine.h"
+#include "Net/RoomHostSubsystem.h"
 #include "Sim/KartTrack.h"
 
 UInputAction* AKartPlayerController::MakeAction(const TCHAR* Name, bool bAxis)
@@ -22,6 +23,7 @@ void AKartPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 	bAutoDrive = FParse::Param(FCommandLine::Get(), TEXT("KartAutoDrive"));
+	FParse::Value(FCommandLine::Get(), TEXT("KartPhoneSeat="), PhoneSeat);
 
 	Context =NewObject<UInputMappingContext>(this, TEXT("IMC_Kart"));
 	SteerAxis = MakeAction(TEXT("IA_SteerAxis"), true);
@@ -98,6 +100,25 @@ void AKartPlayerController::PlayerTick(float DeltaTime)
 		Input = MovecadeKart::FKartInput();
 		Input.SteeringX = FMath::Clamp(Error * 2.5, -1.0, 1.0);
 		Input.bForward = true;
+	}
+	if (PhoneSeat != INDEX_NONE)
+	{
+		// Test hook until the race layer owns seats: this kart follows phone seat PhoneSeat.
+		URoomHostSubsystem* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<URoomHostSubsystem>() : nullptr;
+		MovecadeKart::FKartInput Phone;
+		if (Room && Room->GetSeatInput(PhoneSeat, Phone))
+		{
+			Input = Phone;
+			const bool bItem = Room->ConsumeUseItem(PhoneSeat);
+			const double Now = FPlatformTime::Seconds();
+			if (bItem || Now - PhoneLogTime >= 0.5)
+			{
+				PhoneLogTime = Now;
+				UE_LOG(LogTemp, Display, TEXT("KartPhoneSeat%d: SteeringX=%+.3f gas=%d brake=%d drift=%d%s speed=%.2f yaw=%.3f"), PhoneSeat,
+					Input.SteeringX, Input.bForward ? 1 : 0, Input.bBackward ? 1 : 0, Input.bJump ? 1 : 0, bItem ? TEXT(" ITEM") : TEXT(""),
+					Kart->GetKartMovement()->SimState().Speed, Kart->GetKartMovement()->SimState().Yaw);
+			}
+		}
 	}
 	Kart->GetKartMovement()->SetKartInput(Input);
 

@@ -55,4 +55,7 @@ private:
 	bool bResetHeld = false;
 	/** -KartAutoDrive: steer with the web's Bullet Bill autopilot and hold gas (for automated checks). */
 	bool bAutoDrive = false;
+	/** -KartPhoneSeat=N (test hook): drive with room seat N's phone (URoomHostSubsystem::GetSeatInput) instead of the keyboard. */
+	int32 PhoneSeat = INDEX_NONE;
+	double PhoneLogTime = 0.0;
 };
