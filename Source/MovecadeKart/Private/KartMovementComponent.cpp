@@ -33,6 +33,7 @@ void UKartMovementComponent::StepOnce(const MovecadeKart::FKartInput& StepInput,
 {
 	PrevPos = Sim.State().Pos;
 	PrevYaw = Sim.State().Yaw;
+	Input = StepInput; // what the audio drivetrain reads as the pedals
 	Sim.Step(StepInput, Race);
 	if (Sim.State().TeleportCount != LastTeleportCount)
 	{

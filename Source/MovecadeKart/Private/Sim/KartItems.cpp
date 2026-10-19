@@ -4,16 +4,15 @@ namespace MovecadeKart
 {
 	namespace
 	{
-		constexpr double Dt = FKartSim::StepSeconds;
-		constexpr double KartMaxSpeed = 40.0;
+		constexpr double ItemDt = FKartSim::StepSeconds;
 		constexpr double BarrierHeight = 1.3;
 
-		FVector2D Forward(double Yaw)
+		FVector2D ItemForward(double Yaw)
 		{
 			return FVector2D(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
 		}
 
-		double Score(const FKartItemRacer& R)
+		double ItemScore(const FKartItemRacer& R)
 		{
 			return (R.bFinished ? 100000.0 : 0.0) + R.Laps * 100.0 + R.Progress;
 		}
@@ -142,7 +141,7 @@ namespace MovecadeKart
 		int32 Ahead = 0;
 		for (int32 i = 0; i < Racers.Num(); ++i)
 		{
-			Ahead += (i != Seat && Score(Racers[i]) > Score(Racers[Seat])) ? 1 : 0;
+			Ahead += (i != Seat && ItemScore(Racers[i]) > ItemScore(Racers[Seat])) ? 1 : 0;
 		}
 		return Ahead + 1;
 	}
@@ -296,7 +295,7 @@ namespace MovecadeKart
 
 		FKartSim& Sim = *Racers[Seat].Sim;
 		const FKartState& S = Sim.State();
-		const FVector2D Fwd = Forward(S.Yaw);
+		const FVector2D Fwd = ItemForward(S.Yaw);
 		auto Spawn = [&](double Offset, double Speed) -> FKartItemProjectile&
 		{
 			FKartItemProjectile& P = ProjectilesArr.AddDefaulted_GetRef();
@@ -420,7 +419,7 @@ namespace MovecadeKart
 
 	void FKartItemWorld::StepProjectile(FKartItemProjectile& P, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
 	{
-		P.Age += Dt;
+		P.Age += ItemDt;
 		const double Lifetime = P.Type == EKartItem::Banana ? BananaLifetime : ThrownLifetime;
 		if (P.Age > Lifetime)
 		{
@@ -443,12 +442,12 @@ namespace MovecadeKart
 			}
 		};
 
-		const double Travel = P.Vel.Size() * Dt;
+		const double Travel = P.Vel.Size() * ItemDt;
 		switch (P.Type)
 		{
 		case EKartItem::Shot:
 			if (Bounce(P, Travel, 0.75)) { Events.Add({ EKartItemEventType::Bounce, -1, P.Owner, P.Type, P.Pos }); }
-			else { P.Pos += P.Vel * Dt; }
+			else { P.Pos += P.Vel * ItemDt; }
 			P.bAlive = P.Bounces < 5;
 			break;
 		case EKartItem::Seeker:
@@ -459,7 +458,7 @@ namespace MovecadeKart
 				Home(Racers[Target].Sim->State().Pos, 0.08, 90.0);
 			}
 			if (Bounce(P, Travel, 0.8)) { Events.Add({ EKartItemEventType::Bounce, -1, P.Owner, P.Type, P.Pos }); }
-			else { P.Pos += P.Vel * Dt; }
+			else { P.Pos += P.Vel * ItemDt; }
 			P.bAlive = P.Bounces < 8;
 			break;
 		}
@@ -476,7 +475,7 @@ namespace MovecadeKart
 			}
 			// Walls are probed at y + 0.3, so at cruise height it flies over the 1.3 m barriers.
 			if (P.Y + 0.3 <= BarrierHeight && Bounce(P, Travel, 0.9)) { Events.Add({ EKartItemEventType::Bounce, -1, P.Owner, P.Type, P.Pos }); }
-			else { P.Pos += P.Vel * Dt; }
+			else { P.Pos += P.Vel * ItemDt; }
 			P.bAlive = P.Bounces < 10;
 			break;
 		}
@@ -484,10 +483,10 @@ namespace MovecadeKart
 		{
 			// calculateBombArc: gravity -20, grounded at y <= 0.5.
 			constexpr double Gravity = -20.0;
-			P.Y += P.VY * Dt + 0.5 * Gravity * Dt * Dt;
-			P.VY += Gravity * Dt;
+			P.Y += P.VY * ItemDt + 0.5 * Gravity * ItemDt * ItemDt;
+			P.VY += Gravity * ItemDt;
 			if (Bounce(P, Travel, 0.5)) { Events.Add({ EKartItemEventType::Bounce, -1, P.Owner, P.Type, P.Pos }); }
-			else { P.Pos += P.Vel * Dt; }
+			else { P.Pos += P.Vel * ItemDt; }
 			if (P.Y <= 0.5)
 			{
 				P.Y = 0.5;

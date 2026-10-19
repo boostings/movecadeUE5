@@ -171,17 +171,17 @@ namespace MovecadeKart
 		{
 			const FVector2D ToRival = Race.AheadPosition - S.Pos;
 			const double Distance = ToRival.Size();
-			const double Align = Distance > 0.0 ? FVector2D::DotProduct(ToRival / Distance, Forward(S.Yaw)) : 0.0;
+			const double AlignDot = Distance > 0.0 ? FVector2D::DotProduct(ToRival / Distance, Forward(S.Yaw)) : 0.0;
 			const double Speed = S.Speed;
-			const bool bBump = Distance < 6.0 && Align >= 0.96 && Speed >= 105.0 * K;
-			bActive = !(Distance < 4.5 || Distance > 28.0 || Align < 0.72 || Speed < 70.0 * K) && !(Distance < 6.0 && !bBump);
+			const bool bBump = Distance < 6.0 && AlignDot >= 0.96 && Speed >= 105.0 * K;
+			bActive = !(Distance < 4.5 || Distance > 28.0 || AlignDot < 0.72 || Speed < 70.0 * K) && !(Distance < 6.0 && !bBump);
 			if (bActive)
 			{
 				const double DScore = FMath::Clamp((28.0 - Distance) / 22.0, 0.0, 1.0);
-				const double AScore = FMath::Clamp((Align - 0.72) / 0.28, 0.0, 1.0);
+				const double AScore = FMath::Clamp((AlignDot - 0.72) / 0.28, 0.0, 1.0);
 				const double SScore = FMath::Clamp((Speed - 70.0 * K) / (70.0 * K), 0.0, 1.0);
-				const bool bPocket = !bBump && Distance <= 8.5 && Align >= 0.97 && Speed >= 130.0 * K;
-				const bool bStrong = Distance <= 14.0 && Align >= 0.9 && Speed >= 110.0 * K;
+				const bool bPocket = !bBump && Distance <= 8.5 && AlignDot >= 0.97 && Speed >= 130.0 * K;
+				const bool bStrong = Distance <= 14.0 && AlignDot >= 0.9 && Speed >= 110.0 * K;
 				const bool bComeback = !bBump && !bPocket && !bStrong && Race.LeaderGapRatio >= 0.65;
 				if (bPocket) { Boost = 11.5 + DScore * 3.5 + AScore * 1.3 + SScore * 0.8; Rate = 1.15; }
 				else if (bBump) { Boost = 9.1 + DScore * 2.2 + AScore * 1.1 + SScore * 0.45; Rate = 1.35; }

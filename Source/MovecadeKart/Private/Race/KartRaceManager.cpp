@@ -11,6 +11,8 @@
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
+#include "Audio/KartAudioComponent.h"
+#include "Audio/KartAudioSubsystem.h"
 #include "Race/KartItemPresenter.h"
 #include "Race/SKartRaceOverlay.h"
 
@@ -27,6 +29,37 @@ namespace
 	constexpr double MaxRaceMs = 300000.0;
 	constexpr double FinishGraceMs = 30000.0;
 	constexpr int32 MaxStepsPerFrame = 4;
+
+	/** The web's item ids, which the audio observer keys item-spend sounds on. */
+	FName WebItemId(EKartItem Item)
+	{
+		switch (Item)
+		{
+		case EKartItem::Shot: return TEXT("GREEN_SHELL");
+		case EKartItem::Seeker: return TEXT("RED_SHELL");
+		case EKartItem::SkySeeker: return TEXT("BLUE_SHELL");
+		case EKartItem::Banana: return TEXT("BANANA");
+		case EKartItem::Nitro: return TEXT("MUSHROOM");
+		case EKartItem::TripleNitro: return TEXT("TRIPLE_MUSHROOM");
+		case EKartItem::Prism: return TEXT("STAR");
+		case EKartItem::Lightning: return TEXT("LIGHTNING");
+		case EKartItem::Ink: return TEXT("BLOOPER");
+		case EKartItem::Bomb: return TEXT("BOB_OMB");
+		case EKartItem::Rocket: return TEXT("BULLET_BILL");
+		default: return NAME_None;
+		}
+	}
+
+	EKartAudioPhase AudioPhase(EKartRacePhase Phase)
+	{
+		switch (Phase)
+		{
+		case EKartRacePhase::Countdown: return EKartAudioPhase::Countdown;
+		case EKartRacePhase::Racing: return EKartAudioPhase::Racing;
+		case EKartRacePhase::Finished: return EKartAudioPhase::Results;
+		default: return EKartAudioPhase::Waiting;
+		}
+	}
 
 	double HorizontalFov(double VerticalDegrees, double Aspect)
 	{
@@ -108,6 +141,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		}
 		Kart->SetSplitScreenCamera(Count > 1 && Viewers.Num() > 1);
 		Kart->SnapCamera();
+		if (UKartAudioComponent* Audio = Kart->GetKartAudio())
+		{
+			Audio->SetSeat(Seat, Seat, Count);
+		}
 	}
 
 	// Intro shots: the track's static cameras (store.ts: 5 shots x 1.2 s).
@@ -149,6 +186,10 @@ void AKartRaceManager::RestartRace()
 	{
 		Racer.Kart->GetKartMovement()->ResetToGrid();
 		Racer.Kart->SnapCamera();
+		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		{
+			Audio->ResetAudio();
+		}
 		Racer.Bot.Reset();
 		Racer.GasHeldSince = -1.0;
 		Racer.Place = Racer.Seat + 1;
@@ -235,6 +276,13 @@ void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
 	{
 		UseRaceViews();
 	}
+	for (FKartRacer& Racer : Racers)
+	{
+		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		{
+			Audio->SetRacePhase(AudioPhase(NewPhase));
+		}
+	}
 	OnPhaseChanged.Broadcast(NewPhase);
 }
 
@@ -304,6 +352,10 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 		{
 			LastCountdownCue = GetCountdownValue();
 			OnCue.Broadcast(-1, TEXT("race.countdown"));
+			if (UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this))
+			{
+				Mixer->PlayCountdown(LastCountdownCue);
+			}
 		}
 		// Rocket start: when the gas went down (MultiplayerKart.tsx:850-898). Releasing clears it.
 		for (FKartRacer& Racer : Racers)
@@ -374,6 +426,10 @@ void AKartRaceManager::BeginRacing()
 	Accumulator = 0.0;
 	SetPhase(EKartRacePhase::Racing);
 	OnCue.Broadcast(-1, TEXT("race.go"));
+	if (UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this))
+	{
+		Mixer->PlayCountdown(0);
+	}
 }
 
 FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
@@ -482,6 +538,22 @@ void AKartRaceManager::StepRace()
 	TArray<FKartItemEvent> ItemEvents;
 	Items.Step(ItemRacers, ItemTime, ItemEvents);
 	DispatchItemEvents(ItemEvents);
+	for (FKartRacer& Racer : Racers)
+	{
+		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		{
+			const FKartItemSlot& Slot = Items.Slots()[Racer.Seat];
+			MovecadeKart::Audio::FKartAudioStatus Status;
+			Status.bRollingItem = Slot.bRolling;
+			Status.bHasItem = Slot.Held != EKartItem::None;
+			Status.HeldItem = WebItemId(Slot.Held);
+			Status.bInvincible = Items.IsInvincible(Racer.Seat, ItemTime);
+			Status.bBulletBill = Items.IsRocket(Racer.Seat, ItemTime);
+			Status.bShrunk = ItemTime < Slot.ShrinkUntil;
+			Status.bInk = ItemTime < Slot.InkUntil;
+			Audio->SetStatus(Status);
+		}
+	}
 
 	for (FKartRacer& Racer : Racers)
 	{
@@ -530,6 +602,10 @@ void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
 	if (S.BumpEvent > 0.0)
 	{
 		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), TEXT("kart"), false);
+		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		{
+			Audio->PlayImpact(static_cast<float>(S.BumpEvent));
+		}
 	}
 	// Off-road rumble: 0.075 every 200 ms while moving (MultiplayerKart.tsx:1552-1568).
 	if (S.bOnDirt && FMath::Abs(S.Speed) > 5.0 && S.Time - Racer.LastTerrainRumble >= 0.2)
@@ -613,6 +689,49 @@ void AKartRaceManager::DispatchItemEvents(const TArray<FKartItemEvent>& Events)
 		case EKartItemEventType::RocketStart: OnCue.Broadcast(E.Seat, TEXT("kart.boost")); break;
 		case EKartItemEventType::Bump: OnHaptic.Broadcast(E.Seat, 0.6f, TEXT("kart"), false); break;
 		default: break;
+		}
+	}
+	// Sounds the audio observer can't derive from state: projectiles, hits, explosions, the shell warning.
+	UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this);
+	auto KartCue = [this](int32 Seat, const TCHAR* Cue)
+	{
+		if (Racers.IsValidIndex(Seat))
+		{
+			if (UKartAudioComponent* Audio = Racers[Seat].Kart->GetKartAudio())
+			{
+				Audio->PlayCue(Cue);
+			}
+		}
+	};
+	for (const FKartItemEvent& E : Events)
+	{
+		switch (E.Type)
+		{
+		case EKartItemEventType::Launch:
+			KartCue(E.Seat, TEXT("kart.projectile-launch"));
+			if (Mixer && (E.Item == EKartItem::Seeker || E.Item == EKartItem::SkySeeker))
+			{
+				Mixer->PlayCue(TEXT("kart.warning"), 0.6f);
+			}
+			break;
+		case EKartItemEventType::Drop: KartCue(E.Seat, TEXT("kart.hazard-drop")); break;
+		case EKartItemEventType::Bounce: KartCue(E.Other, TEXT("kart.projectile-bounce")); break;
+		case EKartItemEventType::Hit: KartCue(E.Seat, TEXT("kart.projectile-hit")); break;
+		case EKartItemEventType::SpinOut: KartCue(E.Seat, TEXT("kart.spinout")); break;
+		case EKartItemEventType::Explosion:
+			if (Mixer)
+			{
+				Mixer->PlayCue(TEXT("kart.explosion"));
+			}
+			break;
+		case EKartItemEventType::Bump:
+			if (Racers.IsValidIndex(E.Seat) && Racers[E.Seat].Kart->GetKartAudio())
+			{
+				Racers[E.Seat].Kart->GetKartAudio()->PlayImpact(0.8f);
+			}
+			break;
+		default:
+			break;
 		}
 	}
 	PendingItemEvents.Append(Events);

@@ -1,5 +1,6 @@
 #include "KartPawn.h"
 
+#include "Audio/KartAudioComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -80,6 +81,8 @@ AKartPawn::AKartPawn()
 
 	Movement = CreateDefaultSubobject<UKartMovementComponent>(TEXT("Movement"));
 	Movement->UpdatedComponent = Root;
+
+	Audio = CreateDefaultSubobject<UKartAudioComponent>(TEXT("Audio"));
 }
 
 UPawnMovementComponent* AKartPawn::GetMovementComponent() const

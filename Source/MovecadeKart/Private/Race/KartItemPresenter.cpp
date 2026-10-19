@@ -15,7 +15,7 @@ using namespace MovecadeKart;
 
 namespace
 {
-	FLinearColor Hex(const TCHAR* Value)
+	FLinearColor PresenterHex(const TCHAR* Value)
 	{
 		return FLinearColor::FromSRGBColor(FColor::FromHex(Value));
 	}
@@ -27,7 +27,7 @@ namespace
 	constexpr double ShakeWall = 0.20;
 	constexpr double ShakeBump = 0.12;
 
-	double EaseOutCubic(double X)
+	double PresenterEaseOut(double X)
 	{
 		X = FMath::Clamp(X, 0.0, 1.0);
 		return 1.0 - FMath::Pow(1.0 - X, 3.0);
@@ -46,14 +46,14 @@ AKartItemPresenter::AKartItemPresenter()
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Material(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 	BaseMaterial = Material.Object;
 
-	Boxes = MakeMeshes(TEXT("ItemBoxes"), Cube.Object, Hex(TEXT("ffcc00")));
+	Boxes = MakeMeshes(TEXT("ItemBoxes"), Cube.Object, PresenterHex(TEXT("ffcc00")));
 	Projectiles.SetNum(static_cast<int32>(EKartItem::Count));
-	Projectiles[static_cast<int32>(EKartItem::Shot)] = MakeMeshes(TEXT("Shot"), Sphere.Object, Hex(TEXT("00ff00")));
-	Projectiles[static_cast<int32>(EKartItem::Seeker)] = MakeMeshes(TEXT("Seeker"), Sphere.Object, Hex(TEXT("ff0000")));
-	Projectiles[static_cast<int32>(EKartItem::SkySeeker)] = MakeMeshes(TEXT("SkySeeker"), Sphere.Object, Hex(TEXT("0066ff")));
-	Projectiles[static_cast<int32>(EKartItem::Banana)] = MakeMeshes(TEXT("Banana"), Cylinder.Object, Hex(TEXT("ffff00")));
-	Projectiles[static_cast<int32>(EKartItem::Bomb)] = MakeMeshes(TEXT("Bomb"), Sphere.Object, Hex(TEXT("111111")));
-	Blasts = MakeMeshes(TEXT("Blasts"), Sphere.Object, Hex(TEXT("ff7a1f")));
+	Projectiles[static_cast<int32>(EKartItem::Shot)] = MakeMeshes(TEXT("Shot"), Sphere.Object, PresenterHex(TEXT("00ff00")));
+	Projectiles[static_cast<int32>(EKartItem::Seeker)] = MakeMeshes(TEXT("Seeker"), Sphere.Object, PresenterHex(TEXT("ff0000")));
+	Projectiles[static_cast<int32>(EKartItem::SkySeeker)] = MakeMeshes(TEXT("SkySeeker"), Sphere.Object, PresenterHex(TEXT("0066ff")));
+	Projectiles[static_cast<int32>(EKartItem::Banana)] = MakeMeshes(TEXT("Banana"), Cylinder.Object, PresenterHex(TEXT("ffff00")));
+	Projectiles[static_cast<int32>(EKartItem::Bomb)] = MakeMeshes(TEXT("Bomb"), Sphere.Object, PresenterHex(TEXT("111111")));
+	Blasts = MakeMeshes(TEXT("Blasts"), Sphere.Object, PresenterHex(TEXT("ff7a1f")));
 }
 
 UInstancedStaticMeshComponent* AKartItemPresenter::MakeMeshes(const TCHAR* Name, UStaticMesh* Mesh, const FLinearColor& Color)
@@ -86,7 +86,7 @@ void AKartItemPresenter::Bind(AKartRaceManager* InManager)
 		if (BaseMaterial && Component->ComponentTags.Num() > 0)
 		{
 			UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(BaseMaterial, this);
-			Material->SetVectorParameterValue(TEXT("Color"), Hex(*Component->ComponentTags[0].ToString()));
+			Material->SetVectorParameterValue(TEXT("Color"), PresenterHex(*Component->ComponentTags[0].ToString()));
 			Component->SetMaterial(0, Material);
 		}
 	}
@@ -208,7 +208,7 @@ void AKartItemPresenter::Tick(float DeltaSeconds)
 	for (const FBlast& B : ActiveBlasts)
 	{
 		const double T = (Time - B.Start) / 0.4;
-		const double Size = B.Radius * (T < 0.3 ? EaseOutCubic(T / 0.3) : 1.0 - (T - 0.3) / 0.7);
+		const double Size = B.Radius * (T < 0.3 ? PresenterEaseOut(T / 0.3) : 1.0 - (T - 0.3) / 0.7);
 		Blasts->AddInstance(FTransform(FRotator::ZeroRotator, B.Center, FVector(FMath::Max(0.01, Size * 0.3), FMath::Max(0.01, Size * 0.3), FMath::Max(0.01, Size * 0.18))), true);
 	}
 
@@ -219,7 +219,7 @@ void AKartItemPresenter::Tick(float DeltaSeconds)
 		FKartItemVisual Visual;
 		if (Now < Slot.SpinUntil)
 		{
-			Visual.SpinDegrees = 720.0 * EaseOutCubic((Now - Slot.SpinStart) / 1.0);
+			Visual.SpinDegrees = 720.0 * PresenterEaseOut((Now - Slot.SpinStart) / 1.0);
 		}
 		if (Slot.ExplodeStart >= 0.0 && Now - Slot.ExplodeStart < 0.8)
 		{

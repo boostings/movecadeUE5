@@ -8,6 +8,7 @@ class UCameraComponent;
 class USphereComponent;
 class UStaticMeshComponent;
 class UKartMovementComponent;
+class UKartAudioComponent;
 class UMaterialInterface;
 
 /** Item-driven presentation for one kart (set by AKartItemPresenter each frame). */
@@ -38,6 +39,7 @@ public:
 	virtual UPawnMovementComponent* GetMovementComponent() const override;
 
 	UKartMovementComponent* GetKartMovement() const { return Movement; }
+	UKartAudioComponent* GetKartAudio() const { return Audio; }
 	/** Snap the chase camera behind the kart (after spawn or respawn). */
 	void SnapCamera();
 	void SetPaint(const FLinearColor& Color);
@@ -90,6 +92,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UKartMovementComponent> Movement;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<UKartAudioComponent> Audio;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BaseMaterial;
