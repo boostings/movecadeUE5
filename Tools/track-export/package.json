@@ -1,0 +1,15 @@
+{
+  "name": "movecade-track-export",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Exports Movecade kart track data from movecade-v2 to JSON for the UE5 port. Reads the movecade repo, never writes to it.",
+  "type": "module",
+  "scripts": {
+    "export": "node build.mjs",
+    "check": "node check.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.181.2"
+  }
+}
