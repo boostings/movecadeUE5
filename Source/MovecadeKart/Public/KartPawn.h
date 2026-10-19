@@ -8,6 +8,7 @@ class UCameraComponent;
 class USphereComponent;
 class UStaticMeshComponent;
 class UKartMovementComponent;
+class UKartAudioComponent;
 class UMaterialInterface;
 
 /**
@@ -65,6 +66,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UKartMovementComponent> Movement;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<UKartAudioComponent> Audio;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BaseMaterial;

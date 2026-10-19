@@ -20,6 +20,7 @@ public:
 
 	void InitSim(TSharedPtr<const MovecadeKart::FTrack> InTrack, int32 GridSlot);
 	void SetKartInput(const MovecadeKart::FKartInput& InInput) { Input = InInput; }
+	const MovecadeKart::FKartInput& GetKartInput() const { return Input; }
 	void ResetToGrid();
 	bool HasSim() const { return Track.IsValid(); }
 	const MovecadeKart::FTrack* GetTrack() const { return Track.Get(); }
