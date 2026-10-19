@@ -12,9 +12,11 @@
  * applied per step, unchanged.
  *
  * Deliberate differences from the web build, from the plan's bug table (Docs/Port/00-PLAN.md):
+ * - B1: boost multipliers below 1 scale top speed (the web ignored them, so slowdowns did nothing).
+ * - B2: kart-to-kart contact runs (the web never filled its list of other karts).
  * - B3: the shared boostPower fallback after a failed drift release is not ported.
+ * - B4: slipstream thresholds and boosts are scaled by SlipstreamScale (0.4) to the 40 SU speed range.
  * - B5: fixed 60 Hz step instead of frame-rate-dependent handling.
- * Kart-to-kart contact (B2) is not here yet: the race layer will add it, behind a switch.
  */
 namespace MovecadeKart
 {
@@ -43,6 +45,31 @@ namespace MovecadeKart
 	/** legacy performanceQuality.ts getRaceDriftExitBoostFeedback. DriftPower is seconds held. */
 	MOVECADEKART_API bool DriftExitBoost(double DriftPower, double DriftDurationMs, double SteeringInput, double DriftDirection, FDriftBoost& Out);
 
+	/** legacy performanceQuality.ts rocket start: how long the gas was held when the count hit GO. */
+	MOVECADEKART_API bool RocketStartBoost(double HeldMs, FDriftBoost& Out);
+
+	/** What the race knows that one kart's sim needs (MultiplayerKart.tsx:1112-1153, :1428-1434). */
+	struct FKartRaceContext
+	{
+		int32 PlayerCount = 1;
+		/** 1 = leader. */
+		int32 RacePosition = 1;
+		/** min(1, max(0, leaderScore - myScore) / 140), score = laps * 100 + progress %. */
+		double LeaderGapRatio = 0.0;
+		bool bRacing = true;
+		/** The nearest kart ahead in race order, for slipstream. */
+		bool bHasAhead = false;
+		FVector2D AheadPosition = FVector2D::ZeroVector;
+		struct FOther
+		{
+			int32 Seat = 0;
+			FVector2D Position = FVector2D::ZeroVector;
+		};
+		int32 SelfSeat = 0;
+		TArray<FOther> Others;
+		bool bKartContact = true;
+	};
+
 	struct FKartState
 	{
 		// Pose and motion
@@ -63,6 +90,21 @@ namespace MovecadeKart
 		double BoostMultiplier = 1.0;
 		double BoostTimeRemaining = 0.0;
 		FString ActiveBoost;
+
+		// Race assists
+		double RubberBandBoost = 0.0;
+		double SlipstreamBoost = 0.0;
+		double SlipstreamCharge = 0.0;
+
+		// Collision feedback (MultiplayerKart.tsx:1457-1569), for haptics, audio and FX
+		bool bCollidingBarrier = false;
+		double CollisionIntensity = 0.0;
+		/** > 0 on a step that fires a barrier event (first contact, or sustained every 150 ms). */
+		double BarrierEvent = 0.0;
+		bool bBarrierEventSustained = false;
+		double LastBarrierEventTime = -1000.0;
+		/** > 0 on a step where this kart bumped another. */
+		double BumpEvent = 0.0;
 
 		// Surfaces and walls
 		bool bOnDirt = false;
@@ -98,6 +140,8 @@ namespace MovecadeKart
 		double WatchSeen = -1000.0;
 		/** Increments on every teleport, so the presentation can snap instead of interpolate. */
 		uint32 TeleportCount = 0;
+		/** Why the last teleport happened: "offtrack", "stuck", "checkpoint-stall" or "teleport". */
+		FString LastRespawnReason;
 
 		// Presentation (Kart.jsx visual layers), driven from the sim so they stay deterministic
 		double InputTurn = 0.0;
@@ -115,10 +159,14 @@ namespace MovecadeKart
 	{
 	public:
 		static constexpr double StepSeconds = 1.0 / 60.0;
+		static constexpr double SlipstreamScale = 0.4;
 
 		void Init(const FTrack* InTrack, int32 GridSlot);
 		void Step(const FKartInput& Input);
+		void Step(const FKartInput& Input, const FKartRaceContext& Race);
 		void Teleport(const FVector2D& Position, double Yaw);
+		/** Sets a timed top-speed multiplier (boost pads, rocket start, items). Below 1 it slows the kart. */
+		void ApplyBoost(double Multiplier, double Seconds, const FString& Label);
 
 		const FKartState& State() const { return S; }
 		FKartState& MutableState() { return S; }
@@ -141,7 +189,8 @@ namespace MovecadeKart
 			double Assist = 0.0;
 		};
 
-		void Respawn(const FVector2D& Position, double Yaw);
+		void Respawn(const FVector2D& Position, double Yaw, const TCHAR* Reason);
+		double UpdateSlipstream(const FKartRaceContext& Race, double Dt);
 		void ProbeRadial();
 		FBarrier ProbeBarrier(const FVector2D& MoveDir);
 		void UpdateWatchdogs(bool bPowered);

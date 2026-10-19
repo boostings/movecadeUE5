@@ -29,6 +29,9 @@ public:
 	UKartMovementComponent* GetKartMovement() const { return Movement; }
 	/** Snap the chase camera behind the kart (after spawn or respawn). */
 	void SnapCamera();
+	void SetPaint(const FLinearColor& Color);
+	/** Split-screen rig: fixed 6/8 m offsets and a 75° vertical FOV (SplitScreenRenderer); otherwise the single-view speed rig. */
+	void SetSplitScreenCamera(bool bSplit) { bSplitScreenCamera = bSplit; }
 
 	UPROPERTY(EditAnywhere, Category = "Kart")
 	FLinearColor PaintColor = FLinearColor(0.871f, 0.084f, 0.270f); // #f0508e, the v2 "pink" paint
@@ -68,6 +71,11 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BaseMaterial;
+
+	UPROPERTY()
+	TObjectPtr<class UMaterialInstanceDynamic> PaintMaterial;
+
+	bool bSplitScreenCamera = false;
 
 	FVector CameraPos = FVector::ZeroVector;
 	FVector CameraLook = FVector::ZeroVector;

@@ -12,6 +12,8 @@ public class MovecadeKart : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"InputCore",
+			"Slate",
+			"SlateCore",
 			"EnhancedInput",
 			"ProceduralMeshComponent",
 			"Json",

@@ -5,48 +5,64 @@
 #include "Engine/Font.h"
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
+#include "Race/KartRaceManager.h"
+#include "Race/SKartRaceOverlay.h"
+
+namespace
+{
+	void Line(UCanvas* Canvas, UFont* Font, const FString& Text, float X, float Y, const FColor& Color, float Scale = 1.f)
+	{
+		Canvas->SetDrawColor(FColor(0, 0, 0, 160));
+		Canvas->DrawText(Font, Text, X + 1.f, Y + 1.f, Scale, Scale);
+		Canvas->SetDrawColor(Color);
+		Canvas->DrawText(Font, Text, X, Y, Scale, Scale);
+	}
+}
 
 void AKartHUD::DrawHUD()
 {
 	Super::DrawHUD();
 	const AKartPawn* Kart = PlayerOwner ? Cast<AKartPawn>(PlayerOwner->GetPawn()) : nullptr;
-	if (!Kart || !Kart->GetKartMovement()->HasSim() || !Canvas)
+	const AKartRaceManager* Race = AKartRaceManager::Get(this);
+	if (!Kart || !Canvas || !Race || PlayerOwner->GetViewTarget() != Kart)
+	{
+		return;
+	}
+	const FKartRacer* Racer = Race->FindRacer(Kart);
+	if (!Racer || (Race->GetPhase() != EKartRacePhase::Racing && Race->GetPhase() != EKartRacePhase::Countdown))
 	{
 		return;
 	}
 	const MovecadeKart::FKartState& S = Kart->GetKartMovement()->SimState();
-	const int32 Laps = Kart->GetKartMovement()->GetTrack()->Laps;
+	const int32 Laps = Race->GetTrack()->Laps;
+	UFont* Large = GEngine->GetLargeFont();
+	UFont* Medium = GEngine->GetMediumFont();
 
-	TArray<FString> Lines;
-	Lines.Add(FString::Printf(TEXT("Speed %5.1f SU"), S.Speed));
-	Lines.Add(FString::Printf(TEXT("Lap %d / %d   next checkpoint %d   progress %.1f%%"), FMath::Min(S.LapsCompleted + 1, Laps), Laps, S.NextCheckpoint, S.ProgressPercent));
-	if (S.bFinished)
-	{
-		Lines.Add(FString::Printf(TEXT("FINISHED in %.2f s"), S.FinishTime));
-	}
-	if (S.DriftDirection != 0.0)
-	{
-		Lines.Add(FString::Printf(TEXT("Drift %s  %.2f s"), S.DriftDirection > 0.0 ? TEXT("left") : TEXT("right"), S.DriftPower));
-	}
-	if (S.BoostTimeRemaining > 0.0)
-	{
-		Lines.Add(FString::Printf(TEXT("Boost %s x%.2f  %.2f s"), *S.ActiveBoost, S.BoostMultiplier, S.BoostTimeRemaining));
-	}
-	if (S.bOnDirt) { Lines.Add(TEXT("Off-road x0.75")); }
-	if (S.bWrongWay) { Lines.Add(TEXT("WRONG WAY")); }
-	if (S.OffTrackSince >= 0.0) { Lines.Add(TEXT("Off track: returning to the route...")); }
-	Lines.Add(TEXT(""));
-	Lines.Add(TEXT("W/S gas/brake  A/D steer  Space drift  R reset"));
-	Lines.Add(TEXT("Pad: A/RT gas  B/LT brake  stick steer  RB/LB drift  Back reset"));
+	// Bottom-left of this player's view: name in seat colour, place, lap; bottom-right: speed (spec 04 §8.3).
+	const float X = 18.f;
+	const float Bottom = Canvas->ClipY - 18.f;
+	Line(Canvas, Medium, Racer->Name, X, Bottom - 92.f, Racer->Paint.ToFColor(true));
+	Line(Canvas, Large, SKartRaceOverlay::Ordinal(Racer->Place), X, Bottom - 72.f, FColor::White, 1.6f);
+	Line(Canvas, Medium, FString::Printf(TEXT("Lap %d / %d"), FMath::Min(S.LapsCompleted + 1, Laps), Laps), X, Bottom - 22.f, FColor::White);
 
-	UFont* Font = GEngine->GetMediumFont();
-	float Y = 24.f;
-	for (const FString& Line : Lines)
+	// One unit for the port: SU is metres per second; show km/h (x3.6).
+	const FString Speed = FString::Printf(TEXT("%d"), FMath::RoundToInt32(FMath::Abs(S.Speed) * 3.6));
+	float W = 0.f, H = 0.f;
+	Canvas->TextSize(Large, Speed, W, H, 2.f, 2.f);
+	const bool bBoosting = S.BoostMultiplier > 1.0 || S.Turbo > 0.0;
+	Line(Canvas, Large, Speed, Canvas->ClipX - 18.f - W - 52.f, Bottom - H, bBoosting ? FColor(255, 196, 64) : FColor::White, 2.f);
+	Line(Canvas, Medium, TEXT("km/h"), Canvas->ClipX - 64.f, Bottom - 22.f, FColor(255, 255, 255, 200));
+
+	FString Status;
+	if (S.bWrongWay) Status = TEXT("WRONG WAY");
+	else if (S.OffTrackSince >= 0.0) Status = TEXT("Back to the track...");
+	else if (!S.ActiveBoost.IsEmpty() && S.BoostMultiplier < 1.0) Status = TEXT("Bogged start");
+	else if (S.DriftDirection != 0.0) Status = S.DriftPower >= 1.8 ? TEXT("ULTRA") : S.DriftPower >= 1.15 ? TEXT("SUPER") : S.DriftPower >= 0.65 ? TEXT("MINI") : TEXT("Drift");
+	else if (bBoosting) Status = S.ActiveBoost.Replace(TEXT("_"), TEXT(" "));
+	else if (S.bOnDirt) Status = TEXT("Off-road");
+	if (!Status.IsEmpty())
 	{
-		Canvas->SetDrawColor(FColor::Black);
-		Canvas->DrawText(Font, Line, 25.f, Y + 1.f);
-		Canvas->SetDrawColor(FColor::White);
-		Canvas->DrawText(Font, Line, 24.f, Y);
-		Y += 20.f;
+		Canvas->TextSize(Large, Status, W, H, 1.4f, 1.4f);
+		Line(Canvas, Large, Status, (Canvas->ClipX - W) * 0.5f, Canvas->ClipY * 0.72f, S.bWrongWay ? FColor(255, 80, 70) : FColor(255, 220, 120), 1.4f);
 	}
 }

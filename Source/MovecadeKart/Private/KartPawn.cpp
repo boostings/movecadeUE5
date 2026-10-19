@@ -4,6 +4,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/LocalPlayer.h"
 #include "GameFramework/PlayerController.h"
 #include "KartCoords.h"
 #include "KartMovementComponent.h"
@@ -84,9 +85,9 @@ void AKartPawn::BeginPlay()
 	Super::BeginPlay();
 	if (UMaterialInterface* Base = BaseMaterial)
 	{
-		UMaterialInstanceDynamic* Paint = UMaterialInstanceDynamic::Create(Base, this);
-		Paint->SetVectorParameterValue(TEXT("Color"), PaintColor);
-		Body->SetMaterial(0, Paint);
+		PaintMaterial = UMaterialInstanceDynamic::Create(Base, this);
+		PaintMaterial->SetVectorParameterValue(TEXT("Color"), PaintColor);
+		Body->SetMaterial(0, PaintMaterial);
 		UMaterialInstanceDynamic* Tyre = UMaterialInstanceDynamic::Create(Base, this);
 		Tyre->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.011f, 0.011f, 0.012f)); // #1b1b1d
 		for (UStaticMeshComponent* Wheel : Wheels)
@@ -134,6 +135,15 @@ void AKartPawn::UpdateVisual()
 	}
 }
 
+void AKartPawn::SetPaint(const FLinearColor& Color)
+{
+	PaintColor = Color;
+	if (PaintMaterial)
+	{
+		PaintMaterial->SetVectorParameterValue(TEXT("Color"), PaintColor);
+	}
+}
+
 void AKartPawn::SnapCamera()
 {
 	CameraPos = FVector::ZeroVector;
@@ -149,8 +159,8 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 	using namespace MovecadeKart;
 	const FKartState& S = Movement->SimState();
 	const double Speed = FMath::Abs(S.Speed);
-	const double Chase = 5.4 + FMath::Min(1.35, Speed * 0.018);
-	const double Ahead = 7.2 + FMath::Min(2.2, Speed * 0.045);
+	const double Chase = bSplitScreenCamera ? 6.0 : 5.4 + FMath::Min(1.35, Speed * 0.018);
+	const double Ahead = bSplitScreenCamera ? 8.0 : 7.2 + FMath::Min(2.2, Speed * 0.045);
 	const double Yaw = Movement->RenderYaw();
 	const FVector2D Fwd(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
 	const FVector2D Pos = Movement->RenderPosition();
@@ -171,16 +181,19 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 	}
 	Camera->SetWorldLocationAndRotation(CameraPos, (CameraLook - CameraPos).Rotation());
 
-	// Vertical FOV 72 + speed (one viewport), converted to UE's horizontal FOV for this viewport.
-	const double VerticalFov = 72.0 + FMath::Min(8.0, Speed * 0.05);
+	// Vertical FOV: 75 in split-screen, 72 + speed in a single view; converted to UE's horizontal FOV
+	// for this player's part of the screen.
+	const double VerticalFov = bSplitScreenCamera ? 75.0 : 72.0 + FMath::Min(8.0, Speed * 0.05);
 	double Aspect = 16.0 / 9.0;
 	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		int32 X = 0, Y = 0;
 		PC->GetViewportSize(X, Y);
-		if (X > 0 && Y > 0)
+		const ULocalPlayer* Local = PC->GetLocalPlayer();
+		const FVector2D Part = Local ? FVector2D(Local->Size) : FVector2D(1.0, 1.0);
+		if (X > 0 && Y > 0 && Part.X > 0.0 && Part.Y > 0.0)
 		{
-			Aspect = static_cast<double>(X) / Y;
+			Aspect = (X * Part.X) / (Y * Part.Y);
 		}
 	}
 	const double HalfV = FMath::DegreesToRadians(VerticalFov * 0.5);

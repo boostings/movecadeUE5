@@ -2,16 +2,17 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Sim/KartSim.h"
 #include "KartPlayerController.generated.h"
 
 class UInputAction;
 class UInputMappingContext;
 
 /**
- * Local keyboard and gamepad input for testing without a phone. Bindings follow the web host
+ * One local viewport, and for a Local seat its keyboard/gamepad input. Bindings follow the web host
  * (MultiplayerApp.tsx:43-50, MultiplayerKart.tsx:908-943): W/Up gas, S/Down brake, A/D/Left/Right
  * steer (added on top of the stick), Space drift, plus a gamepad layout. The actions are built in
- * code, so no input assets are needed. R resets the kart to the grid.
+ * code, so no input assets are needed. AKartRaceManager reads GetLocalInput each sim step.
  */
 UCLASS()
 class MOVECADEKART_API AKartPlayerController : public APlayerController
@@ -21,9 +22,10 @@ class MOVECADEKART_API AKartPlayerController : public APlayerController
 public:
 	virtual void PlayerTick(float DeltaTime) override;
 
+	const MovecadeKart::FKartInput& GetLocalInput() const { return LocalInput; }
+
 protected:
 	virtual void BeginPlay() override;
-	virtual void OnPossess(APawn* InPawn) override;
 
 private:
 	UInputAction* MakeAction(const TCHAR* Name, bool bAxis);
@@ -49,10 +51,5 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInputAction> Drift;
 
-	UPROPERTY()
-	TObjectPtr<UInputAction> Reset;
-
-	bool bResetHeld = false;
-	/** -KartAutoDrive: steer with the web's Bullet Bill autopilot and hold gas (for automated checks). */
-	bool bAutoDrive = false;
+	MovecadeKart::FKartInput LocalInput;
 };

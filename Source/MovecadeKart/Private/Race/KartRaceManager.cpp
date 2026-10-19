@@ -1,0 +1,583 @@
+#include "Race/KartRaceManager.h"
+
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/PlayerController.h"
+#include "KartCoords.h"
+#include "KartMovementComponent.h"
+#include "KartPawn.h"
+#include "KartPlayerController.h"
+#include "Race/SKartRaceOverlay.h"
+
+using namespace MovecadeKart;
+
+namespace
+{
+	// spec 04 §5.2, legacy store.ts RACE_CONFIG
+	constexpr double WaitingSeconds = 1.0;
+	constexpr double IntroSeconds = 6.0;
+	constexpr double CountdownSeconds = 5.0;
+	constexpr double IntroShotSeconds = 1.2;
+	constexpr int32 IntroShots = 5;
+	constexpr double MaxRaceMs = 300000.0;
+	constexpr double FinishGraceMs = 30000.0;
+	constexpr int32 MaxStepsPerFrame = 4;
+
+	double HorizontalFov(double VerticalDegrees, double Aspect)
+	{
+		return FMath::RadiansToDegrees(2.0 * FMath::Atan(FMath::Tan(FMath::DegreesToRadians(VerticalDegrees) * 0.5) * Aspect));
+	}
+}
+
+AKartRaceManager::AKartRaceManager()
+{
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickGroup = TG_PrePhysics;
+	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+}
+
+AKartRaceManager* AKartRaceManager::Get(const UObject* WorldContext)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull) : nullptr;
+	if (!World)
+	{
+		return nullptr;
+	}
+	for (TActorIterator<AKartRaceManager> It(World); It; ++It)
+	{
+		return *It;
+	}
+	return nullptr;
+}
+
+void AKartRaceManager::BeginPlay()
+{
+	Super::BeginPlay();
+	if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
+	{
+		Overlay = SNew(SKartRaceOverlay).Manager(this);
+		Viewport->AddViewportWidgetContent(Overlay.ToSharedRef(), 10);
+	}
+}
+
+void AKartRaceManager::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
+	{
+		if (Overlay.IsValid())
+		{
+			Viewport->RemoveViewportWidgetContent(Overlay.ToSharedRef());
+		}
+		Viewport->SetForceDisableSplitscreen(false);
+	}
+	Overlay.Reset();
+	Super::EndPlay(Reason);
+}
+
+void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKartSeatSpec>& Seats, const TArray<APlayerController*>& Viewers)
+{
+	Track = InTrack;
+	Racers.Reset();
+	const int32 Count = FMath::Min(Seats.Num(), Track->Grid.Num());
+	for (int32 Seat = 0; Seat < Count; ++Seat)
+	{
+		const FSpawnSlot& Slot = Track->Grid[Seat];
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AKartPawn* Kart = GetWorld()->SpawnActor<AKartPawn>(AKartPawn::StaticClass(),
+			FTransform(FRotator(0.0, Coords::YawToUE(Slot.Yaw), 0.0), Coords::ToUE(Slot.Position)), Params);
+		Kart->SetPaint(Seats[Seat].Paint);
+		Kart->GetKartMovement()->SetExternallyStepped(true);
+		Kart->GetKartMovement()->InitSim(Track, Seat);
+
+		FKartRacer& Racer = Racers.AddDefaulted_GetRef();
+		Racer.Seat = Seat;
+		Racer.Name = Seats[Seat].Name;
+		Racer.Kind = Seats[Seat].Kind;
+		Racer.Paint = Seats[Seat].Paint;
+		Racer.Kart = Kart;
+		Racer.Viewer = Viewers.IsValidIndex(Seat) ? Viewers[Seat] : nullptr;
+		if (Racer.Viewer)
+		{
+			Racer.Viewer->Possess(Kart);
+		}
+		Kart->SetSplitScreenCamera(Count > 1 && Viewers.Num() > 1);
+		Kart->SnapCamera();
+	}
+
+	// Intro shots: the track's static cameras (store.ts: 5 shots x 1.2 s).
+	for (ACameraActor* Camera : IntroCameras)
+	{
+		Camera->Destroy();
+	}
+	IntroCameras.Reset();
+	for (int32 i = 0; i < FMath::Min(IntroShots, Track->StaticCameras.Num()); ++i)
+	{
+		const FStaticCamera& Shot = Track->StaticCameras[i];
+		const FVector Eye = Coords::ToUE(Shot.Position + FVector(0.0, Track->SuggestedRebaseY, 0.0));
+		const FVector Look = Coords::ToUE(Shot.LookAt + FVector(0.0, Track->SuggestedRebaseY, 0.0));
+		ACameraActor* Camera = GetWorld()->SpawnActor<ACameraActor>(Eye, (Look - Eye).Rotation());
+		Camera->GetCameraComponent()->SetFieldOfView(HorizontalFov(60.0, 16.0 / 9.0));
+		Camera->GetCameraComponent()->bConstrainAspectRatio = false;
+		IntroCameras.Add(Camera);
+	}
+	if (!ResultsCamera)
+	{
+		ResultsCamera = GetWorld()->SpawnActor<ACameraActor>();
+		ResultsCamera->GetCameraComponent()->SetFieldOfView(HorizontalFov(64.0, 16.0 / 9.0));
+		ResultsCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+	}
+
+	RestartRace();
+}
+
+void AKartRaceManager::RestartRace()
+{
+	for (FKartRacer& Racer : Racers)
+	{
+		Racer.Kart->GetKartMovement()->ResetToGrid();
+		Racer.Kart->SnapCamera();
+		Racer.Bot.Reset();
+		Racer.GasHeldSince = -1.0;
+		Racer.Place = Racer.Seat + 1;
+		Racer.LapsSeen = 0;
+		Racer.LapStartMs = 0.0;
+		Racer.BestLapMs = 0.0;
+		Racer.LapMs.Reset();
+		Racer.bFinished = false;
+		Racer.FinishMs = 0.0;
+	}
+	Results.Reset();
+	LeaderFinishMs = 0.0;
+	RaceSteps = 0;
+	Accumulator = 0.0;
+	UpdateStandings();
+	SetPhase(EKartRacePhase::Waiting);
+}
+
+void AKartRaceManager::SkipIntro()
+{
+	if (Phase == EKartRacePhase::Intro || Phase == EKartRacePhase::Waiting)
+	{
+		SetPhase(EKartRacePhase::Countdown);
+	}
+}
+
+int32 AKartRaceManager::GetCountdownValue() const
+{
+	return Phase == EKartRacePhase::Countdown ? FMath::Clamp(5 - FMath::FloorToInt32(PhaseSeconds), 1, 5) : 0;
+}
+
+double AKartRaceManager::GetDeadlineMs() const
+{
+	return LeaderFinishMs > 0.0 ? FMath::Min(MaxRaceMs, LeaderFinishMs + FinishGraceMs) : MaxRaceMs;
+}
+
+int32 AKartRaceManager::GetLeadLap() const
+{
+	int32 Lap = 1;
+	for (const FKartRacer& Racer : Racers)
+	{
+		Lap = FMath::Max(Lap, FMath::Min(Racer.Kart->GetKartMovement()->SimState().LapsCompleted + 1, Track->Laps));
+	}
+	return Lap;
+}
+
+const FKartRacer* AKartRaceManager::FindRacer(const AKartPawn* Kart) const
+{
+	return Racers.FindByPredicate([Kart](const FKartRacer& Racer) { return Racer.Kart == Kart; });
+}
+
+double AKartRaceManager::ProgressScore(const FKartRacer& Racer) const
+{
+	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+	return S.LapsCompleted * 100.0 + FMath::Clamp(S.ProgressPercent, 0.0, 99.9);
+}
+
+void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
+{
+	Phase = NewPhase;
+	PhaseSeconds = 0.0;
+	IntroShot = -1;
+	LastCountdownCue = 0;
+
+	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
+	const bool bFullScreenShot = NewPhase == EKartRacePhase::Intro || NewPhase == EKartRacePhase::Finished;
+	if (Viewport)
+	{
+		Viewport->SetForceDisableSplitscreen(bFullScreenShot);
+	}
+	if (NewPhase == EKartRacePhase::Finished && ResultsCamera)
+	{
+		ResultsCameraPos = FVector::ZeroVector;
+		if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
+		{
+			PC->SetViewTargetWithBlend(ResultsCamera, 0.8f, VTBlend_Cubic);
+		}
+	}
+	else if (!bFullScreenShot)
+	{
+		UseRaceViews();
+	}
+	OnPhaseChanged.Broadcast(NewPhase);
+}
+
+void AKartRaceManager::UseRaceViews()
+{
+	for (FKartRacer& Racer : Racers)
+	{
+		if (Racer.Viewer && Racer.Viewer->GetViewTarget() != Racer.Kart)
+		{
+			Racer.Viewer->SetViewTargetWithBlend(Racer.Kart, Phase == EKartRacePhase::Countdown ? 0.8f : 0.f, VTBlend_Cubic);
+		}
+	}
+}
+
+void AKartRaceManager::HandleHostKeys()
+{
+	APlayerController* PC = GetWorld()->GetFirstPlayerController();
+	if (!PC)
+	{
+		return;
+	}
+	const bool bConfirm = PC->WasInputKeyJustPressed(EKeys::Enter) || PC->WasInputKeyJustPressed(EKeys::Gamepad_Special_Right);
+	if (!bConfirm)
+	{
+		return;
+	}
+	if (Phase == EKartRacePhase::Intro || Phase == EKartRacePhase::Waiting)
+	{
+		SkipIntro();
+	}
+	else if (Phase == EKartRacePhase::Finished)
+	{
+		RestartRace();
+	}
+}
+
+void AKartRaceManager::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	if (!Track.IsValid() || Racers.Num() == 0)
+	{
+		return;
+	}
+	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0);
+	PhaseSeconds += Dt;
+	HandleHostKeys();
+
+	switch (Phase)
+	{
+	case EKartRacePhase::Waiting:
+		if (PhaseSeconds >= WaitingSeconds)
+		{
+			SetPhase(bSkipIntro ? EKartRacePhase::Countdown : EKartRacePhase::Intro);
+		}
+		break;
+
+	case EKartRacePhase::Intro:
+		if (PhaseSeconds >= IntroSeconds)
+		{
+			SetPhase(EKartRacePhase::Countdown);
+		}
+		break;
+
+	case EKartRacePhase::Countdown:
+	{
+		if (GetCountdownValue() != LastCountdownCue)
+		{
+			LastCountdownCue = GetCountdownValue();
+			OnCue.Broadcast(-1, TEXT("race.countdown"));
+		}
+		// Rocket start: when the gas went down (MultiplayerKart.tsx:850-898). Releasing clears it.
+		for (FKartRacer& Racer : Racers)
+		{
+			if (Racer.Kind == EKartSeatKind::Bot)
+			{
+				continue;
+			}
+			const FKartInput Input = GatherInput(Racer, false);
+			if (!Input.bForward)
+			{
+				Racer.GasHeldSince = -1.0;
+			}
+			else if (Racer.GasHeldSince < 0.0)
+			{
+				Racer.GasHeldSince = PhaseSeconds;
+			}
+		}
+		if (PhaseSeconds >= CountdownSeconds)
+		{
+			BeginRacing();
+		}
+		break;
+	}
+
+	case EKartRacePhase::Racing:
+	case EKartRacePhase::Finished:
+	{
+		constexpr double Step = FKartSim::StepSeconds;
+		Accumulator += Dt;
+		int32 Steps = 0;
+		while (Accumulator >= Step && Steps < MaxStepsPerFrame)
+		{
+			StepRace();
+			Accumulator -= Step;
+			++Steps;
+		}
+		if (Steps == MaxStepsPerFrame)
+		{
+			Accumulator = FMath::Min(Accumulator, Step);
+		}
+		const float Alpha = static_cast<float>(FMath::Clamp(Accumulator / Step, 0.0, 1.0));
+		for (FKartRacer& Racer : Racers)
+		{
+			Racer.Kart->GetKartMovement()->Present(Alpha);
+		}
+		break;
+	}
+	}
+
+	UpdateCameras(DeltaSeconds);
+}
+
+void AKartRaceManager::BeginRacing()
+{
+	for (FKartRacer& Racer : Racers)
+	{
+		Racer.Bot.Reset();
+		FDriftBoost Start;
+		if (Racer.GasHeldSince >= 0.0 && RocketStartBoost((CountdownSeconds - Racer.GasHeldSince) * 1000.0, Start))
+		{
+			Racer.Kart->GetKartMovement()->MutableSim().ApplyBoost(Start.Multiplier, Start.Time, Start.Label);
+			OnCue.Broadcast(Racer.Seat, Start.Multiplier >= 1.0 ? FName(TEXT("kart.boost")) : FName(TEXT("kart.bogged")));
+		}
+		Racer.GasHeldSince = -1.0;
+	}
+	RaceSteps = 0;
+	Accumulator = 0.0;
+	SetPhase(EKartRacePhase::Racing);
+	OnCue.Broadcast(-1, TEXT("race.go"));
+}
+
+FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
+{
+	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+	const double Now = RaceSteps / 60.0;
+	if (Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal))
+	{
+		// Finished karts cruise on the bot's line so they keep clear of the racers.
+		return Racer.Bot.Update(S, Track->Waypoints, bRacing, Now);
+	}
+	if (Racer.Kind == EKartSeatKind::Local)
+	{
+		if (const AKartPlayerController* PC = Cast<AKartPlayerController>(Racer.Viewer))
+		{
+			return PC->GetLocalInput();
+		}
+		return FKartInput();
+	}
+	FKartInput Input;
+	if (ExternalInput && ExternalInput(Racer.Seat, Input))
+	{
+		return Input;
+	}
+	return FKartInput();
+}
+
+FKartRaceContext AKartRaceManager::MakeContext(const FKartRacer& Racer) const
+{
+	FKartRaceContext C;
+	C.PlayerCount = Racers.Num();
+	C.RacePosition = Racer.Place;
+	C.bRacing = Phase == EKartRacePhase::Racing;
+	C.SelfSeat = Racer.Seat;
+	C.bKartContact = bKartContact;
+
+	double LeaderScore = 0.0;
+	for (const FKartRacer& Other : Racers)
+	{
+		LeaderScore = FMath::Max(LeaderScore, ProgressScore(Other));
+	}
+	C.LeaderGapRatio = FMath::Min(1.0, FMath::Max(0.0, LeaderScore - ProgressScore(Racer)) / 140.0);
+
+	const FVector2D Pos = Racer.Kart->GetKartMovement()->SimState().Pos;
+	double NearestAhead = TNumericLimits<double>::Max();
+	for (const FKartRacer& Other : Racers)
+	{
+		if (Other.Seat == Racer.Seat)
+		{
+			continue;
+		}
+		const FVector2D OtherPos = Other.Kart->GetKartMovement()->SimState().Pos;
+		C.Others.Add({ Other.Seat, OtherPos });
+		// store.ts getNearestPlayerAhead: the nearest of the karts ahead in race order.
+		const double Distance = FVector2D::Distance(Pos, OtherPos);
+		if (Other.Place < Racer.Place && Distance < NearestAhead)
+		{
+			NearestAhead = Distance;
+			C.bHasAhead = true;
+			C.AheadPosition = OtherPos;
+		}
+	}
+	return C;
+}
+
+void AKartRaceManager::StepRace()
+{
+	++RaceSteps;
+	const double RaceMs = GetRaceMs();
+	UpdateStandings();
+
+	// Every kart sees the others where they were at the start of this step.
+	TArray<FKartRaceContext> Contexts;
+	for (const FKartRacer& Racer : Racers)
+	{
+		Contexts.Add(MakeContext(Racer));
+	}
+	for (int32 i = 0; i < Racers.Num(); ++i)
+	{
+		const FKartInput Input = GatherInput(Racers[i], true);
+		Racers[i].Kart->GetKartMovement()->StepOnce(Input, Contexts[i]);
+		EmitStepEvents(Racers[i]);
+	}
+
+	for (FKartRacer& Racer : Racers)
+	{
+		const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+		while (S.LapsCompleted > Racer.LapsSeen)
+		{
+			++Racer.LapsSeen;
+			const double Lap = RaceMs - Racer.LapStartMs;
+			Racer.LapMs.Add(Lap);
+			Racer.BestLapMs = Racer.BestLapMs > 0.0 ? FMath::Min(Racer.BestLapMs, Lap) : Lap;
+			Racer.LapStartMs = RaceMs;
+			if (Racer.LapsSeen >= Track->Laps && !Racer.bFinished)
+			{
+				Racer.bFinished = true;
+				Racer.FinishMs = RaceMs;
+				if (LeaderFinishMs <= 0.0)
+				{
+					LeaderFinishMs = RaceMs;
+				}
+				OnCue.Broadcast(Racer.Seat, TEXT("kart.finish"));
+			}
+			else if (!Racer.bFinished)
+			{
+				OnCue.Broadcast(Racer.Seat, Racer.LapsSeen == Track->Laps - 1 ? FName(TEXT("kart.final-lap")) : FName(TEXT("kart.lap")));
+			}
+		}
+	}
+
+	if (Phase == EKartRacePhase::Racing)
+	{
+		const bool bAllFinished = !Racers.ContainsByPredicate([](const FKartRacer& Racer) { return !Racer.bFinished; });
+		if (bAllFinished || RaceMs >= GetDeadlineMs())
+		{
+			EndRace();
+		}
+	}
+}
+
+void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
+{
+	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+	if (S.BarrierEvent > 0.0)
+	{
+		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BarrierEvent), TEXT("barrier"), S.bBarrierEventSustained);
+	}
+	if (S.BumpEvent > 0.0)
+	{
+		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), TEXT("kart"), false);
+	}
+	// Off-road rumble: 0.075 every 200 ms while moving (MultiplayerKart.tsx:1552-1568).
+	if (S.bOnDirt && FMath::Abs(S.Speed) > 5.0 && S.Time - Racer.LastTerrainRumble >= 0.2)
+	{
+		Racer.LastTerrainRumble = S.Time;
+		OnHaptic.Broadcast(Racer.Seat, 0.075f, TEXT("terrain"), true);
+	}
+}
+
+void AKartRaceManager::UpdateStandings()
+{
+	Standings.Reset();
+	for (const FKartRacer& Racer : Racers)
+	{
+		Standings.Add(Racer.Seat);
+	}
+	// Finished karts by finish time first, then laps and lap progress (RaceUI rankKarts).
+	Standings.StableSort([this](int32 A, int32 B)
+	{
+		const FKartRacer& RA = Racers[A];
+		const FKartRacer& RB = Racers[B];
+		if (RA.bFinished != RB.bFinished)
+		{
+			return RA.bFinished;
+		}
+		if (RA.bFinished)
+		{
+			return RA.FinishMs < RB.FinishMs;
+		}
+		return ProgressScore(RA) > ProgressScore(RB);
+	});
+	for (int32 i = 0; i < Standings.Num(); ++i)
+	{
+		Racers[Standings[i]].Place = i + 1;
+	}
+}
+
+void AKartRaceManager::EndRace()
+{
+	UpdateStandings();
+	Results.Reset();
+	// GAMES-01/02: finishers by ascending time, then DNFs by progress; a DNF never gets a time.
+	for (const int32 Seat : Standings)
+	{
+		const FKartRacer& Racer = Racers[Seat];
+		FKartResult& Result = Results.AddDefaulted_GetRef();
+		Result.Seat = Seat;
+		Result.Rank = Results.Num();
+		Result.Name = Racer.Name;
+		Result.Paint = Racer.Paint;
+		Result.bFinished = Racer.bFinished;
+		Result.TimeMs = Racer.bFinished ? FMath::RoundToDouble(Racer.FinishMs) : 0.0;
+		Result.BestLapMs = Racer.BestLapMs;
+		Result.ProgressScore = ProgressScore(Racer);
+	}
+	SetPhase(EKartRacePhase::Finished);
+	OnResults.Broadcast(Results);
+	OnCue.Broadcast(-1, TEXT("race.results"));
+}
+
+void AKartRaceManager::UpdateCameras(float DeltaSeconds)
+{
+	APlayerController* PC = GetWorld()->GetFirstPlayerController();
+	if (!PC)
+	{
+		return;
+	}
+	if (Phase == EKartRacePhase::Intro && IntroCameras.Num() > 0)
+	{
+		const int32 Shot = FMath::Min(FMath::FloorToInt32(PhaseSeconds / IntroShotSeconds), IntroCameras.Num() - 1);
+		if (Shot != IntroShot)
+		{
+			IntroShot = Shot;
+			PC->SetViewTargetWithBlend(IntroCameras[Shot], Shot == 0 ? 0.f : 0.8f, VTBlend_Cubic);
+		}
+	}
+	else if (Phase == EKartRacePhase::Finished && ResultsCamera && Results.Num() > 0)
+	{
+		// Results shot (KartRaceCamera resultMode): world offset (6.4, 4.6, 8.4) from the winner, looking at it.
+		const AKartPawn* Winner = Racers[Results[0].Seat].Kart;
+		const FVector2D P = Winner->GetKartMovement()->RenderPosition();
+		const FVector Target = Coords::ToUE(FVector(P.X + 6.4, 4.6, P.Y + 8.4));
+		const FVector Look = Coords::ToUE(P, 0.9);
+		const double Alpha = 1.0 - FMath::Exp(-4.6 * FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0));
+		ResultsCameraPos = ResultsCameraPos.IsZero() ? Target : FMath::Lerp(ResultsCameraPos, Target, Alpha);
+		ResultsCamera->SetActorLocationAndRotation(ResultsCameraPos, (Look - ResultsCameraPos).Rotation());
+	}
+}

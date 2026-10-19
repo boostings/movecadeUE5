@@ -65,6 +65,14 @@ namespace MovecadeKart
 		double Yaw = 0.0;
 	};
 
+	/** An intro/static camera shot, in three.js coordinates (metres, Y up). */
+	struct FStaticCamera
+	{
+		FString Name;
+		FVector Position = FVector::ZeroVector;
+		FVector LookAt = FVector::ZeroVector;
+	};
+
 	/** A lateral band of collidable ground (a Harbor ribbon). A down ray hits the highest band first. */
 	struct FGroundBand
 	{
@@ -91,6 +99,9 @@ namespace MovecadeKart
 		TArray<FCheckpoint> Checkpoints;
 		int32 StartCheckpoint = 1;
 		TArray<FSpawnSlot> Grid;
+		TArray<FStaticCamera> StaticCameras;
+		/** Minimap bounds in metres: X = minX..maxX, Y = minZ..maxZ. */
+		FBox2D MinimapBounds = FBox2D(ForceInit);
 
 		TArray<FBoostPad> BoostPads;
 		double BoostMultiplier = 1.8;

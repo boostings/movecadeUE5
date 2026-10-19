@@ -337,6 +337,29 @@ namespace MovecadeKart
 			Out.RecoverySkipWaypoints = static_cast<int32>(Num(Recovery, TEXT("skipWaypoints"), 3));
 		}
 
+		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("staticCameras")))
+		{
+			const TSharedPtr<FJsonObject> C = V->AsObject();
+			auto Vec = [&C](const TCHAR* Key)
+			{
+				const TArray<TSharedPtr<FJsonValue>>& P = Arr(C, Key);
+				return P.Num() == 3 ? FVector(P[0]->AsNumber(), P[1]->AsNumber(), P[2]->AsNumber()) : FVector::ZeroVector;
+			};
+			FStaticCamera& Camera = Out.StaticCameras.AddDefaulted_GetRef();
+			C->TryGetStringField(TEXT("name"), Camera.Name);
+			Camera.Position = Vec(TEXT("position"));
+			Camera.LookAt = Vec(TEXT("lookAt"));
+		}
+
+		if (const TSharedPtr<FJsonObject> Minimap = Obj(Root, TEXT("minimap")))
+		{
+			if (const TSharedPtr<FJsonObject> Bounds = Obj(Minimap, TEXT("bounds")))
+			{
+				Out.MinimapBounds = FBox2D(FVector2D(Num(Bounds, TEXT("minX")), Num(Bounds, TEXT("minZ"))),
+					FVector2D(Num(Bounds, TEXT("maxX")), Num(Bounds, TEXT("maxZ"))));
+			}
+		}
+
 		if (const TSharedPtr<FJsonObject> Look = Obj(Root, TEXT("look")))
 		{
 			const TArray<TSharedPtr<FJsonValue>>& Sun = Arr(Look, TEXT("sunDirection"));

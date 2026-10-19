@@ -26,13 +26,29 @@ void UKartMovementComponent::ResetToGrid()
 	PrevPos = Sim.State().Pos;
 	PrevYaw = Sim.State().Yaw;
 	LastTeleportCount = Sim.State().TeleportCount;
-	ApplyTransform(1.0f);
+	Present(1.0f);
+}
+
+void UKartMovementComponent::StepOnce(const MovecadeKart::FKartInput& StepInput, const MovecadeKart::FKartRaceContext& Race)
+{
+	PrevPos = Sim.State().Pos;
+	PrevYaw = Sim.State().Yaw;
+	Sim.Step(StepInput, Race);
+	if (Sim.State().TeleportCount != LastTeleportCount)
+	{
+		// Snap rather than slide across the track after a respawn.
+		LastTeleportCount = Sim.State().TeleportCount;
+		PrevPos = Sim.State().Pos;
+		PrevYaw = Sim.State().Yaw;
+	}
+	const FVector2D Delta = (Sim.State().Pos - PrevPos) / MovecadeKart::FKartSim::StepSeconds;
+	Velocity = FVector(-Delta.Y, Delta.X, 0.0) * 100.0;
 }
 
 void UKartMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (!Track.IsValid() || !UpdatedComponent || ShouldSkipUpdate(DeltaTime))
+	if (bExternallyStepped || !Track.IsValid() || !UpdatedComponent || ShouldSkipUpdate(DeltaTime))
 	{
 		return;
 	}
@@ -43,29 +59,18 @@ void UKartMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	int32 Steps = 0;
 	while (Accumulator >= Step && Steps < MaxStepsPerFrame)
 	{
-		PrevPos = Sim.State().Pos;
-		PrevYaw = Sim.State().Yaw;
-		Sim.Step(Input);
+		StepOnce(Input, MovecadeKart::FKartRaceContext());
 		Accumulator -= Step;
 		++Steps;
-		if (Sim.State().TeleportCount != LastTeleportCount)
-		{
-			LastTeleportCount = Sim.State().TeleportCount;
-			PrevPos = Sim.State().Pos;
-			PrevYaw = Sim.State().Yaw;
-		}
 	}
 	if (Steps == MaxStepsPerFrame)
 	{
 		Accumulator = FMath::Min(Accumulator, Step);
 	}
-
-	const FVector2D Delta = (Sim.State().Pos - PrevPos) / Step;
-	Velocity = FVector(-Delta.Y, Delta.X, 0.0) * 100.0;
-	ApplyTransform(static_cast<float>(FMath::Clamp(Accumulator / Step, 0.0, 1.0)));
+	Present(static_cast<float>(FMath::Clamp(Accumulator / Step, 0.0, 1.0)));
 }
 
-void UKartMovementComponent::ApplyTransform(float Alpha)
+void UKartMovementComponent::Present(float Alpha)
 {
 	const MovecadeKart::FKartState& S = Sim.State();
 	RenderPos = FMath::Lerp(PrevPos, S.Pos, static_cast<double>(Alpha));

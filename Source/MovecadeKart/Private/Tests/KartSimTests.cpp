@@ -1,5 +1,6 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "Race/KartBotDriver.h"
 #include "Sim/KartSim.h"
 #include "Sim/KartTrack.h"
 
@@ -198,6 +199,67 @@ bool FKartLapTest::RunTest(const FString&)
 	}
 	TestEqual(TEXT("three laps"), Sim.State().LapsCompleted, 3);
 	TestTrue(TEXT("finished"), Sim.State().bFinished);
+	return true;
+}
+
+// The lobby bot (kartPilot.ts) laps Harbor on its own, drifting through the tight bends, with no respawns.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartBotLapTest, "MovecadeKart.Race.BotLaps", KartTestFlags)
+bool FKartBotLapTest::RunTest(const FString&)
+{
+	FTrack Track;
+	if (!LoadHarbor(*this, Track)) return false;
+	FKartSim Sim;
+	Sim.Init(&Track, 0);
+	FKartBotDriver Bot;
+	int32 Steps = 0;
+	uint32 Teleports = 0;
+	int32 OffTrack = 0;
+	while (!Sim.State().bFinished && Steps < 60 * 180)
+	{
+		const FVector2D Before = Sim.State().Pos;
+		Sim.Step(Bot.Update(Sim.State(), Track.Waypoints, true, Steps / 60.0));
+		++Steps;
+		if (Sim.State().TeleportCount != Teleports)
+		{
+			Teleports = Sim.State().TeleportCount;
+			OffTrack += Sim.State().LastRespawnReason == TEXT("offtrack") ? 1 : 0;
+			AddInfo(FString::Printf(TEXT("respawn '%s' at %.2f s from (%.1f, %.1f), next checkpoint %d, lap %d"),
+				*Sim.State().LastRespawnReason, Steps / 60.0, Before.X, Before.Y, Sim.State().NextCheckpoint, Sim.State().LapsCompleted));
+		}
+	}
+	const double Seconds = Steps / 60.0;
+	TestTrue(FString::Printf(TEXT("finished 3 laps (%.1f s)"), Seconds), Sim.State().bFinished);
+	TestTrue(TEXT("faster than 3 x 45 s"), Seconds < 135.0);
+	// The legacy "blocked" branch can wedge a boosted kart nose-first into a wall (spec 01 bug 9); the
+	// stuck watchdog recovers it, as on the web. Leaving the track is still a failure.
+	TestEqual(TEXT("no off-track respawns"), OffTrack, 0);
+	TestTrue(TEXT("at most one stuck recovery per lap"), Sim.State().TeleportCount <= 3u);
+	TestTrue(TEXT("drifted for boosts"), Sim.State().DriftBoostCount > 0);
+	AddInfo(FString::Printf(TEXT("bot: %.2f s for 3 laps, %u drift boosts"), Seconds, Sim.State().DriftBoostCount));
+	return true;
+}
+
+// B1: a multiplier below 1 lowers the top speed (a bogged start is 0.82 for 0.75 s).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartSlowdownTest, "MovecadeKart.Sim.SlowdownApplies", KartTestFlags)
+bool FKartSlowdownTest::RunTest(const FString&)
+{
+	FTrack Track;
+	if (!LoadHarbor(*this, Track)) return false;
+	FKartSim Sim;
+	Sim.Init(&Track, 0);
+	Sim.MutableState().Speed = 40.0;
+	Sim.ApplyBoost(0.5, 2.0, TEXT("TEST_SLOW"));
+	FKartInput Input;
+	Input.bForward = true;
+	for (int32 i = 0; i < 60; ++i)
+	{
+		Sim.Step(Input);
+	}
+	TestTrue(FString::Printf(TEXT("slowed toward 20 SU (now %.2f)"), Sim.State().Speed), Sim.State().Speed < 30.0);
+	FDriftBoost Start;
+	TestTrue(TEXT("bogged start"), RocketStartBoost(2500.0, Start) && Start.Multiplier == 0.82);
+	TestTrue(TEXT("perfect start"), RocketStartBoost(1000.0, Start) && Start.Multiplier == 1.6);
+	TestFalse(TEXT("no boost under 500 ms"), RocketStartBoost(400.0, Start));
 	return true;
 }
 

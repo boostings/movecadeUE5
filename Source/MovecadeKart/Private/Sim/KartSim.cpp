@@ -34,6 +34,8 @@ namespace MovecadeKart
 		constexpr double ContinuousProbeDistance = 1.5;
 		constexpr int32 NumRadialProbes = 4;
 		constexpr double EmergencyPushStrength = 1.5;
+		constexpr double KartContactDistance = 1.8;
+		constexpr double KartBumpForce = 0.5;
 		constexpr uint64 ContinuousCheckInterval = 6;
 		constexpr uint64 FastCheckInterval = 3;
 		constexpr uint64 WrongWayInterval = 15;
@@ -126,6 +128,79 @@ namespace MovecadeKart
 		return true;
 	}
 
+	bool RocketStartBoost(double HeldMs, FDriftBoost& Out)
+	{
+		if (!FMath::IsFinite(HeldMs) || HeldMs < 500.0)
+		{
+			return false;
+		}
+		if (HeldMs > 2000.0)
+		{
+			Out = { 0.82, 0.75, TEXT("START_BOGGED") };
+		}
+		else if (HeldMs >= 800.0 && HeldMs <= 1200.0)
+		{
+			Out = { 1.6, 1.75, TEXT("START_PERFECT") };
+		}
+		else if (HeldMs < 800.0)
+		{
+			Out = { 1.35, 1.25, TEXT("START_CLEAN") };
+		}
+		else
+		{
+			Out = { 1.25, 1.1, TEXT("START_LATE") };
+		}
+		return true;
+	}
+
+	void FKartSim::ApplyBoost(double Multiplier, double Seconds, const FString& Label)
+	{
+		S.BoostMultiplier = Multiplier;
+		S.BoostTimeRemaining = Seconds;
+		S.ActiveBoost = Label;
+	}
+
+	double FKartSim::UpdateSlipstream(const FKartRaceContext& Race, double Dt)
+	{
+		// performanceQuality.ts:867-983, with speed thresholds and boosts scaled to the 40 SU range (B4).
+		constexpr double K = SlipstreamScale;
+		double Boost = 0.0;
+		double Rate = 0.0;
+		bool bActive = false;
+		if (Race.bRacing && Race.bHasAhead)
+		{
+			const FVector2D ToRival = Race.AheadPosition - S.Pos;
+			const double Distance = ToRival.Size();
+			const double Align = Distance > 0.0 ? FVector2D::DotProduct(ToRival / Distance, Forward(S.Yaw)) : 0.0;
+			const double Speed = S.Speed;
+			const bool bBump = Distance < 6.0 && Align >= 0.96 && Speed >= 105.0 * K;
+			bActive = !(Distance < 4.5 || Distance > 28.0 || Align < 0.72 || Speed < 70.0 * K) && !(Distance < 6.0 && !bBump);
+			if (bActive)
+			{
+				const double DScore = FMath::Clamp((28.0 - Distance) / 22.0, 0.0, 1.0);
+				const double AScore = FMath::Clamp((Align - 0.72) / 0.28, 0.0, 1.0);
+				const double SScore = FMath::Clamp((Speed - 70.0 * K) / (70.0 * K), 0.0, 1.0);
+				const bool bPocket = !bBump && Distance <= 8.5 && Align >= 0.97 && Speed >= 130.0 * K;
+				const bool bStrong = Distance <= 14.0 && Align >= 0.9 && Speed >= 110.0 * K;
+				const bool bComeback = !bBump && !bPocket && !bStrong && Race.LeaderGapRatio >= 0.65;
+				if (bPocket) { Boost = 11.5 + DScore * 3.5 + AScore * 1.3 + SScore * 0.8; Rate = 1.15; }
+				else if (bBump) { Boost = 9.1 + DScore * 2.2 + AScore * 1.1 + SScore * 0.45; Rate = 1.35; }
+				else if (bStrong) { Boost = 9.2 + DScore * 3.5 + AScore * 1.3 + SScore * 0.5; Rate = 0.92; }
+				else if (bComeback) { Boost = 4.7 + DScore * 4.8 + AScore * 2.4 + SScore * 0.8 + Race.LeaderGapRatio * 1.45; Rate = 1.2; }
+				else { Boost = 2.9 + DScore * 5.0 + AScore * 3.0 + SScore * 0.5; Rate = 0.55; }
+				Boost *= K;
+			}
+		}
+		S.SlipstreamCharge = bActive
+			? FMath::Min(1.0, S.SlipstreamCharge + Dt * Rate)
+			: FMath::Max(0.0, S.SlipstreamCharge - Dt * 1.15);
+		if (!bActive)
+		{
+			return 0.0;
+		}
+		return S.SlipstreamCharge < 0.65 ? Boost : Boost * (1.0 + ((S.SlipstreamCharge - 0.65) / 0.35) * 0.35);
+	}
+
 	void FKartSim::Init(const FTrack* InTrack, int32 GridSlot)
 	{
 		check(InTrack && InTrack->Grid.Num() > 0);
@@ -142,10 +217,10 @@ namespace MovecadeKart
 
 	void FKartSim::Teleport(const FVector2D& Position, double Yaw)
 	{
-		Respawn(Position, Yaw);
+		Respawn(Position, Yaw, TEXT("teleport"));
 	}
 
-	void FKartSim::Respawn(const FVector2D& Position, double Yaw)
+	void FKartSim::Respawn(const FVector2D& Position, double Yaw, const TCHAR* Reason)
 	{
 		S.Pos = Position;
 		S.Yaw = Yaw;
@@ -153,14 +228,23 @@ namespace MovecadeKart
 		S.DriftDirection = 0.0;
 		S.DriftPower = 0.0;
 		++S.TeleportCount;
+		S.LastRespawnReason = Reason;
 	}
 
 	void FKartSim::Step(const FKartInput& Input)
+	{
+		Step(Input, FKartRaceContext());
+	}
+
+	void FKartSim::Step(const FKartInput& Input, const FKartRaceContext& Race)
 	{
 		check(T);
 		const double Dt = StepSeconds;
 		S.Time += Dt;
 		S.bHitWallThisStep = false;
+		S.BarrierEvent = 0.0;
+		S.bBarrierEventSustained = false;
+		S.BumpEvent = 0.0;
 		if (S.HopTime >= 0.0)
 		{
 			S.HopTime += Dt;
@@ -186,7 +270,7 @@ namespace MovecadeKart
 			}
 			else if (S.Time - S.OffTrackSince >= OffTrackRespawnSeconds)
 			{
-				Respawn(RecoverPos, RecoverYaw);
+				Respawn(RecoverPos, RecoverYaw, TEXT("offtrack"));
 				S.OffTrackSince = -1.0;
 			}
 		}
@@ -212,10 +296,21 @@ namespace MovecadeKart
 			}
 		}
 
-		// Speed (:1108-1181). Rubber band and slipstream join with the race layer; both are 0 for one kart.
+		// Rubber band (:1112-1129): at most +2 SU for the last kart, scaled down in small lobbies.
+		S.RubberBandBoost = 0.0;
+		if (Race.PlayerCount > 1 && Race.bRacing)
+		{
+			const double PositionRatio = static_cast<double>(Race.RacePosition - 1) / (Race.PlayerCount - 1);
+			const double LobbyScale = Race.PlayerCount <= 2 ? 0.4 : Race.PlayerCount == 3 ? 0.7 : 1.0;
+			S.RubberBandBoost = MaxSpeed * PositionRatio * Race.LeaderGapRatio * 0.05 * LobbyScale;
+		}
+		S.SlipstreamBoost = UpdateSlipstream(Race, Dt);
+
+		// Speed (:1108-1181). B1: a multiplier below 1 slows the kart instead of being ignored.
 		const double PowerupBoost = Multiplier > 1.0 ? MaxSpeed * (Multiplier - 1.0) : 0.0;
+		const double Slowdown = Multiplier < 1.0 ? Multiplier : 1.0;
 		const double Terrain = S.bOnDirt ? DirtMultiplier : 1.0;
-		const double Max = (MaxSpeed + (S.Turbo > 0.0 ? TurboBonus : 0.0) + PowerupBoost) * Terrain;
+		const double Max = (MaxSpeed + (S.Turbo > 0.0 ? TurboBonus : 0.0) + PowerupBoost + S.RubberBandBoost + S.SlipstreamBoost) * Terrain * Slowdown;
 		const double Target = bBackward ? ReverseSpeed : bForward ? Max : 0.0;
 		const double Lambda = bBackward ? LambdaBrake : bForward ? LambdaThrottle : LambdaCoast;
 		S.Speed = Damp(S.Speed, Target, Lambda, Dt);
@@ -346,11 +441,50 @@ namespace MovecadeKart
 			S.Pos += S.Dir * S.Speed * Dt * FMath::Min(1.0, S.NearestWall / CollisionSoftDistance);
 		}
 
+		// Kart vs kart (:658-675, :1428-1434, kartContact.ts): the first overlapping kart pushes this one away.
+		if (Race.bKartContact)
+		{
+			for (const FKartRaceContext::FOther& Other : Race.Others)
+			{
+				const FVector2D Delta = S.Pos - Other.Position;
+				const double Distance = Delta.Size();
+				if (Distance >= KartContactDistance)
+				{
+					continue;
+				}
+				const FVector2D N = Distance > 0.0001 ? Delta / Distance : FVector2D(Race.SelfSeat < Other.Seat ? -1.0 : 1.0, 0.0);
+				S.Pos += N * FMath::Min(KartContactDistance - Distance, KartBumpForce * Dt * 60.0);
+				S.Speed *= FMath::Pow(0.8, Dt * 60.0);
+				S.BumpEvent = FMath::Min(1.0, (FMath::Abs(S.Speed) / MaxSpeed) * 0.8 + 0.2);
+				break;
+			}
+		}
+
 		// Swept wall constraint over the whole step (:1440-1445).
 		if (ConstrainMovement(Start, S.Pos))
 		{
 			S.Speed *= FMath::Exp(-WallSpeedDecay * Dt);
 			S.bHitWallThisStep = true;
+		}
+
+		// Collision feedback (:1457-1569): first contact fires at once, sustained contact every 150 ms.
+		{
+			const bool bWasColliding = S.bCollidingBarrier;
+			S.bCollidingBarrier = !bHopping && (Barrier.bBlocked || Barrier.Penetration > 0.0 || S.bRadialCritical || S.RadialStrength > 0.0 || bNearWall);
+			S.CollisionIntensity = S.bCollidingBarrier
+				? FMath::Min(1.0, Barrier.Penetration * 2.0 + (FMath::Abs(S.Speed) / MaxSpeed) * 0.5 + (S.bRadialCritical ? 1.0 : 0.0) + (bNearWall ? 0.3 : 0.0))
+				: 0.0;
+			if (S.bCollidingBarrier && !bWasColliding)
+			{
+				S.BarrierEvent = FMath::Max(0.3, S.CollisionIntensity);
+				S.LastBarrierEventTime = S.Time;
+			}
+			else if (S.bCollidingBarrier && S.Time - S.LastBarrierEventTime >= 0.15)
+			{
+				S.BarrierEvent = FMath::Max(0.2, S.CollisionIntensity * 0.6);
+				S.bBarrierEventSustained = true;
+				S.LastBarrierEventTime = S.Time;
+			}
 		}
 
 		UpdateBoostPads();
@@ -598,7 +732,7 @@ namespace MovecadeKart
 			if (S.Time - S.AnchorSince >= StuckAnchorSeconds)
 			{
 				const FSpawnSlot& Spawn = T->Grid[Slot];
-				Respawn(Next ? Next->ApproachPosition : Spawn.Position, Next ? Next->ApproachYaw : Spawn.Yaw);
+				Respawn(Next ? Next->ApproachPosition : Spawn.Position, Next ? Next->ApproachYaw : Spawn.Yaw, TEXT("stuck"));
 				S.AnchorPos = S.Pos;
 				S.AnchorSince = S.AnchorSeen = S.Time;
 			}
@@ -614,7 +748,7 @@ namespace MovecadeKart
 		else if (S.Time - S.WatchSince >= CheckpointStallSeconds && Next)
 		{
 			S.WatchSince = S.WatchSeen = S.Time;
-			Respawn(Next->ApproachPosition, Next->ApproachYaw);
+			Respawn(Next->ApproachPosition, Next->ApproachYaw, TEXT("checkpoint-stall"));
 			S.AnchorPos = S.Pos;
 			S.AnchorSince = S.AnchorSeen = S.Time;
 		}

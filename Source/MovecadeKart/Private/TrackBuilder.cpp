@@ -69,6 +69,8 @@ ATrackBuilder::ATrackBuilder()
 	Ground->SetupAttachment(RootComponent);
 	Ground->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Ground->bUseAsyncCooking = true;
+	// Flat ribbons and the 5 km sea gain nothing from casting shadows and overflow the VSM non-Nanite queue.
+	Ground->SetCastShadow(false);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane.Plane"));

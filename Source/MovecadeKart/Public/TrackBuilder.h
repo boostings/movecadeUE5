@@ -35,7 +35,7 @@ public:
 
 	/** Draw the checkpoint radii while playing. */
 	UPROPERTY(EditAnywhere, Category = "Track")
-	bool bShowCheckpoints = true;
+	bool bShowCheckpoints = false;
 
 	/** The parsed track, loading it on first use. Null if the file is missing or invalid. */
 	TSharedPtr<const MovecadeKart::FTrack> GetTrack();
