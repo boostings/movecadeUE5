@@ -115,7 +115,16 @@ void AKartRaceManager::EndPlay(const EEndPlayReason::Type Reason)
 
 void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKartSeatSpec>& Seats, const TArray<APlayerController*>& Viewers)
 {
+	check(InTrack.IsValid());
 	Track = InTrack;
+	// Setup may run again (a new room race): the previous karts go with the old racers.
+	for (FKartRacer& Old : Racers)
+	{
+		if (Old.Kart)
+		{
+			Old.Kart->Destroy();
+		}
+	}
 	Racers.Reset();
 	const int32 Count = FMath::Min(Seats.Num(), Track->Grid.Num());
 	for (int32 Seat = 0; Seat < Count; ++Seat)
@@ -125,6 +134,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		AKartPawn* Kart = GetWorld()->SpawnActor<AKartPawn>(AKartPawn::StaticClass(),
 			FTransform(FRotator(0.0, Coords::YawToUE(Slot.Yaw), 0.0), Coords::ToUE(Slot.Position)), Params);
+		if (!ensureMsgf(Kart, TEXT("Kart for seat %d failed to spawn"), Seat))
+		{
+			break; // seats stay contiguous: racer i is seat i everywhere
+		}
 		FKartLook Look = Seats[Seat].bHasLook ? Seats[Seat].Look : FKartLook::MakeVaried(Seat);
 		Look.Paint = Seats[Seat].Paint;
 		Look.Name = Seats[Seat].Name;
@@ -148,6 +161,8 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Racer.Viewer = Viewers.IsValidIndex(Seat) ? Viewers[Seat] : nullptr;
 		if (Racer.Viewer)
 		{
+			// Read this frame's local input, not last frame's: the controllers tick first.
+			AddTickPrerequisiteActor(Racer.Viewer);
 			Racer.Viewer->Possess(Kart);
 		}
 		Kart->SetSplitScreenCamera(Count > 1 && Viewers.Num() > 1);
@@ -489,7 +504,11 @@ void AKartRaceManager::UpdateOccluders()
 		{
 			continue;
 		}
-		PC->HiddenActors.Reset();
+		// Only un-hide the karts this function hid, so other systems can hide actors too.
+		for (FKartRacer& Other : Racers)
+		{
+			PC->HiddenActors.Remove(Other.Kart);
+		}
 		if (PC->GetViewTarget() != Racer.Kart)
 		{
 			continue;
@@ -547,8 +566,21 @@ FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
 	const double Now = RaceSteps / 60.0;
 	if (Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal))
 	{
-		// Finished karts cruise on the bot's line so they keep clear of the racers.
-		return Racer.Bot.Update(S, Track->Waypoints, bRacing, Now);
+		// Finished karts cruise on the bot's line so they keep clear of the racers. Empty-handed racers may
+		// detour through an item box they can collect.
+		TArray<FVector2D, TInlineAllocator<16>> Boxes;
+		const FKartItemSlot& Slot = Items.Slots()[Racer.Seat];
+		if (!Racer.bFinished && Slot.Held == EKartItem::None && !Slot.bRolling)
+		{
+			for (const FKartItemBox& Box : Items.Boxes())
+			{
+				if (Box.CollectedAt.IsValidIndex(Racer.Seat) && Box.CollectedAt[Racer.Seat] < 0.0)
+				{
+					Boxes.Add(Box.Pos);
+				}
+			}
+		}
+		return Racer.Bot.Update(S, Track->Waypoints, bRacing, Now, Boxes);
 	}
 	if (Racer.Kind == EKartSeatKind::Local)
 	{
@@ -611,13 +643,15 @@ void AKartRaceManager::StepRace()
 	UpdateStandings();
 
 	// Every kart sees the others where they were at the start of this step.
-	TArray<FKartRaceContext> Contexts;
+	TArray<FKartRaceContext>& Contexts = StepContexts;
+	Contexts.Reset();
 	for (const FKartRacer& Racer : Racers)
 	{
 		Contexts.Add(MakeContext(Racer));
 	}
 	const double ItemTime = GetItemTime();
-	TArray<FKartItemRacer> ItemRacers;
+	TArray<FKartItemRacer>& ItemRacers = StepItemRacers;
+	ItemRacers.Reset();
 	for (int32 i = 0; i < Racers.Num(); ++i)
 	{
 		FKartRacer& Racer = Racers[i];
@@ -644,7 +678,8 @@ void AKartRaceManager::StepRace()
 		ItemRacer.bUseItem = bUsePressed;
 		ItemRacer.bBot = Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal);
 	}
-	TArray<FKartItemEvent> ItemEvents;
+	TArray<FKartItemEvent>& ItemEvents = StepItemEvents;
+	ItemEvents.Reset();
 	Items.Step(ItemRacers, ItemTime, ItemEvents);
 	DispatchItemEvents(ItemEvents);
 	for (FKartRacer& Racer : Racers)
@@ -768,6 +803,12 @@ void AKartRaceManager::DispatchItemEvents(const TArray<FKartItemEvent>& Events)
 		{
 		case EKartItemEventType::Pickup: OnCue.Broadcast(E.Seat, TEXT("kart.item-pickup")); break;
 		case EKartItemEventType::Ready: OnCue.Broadcast(E.Seat, TEXT("kart.item-ready")); break;
+		case EKartItemEventType::Used:
+			if (Racers.IsValidIndex(E.Seat))
+			{
+				Racers[E.Seat].Kart->PlayItemThrow();
+			}
+			break;
 		case EKartItemEventType::Launch:
 			OnCue.Broadcast(E.Seat, TEXT("kart.projectile-launch"));
 			if (E.Item == EKartItem::Seeker || E.Item == EKartItem::SkySeeker)

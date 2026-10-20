@@ -43,6 +43,8 @@ namespace MovecadeKart::Net
 	constexpr int32 MinFinishTimeMs = 10000;
 	/** Spec 04 §6.2: implement a 200 ms item debounce per player. */
 	constexpr double ItemDebounceSeconds = 0.2;
+	/** Tilt steering goes neutral after this long without a sensor frame. */
+	constexpr double SensorStaleSeconds = 1.5;
 	constexpr int32 HostGraceMs = 90000;
 
 	constexpr int32 RoomCodeLength = 6;

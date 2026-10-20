@@ -256,6 +256,10 @@ private:
 
 	MovecadeKart::FKartItemWorld Items;
 	TArray<MovecadeKart::FKartItemEvent> PendingItemEvents;
+	/** Per-step scratch, kept so a race step allocates nothing. */
+	TArray<MovecadeKart::FKartRaceContext> StepContexts;
+	TArray<MovecadeKart::FKartItemRacer> StepItemRacers;
+	TArray<MovecadeKart::FKartItemEvent> StepItemEvents;
 	int32 RaceNumber = 0;
 
 	UPROPERTY()

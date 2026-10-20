@@ -27,7 +27,9 @@ namespace MovecadeKart
 	{
 	public:
 		void Reset(TArray<FWallSegment>&& InSegments, double InCellSize = 8.0);
-		void Query(const FVector2D& Min, const FVector2D& Max, TArray<int32>& Out) const;
+		/** Segment indices near a box, sorted and unique. Inline storage: no heap allocation per query in the sim's hot path. */
+		using FCandidates = TArray<int32, TInlineAllocator<64>>;
+		void Query(const FVector2D& Min, const FVector2D& Max, FCandidates& Out) const;
 		/** First wall hit along a horizontal ray, within Far. Dir must be unit length. */
 		bool Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const;
 		const TArray<FWallSegment>& Segments() const { return Segments_; }

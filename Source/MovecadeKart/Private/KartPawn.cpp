@@ -656,6 +656,10 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 	In.bStraddle = bStraddle;
 	Cheer = FMath::FInterpTo(Cheer, S.bFinished ? 1.0 : 0.0, DeltaSeconds, 3.0);
 	In.Cheer = static_cast<float>(Cheer);
+	// Item throw: up in 0.12 s, held 0.2 s, back on the wheel over 0.3 s.
+	const double SinceThrow = GetWorld()->GetTimeSeconds() - ItemThrowStart;
+	const double Raise = SinceThrow < 0.12 ? SinceThrow / 0.12 : SinceThrow < 0.32 ? 1.0 : 1.0 - (SinceThrow - 0.32) / 0.3;
+	In.ItemRaise = static_cast<float>(FMath::SmoothStep(0.0, 1.0, FMath::Clamp(Raise, 0.0, 1.0)));
 
 	// Grip targets, from where the rim (or bar) actually is this frame, into the driver's component space.
 	const FTransform GripFrame = GripPivot->GetComponentTransform();
@@ -750,6 +754,11 @@ void AKartPawn::SetPaint(const FLinearColor& Color)
 	{
 		ApplyColours();
 	}
+}
+
+void AKartPawn::PlayItemThrow()
+{
+	ItemThrowStart = GetWorld()->GetTimeSeconds();
 }
 
 void AKartPawn::AddShake(double PeakMetres)
