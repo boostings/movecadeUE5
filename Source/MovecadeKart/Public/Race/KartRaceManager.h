@@ -33,6 +33,15 @@ enum class EKartSeatKind : uint8
 	Phone,
 };
 
+/** How well a bot drives (FKartBotTuning). Normal is the web build's lobby bot. */
+UENUM(BlueprintType)
+enum class EKartBotSkill : uint8
+{
+	Easy,
+	Normal,
+	Hard,
+};
+
 /** Who sits in a seat, before the race starts. */
 USTRUCT(BlueprintType)
 struct FKartSeatSpec
@@ -54,6 +63,10 @@ struct FKartSeatSpec
 
 	UPROPERTY(EditAnywhere, Category = "Kart")
 	bool bHasLook = false;
+
+	/** Bot seats only. */
+	UPROPERTY(EditAnywhere, Category = "Kart")
+	EKartBotSkill BotSkill = EKartBotSkill::Normal;
 };
 
 USTRUCT()
