@@ -84,6 +84,9 @@ worked. Anything marked _verify_ gets checked in a live web race before we decid
   commercial build, or replace the track during the upgrade pass. Its profile generator script is missing, so
   the baked profile can't be regenerated if the mesh changes.
 - The **Violet GLB** uses Draco and WebP. Decode both before UE import.
+- **Violet Loop's scenery has Mario-style motifs** (green warp pipes, floating brick blocks, the layout of a
+  "mario-circuit" test model). Jimmy confirmed the model is theirs to use, but those shapes are an IP risk for a
+  commercial build: the maps pass replaces them with original props.
 - **Poly Haven normal maps** are OpenGL format: flip the green channel on import.
 
 ## Phases
