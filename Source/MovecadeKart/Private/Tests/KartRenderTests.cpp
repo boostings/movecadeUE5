@@ -1,4 +1,4 @@
-#include "Misc/AutomationTest.h"
+﻿#include "Misc/AutomationTest.h"
 #include "Render/KartGameUserSettings.h"
 #include "Render/KartRenderBudget.h"
 
@@ -53,18 +53,18 @@ bool FKartRenderSplitBudgetTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("solo ceiling"), Solo.MaxScreenPercentage, 100.f);
 	TestTrue(TEXT("solo floor below the ceiling"), Solo.MinScreenPercentage < Solo.MaxScreenPercentage && Solo.MinScreenPercentage >= 50.f);
 
-	// Two views: Lumen and shadows capped at High, lower ceiling.
+	// Two views: Lumen and shadows capped at High.
 	const KartRender::FRenderBudget Two = KartRender::BudgetFor(Ultra, 2, 0);
 	TestEqual(TEXT("2 views: GI High"), Two.Levels.GlobalIlluminationQuality, 2);
 	TestEqual(TEXT("2 views: reflections High"), Two.Levels.ReflectionQuality, 2);
 	TestEqual(TEXT("2 views: shadows High"), Two.Levels.ShadowQuality, 2);
-	TestTrue(TEXT("2 views: lower ceiling"), Two.MaxScreenPercentage < Solo.MaxScreenPercentage);
+	TestTrue(TEXT("2 views: ceiling never raised"), Two.MaxScreenPercentage <= Solo.MaxScreenPercentage);
 
 	// Four views: also AA and post; the ceiling drops again.
 	const KartRender::FRenderBudget Four = KartRender::BudgetFor(Ultra, 4, 0);
 	TestEqual(TEXT("4 views: AA High"), Four.Levels.AntiAliasingQuality, 2);
 	TestEqual(TEXT("4 views: post High"), Four.Levels.PostProcessQuality, 2);
-	TestTrue(TEXT("4 views: lowest ceiling"), Four.MaxScreenPercentage < Two.MaxScreenPercentage);
+	TestTrue(TEXT("4 views: lower ceiling"), Four.MaxScreenPercentage < Solo.MaxScreenPercentage);
 	TestEqual(TEXT("ResolutionQuality follows the ceiling"), Four.Levels.ResolutionQuality, Four.MaxScreenPercentage);
 
 	// The budget never raises a group the player turned down.

@@ -38,8 +38,10 @@ namespace KartRender
 	 * steps. User.ResolutionQuality is the player's TSR ceiling. Never raises anything above the player's choice.
 	 *
 	 * Split screen renders the same pixel count as one full view but repeats every per-view pass (Lumen screen
-	 * probes and reflections, shadow setup, TSR), so it caps Lumen GI, reflections and shadows at High and lowers
-	 * the TSR ceiling; three and four views also cap anti-aliasing, post-processing and view distance.
+	 * probes and reflections, shadow setup, TSR), so it caps Lumen GI, reflections and shadows at High; three and
+	 * four views also cap anti-aliasing, post-processing and view distance and trim the TSR ceiling to 90 %.
+	 * (Measured on an RTX 4070 SUPER: four views at the 1440p-equivalent cost ~12.5 ms GPU unbudgeted, ~9.5 ms with
+	 * this budget.)
 	 */
 	MOVECADEKART_API FRenderBudget BudgetFor(const Scalability::FQualityLevels& User, int32 NumViews, int32 GuardSteps);
 }

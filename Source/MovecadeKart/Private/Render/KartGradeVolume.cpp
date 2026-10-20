@@ -225,6 +225,9 @@ void AKartGradeVolume::UpdateMotionBlur(float DeltaSeconds)
 	const float Measured = Fastest > BlurFullSpeed * 4.f ? 0.f : Fastest;
 	SmoothedSpeed = FMath::FInterpTo(SmoothedSpeed, Measured, DeltaSeconds, 4.f);
 
+	// Quarter-screen views put the fast-moving kerbs right at every view's bottom edge, where even subtle blur
+	// smears; three or more views go without (which also saves the pass four times over).
+	const bool bSplitTooSmall = Index >= 3;
 	const float Ramp = FMath::SmoothStep(BlurStartSpeed, BlurFullSpeed, SmoothedSpeed);
-	Settings.MotionBlurAmount = bMotionBlurAllowed ? MaxMotionBlur * Ramp : 0.f;
+	Settings.MotionBlurAmount = bMotionBlurAllowed && !bSplitTooSmall ? MaxMotionBlur * Ramp : 0.f;
 }

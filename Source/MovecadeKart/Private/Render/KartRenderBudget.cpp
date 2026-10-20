@@ -89,7 +89,6 @@ namespace KartRender
 			Cap(L.GlobalIlluminationQuality, High);
 			Cap(L.ReflectionQuality, High);
 			Cap(L.ShadowQuality, High);
-			Budget.MaxScreenPercentage = FMath::Min(Budget.MaxScreenPercentage, 85.f);
 		}
 		if (NumViews >= 3)
 		{
@@ -97,7 +96,9 @@ namespace KartRender
 			Cap(L.AntiAliasingQuality, High);
 			Cap(L.PostProcessQuality, High);
 			Cap(L.ViewDistanceQuality, High);
-			Budget.MaxScreenPercentage = FMath::Min(Budget.MaxScreenPercentage, 75.f);
+			// Quarter views upsampled from much below their size smear under motion; keep TSR's input near native and
+			// let dynamic resolution trade it for frame time.
+			Budget.MaxScreenPercentage = FMath::Min(Budget.MaxScreenPercentage, 90.f);
 		}
 
 		const int32 Steps = FMath::Clamp(GuardSteps, 0, MaxGuardSteps);
