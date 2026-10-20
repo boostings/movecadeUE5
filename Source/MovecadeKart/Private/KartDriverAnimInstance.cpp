@@ -16,6 +16,10 @@ namespace
 	/** A cockpit driver sits back against the seat; a rider leans into the bars. */
 	constexpr float SeatedTorsoRecline = 0.14f;
 	constexpr float StraddleTorsoLean = -0.36f;
+	/** The grips sit at most this fraction of the arm's full length from the shoulder, so the elbows stay bent. */
+	constexpr double GripComfort = 0.9;
+	/** How far (radians) the torso may lean in to reach the wheel. */
+	constexpr float MaxReachLean = 0.5f;
 
 	struct FRigWork
 	{
@@ -186,8 +190,44 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 	const float Recline = (bStraddle ? StraddleTorsoLean : 0.f) + SeatedTorsoRecline + 0.05f * Input.Moving - Bounce * 0.05f;
 	FVector TorsoUp = Up * FMath::Cos(Recline) - Forward * FMath::Sin(Recline);
 	TorsoUp = TorsoUp * FMath::Cos(TorsoRoll) + Right * FMath::Sin(TorsoRoll);
-	const FQuat TorsoDelta = FQuat::FindBetweenNormals(Up, TorsoUp.GetSafeNormal());
+	FQuat TorsoDelta = FQuat::FindBetweenNormals(Up, TorsoUp.GetSafeNormal());
 	Rig.Rotate(Torso, TorsoDelta);
+
+	// Reach: lean in until both grips are comfortably within reach, rather than locking the elbows straight
+	// toward a wheel that sits past the arm's length (the mounts place the rim for the web's thinner arms).
+	if (Input.bHasGrip)
+	{
+		float Leaned = 0.f;
+		for (int32 Iteration = 0; Iteration < 4 && Leaned < MaxReachLean; ++Iteration)
+		{
+			double Excess = 0.0;
+			for (int32 Side = 0; Side < 2; ++Side)
+			{
+				const int32 Upper = Arm[Side][0], Fore = Arm[Side][1], Hand = Arm[Side][2];
+				if (Fore == INDEX_NONE || Hand == INDEX_NONE)
+				{
+					continue;
+				}
+				const double Length = (Rig.Pos(Fore) - Rig.Pos(Upper)).Size() + (Rig.Pos(Hand) - Rig.Pos(Fore)).Size();
+				const FVector Target = Side == 0 ? Input.LeftHand : Input.RightHand;
+				Excess = FMath::Max(Excess, (Target - Rig.Pos(Upper)).Size() - Length * GripComfort);
+			}
+			const FVector Pivot = Rig.Pos(Torso);
+			const FVector Shoulders = (Rig.Pos(Arm[0][0]) + Rig.Pos(Arm[1][0])) * 0.5 - Pivot;
+			const FVector Grips = (Input.LeftHand + Input.RightHand) * 0.5 - Pivot;
+			const FVector Axis = FVector::CrossProduct(Shoulders, Grips).GetSafeNormal();
+			const double Lever = Shoulders.Size();
+			if (Excess < 0.5 || Axis.IsNearlyZero() || Lever < 1.0)
+			{
+				break;
+			}
+			const float Step = FMath::Min(static_cast<float>(Excess / Lever), MaxReachLean - Leaned);
+			const FQuat Lean(Axis, Step);
+			Rig.Rotate(Torso, Lean);
+			TorsoDelta = Lean * TorsoDelta;
+			Leaned += Step;
+		}
+	}
 
 	// Head: eyes back toward level and looking into the turn.
 	const FVector Facing = TorsoDelta.RotateVector(Forward);

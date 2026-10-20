@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "Feel/KartFeel.h"
 #include "KartLook.h"
 #include "KartPawn.generated.h"
 
@@ -69,6 +70,7 @@ private:
 	void UpdateDriver(float DeltaSeconds);
 	void UpdateNamePlate();
 	void UpdateCamera(float DeltaSeconds);
+	void UpdateFeel(float DeltaSeconds);
 	void ApplyVehicle();
 	void ApplyDriver();
 	void ApplyColours();
@@ -87,6 +89,10 @@ private:
 	/** The vehicle's model frame: GLB units x100, model forward (+Y) turned to the kart's +X, origin 49 cm up (wheels on the road). */
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<USceneComponent> VehicleRoot;
+
+	/** The sprung body: pitch, roll, heave and squash from FKartFeel. The wheels stay on VehicleRoot, on the road. */
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<USceneComponent> ChassisPivot;
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UStaticMeshComponent> Body;
@@ -181,6 +187,9 @@ private:
 	FKartItemVisual ItemVisual;
 	double ShakePeak = 0.0;
 	double ShakeStart = -1000.0;
+
+	/** Chassis and camera juice on top of the sim's presentation layers (-KartWebFeel turns it off). */
+	MovecadeKart::FKartFeel Feel;
 
 	FVector CameraPos = FVector::ZeroVector;
 	FVector CameraLook = FVector::ZeroVector;

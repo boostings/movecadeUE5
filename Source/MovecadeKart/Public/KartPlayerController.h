@@ -11,7 +11,7 @@ class UInputMappingContext;
 /**
  * One local viewport, and for a Local seat its keyboard/gamepad input. Bindings follow the web host
  * (MultiplayerApp.tsx:43-50, MultiplayerKart.tsx:908-943): W/Up gas, S/Down brake, A/D/Left/Right
- * steer (added on top of the stick), Space drift, E/Left Shift item, plus a gamepad layout. The actions are built in
+ * steer (added on top of the stick), Space drift, E/Left Shift item, C look behind, plus a gamepad layout. The actions are built in
  * code, so no input assets are needed. AKartRaceManager reads GetLocalInput each sim step.
  */
 UCLASS()
@@ -23,6 +23,8 @@ public:
 	virtual void PlayerTick(float DeltaTime) override;
 
 	const MovecadeKart::FKartInput& GetLocalInput() const { return LocalInput; }
+	/** Held look-behind (C, right stick click): the pawn's camera turns round. Presentation only. */
+	bool IsLookingBack() const { return bLookingBack; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -54,5 +56,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInputAction> UseItem;
 
+	UPROPERTY()
+	TObjectPtr<UInputAction> LookBack;
+
 	MovecadeKart::FKartInput LocalInput;
+	bool bLookingBack = false;
 };

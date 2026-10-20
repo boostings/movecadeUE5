@@ -903,13 +903,30 @@ void AKartRaceManager::UpdateCameras(float DeltaSeconds)
 			IntroShot = Shot;
 			PC->SetViewTargetWithBlend(IntroCameras[Shot], Shot == 0 ? 0.f : 0.8f, VTBlend_Cubic);
 		}
+		// Each shot is a slow dolly (a push in, and a crab that alternates side per shot) instead of a still,
+		// like a broadcast flyover. Every camera keeps moving through the blend into the next one.
+		for (int32 i = 0; i < IntroCameras.Num(); ++i)
+		{
+			const FStaticCamera& Base = Track->StaticCameras[i];
+			const FVector Rebase(0.0, Track->SuggestedRebaseY, 0.0);
+			const FVector Eye = Coords::ToUE(Base.Position + Rebase);
+			const FVector Look = Coords::ToUE(Base.LookAt + Rebase);
+			const FVector Toward = (Look - Eye).GetSafeNormal();
+			const FVector Side = FVector::CrossProduct(FVector::UpVector, Toward).GetSafeNormal() * (i % 2 == 0 ? 1.0 : -1.0);
+			const double T = PhaseSeconds - i * IntroShotSeconds + 0.4;
+			const FVector Moved = Eye + (Toward * 70.0 + Side * 40.0) * T;
+			IntroCameras[i]->SetActorLocationAndRotation(Moved, (Look + Side * 20.0 * T - Moved).Rotation());
+		}
 	}
 	else if (Phase == EKartRacePhase::Finished && ResultsCamera && Results.Num() > 0)
 	{
-		// Results shot (KartRaceCamera resultMode): world offset (6.4, 4.6, 8.4) from the winner, looking at it.
+		// Results shot (KartRaceCamera resultMode): from the web's offset (6.4, 4.6, 8.4) off the winner, a slow
+		// orbit round it, looking at it.
 		const AKartPawn* Winner = Racers[Results[0].Seat].Kart;
 		const FVector2D P = Winner->GetKartMovement()->RenderPosition();
-		const FVector Target = Coords::ToUE(FVector(P.X + 6.4, 4.6, P.Y + 8.4));
+		const double Orbit = FMath::Atan2(8.4, 6.4) + 0.18 * PhaseSeconds;
+		const double Radius = FVector2D(6.4, 8.4).Size();
+		const FVector Target = Coords::ToUE(FVector(P.X + Radius * FMath::Cos(Orbit), 4.6, P.Y + Radius * FMath::Sin(Orbit)));
 		const FVector Look = Coords::ToUE(P, 0.9);
 		const double Alpha = 1.0 - FMath::Exp(-4.6 * FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0));
 		ResultsCameraPos = ResultsCameraPos.IsZero() ? Target : FMath::Lerp(ResultsCameraPos, Target, Alpha);
