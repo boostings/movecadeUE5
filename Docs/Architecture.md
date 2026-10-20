@@ -70,6 +70,8 @@ and UE yaw is the negated three.js yaw.
 | Feel | `Feel/KartFeel` | Presentation-only springs: chassis pitch, roll, heave and squash; camera FOV kick, drift swing, bank, dip, rumble |
 | Rendering | `Render/KartGameUserSettings`, `Render/KartRenderQualitySubsystem`, `Render/KartGradeSubsystem`, `Render/KartRenderBudget` | Graphics presets, ray tracing and motion blur settings; split-screen budgets, dynamic resolution and a frame-time guard that hold 60 fps; the project-wide colour grade |
 | Capture | `Capture/KartCaptureSubsystem`, `Tools/video` | Fixed-step frame capture and a cinematic camera, encoded to MP4 for trailers |
+| Effects | `FX/KartFxComponent`, `FX/KartFxSubsystem`, `FX/KartItemMeshes`, `Race/KartItemPresenter` | Per-kart Niagara streams (boost flames, tiered drift sparks, tyre marks, dust, impact sparks), pooled bursts, item meshes modelled in code, the per-view screen effects (ink, flashes) |
+| UI | `UI/*` | A Slate front end and HUD drawn in code: one painter and style, a screen stack with transitions, raw multi-pad input routing, session settings that turn the menu choices into seats |
 | Tracks | `TrackBuilder`, `TrackScenery`, `Tools/track-export` | Builds the road, walls and scenery from exported JSON |
 | Network | `Net/RoomHostSubsystem`, `Net/RoomProtocol`, `Net/QrCode`, `Net/KartLobbyWidget` | Hosts a PartyKit room: lobby, QR join, phone sensor frames to inputs, haptics, signed results |
 | Audio | `Audio/*` | Engine layers, drift, surfaces, impacts and cues, synthesised to match the web mix |
@@ -115,6 +117,8 @@ track's own lighting layers on top.
   messages, sensor-frame decoding, steering mapping, QR reference matrices, and the engine and mix curves.
 - **Feel, art and rendering:** spring stability across frame rates, chassis and camera responses, deterministic
   looks, and the render budget tables (presets, split-screen caps, guard steps).
+- **Effects and UI:** drift tiers, particle rates, that every item mesh builds with its material slots; the track
+  catalog, the boot decision (front end, race or room), command-line precedence over the menus, menu input mapping.
 
 `.\Tools\ue\play.ps1` runs the real game with test hooks (`-KartAutoDrive`, `-KartShots=t1,t2`,
 `-KartQuitAfter=N`). That gives visual checks and end-to-end runs: a bot drives, screenshots are taken, and the

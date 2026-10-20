@@ -1,7 +1,12 @@
 # Movecade Kart Racer (UE 5.8)
 
-The Movecade kart racer, ported from the web build (movecade-v2) to Unreal Engine 5.8. The race plays exactly
-like the web version, with a short list of deliberate fixes and upgrades (see [Docs/Port/00-PLAN.md](Docs/Port/00-PLAN.md)).
+A split-screen party kart racer in Unreal Engine 5.8, where phones can be the controllers. It is a port of the
+Movecade web build (movecade-v2): the race plays exactly like the web version, with a short list of deliberate fixes
+(see [Docs/Port/00-PLAN.md](Docs/Port/00-PLAN.md)). Around it everything is new: ray-traced lighting, original
+environments, a game-feel layer, effects, and a full console-style front end.
+
+- **Case study, screenshots and trailer:** [Docs/Portfolio](Docs/Portfolio/README.md)
+- **How the code fits together:** [Docs/Architecture.md](Docs/Architecture.md)
 
 ## Play
 
@@ -52,12 +57,20 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` runs a simulated phone against bots.
 | `-KartNoFrontEnd` | Skip the menus and race at once (any flag above does the same) |
 | `-KartUiShots=title,menu,racers,rules,tracks,settings,audio,controls,credits,quit,race,pause,results,lobby` | Screenshot tour: steps through those screens, captures `Saved/Screenshots/WindowsEditor/KartUi_<step>_<W>x<H>.png`, quits (`.\Tools\ui\shots.ps1`). Race flags still apply to its race (`-KartLaps=1 -KartAutoDrive`) |
 | `-KartUiPad` | Show gamepad button hints regardless of input (for screenshots) |
+| `-KartCinematic` | Trailer camera: cuts every 4.5 s between the chase view and tracking shots round your kart |
+| `-KartCapture=<dir>`, `-KartCaptureFrom=s`, `-KartCaptureFor=s`, `-KartCaptureNoUI` | Write every frame of a time window (use with `-benchmark -fps=60`; `Tools/video/capture.ps1` does this and encodes the MP4) |
+| `-KartFxShowcase[=explosion\|lightning\|prism\|rocket\|ink\|hit\|confetti\|box\|items]` | Plays effects on your kart for screenshots, without touching the race |
 
 ## Develop
 
 - C++ lives in `Source/MovecadeKart` (`Sim/` is the deterministic 60 Hz kart and item simulation in web units).
   Build: `Engine/Build/BatchFiles/Build.bat MyProjectEditor Win64 Development -Project=<path>\MyProject.uproject`.
-- Tests: `UnrealEditor-Cmd.exe MyProject.uproject "-ExecCmds=Automation RunTests MovecadeKart; Quit" -unattended -nullrhi`.
+- Tests: `.\Tools\ue\test.ps1` builds and runs all 51 automation tests headless (`-NoBuild`, `-Filter MovecadeKart.Sim`).
+  `.\Tools\ue\play.ps1` runs the game with the autopilot and takes screenshots.
+- Video: `.\Tools\video\capture.ps1` records a clip and `.\Tools\video\trailer.ps1` builds the trailer. Both need the
+  tools venv once: `py -3.13 -m venv Tools\.cache\venv`, then `Tools\.cache\venv\Scripts\pip install imageio-ffmpeg`.
+- Effects: `Source/MovecadeKart/.../FX` and `Content/FX`. Regenerate the content only with `Tools/fx/build_fx.ps1`,
+  with no editor open on the project.
 - Track data: `Tools/track-export` turns the web game's track modules into `Data/Tracks/*.track.json`
   (`npm run export`, `npm run check`).
 - UI: `Source/MovecadeKart/.../UI` (Slate, drawn in code; see the header comments of `KartScreen.h` and
