@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-20T05:50:24.808Z",
+  "exportedAt": "2026-10-20T06:00:43.735Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",

@@ -1,4 +1,4 @@
-// Checks the exported track JSON against values measured independently in Docs/Port/03, pins its gameplay
+﻿// Checks the exported track JSON against values measured independently in Docs/Port/03, pins its gameplay
 // data by fingerprint (the visual passes must never move it),
 // and proves a UE spline (Hermite, tangent (P[i+1]-P[i-1])/2) reproduces the Harbor centreline.
 import { createHash } from 'node:crypto';
@@ -16,7 +16,7 @@ const check = (label, ok, detail = '') => {
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
 const nearXZ = (p, [x, z], tol = 0.01) => near(p.x, x, tol) && near(p.z, z, tol);
 
-// Docs/Port/03 §2.3
+// Docs/Port/03 Â§2.3
 const GRID = [[-3.06, -22.23], [2.96, -17.26], [-0.13, -15.05], [5.97, -9.67]];
 const CHECKPOINT_IDS = ['finish', 'turn_1', 'outer_curve', 'north_hairpin_1', 'crossover', 'upper_loop', 'north_hairpin_2', 's_curve', 'final_curve'];
 
@@ -32,7 +32,7 @@ function shared(t, id) {
   check(`${id}: unit tangents`, t.samples.points.every((p) => near(Math.hypot(p.tx, p.tz), 1, 1e-4)));
 }
 
-// ---- Sunset Harbor (Docs/Port/03 §2.5, §3.1)
+// ---- Sunset Harbor (Docs/Port/03 Â§2.5, Â§3.1)
 const h = load('sunset-harbor');
 shared(h, 'harbor');
 check('harbor: lap 1612.1 m', near(h.track.lapLengthM, 1612.1, 0.1), `${h.track.lapLengthM}`);
@@ -47,7 +47,7 @@ check('harbor: boost pads', h.boostPads.length === 3 && h.boostPads.every((p, i)
 const HARBOR_CP = [[-7, -235], [142, -110], [326, -111], [223, 30], [164, 155], [63, 72], [-65, 101], [3, 30]];
 check('harbor: checkpoints land on control points', h.checkpoints.slice(1).every((c, i) => nearXZ(c, HARBOR_CP[i], 0.001)));
 check('harbor: minimap bounds', JSON.stringify(h.minimap.bounds) === JSON.stringify({ minX: -100, maxX: 350, minZ: -260, maxZ: 180 }));
-check('harbor: two closed walls, 870 points each, at ±16.3', h.collision.walls.length === 2 && h.collision.walls.every((w) => w.closed && w.polyline.length === 870));
+check('harbor: two closed walls, 870 points each, at Â±16.3', h.collision.walls.length === 2 && h.collision.walls.every((w) => w.closed && w.polyline.length === 870));
 check('harbor: 16 ribbons', h.ribbons.length === 16);
 const w = h.collision.walls[0];
 const wallGap = Math.hypot(w.polyline[0][0] - h.samples.points[0].x, w.polyline[0][1] - h.samples.points[0].z);
@@ -72,7 +72,7 @@ const maxErr = Math.max(...h.samples.points.map((p) => {
 }));
 check('harbor: UE Hermite spline matches every sample', maxErr < 0.001, `max error ${maxErr.toExponential(2)} m`);
 
-// ---- Violet Loop (Docs/Port/03 §2.4, §3.2, §4.1)
+// ---- Violet Loop (Docs/Port/03 Â§2.4, Â§3.2, Â§4.1)
 const v = load('violet-loop');
 shared(v, 'violet');
 check('violet: lap 1469.7 m', near(v.track.lapLengthM, 1469.7, 0.1), `${v.track.lapLengthM}`);
@@ -82,7 +82,7 @@ check('violet: 490 profile samples', v.samples.points.length === 490);
 const ys = v.samples.points.map((p) => p.y);
 check('violet: road y in -1.61..-1.60', Math.min(...ys) >= -1.6105 && Math.max(...ys) <= -1.5995, `${Math.min(...ys)}..${Math.max(...ys)}`);
 const widths = v.samples.points.map((p) => p.left.edge + p.right.edge);
-check('violet: road width 18–58.2 m', near(Math.min(...widths), 18, 0.5) && near(Math.max(...widths), 58.2, 0.1), `${Math.min(...widths).toFixed(2)}..${Math.max(...widths).toFixed(2)}`);
+check('violet: road width 18â€“58.2 m', near(Math.min(...widths), 18, 0.5) && near(Math.max(...widths), 58.2, 0.1), `${Math.min(...widths).toFixed(2)}..${Math.max(...widths).toFixed(2)}`);
 const open = v.samples.points.filter((p) => p.left.wall === null || p.right.wall === null).length;
 check('violet: 101 samples open on a side', open === 101, `${open}`);
 const VIOLET_CP = [[40, -140], [256, -142], [305, -88], [110, 6], [261, 33], [306, 74], [156, 81], [64, 133]];
@@ -98,14 +98,14 @@ check('violet: trackside plan 34 kerb runs, 2 stands, 100 banners (hung on the h
   && v.scenery.instances.filter((s) => s.prefab === 'banner_board').every((s) => near(s.y - v.track.groundY, 0.45, 0.01)),
   `${v.scenery.kerbRuns.length}/${count('grandstand')}/${count('banner_board')}`);
 check('violet: the garden is dressed (pillars, trees, crystals, lavender) and lit', count('pillar_stone') > 300 && count('garden_trunk') > 300
-  && count('lavender') > 2000 && v.scenery.instances.some((s) => s.prefab.startsWith('crystal_')) && v.scenery.lights.length > 20 && v.scenery.lights.length <= 64,
+  && count('lavender') > 2000 && v.scenery.instances.some((s) => s.prefab.startsWith('crystal_')) && v.scenery.lights.length >= 4 && v.scenery.lights.length <= 16,
   `${count('pillar_stone')} pillars, ${count('garden_trunk')} trees, ${count('lavender')} lavender, ${v.scenery.lights.length} lights`);
 check('violet: GLB mount (155,-28,15) x0.08', JSON.stringify(v.meshes[0].transform) === JSON.stringify({ position: [155, -28, 15], scale: 0.08 }));
 const wallPts = v.collision.profileWalls.reduce((a, w2) => a + w2.polyline.length, 0);
 const wallSamples = v.samples.points.filter((p) => p.left.wall !== null).length + v.samples.points.filter((p) => p.right.wall !== null).length;
 check('violet: profile walls cover every walled sample', wallPts === wallSamples, `${v.collision.profileWalls.length} runs, ${wallPts} points`);
 
-// ---- Violet mesh walls and dirt (src/violetMesh.mjs; Docs/Port/01 §5, §7.2, §7.5)
+// ---- Violet mesh walls and dirt (src/violetMesh.mjs; Docs/Port/01 Â§5, Â§7.2, Â§7.5)
 const roles = Object.fromEntries(v.collision.walls.map((w2) => [w2.role, w2.segments]));
 check('violet: GLB walls replace the profile fallback', v.collision.wallsAreFallback === false && v.collision.walls.length === 2 && roles.sweep && roles.probe);
 const segOk = (s) => s.length === 6 && s.every(Number.isFinite) && Math.hypot(s[2] - s[0], s[3] - s[1]) > 0 && Math.hypot(s[4], s[5]) > 0.71 && Math.hypot(s[4], s[5]) <= 1.0001;

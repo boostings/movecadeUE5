@@ -56,3 +56,15 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` runs a simulated phone against bots.
 - Specs for every system: `Docs/Port/01`–`04`. Plan, bug decisions and status: `Docs/Port/00-PLAN.md`.
 - Live Coding is off for this project (`Config/DefaultEditorPerProjectUserSettings.ini`), so close the editor
   before building from the command line.
+
+## Tracks
+
+| Track | Level | Look |
+|---|---|---|
+| Violet Loop | `L_VioletLoop` | The Violet Gardens at twilight: hedged islands, crystals, lavender rows, a glass conservatory |
+| Sunset Harbor | `L_SunsetHarbor` | A coastal town at golden hour: seawalls, real water, sandstone islets, palms |
+
+Both are built from `Data/Tracks/*.track.json` by `ATrackBuilder` (levels rebuilt by `Tools/ue/make_track_map.py`);
+the art comes from `Tools/track-export` (see its README). Look checks: `-KartTrackCam=x,y,z,lookX,lookY,lookZ` holds
+the first view on a fixed camera (three.js metres, as in the track JSON), and `-KartLookUE="key=value,..."`
+overrides a track's `look.ue` numbers (sun, sky, clouds, fog) without a rebuild.

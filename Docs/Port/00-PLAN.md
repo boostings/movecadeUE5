@@ -84,9 +84,10 @@ worked. Anything marked _verify_ gets checked in a live web race before we decid
   commercial build, or replace the track during the upgrade pass. Its profile generator script is missing, so
   the baked profile can't be regenerated if the mesh changes.
 - The **Violet GLB** uses Draco and WebP. Decode both before UE import.
-- **Violet Loop's scenery has Mario-style motifs** (green warp pipes, floating brick blocks, the layout of a
-  "mario-circuit" test model). Jimmy confirmed the model is theirs to use, but those shapes are an IP risk for a
-  commercial build: the maps pass replaces them with original props.
+- **Violet Loop's scenery had Mario-style motifs** (green warp pipes, floating brick blocks, studded block
+  barriers, conical hills). **Resolved (AAA environments pass):** the visuals are rebuilt original as a twilight
+  crystal garden (`Tools/track-export/src/violetGarden.ts`); only the GLB's road, line paint and verge remain, and
+  the sim's walls, dirt and every other gameplay value are byte-identical (`check.mjs` pins a fingerprint).
 - **Poly Haven normal maps** are OpenGL format: flip the green channel on import.
 
 ## Phases
@@ -104,7 +105,7 @@ Status as of 2026-10-19 (night). ✅ done · 🔄 in progress · ⏳ not started
 5. ✅ **Items.** (VFX upgrade 🔄 FX agent) Data-driven items with all the current powerups, item boxes, hit effects, VFX and SFX.
 6. ✅ **Phone host.** Local PartyKit only; real deployment needs the Origin decision (open risks). WebSocket room client, lobby with join code and QR, tilt frames → steering, host → phone feedback, score submission.
 7. ✅ **Audio.** (UAudioComponent layers, not MetaSounds; same maths, golden-tested.) MetaSound engine layering and every cue from spec 04.
-8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ⏳. Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
+8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ✅ (Violet rebuilt original as the Violet Gardens, Harbor's coast upgraded, per-track sky/sun/fog; Neon City parked on `tracks-neon-city-wip`). Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
 9. 🔄 **Ship.** Win64 packaging in progress. Win64 packaging, performance, QA against the web version.
 
 Phases 3, 5 and 6 can run in parallel (one agent each) once phase 2 has a drivable kart.

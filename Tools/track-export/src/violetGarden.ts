@@ -54,8 +54,9 @@ export const GARDEN = {
 const HEDGE = { height: 1.75, radius: 0.42, inset: 0.14, plinthTop: 0.42, base: -0.5 };
 /** Stone pillars along the hedges: spacing along an edge, footprint, height. */
 const PILLAR = { spacing: 17, size: 0.95, height: 2.45 };
-/** Lanterns get real point lights only near the road, and only this many. */
-const MAX_LANTERN_LIGHTS = 44;
+/** Lanterns get real point lights only near the road, and only this many: every light costs Lumen
+ *  surface-cache lighting across thousands of instances, and the lanterns' emissive glow carries the look. */
+const MAX_LANTERN_LIGHTS = 6;
 
 /** What violetMesh.mjs measured (the parts this module needs). */
 export interface VioletFootprints {
@@ -775,7 +776,7 @@ export const VIOLET_LOOK = {
   sunColor: '#ffc59a',
   sunScale: 1.2,
   skyLightScale: 1.15,
-  skyLightTint: '#b3a6ff',
+  skyLightTint: '#d6d0ff',
   skyTop: '#2b3f9e',
   skyMid: '#7b78d8',
   skyHorizon: '#ffb9a4',
