@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path "$PSScriptRoot\..\..").Path
 $editor = 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe'
-$gameArgs = @("`"$project\MyProject.uproject`"", "/Game/Maps/$Map", '-game', '-windowed', "-ResX=$ResX", "-ResY=$ResY",
+$gameArgs = @("`"$project\MyProject.uproject`"", "/Game/Maps/$Map", '-game', '-windowed', "-ResX=$ResX", "-ResY=$ResY", '-ForceRes',
     "`"-KartUiShots=$Steps`"", '-log=KartUiShots.log')
 $gameArgs += $Extra.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
 $proc = Start-Process -FilePath $editor -ArgumentList $gameArgs -PassThru -WorkingDirectory $project

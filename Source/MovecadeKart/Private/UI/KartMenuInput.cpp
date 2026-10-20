@@ -50,7 +50,7 @@ bool FKartMenuInputProcessor::IsDirectional(EKartMenuAction Action)
 
 void FKartMenuInputProcessor::SetDevice(EKartInputDevice NewDevice)
 {
-	if (NewDevice != Device)
+	if (NewDevice != Device && !bDeviceLocked)
 	{
 		Device = NewDevice;
 		if (OnDeviceChanged)

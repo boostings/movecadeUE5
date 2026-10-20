@@ -135,7 +135,7 @@ namespace
 			if (const AKartRaceManager* R = Race.Get(); R && R->GetTrack())
 			{
 				const FKartTrackInfo* Track = FKartTrackCatalog::Find(R->GetTrack()->Id);
-				Card.Text(Track ? Track->Name : FText::FromString(R->GetTrack()->Name), Font(EFont::Body, 24.f), Pos + FVector2D(Size.X * 0.5, 146.0),
+				Card.Text(Track ? Track->Name : FText::FromString(R->GetTrack()->Name), Font(EFont::Body, 24.f), Pos + FVector2D(Size.X * 0.5, 156.0),
 					Color::WithAlpha(Color::White, 0.8f), FVector2D(0.5, 0.5));
 			}
 			const FText Names[] = { LOCTEXT("ResumeButton", "Resume"), LOCTEXT("Restart", "Restart race"), LOCTEXT("Settings", "Settings"), LOCTEXT("QuitMenu", "Quit to menu") };
@@ -306,7 +306,7 @@ namespace
 				const FString Time = Result.bFinished ? SKartRaceOverlay::FormatRaceTime(Result.TimeMs) : FString(TEXT("DNF"));
 				Row.Text(Time, Font(EFont::Display, FMath::Min(36.f, static_cast<float>(Size.Y * 0.5))), FVector2D(Pos.X + Size.X - 230.0, Pos.Y + Size.Y * 0.5),
 					Result.bFinished ? Color::Navy : Color::NavyDim, FVector2D(1.0, 0.5));
-				if (Result.BestLapMs > 0.0)
+				if (Result.BestLapMs > 0.0 && R->GetTrack() && R->GetTrack()->Laps > 1)
 				{
 					Row.Text(LOCTEXT("Best", "BEST LAP"), Font(EFont::Label, 13.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0), Color::NavyDim, FVector2D(1.0, 1.0));
 					Row.Text(SKartRaceOverlay::FormatRaceTime(Result.BestLapMs), Font(EFont::Button, 22.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0),

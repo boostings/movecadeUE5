@@ -27,3 +27,16 @@ Pipeline: `Tools/art/decode.mjs` (Node, @gltf-transform 4.2.1 + draco3dgltf, raw
 `Tools/art/.cache/out`), then `Tools/ue/import_karts.py` (Interchange import, master materials and instances).
 Materials are new: `M_KartPaint` (clear coat), `M_KartTyre`, `M_VehiclePart`, `M_NamePlateBack`,
 `M_AvatarSkin` (subsurface profile), `M_AvatarHair`, `M_AvatarCloth` (cloth shading), `M_AvatarSurface`.
+
+### UI (UX workstream)
+
+| Asset | Source | Licence | Used for |
+|---|---|---|---|
+| Fredoka (Medium, SemiBold, Bold) | Google Fonts (static instances), Tools/ui/fetch_fonts.ps1; licence text in Tools/ui/fonts/Fredoka-OFL.txt | SIL Open Font License 1.1 | /Game/UI/Fonts/Fredoka-*: titles, buttons, values |
+| Nunito (Bold, ExtraBold, Black) | Google Fonts, same script; Tools/ui/fonts/Nunito-OFL.txt | SIL Open Font License 1.1 | /Game/UI/Fonts/Nunito-*: body text and labels |
+| Lilita One (Regular) | Google Fonts, same script; Tools/ui/fonts/LilitaOne-OFL.txt | SIL Open Font License 1.1 | /Game/UI/Fonts/LilitaOne-Regular: logo, place numbers, countdown, banners |
+| UI sounds ui_* and music_menu_loop | Synthesised in this repo by Tools/ui/make_ui_sounds.py (numpy; no samples) | Project-owned | /Game/UI/Sounds/* on the SC_UI / SC_Music sound classes |
+| SC_Music, SC_UI, SM_KartVolumes | Created by Tools/ue/import_ui_assets.py | Project-owned | Volume settings (master / music / SFX) |
+
+The logo, item icons, button glyphs (keyboard key caps; gamepad buttons drawn by position, with no console
+artwork) and every UI shape are drawn in code (Source/MovecadeKart/.../UI), so the UI ships no images.

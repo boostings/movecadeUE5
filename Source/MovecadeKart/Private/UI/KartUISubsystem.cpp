@@ -59,6 +59,10 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		Processor = MakeShared<FKartMenuInputProcessor>();
 		Processor->OnEvent = [this](const FKartMenuEvent& Event) { return HandleEvent(Event); };
 		FSlateApplication::Get().RegisterInputPreProcessor(Processor, 0);
+		if (FParse::Param(FCommandLine::Get(), TEXT("KartUiPad")))
+		{
+			Processor->ForceDevice(EKartInputDevice::Gamepad); // gamepad glyphs in screenshots
+		}
 	}
 	MapLoadedHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UKartUISubsystem::HandleMapLoaded);
 

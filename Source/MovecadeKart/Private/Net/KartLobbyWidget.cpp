@@ -202,7 +202,7 @@ void UKartLobbyWidget::BuildTree()
 	QrFrame->SetBrush(Rounded(22.f, Color::Navy, 4.f));
 	AddV(Left, Sized(QrFrame, 360.f, 360.f), 22.f)->SetHorizontalAlignment(HAlign_Center);
 	AddV(Left, Text(TEXT("ROOM CODE"), Font(EFont::Label, 20.f), Color::NavyDim), 0.f)->SetHorizontalAlignment(HAlign_Center);
-	CodeText = Text(TEXT("------"), Font(EFont::Display, 88.f), Color::Hot);
+	CodeText = Text(TEXT("------"), Font(EFont::Display, 68.f), Color::Hot);
 	AddV(Left, CodeText, 4.f)->SetHorizontalAlignment(HAlign_Center);
 	UrlText = Text(TEXT(""), Font(EFont::Body, 18.f), Color::NavyDim);
 	AddV(Left, UrlText, 12.f)->SetHorizontalAlignment(HAlign_Center);
@@ -500,7 +500,7 @@ void UKartLobbyWidget::Refresh()
 		const FMcSeat* Seat = State.FindBySeat(i + 1);
 		if (!Seat)
 		{
-			SeatRows[i]->SetBrushColor(Color::WithAlpha(Color::Paper, 0.55f));
+			SeatRows[i]->SetBrushColor(Color::WithAlpha(Color::Paper, 0.82f));
 			SeatSwatches[i]->SetBrushColor(Color::PaperShade);
 			SeatNames[i]->SetText(FText::FromString(TEXT("Waiting for a phone")));
 			SeatNames[i]->SetColorAndOpacity(FSlateColor(Color::NavyDim));

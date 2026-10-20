@@ -392,7 +392,7 @@ namespace
 			// The focused entry's card on the right: a big icon over its accent colour.
 			const int32 Item = Focus.Cursor.Index;
 			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / 0.35), 2.f);
-			const FVector2D CardSize(520.0, 440.0);
+			const FVector2D CardSize(520.0, 480.0);
 			const FVector2D CardPos(Frame.SafeMax.X - CardSize.X, Frame.Size.Y * 0.5 - CardSize.Y * 0.5 + 30.0);
 			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, 0.9f + 0.1f * Pop, (1.f - Pop) * -4.f).Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
@@ -1127,11 +1127,11 @@ namespace
 
 			const TArray<FKartTrackInfo>& Tracks = FKartTrackCatalog::All();
 			const FKartRaceSetup* Setup = Session(Host) ? &Session(Host)->GetSetup() : nullptr;
-			const FVector2D CardSize(620.0, 560.0);
+			const FVector2D CardSize(620.0, 590.0);
 			const double Gap = 48.0;
 			const double Total = Tracks.Num() * CardSize.X + (Tracks.Num() - 1) * Gap;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
-			const double Top = Frame.Size.Y * 0.5 - CardSize.Y * 0.5 - 10.0;
+			const double Top = Frame.Size.Y * 0.5 - CardSize.Y * 0.5 - 30.0;
 			for (int32 i = 0; i < Tracks.Num(); ++i)
 			{
 				const FKartTrackInfo& Track = Tracks[i];
@@ -1161,7 +1161,7 @@ namespace
 					Card.Text(LOCTEXT("Loading", "..."), Font(EFont::Display, 60.f), MapPos + MapSize * 0.5, Color::White, FVector2D(0.5, 0.5));
 				}
 				Card.Text(Track.Name, Font(EFont::Display, 56.f), Pos + FVector2D(34.0, 364.0), Color::Navy);
-				Card.TextWrapped(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 432.0), CardSize.X - 72.0, Color::NavyDim);
+				Card.TextWrapped(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 438.0), CardSize.X - 72.0, Color::NavyDim);
 				// Stat chips.
 				double ChipX = Pos.X + 34.0;
 				auto Chip = [&](const FString& Text, const FLinearColor& Fill)
@@ -1200,7 +1200,7 @@ namespace
 			FItemState Start;
 			Start.bFocused = true;
 			Start.FocusAge = Frame.Now - Focus.FocusAt;
-			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, 0.35f)), FVector2D(Frame.Size.X * 0.5, Top + CardSize.Y + 70.0),
+			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, 0.35f)), FVector2D(Frame.Size.X * 0.5, Top + CardSize.Y + 66.0),
 				LOCTEXT("StartRaceButton", "START RACE"), EKartMenuAction::Accept, Frame.Device, Start, 99);
 		}
 

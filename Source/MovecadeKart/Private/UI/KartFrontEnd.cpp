@@ -25,7 +25,6 @@ using namespace MovecadeKart;
 
 namespace
 {
-	constexpr double FlyoverShotSeconds = 6.0;
 	constexpr double ShotBlendSeconds = 1.2;
 }
 
@@ -232,19 +231,15 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 	};
 	const FTrack& T = *Track;
 
-	if (InShot == EKartFrontEndShot::Flyover && T.StaticCameras.Num() > 0)
+	if (InShot == EKartFrontEndShot::Flyover && T.MinimapBounds.bIsValid)
 	{
-		// The track's own intro shots, each a slow dolly (a push in and a crab), cut like a broadcast.
-		const int32 Index = FMath::FloorToInt32(Time / FlyoverShotSeconds) % T.StaticCameras.Num();
-		const double Local = FMath::Fmod(Time, FlyoverShotSeconds);
-		const FStaticCamera& Base = T.StaticCameras[Index];
-		const FVector Rebase(0.0, T.SuggestedRebaseY, 0.0);
-		const FVector Eye = Coords::ToUE(Base.Position + Rebase);
-		const FVector Look = Coords::ToUE(Base.LookAt + Rebase);
-		const FVector Toward = (Look - Eye).GetSafeNormal();
-		const FVector Side = FVector::CrossProduct(FVector::UpVector, Toward).GetSafeNormal() * (Index % 2 == 0 ? 1.0 : -1.0);
-		const FVector Moved = Eye + (Toward * 60.0 + Side * 45.0) * Local;
-		return LookAt(Moved, Look + Side * 25.0 * Local);
+		// The attract shot: a low drone circling the circuit, looking across it, a little faster than the menus' orbit.
+		const FVector2D Centre = T.MinimapBounds.GetCenter();
+		const double Extent = FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y);
+		const double Angle = 0.9 + Time * 0.055;
+		const FVector2D Dir(FMath::Cos(Angle), FMath::Sin(Angle));
+		const FVector Eye = Coords::ToUE(Centre + Dir * Extent * 0.48, Extent * 0.11 + 6.0 * FMath::Sin(Time * 0.3));
+		return LookAt(Eye, Coords::ToUE(Centre - Dir * Extent * 0.12, -Extent * 0.02));
 	}
 	if (InShot == EKartFrontEndShot::Showroom && T.Grid.Num() > 0)
 	{

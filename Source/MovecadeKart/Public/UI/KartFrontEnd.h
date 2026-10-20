@@ -15,7 +15,7 @@ enum class EKartMenuEntry : uint8;
 /** Where the front end's camera looks. */
 enum class EKartFrontEndShot : uint8
 {
-	/** A low flyover along the racing line (the attract loop behind the title). */
+	/** A low drone circling the circuit (the attract loop behind the title). */
 	Flyover,
 	/** A slow high orbit of the whole track, behind the menus. */
 	Orbit,

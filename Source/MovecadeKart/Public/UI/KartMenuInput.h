@@ -67,6 +67,8 @@ public:
 	static bool IsDirectional(EKartMenuAction Action);
 
 	EKartInputDevice GetDevice() const { return Device; }
+	/** Pins the device the hints show, whatever is pressed (-KartUiPad screenshots). */
+	void ForceDevice(EKartInputDevice NewDevice) { SetDevice(NewDevice); bDeviceLocked = true; }
 
 	virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
 	virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override;
@@ -79,4 +81,5 @@ private:
 	void SetDevice(EKartInputDevice NewDevice);
 
 	EKartInputDevice Device = EKartInputDevice::Keyboard;
+	bool bDeviceLocked = false;
 };
