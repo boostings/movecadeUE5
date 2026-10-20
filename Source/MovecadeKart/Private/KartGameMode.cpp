@@ -207,6 +207,8 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 		Seat.Kind = EKartSeatKind::Phone;
 		Seat.Name = Player.Name;
 		Seat.Paint = Player.PaintColor;
+		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Seats.Num() - 1);
+		Seat.bHasLook = true;
 		RoomSeatOf.Add(Player.SeatIndex());
 		RoomPlayerOf.Add(Player.PlayerId);
 	}

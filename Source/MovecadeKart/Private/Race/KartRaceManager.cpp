@@ -125,7 +125,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		AKartPawn* Kart = GetWorld()->SpawnActor<AKartPawn>(AKartPawn::StaticClass(),
 			FTransform(FRotator(0.0, Coords::YawToUE(Slot.Yaw), 0.0), Coords::ToUE(Slot.Position)), Params);
-		Kart->SetPaint(Seats[Seat].Paint);
+		FKartLook Look = Seats[Seat].bHasLook ? Seats[Seat].Look : FKartLook::MakeVaried(Seat);
+		Look.Paint = Seats[Seat].Paint;
+		Look.Name = Seats[Seat].Name;
+		Kart->SetLook(Look);
 		Kart->GetKartMovement()->SetExternallyStepped(true);
 		Kart->GetKartMovement()->MutableSim().bLegacyStickyWalls = bLegacyWalls;
 		Kart->GetKartMovement()->InitSim(Track, Seat);
