@@ -39,6 +39,14 @@ namespace MovecadeKart
 	void FWallSet::Query(const FVector2D& Min, const FVector2D& Max, FCandidates& Out) const
 	{
 		Out.Reset();
+		// NaN or a position a million km away would overflow the int32 cell walk below (or take forever): no walls.
+		constexpr double MaxCoordinate = 1e9;
+		if (!ensureMsgf(FMath::Abs(Min.X) < MaxCoordinate && FMath::Abs(Min.Y) < MaxCoordinate
+			&& FMath::Abs(Max.X) < MaxCoordinate && FMath::Abs(Max.Y) < MaxCoordinate,
+			TEXT("Wall query out of range: (%f, %f)-(%f, %f)"), Min.X, Min.Y, Max.X, Max.Y))
+		{
+			return;
+		}
 		const FIntPoint C0 = CellOf(Min);
 		const FIntPoint C1 = CellOf(Max);
 		for (int32 X = C0.X; X <= C1.X; ++X)
@@ -519,6 +527,11 @@ namespace MovecadeKart
 			else if (T.Laps < 1)
 			{
 				OutError = TEXT("Track needs at least one lap");
+			}
+			else if (!(T.SweepSubstep > 0.0) || !(T.KartRadius > 0.0))
+			{
+				// The wall sweep divides by the substep; a zero or NaN here never terminates.
+				OutError = FString::Printf(TEXT("sweepSubstep (%f) and kartRadius (%f) must be positive"), T.SweepSubstep, T.KartRadius);
 			}
 			return OutError.IsEmpty();
 		}

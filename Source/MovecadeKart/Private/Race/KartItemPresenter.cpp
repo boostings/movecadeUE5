@@ -1196,6 +1196,10 @@ void AKartItemPresenter::Tick(float DeltaSeconds)
 	// Kart item visuals.
 	for (const FKartRacer& Racer : Race->GetRacers())
 	{
+		if (!Items.Slots().IsValidIndex(Racer.Seat))
+		{
+			continue;
+		}
 		const FKartItemSlot& Slot = Items.Slots()[Racer.Seat];
 		FKartItemVisual Visual;
 		if (Now < Slot.SpinUntil)

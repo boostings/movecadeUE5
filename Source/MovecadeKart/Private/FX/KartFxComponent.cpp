@@ -728,6 +728,10 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 			Out.Add(Burst);
 			for (const UNiagaraComponent* Pipe : BoostFire)
 			{
+				if (!Pipe)
+				{
+					continue; // no FX content: MakeStream returned null
+				}
 				FKartFxEmit Gout;
 				Gout.Field = EField::Fire;
 				Gout.Position = Pipe->GetComponentLocation();

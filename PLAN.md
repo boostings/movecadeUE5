@@ -20,7 +20,8 @@ Done before this plan: e33a905 Mac clang build fix, afc95be fingerprint test.
   - Race/KartRaceManager.cpp/.h + new Public/Race/KartStandings.h: pure placing/context maths used by game and test.
   - MovecadeKart.Build.cs: `FPSemantics = FPSemanticsMode.Precise` (shipped Win64 game was /fp:fast).
   - Accept: gate green, new fingerprint baseline recorded here.
-- [ ] **2. Correctness.** FX/KartFxComponent.cpp (null BoostFire pipe); UI/KartScreen.h/.cpp,
+- [x] **2. Correctness.** Done: gate 54/0, fingerprint identical, smoke clean. GameMode unbinds in .cpp before
+  travel (RemoveAll) instead of an EndPlay override, so KartGameMode.h is untouched. FX/KartFxComponent.cpp (null BoostFire pipe); UI/KartScreen.h/.cpp,
   Race/SKartRaceOverlay.cpp, UI/KartFrontEnd.cpp (`Top()` by value); UI/KartFrontEndScreens.cpp (sanitize on change,
   clamp BotSkill); UI/Hud/SKartRaceHud.cpp, UI/KartUISubsystem.cpp, Race/KartItemPresenter.cpp (guards, weak
   capture); KartGameMode.cpp, Race/KartRaceManager.cpp (RemoveDynamic, null checks); Net/RoomProtocol.cpp,

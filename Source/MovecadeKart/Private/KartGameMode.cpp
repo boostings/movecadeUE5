@@ -167,6 +167,21 @@ void AKartGameMode::SetupRoom()
 	}
 }
 
+namespace
+{
+	/** Leaving this level: the room subsystem outlives this GameMode, and a state message that lands before teardown
+	 *  must not reach it (it would travel a second time). */
+	void StopListeningToRoom(AKartGameMode* Mode)
+	{
+		if (URoomHostSubsystem* Room = Mode->GetGameInstance()->GetSubsystem<URoomHostSubsystem>())
+		{
+			Room->OnStartRequested.RemoveAll(Mode);
+			Room->OnReturnedToLobby.RemoveAll(Mode);
+			Room->OnPauseChanged.RemoveAll(Mode);
+		}
+	}
+}
+
 void AKartGameMode::HandleRoomStart(const FString& MapId)
 {
 	if (bRaceBuilt)
@@ -180,6 +195,7 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 		const FString Level = FKartTrackCatalog::LevelFor(MapId);
 		if (FPackageName::DoesPackageExist(Level))
 		{
+			StopListeningToRoom(this);
 			UGameplayStatics::OpenLevel(this, FName(*Level));
 			return;
 		}
@@ -195,6 +211,10 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 {
 	URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>();
+	if (!Room)
+	{
+		return;
+	}
 	const TCHAR* Cmd = FCommandLine::Get();
 	int32 Bots = 0;
 	FParse::Value(Cmd, TEXT("KartBots="), Bots);
@@ -320,7 +340,7 @@ void AKartGameMode::SendLiveScores()
 	TArray<FMcScoreEntry> Scores;
 	for (const FKartRacer& Racer : RaceManager->GetRacers())
 	{
-		if (!RoomPlayerOf.IsValidIndex(Racer.Seat) || RoomPlayerOf[Racer.Seat].IsEmpty())
+		if (!Racer.Kart || !RoomPlayerOf.IsValidIndex(Racer.Seat) || RoomPlayerOf[Racer.Seat].IsEmpty())
 		{
 			continue;
 		}
@@ -337,6 +357,7 @@ void AKartGameMode::HandleRoomLobby()
 	if (bRaceBuilt)
 	{
 		// Back to the lobby: reload the level for a clean grid; the lobby shows on StartPlay.
+		StopListeningToRoom(this);
 		UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this)));
 	}
 }

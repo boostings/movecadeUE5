@@ -885,6 +885,10 @@ namespace
 		virtual void OnShown() override
 		{
 			Focus.FocusAt = NowSeconds();
+			if (UKartSessionSettings* S = Session(Host))
+			{
+				S->MutableSetup().Sanitize(Grid());
+			}
 			if (AKartFrontEnd* FE = FrontEnd.Get())
 			{
 				FE->SetShot(EKartFrontEndShot::Orbit);
@@ -946,22 +950,23 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			UKartSessionSettings* S = Session(Host);
+			const UKartSessionSettings* S = Session(Host);
 			if (!S)
 			{
 				return;
 			}
-			FKartRaceSetup& Setup = S->MutableSetup();
-			Setup.Sanitize(Grid());
+			// Read-only: the setup is sanitized when this screen is shown and on every change, never while painting.
+			const FKartRaceSetup& Setup = S->GetSetup();
 			LeftPanel(P, Frame, 1040.f, 0.72f);
 			KartWidgets::Header(P, Frame, LOCTEXT("RulesTitle", "Race rules"), LOCTEXT("RulesSub", "Set up the grid."), Color::Sky);
 			KartWidgets::Steps(P, Frame, SetupSteps(), 1);
 
 			const FText Skill[] = { LOCTEXT("Easy", "Easy"), LOCTEXT("Normal", "Normal"), LOCTEXT("Hard", "Hard") };
+			const FText& SkillName = Skill[FMath::Clamp(Setup.BotSkill, 0, 2)];
 			const FText Labels[] = { LOCTEXT("Opponents", "Opponents"), LOCTEXT("BotSkill", "Bot skill"), LOCTEXT("Laps", "Laps"), LOCTEXT("Screens", "Screens") };
 			const FText Values[] = {
 				Setup.Bots == 0 ? LOCTEXT("NoBots", "None") : FText::Format(LOCTEXT("BotsN", "{0} {0}|plural(one=bot,other=bots)"), Setup.Bots),
-				Skill[FMath::Clamp(Setup.BotSkill, 0, 2)],
+				SkillName,
 				FText::AsNumber(Setup.Laps),
 				Setup.bViewEveryKart ? LOCTEXT("EveryKart", "Every kart (TV)") : LOCTEXT("PerPlayer", "One per player"),
 			};
@@ -984,7 +989,7 @@ namespace
 			const FKartPainter Card = P.Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 4.f);
 			Card.Text(FText::Format(LOCTEXT("RacersCount", "{0} racers"), Racers), Font(EFont::Display, 56.f), CardPos + FVector2D(36.0, 26.0), Color::Navy);
-			Card.Text(FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, Skill[Setup.BotSkill]),
+			Card.Text(FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, SkillName),
 				Font(EFont::Body, 26.f), CardPos + FVector2D(38.0, 104.0), Color::NavyDim);
 			for (int32 i = 0; i < 8; ++i)
 			{
@@ -1021,6 +1026,7 @@ namespace
 				return;
 			}
 			FKartRaceSetup& Setup = S->MutableSetup();
+			Setup.Sanitize(Grid());
 			const FKartRaceSetup Before = Setup;
 			switch (Row)
 			{

@@ -184,7 +184,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 	// Intro shots: the track's static cameras (store.ts: 5 shots x 1.2 s).
 	for (ACameraActor* Camera : IntroCameras)
 	{
-		Camera->Destroy();
+		if (Camera)
+		{
+			Camera->Destroy();
+		}
 	}
 	IntroCameras.Reset();
 	for (int32 i = 0; i < FMath::Min(IntroShots, Track->StaticCameras.Num()); ++i)

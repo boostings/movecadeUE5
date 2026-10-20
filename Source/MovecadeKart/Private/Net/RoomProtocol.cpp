@@ -94,10 +94,18 @@ namespace MovecadeKart::Net
 			return bValue;
 		}
 
+		/** A JSON number as an integer, truncated like a C cast; Default if it is missing, NaN or beyond int64 (where
+		 *  the cast is undefined). */
 		int64 GetInt64(const FJsonObject& Object, const TCHAR* Key, int64 Default = 0)
 		{
 			double Value = 0.0;
-			return Object.TryGetNumberField(Key, Value) ? static_cast<int64>(Value) : Default;
+			return Object.TryGetNumberField(Key, Value) && FMath::Abs(Value) < 9.2e18 ? static_cast<int64>(Value) : Default;
+		}
+
+		/** As GetInt64, saturated to int32: a seat of 2^32 + 1 must fail the seat bounds check, not wrap to seat 1. */
+		int32 GetInt32(const FJsonObject& Object, const TCHAR* Key, int32 Default = 0)
+		{
+			return static_cast<int32>(FMath::Clamp<int64>(GetInt64(Object, Key, Default), MIN_int32, MAX_int32));
 		}
 
 		FLinearColor Hex(const TCHAR* Value)
@@ -439,7 +447,7 @@ namespace MovecadeKart::Net
 				const FJsonObject& Player = **P;
 				FMcSeat Seat;
 				Seat.PlayerId = GetString(Player, TEXT("id"));
-				Seat.Seat = static_cast<int32>(GetInt64(Player, TEXT("seat")));
+				Seat.Seat = GetInt32(Player, TEXT("seat"));
 				Seat.Name = GetString(Player, TEXT("name"));
 				Seat.Emoji = GetString(Player, TEXT("emoji"));
 				Seat.bReady = GetBool(Player, TEXT("ready"));
@@ -447,8 +455,8 @@ namespace MovecadeKart::Net
 				Seat.bConnected = GetBool(Player, TEXT("connected"));
 				Seat.bEliminated = GetBool(Player, TEXT("eliminated"));
 				Seat.bBot = GetBool(Player, TEXT("bot"));
-				Seat.GraceRemainingMs = static_cast<int32>(GetInt64(Player, TEXT("graceRemainingMs")));
-				Seat.Score = static_cast<int32>(GetInt64(Player, TEXT("score")));
+				Seat.GraceRemainingMs = GetInt32(Player, TEXT("graceRemainingMs"));
+				Seat.Score = GetInt32(Player, TEXT("score"));
 				Seat.Screen = GetString(Player, TEXT("screen"));
 				const TSharedPtr<FJsonObject>* Avatar = nullptr;
 				if (Player.TryGetObjectField(TEXT("avatar"), Avatar))
@@ -473,7 +481,7 @@ namespace MovecadeKart::Net
 		{
 			R.Status = ParseStatus(GetString(**Game, TEXT("status")));
 			R.Phase = GetString(**Game, TEXT("phase"));
-			R.MatchNumber = static_cast<int32>(GetInt64(**Game, TEXT("matchNumber")));
+			R.MatchNumber = GetInt32(**Game, TEXT("matchNumber"));
 			R.StartedAt = GetInt64(**Game, TEXT("startedAt"));
 			R.PauseReason = GetString(**Game, TEXT("pauseReason"));
 			R.PausedForPlayerId = GetString(**Game, TEXT("pausedForPlayerId"));
