@@ -31,6 +31,11 @@ namespace
 	constexpr double FinishGraceMs = 30000.0;
 	constexpr int32 MaxStepsPerFrame = 4;
 
+	// Occluders: a kart is hidden from a viewport when it sits between that viewport's camera and its own kart.
+	constexpr double OccluderCentreHeight = 80.0;    // cm above the kart's origin: the body, not the wheels
+	constexpr double OccluderMaxAlong = 0.92;        // only karts in front of the own kart along the sight line
+	constexpr double OccluderRadius = 220.0;         // cm from the sight line
+
 	/** The web's item ids, which the audio observer keys item-spend sounds on. */
 	FName WebItemId(EKartItem Item)
 	{
@@ -527,9 +532,9 @@ void AKartRaceManager::UpdateOccluders()
 			{
 				continue;
 			}
-			const FVector P = Other.Kart->GetActorLocation() + FVector(0.0, 0.0, 80.0);
+			const FVector P = Other.Kart->GetActorLocation() + FVector(0.0, 0.0, OccluderCentreHeight);
 			const double T = FVector::DotProduct(P - Eye, Seg) / SegLenSq;
-			if (T > 0.0 && T < 0.92 && FVector::Dist(P, Eye + Seg * T) < 220.0)
+			if (T > 0.0 && T < OccluderMaxAlong && FVector::Dist(P, Eye + Seg * T) < OccluderRadius)
 			{
 				PC->HiddenActors.Add(Other.Kart);
 			}
@@ -563,7 +568,7 @@ void AKartRaceManager::BeginRacing()
 FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
 {
 	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
-	const double Now = RaceSteps / 60.0;
+	const double Now = RaceSteps * FKartSim::StepSeconds;
 	if (Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal))
 	{
 		// Finished karts cruise on the bot's line so they keep clear of the racers. Empty-handed racers may

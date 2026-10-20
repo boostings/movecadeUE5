@@ -235,6 +235,7 @@ AKartPawn::AKartPawn()
 	const TCHAR* Cmd = FCommandLine::Get();
 	Feel.bEnabled = !FParse::Param(Cmd, TEXT("KartWebFeel"));
 	bDebugGrip = FParse::Param(Cmd, TEXT("KartDebugGrip"));
+	bCinematic = FParse::Param(Cmd, TEXT("KartCinematic"));
 	// -KartCloseCam=<yaw deg>,<distance m>,<height m>[,<deg/s>]: an orbit shot of this kart for art checks
 	// (yaw 0 = straight ahead of the kart looking back at it; the optional rate orbits it).
 	FString Value;
@@ -829,13 +830,29 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 		Eye = Coords::ToUE(Pos + Fwd * 3.6, EyeHeight * 0.6);
 		View = (Coords::ToUE(Pos - Fwd * 9.0, LookHeight * 0.45) - Eye).Rotation();
 	}
-	if (CloseCam.Y > 0.0)
+	// -KartCinematic: trailer coverage, a hard cut every 4.5 s through the chase view and tracking shots
+	// around the kart (yaw from ahead, distance m, height m, orbit deg/s; distance <= 0 is the chase view).
+	FVector4 Orbit = CloseCam;
+	if (bCinematic)
 	{
+		static const FVector4 Shots[] = {
+			FVector4(0, -1, 0, 0),       // chase
+			FVector4(35, 5.0, 0.9, 0),   // low front three-quarter
+			FVector4(95, 6.5, 1.4, 0),   // side tracking
+			FVector4(0, 6.0, 2.2, 14),   // slow orbit
+			FVector4(180, 13.0, 5.5, 0), // high and wide, behind
+			FVector4(150, 3.4, 0.55, 0), // low over the rear wheel
+		};
+		Orbit = Shots[FMath::FloorToInt32(Now / 4.5) % UE_ARRAY_COUNT(Shots)];
+	}
+	if (Orbit.Y > 0.0)
+	{
+		// Rigid to the kart's heading (not the drifting body), so tracking shots stay smooth through drifts.
 		const FVector Centre = VehicleRoot->GetComponentLocation() + FVector(0, 0, 50);
-		const FVector Orbit = FRotator(0, BodyPivot->GetComponentRotation().Yaw + CloseCam.X + CloseCam.W * Now, 0).Vector();
-		Eye = Centre + Orbit * CloseCam.Y * 100.0 + FVector(0, 0, CloseCam.Z * 100.0);
+		const FVector Around = FRotator(0, GetActorRotation().Yaw + Orbit.X + Orbit.W * Now, 0).Vector();
+		Eye = Centre + Around * Orbit.Y * 100.0 + FVector(0, 0, Orbit.Z * 100.0);
 		Camera->SetWorldLocationAndRotation(Eye, (Centre - Eye).Rotation());
-		Camera->SetFieldOfView(50.f);
+		Camera->SetFieldOfView(bCinematic ? 62.f : 50.f);
 		return;
 	}
 	Camera->SetWorldLocationAndRotation(Eye, View);
