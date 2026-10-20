@@ -47,3 +47,6 @@
 *.py text
 *.json text
 *.md text
+
+# Patches are applied with git am: keep their bytes
+*.patch -text
