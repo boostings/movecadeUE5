@@ -138,6 +138,12 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Racer.Name = Seats[Seat].Name;
 		Racer.Kind = Seats[Seat].Kind;
 		Racer.Paint = Seats[Seat].Paint;
+		switch (Seats[Seat].BotSkill)
+		{
+		case EKartBotSkill::Easy: Racer.Bot.Tuning = FKartBotTuning::Easy(); break;
+		case EKartBotSkill::Hard: Racer.Bot.Tuning = FKartBotTuning::Hard(); break;
+		default: Racer.Bot.Tuning = FKartBotTuning::Normal(); break;
+		}
 		Racer.Kart = Kart;
 		Racer.Viewer = Viewers.IsValidIndex(Seat) ? Viewers[Seat] : nullptr;
 		if (Racer.Viewer)
@@ -205,6 +211,7 @@ void AKartRaceManager::RestartRace()
 		Racer.bFinished = false;
 		Racer.FinishMs = 0.0;
 		Racer.bUseItemHeld = false;
+		Racer.LastTerrainRumble = -1000.0;
 	}
 	++RaceNumber;
 	Items.Reset(1234 + RaceNumber);
@@ -386,7 +393,9 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 		// Everything freezes: the pause menu, or the room waiting for a phone (pauseLifecycle.ts).
 		return;
 	}
-	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0);
+	// Up to MaxStepsPerFrame steps of real time per frame: a busy GPU (down to 15 fps) keeps race time, and only a
+	// long hitch drops time instead of spiralling.
+	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), MaxStepsPerFrame * FKartSim::StepSeconds);
 	PhaseSeconds += Dt;
 
 	switch (Phase)

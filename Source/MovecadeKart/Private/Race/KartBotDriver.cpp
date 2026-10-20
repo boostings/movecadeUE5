@@ -43,7 +43,7 @@ namespace MovecadeKart
 		return P;
 	}
 
-	double FKartBotDriver::TurnDemand(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path)
+	double FKartBotDriver::TurnDemand(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double LookAheadDistance, double Gain)
 	{
 		if (Path.Num() < 2)
 		{
@@ -57,7 +57,7 @@ namespace MovecadeKart
 		return FMath::Clamp(Error * Gain, -Limit, Limit);
 	}
 
-	void FKartBotDriver::Wheel(double Demand, int32 HeldDrift, double& OutSteering, int32& OutDrift)
+	void FKartBotDriver::Wheel(double Demand, int32 HeldDrift, double& OutSteering, int32& OutDrift, double DriftEnter)
 	{
 		if (HeldDrift == 0 && FMath::Abs(Demand) > DriftEnter)
 		{
@@ -77,19 +77,26 @@ namespace MovecadeKart
 		{
 			return Held;
 		}
-		NextTick = Now + TickSeconds;
+		NextTick = Now + Tuning.TickSeconds;
+		++Ticks;
 
 		double WheelSteering = 0.0;
 		int32 WheelDrift = 0;
+		bool bGas = bRacing;
 		if (bRacing)
 		{
-			Wheel(TurnDemand(State.Pos, State.Yaw, Path), Drift, WheelSteering, WheelDrift);
+			const double Demand = TurnDemand(State.Pos, State.Yaw, Path, Tuning.LookAheadDistance, Tuning.Gain);
+			Wheel(Demand, Drift, WheelSteering, WheelDrift, Tuning.DriftEnter);
+			// A cautious bot lifts in the tight bends, unless it's drifting (a drift needs the gas).
+			const bool bLift = Tuning.LiftDemand > 0.0 && WheelDrift == 0 && FMath::Abs(Demand) > Tuning.LiftDemand && FMath::Abs(State.Speed) > 22.0;
+			const bool bCoast = Tuning.CoastEvery > 0 && WheelDrift == 0 && Ticks % Tuning.CoastEvery == 0 && FMath::Abs(State.Speed) > 28.0;
+			bGas = !bLift && !bCoast;
 		}
-		if (bRacing != bAccelerating || WheelDrift != Drift || FMath::Abs(WheelSteering - Steering) > 0.04 || Now - SentAt >= RefreshSeconds)
+		if (bGas != bAccelerating || WheelDrift != Drift || FMath::Abs(WheelSteering - Steering) > 0.04 || Now - SentAt >= RefreshSeconds)
 		{
 			Steering = WheelSteering;
 			Drift = WheelDrift;
-			bAccelerating = bRacing;
+			bAccelerating = bGas;
 			SentAt = Now;
 			// kart-input {isAccelerating, isDrifting, steeringInput} (legacyBridge.ts syncKartInput).
 			Held = FKartInput();

@@ -44,18 +44,16 @@ namespace MovecadeKart
 		double BoostMultiplier = 1.0;
 		double BoostTimeRemaining = 0.0;
 		bool bOnDirt = false;
-		/** > 0 on a frame with a wall hit (the sim's collision event intensity). */
+		/** > 0 on the frame that first sees a wall hit (the sim's collision event intensity); 0 otherwise. */
 		double WallImpact = 0.0;
 		/** Which side the wall was hit on: +1 right, -1 left (from the collision normal). */
 		double WallSide = 0.0;
-		/** > 0 on a frame this kart bumped another. */
+		/** > 0 on the frame that first sees this kart bump another. */
 		double BumpImpact = 0.0;
 		/** Counts up on every drift boost; a change means a mini-turbo just fired. */
 		uint32 DriftBoostCount = 0;
 		/** Counts up on every teleport; a change resets the springs instead of springing across the map. */
 		uint32 TeleportCount = 0;
-		/** The race clock, for the road rumble's noise. */
-		double Time = 0.0;
 	};
 
 	/** The pose and camera offsets for this frame. Angles in degrees, lengths in metres. */

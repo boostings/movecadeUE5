@@ -195,7 +195,8 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 
 	// Reach: lean in until both grips are comfortably within reach, rather than locking the elbows straight
 	// toward a wheel that sits past the arm's length (the mounts place the rim for the web's thinner arms).
-	if (Input.bHasGrip)
+	const float Cheer = FMath::Clamp(Input.Cheer, 0.f, 1.f);
+	if (Input.bHasGrip && Cheer < 0.99f)
 	{
 		float Leaned = 0.f;
 		for (int32 Iteration = 0; Iteration < 4 && Leaned < MaxReachLean; ++Iteration)
@@ -221,7 +222,7 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 			{
 				break;
 			}
-			const float Step = FMath::Min(static_cast<float>(Excess / Lever), MaxReachLean - Leaned);
+			const float Step = FMath::Min(static_cast<float>(Excess / Lever), MaxReachLean - Leaned) * (1.f - Cheer);
 			const FQuat Lean(Axis, Step);
 			Rig.Rotate(Torso, Lean);
 			TorsoDelta = Lean * TorsoDelta;
@@ -232,7 +233,7 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 	// Head: eyes back toward level and looking into the turn.
 	const FVector Facing = TorsoDelta.RotateVector(Forward);
 	FVector Gaze = Forward * FMath::Cos(HeadYaw) + Right * FMath::Sin(HeadYaw);
-	Gaze = (Gaze + Down * (0.06f - Bounce * 0.07f)).GetSafeNormal();
+	Gaze = (Gaze + Down * (0.06f - Bounce * 0.07f) + Up * 0.3f * Cheer).GetSafeNormal();
 	const FQuat HeadDelta = FQuat::FindBetweenNormals(Facing, FMath::Lerp(Facing, Gaze, 0.85f).GetSafeNormal());
 	if (Neck != INDEX_NONE)
 	{
@@ -261,6 +262,13 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 				Target = FMath::Lerp(Target, Raised, FMath::Clamp(Input.ItemRaise, 0.f, 1.f));
 			}
 			const FVector Out = Side == 0 ? -Right : Right;
+			if (Cheer > 0.f)
+			{
+				// Both arms up in a V, waving out of phase.
+				const float Wave = FMath::Sin(Input.Time * 7.f + Side * UE_PI) * 0.18f;
+				const FVector Raised = Shoulder + (Up * 0.85f + Out * (0.38f + Wave) + Forward * 0.12f).GetSafeNormal() * (L1 + L2) * 0.93;
+				Target = FMath::Lerp(Target, Raised, Cheer);
+			}
 			const FVector Pole = Out * 0.6f + Down * 0.7f - Forward * 0.3f;
 			const FVector Elbow = SolveMiddle(Shoulder, Target, L1, L2, Pole);
 			Rig.Aim(Upper, Fore, Elbow - Shoulder);

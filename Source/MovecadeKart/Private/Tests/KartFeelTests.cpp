@@ -18,7 +18,6 @@ namespace
 		{
 			Mutate(In, i);
 			Pose = Feel.Update(In);
-			In.Time += In.DeltaSeconds;
 		}
 		return Pose;
 	}
@@ -87,7 +86,7 @@ bool FKartFeelChassisTest::RunTest(const FString& Parameters)
 		FKartFeel Feel;
 		const FKartFeelPose Accel = Run(Feel, Rest, 0.4, 60.0, [](FKartFeelInput& In, int32) { In.Speed += 12.0 * In.DeltaSeconds; });
 		TestTrue(TEXT("throttle: nose up"), Accel.ChassisPitch > 1.0);
-		const FKartFeelPose Brake = Run(Feel, Rest, 0.4, 60.0, [](FKartFeelInput& In, int32) { In.Speed = FMath::Max(0.0, 30.0 - 60.0 * In.Time); });
+		const FKartFeelPose Brake = Run(Feel, Rest, 0.4, 60.0, [](FKartFeelInput& In, int32 Frame) { In.Speed = FMath::Max(0.0, 30.0 - Frame); });
 		TestTrue(TEXT("brake: nose down"), Brake.ChassisPitch < -1.0);
 	}
 	{

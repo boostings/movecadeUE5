@@ -181,6 +181,8 @@ private:
 	double WheelSpin = 0.0;
 	double RimTurn = 0.0;
 	double NextBlink = 2.0;
+	/** 0..1, eases in once this kart has finished. */
+	double Cheer = 0.0;
 	double BlinkStart = -10.0;
 
 	bool bSplitScreenCamera = false;
@@ -190,6 +192,12 @@ private:
 
 	/** Chassis and camera juice on top of the sim's presentation layers (-KartWebFeel turns it off). */
 	MovecadeKart::FKartFeel Feel;
+
+	uint32 SeenBarrierEvents = 0;
+	uint32 SeenBumpEvents = 0;
+	bool bDebugGrip = false;
+	/** -KartCloseCam: yaw, distance and height of an orbit shot, and its rate; Y <= 0 means off. */
+	FVector4 CloseCam = FVector4(0, -1, 0, 0);
 
 	FVector CameraPos = FVector::ZeroVector;
 	FVector CameraLook = FVector::ZeroVector;
