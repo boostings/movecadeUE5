@@ -29,7 +29,7 @@ namespace
 	/** Value flags, matched with their '='. */
 	const TCHAR* SkipValues[] = {
 		TEXT("KartShots="), TEXT("KartQuitAfter="), TEXT("KartBots="), TEXT("KartLocalPlayers="), TEXT("KartLaps="),
-		TEXT("KartVehicle="), TEXT("KartOutfit="), TEXT("KartCloseCam="), TEXT("KartPhoneSeat="),
+		TEXT("KartVehicle="), TEXT("KartOutfit="), TEXT("KartCloseCam="), TEXT("KartPhoneSeat="), TEXT("KartBotSkill="),
 	};
 }
 
@@ -43,6 +43,7 @@ void FKartRaceSetup::Sanitize(int32 GridSlots)
 	Laps = FMath::Clamp(Laps, 1, MaxLaps);
 	LocalPlayers = FMath::Clamp(LocalPlayers, 1, FMath::Min(MaxLocalPlayers, GridSlots));
 	Bots = FMath::Clamp(Bots, 0, GridSlots - LocalPlayers);
+	BotSkill = FMath::Clamp(BotSkill, 0, 2);
 	for (int32 i = Racers.Num(); i < MaxLocalPlayers; ++i)
 	{
 		Racers.Add(FKartRoster::DefaultChoice(i));
@@ -75,6 +76,12 @@ FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHA
 	Plan.bAutoDrive = FParse::Param(Cmd, TEXT("KartAutoDrive"));
 	Plan.bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
 	Plan.bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
+	Plan.BotSkill = MenuSetup ? FMath::Clamp(MenuSetup->BotSkill, 0, 2) : 1;
+	FString Skill;
+	if (FParse::Value(Cmd, TEXT("KartBotSkill="), Skill))
+	{
+		Plan.BotSkill = Skill.Equals(TEXT("easy"), ESearchCase::IgnoreCase) ? 0 : Skill.Equals(TEXT("hard"), ESearchCase::IgnoreCase) ? 2 : 1;
+	}
 
 	if (!MenuSetup)
 	{
@@ -180,6 +187,12 @@ EKartBoot KartFrontEndFlags::DecideBoot(EKartSessionMode Mode, bool bFirstBoot, 
 	if (WantsRoom(Cmd))
 	{
 		return EKartBoot::Room;
+	}
+	// The screenshot tour drives the menus itself (other flags still shape its race).
+	FString Tour;
+	if (FParse::Value(Cmd, TEXT("KartUiShots="), Tour))
+	{
+		return EKartBoot::FrontEnd;
 	}
 	return ShouldSkipFrontEnd(Cmd) ? EKartBoot::LocalRace : EKartBoot::FrontEnd;
 }

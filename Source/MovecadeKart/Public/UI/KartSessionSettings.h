@@ -21,6 +21,10 @@ struct MOVECADEKART_API FKartRaceSetup
 	UPROPERTY(EditAnywhere, Config, Category = "Kart")
 	int32 Bots = 3;
 
+	/** 0 Easy, 1 Normal, 2 Hard (EKartBotSkill order). */
+	UPROPERTY(EditAnywhere, Config, Category = "Kart")
+	int32 BotSkill = 1;
+
 	/** 1..4; players 2..4 use gamepads 2..4. */
 	UPROPERTY(EditAnywhere, Config, Category = "Kart")
 	int32 LocalPlayers = 1;
@@ -75,6 +79,8 @@ struct MOVECADEKART_API FKartRacePlan
 	int32 LocalPlayers = 1;
 	/** 0 keeps the track's own lap count. */
 	int32 Laps = 0;
+	/** 0 Easy, 1 Normal, 2 Hard, for every bot seat (EKartBotSkill order; -KartBotSkill=easy|normal|hard overrides). */
+	int32 BotSkill = 1;
 	bool bSoloView = false;
 	bool bAutoDrive = false;
 	bool bSkipIntro = false;
