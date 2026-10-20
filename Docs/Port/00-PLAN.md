@@ -86,7 +86,10 @@ worked. Anything marked _verify_ gets checked in a live web race before we decid
 - The **Violet GLB** uses Draco and WebP. Decode both before UE import.
 - **Violet Loop's scenery has Mario-style motifs** (green warp pipes, floating brick blocks, the layout of a
   "mario-circuit" test model). Jimmy confirmed the model is theirs to use, but those shapes are an IP risk for a
-  commercial build: the maps pass replaces them with original props.
+  commercial build: the maps pass replaces them with original props. **Done (maps pass):** pipes, brick blocks
+  and clouds are cut from the visual mesh, the studded four-colour barriers are flattened and repainted, and
+  Movecade props stand in their place (collision unchanged; Docs/Port/ASSETS.md). The track layout itself is
+  still the test model's.
 - **Poly Haven normal maps** are OpenGL format: flip the green channel on import.
 
 ## Phases
@@ -104,7 +107,7 @@ Status as of 2026-10-19 (night). ✅ done · 🔄 in progress · ⏳ not started
 5. ✅ **Items.** (VFX upgrade 🔄 FX agent) Data-driven items with all the current powerups, item boxes, hit effects, VFX and SFX.
 6. ✅ **Phone host.** Local PartyKit only; real deployment needs the Origin decision (open risks). WebSocket room client, lobby with join code and QR, tilt frames → steering, host → phone feedback, score submission.
 7. ✅ **Audio.** (UAudioComponent layers, not MetaSounds; same maths, golden-tested.) MetaSound engine layering and every cue from spec 04.
-8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ⏳. Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
+8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ✅ (Violet IP cleanup, CC0 surfaces + per-track lighting/post on both tracks, new local-only track Neon City). Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
 9. 🔄 **Ship.** Win64 packaging in progress. Win64 packaging, performance, QA against the web version.
 
 Phases 3, 5 and 6 can run in parallel (one agent each) once phase 2 has a drivable kart.

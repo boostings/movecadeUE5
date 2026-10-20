@@ -30,6 +30,7 @@ import { kartTrackLook } from '@app/games/kart/scene/kartLook';
 import { SPAWN_POSITIONS } from '@legacy/Experience/kart/engine/spawnGrid';
 import { exportHarborScenery, exportVioletScenery, type MaterialHint } from './scenery';
 import { exportMovecadeProps } from './props';
+import { exportNeonCity } from './neonCity';
 
 type TrackId = cat.KartTrackId;
 type XZ = [number, number];
@@ -320,9 +321,9 @@ async function exportHarbor(commit: string, assetsDir?: string, movecadeRoot?: s
         { prefab: 'sea_plane', x: 100, y: -7, z: -40, yaw: 0, scale: [5000, 1, 5000], tint: '#5fb3b3' },
       ],
       ...(art ? { motionParts: art.motionParts, sea: art.sea } : {}),
-      animated: art?.animated ?? [],
       // The shared Movecade props (the boost pad uses props.boost_pad).
       ...(props ? { prefabs: props.prefabs } : {}),
+      animated: art?.animated ?? [],
       signs: art?.signs ?? [],
     },
     textures: [...(art?.textures ?? []), ...(props?.textures ?? [])],
@@ -613,6 +614,8 @@ export async function exportTracks(opts: { outDir: string; commit: string; movec
   for (const data of [
     await exportHarbor(opts.commit, opts.assetsDir, opts.movecadeRoot),
     await exportViolet(opts.commit, opts.violetMesh, opts.assetsDir, opts.movecadeRoot),
+    // The original third track: same schema and code paths as Harbor (src/neonCity.ts).
+    await exportNeonCity(opts.commit, opts.assetsDir, opts.movecadeRoot),
   ]) {
     const file = path.join(opts.outDir, `${data.track.id}.track.json`);
     writeFileSync(file, stringify(data) + '\n');

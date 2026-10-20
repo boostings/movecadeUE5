@@ -165,5 +165,31 @@ check('violet: props stand where the colliding motifs were', covered);
 check('violet: shared props and CC0 surfaces referenced', ['ad_column_body', 'billboard_face', 'rock_formation', 'plinth', 'boost_pad'].every((p) => v.scenery.prefabs[p])
   && ['asphalt_track', 'painted_concrete', 'leafy_grass', 'gravelly_sand'].every((s) => v.detailSurfaces[s]?.mean?.length === 3));
 
+// ---- Neon City, the original third track (src/neonCity.ts): Harbor's schema and rules
+const nc = load('neon-city');
+shared(nc, 'neon');
+check('neon: analytic spline, 1300-1800 m lap', nc.track.trackType === 'analytic-spline' && nc.track.lapLengthM >= 1300 && nc.track.lapLengthM <= 1800, `${nc.track.lapLengthM}`);
+const ncCurv = Math.max(...nc.samples.points.map((p) => Math.abs(p.curvature)));
+check('neon: no bend tighter than the wall offset + 5 m (B14)', 1 / ncCurv > 21.3, `tightest ${(1 / ncCurv).toFixed(1)} m`);
+check('neon: two closed walls at ±16.3, one point per sample', nc.collision.walls.length === 2 && nc.collision.walls.every((w2) => w2.closed && w2.polyline.length === nc.samples.points.length));
+const ncWall = Math.min(...nc.collision.walls.flatMap((w2) => w2.polyline.map(([x, z]) => Math.min(...nc.samples.points.map((p) => Math.hypot(p.x - x, p.z - z))))));
+check('neon: every wall point a full offset from the centreline (no fold)', ncWall > 16.2, `${ncWall.toFixed(3)} m`);
+const gameplay = (t) => JSON.stringify(t.ribbons.filter((rb) => rb.collision !== 'none').map(({ name, inner, outer, innerY, outerY, collision, surface }) => ({ name, inner, outer, innerY, outerY, collision, surface })));
+check("neon: gameplay ribbons match Harbor's (same handling)", gameplay(nc) === gameplay(h));
+check('neon: 12 item boxes in 4 rows of 3 at y 1', nc.itemBoxes.length === 12 && nc.itemBoxes.every((b) => b.y === 1) && new Set(nc.itemBoxes.map((b) => b.row)).size === 4);
+check('neon: 4 boost pads 12 x 6', nc.boostPads.length === 4 && nc.boostPads.every((p) => p.width === 12 && p.length === 6));
+const NP = nc.spline.controlPoints, nn = NP.length;
+const ncErr = Math.max(...nc.samples.points.map((p) => {
+  const key = p.t * nn, i = Math.floor(key) % nn, u = key - Math.floor(key);
+  const at = (k) => NP[(i + k + nn) % nn];
+  const h00 = 2 * u ** 3 - 3 * u ** 2 + 1, h10 = u ** 3 - 2 * u ** 2 + u, h01 = -2 * u ** 3 + 3 * u ** 2, h11 = u ** 3 - u ** 2;
+  const m = (k, a) => (at(k + 1)[a] - at(k - 1)[a]) / 2;
+  const x = h00 * at(0)[0] + h10 * m(0, 0) + h01 * at(1)[0] + h11 * m(1, 0), z = h00 * at(0)[1] + h10 * m(0, 1) + h01 * at(1)[1] + h11 * m(1, 1);
+  return Math.hypot(x - p.x, z - p.z);
+}));
+check('neon: UE Hermite spline matches every sample', ncErr < 0.001, `max error ${ncErr.toExponential(2)} m`);
+check('neon: checkpoints on the line', nc.checkpoints.slice(1).every((c) => nc.samples.points.some((p) => Math.hypot(p.x - c.x, p.z - c.z) < 0.6)));
+check('neon: scenery exported (buildings, props, lights)', nc.meshes.length === 2 && nc.scenery.instances.length > 50 && nc.scenery.lights.length > 20);
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

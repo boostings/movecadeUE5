@@ -17,7 +17,12 @@ Then import the binaries and rebuild the levels (headless editor, from the proje
 .\Tools\ue\run.ps1 import_track_assets.py      # out/ -> Content/Tracks (materials, meshes, textures)
 .\Tools\ue\run.ps1 make_track_map.py @{ KART_TRACK = 'violet-loop'; KART_MAP = 'L_VioletLoop' }
 .\Tools\ue\run.ps1 make_track_map.py @{ KART_TRACK = 'sunset-harbor'; KART_MAP = 'L_SunsetHarbor' }
+.\Tools\ue\run.ps1 make_track_map.py @{ KART_TRACK = 'neon-city'; KART_MAP = 'L_NeonCity' }
 ```
+
+`Data/Tracks/neon-city.track.json` is not exported from movecade: `src/neonCity.ts` generates it, an original
+track on Harbor's schema and code paths (closed Catmull-Rom, road 28 m, walls at ±16.3, tightest bend 26.9 m, so
+no wall offset folds; Docs/Port/00-PLAN.md B14), with its scenery in `out/neon`.
 
 Set `MOVECADE_ROOT` if movecade-v2 isn't at `<Documents>/Projects/movecade/movecade-v2`. The commit hash in
 each file's `source.commit` gets `-dirty` appended when movecade's `app/src` has uncommitted changes.
