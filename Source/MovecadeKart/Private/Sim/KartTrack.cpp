@@ -36,7 +36,7 @@ namespace MovecadeKart
 		}
 	}
 
-	void FWallSet::Query(const FVector2D& Min, const FVector2D& Max, TArray<int32>& Out) const
+	void FWallSet::Query(const FVector2D& Min, const FVector2D& Max, FCandidates& Out) const
 	{
 		Out.Reset();
 		const FIntPoint C0 = CellOf(Min);
@@ -67,7 +67,7 @@ namespace MovecadeKart
 	bool FWallSet::Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const
 	{
 		const FVector2D End = Origin + Dir * Far;
-		TArray<int32> Candidates;
+		FCandidates Candidates;
 		Query(FVector2D(FMath::Min(Origin.X, End.X), FMath::Min(Origin.Y, End.Y)),
 			FVector2D(FMath::Max(Origin.X, End.X), FMath::Max(Origin.Y, End.Y)), Candidates);
 

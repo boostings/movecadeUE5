@@ -56,6 +56,8 @@ public:
 	/** Split-screen rig: fixed 6/8 m offsets and a 75° vertical FOV (SplitScreenRenderer); otherwise the single-view speed rig. */
 	void SetSplitScreenCamera(bool bSplit) { bSplitScreenCamera = bSplit; }
 	void SetItemVisual(const FKartItemVisual& InVisual) { ItemVisual = InVisual; }
+	/** The driver's right hand leaves the wheel to throw or fire (drivingExpression.ts). */
+	void PlayItemThrow();
 	/** Camera shake (kartFxBus.ts): peak in metres, decaying at 6.5/s; a new kick keeps the larger envelope. */
 	void AddShake(double PeakMetres);
 
@@ -183,6 +185,7 @@ private:
 	double NextBlink = 2.0;
 	/** 0..1, eases in once this kart has finished. */
 	double Cheer = 0.0;
+	double ItemThrowStart = -1000.0;
 	double BlinkStart = -10.0;
 
 	bool bSplitScreenCamera = false;

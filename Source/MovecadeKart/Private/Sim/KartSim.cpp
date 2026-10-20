@@ -241,7 +241,61 @@ namespace MovecadeKart
 	{
 		check(T);
 		const double Dt = StepSeconds;
+		BeginStep(Dt);
+		UpdateOffTrack();
+
+		FStepControls C;
+		C.SteeringX = FMath::Clamp(Input.SteeringX, -1.0, 1.0);
+		C.Keys = (Input.bLeft ? 1.0 : 0.0) - (Input.bRight ? 1.0 : 0.0);
+		C.bLeft = Input.bLeft;
+		C.bRight = Input.bRight;
+		C.bForward = Input.bForward;
+		C.bBackward = Input.bBackward;
+		C.bJump = Input.bJump;
+
+		UpdateWatchdogs(C.bForward && !C.bBackward);
+		UpdateSpeed(C, Race, Dt);
+		UpdateYaw(C);
+		UpdateHopAndDrift(C, Dt);
+
+		// Heading lag (:1249-1263): an unclamped, unnormalised lerp toward the nose.
+		const FVector2D Start = S.Pos;
+		const FVector2D Desired = Forward(S.Yaw);
+		S.Dir = S.Dir + (Desired - S.Dir) * (DirLerp * Dt);
+		const double SlipAngle = FMath::Atan2(Desired.X * S.Dir.Y - Desired.Y * S.Dir.X, Desired.X * S.Dir.X + Desired.Y * S.Dir.Y);
+		S.SlipYaw = Damp(S.SlipYaw, SlipAngle * 1.3 + S.DriftDirection * 0.1, 6.0, Dt);
+
+		FStepMotion M;
+		M.bReversing = S.Speed < 0.0;
+		M.MoveDir = M.bReversing ? -S.Dir : S.Dir;
+		M.bHopping = S.HopTime >= 0.0 || S.HopOffset > 0.05;
+
+		// Collision steps 1-5 (:1280-1425), then kart contact and the swept constraint.
+		++S.Frame;
+		ApplyRadialPush(M);
+		const FBarrier Barrier = M.bHopping ? FBarrier() : ProbeBarrier(M.MoveDir);
+		ApplyBarrierResponse(Barrier, M, C);
+		M.bNearWall = !M.bHopping && S.NearestWall < CollisionHardDistance;
+		Advance(Barrier, M, Dt);
+		ApplyKartContact(Race, Dt);
+		if (ConstrainMovement(Start, S.Pos))
+		{
+			// Swept wall constraint over the whole step (:1440-1445).
+			S.Speed *= FMath::Exp(-WallSpeedDecay * Dt);
+			S.bHitWallThisStep = true;
+		}
+		UpdateCollisionFeedback(Barrier, M);
+
+		UpdateBoostPads();
+		UpdateWrongWayAndTerrain();
+		UpdateCheckpoints();
+		UpdatePresentation(Dt);
+	}
+
+	void FKartSim::BeginStep(double Dt)
+	{
 		S.Time += Dt;
+		// One-step pulses.
 		S.bHitWallThisStep = false;
 		S.BarrierEvent = 0.0;
 		S.bBarrierEventSustained = false;
@@ -254,36 +308,31 @@ namespace MovecadeKart
 				S.HopTime = -1.0;
 			}
 		}
+	}
 
-		const FCheckpoint* Next = T->Checkpoints.IsValidIndex(S.NextCheckpoint) ? &T->Checkpoints[S.NextCheckpoint] : nullptr;
-
+	void FKartSim::UpdateOffTrack()
+	{
 		// Off-track: two seconds to steer back, then return to the next checkpoint's approach (:862-880).
+		const FCheckpoint* Next = T->Checkpoints.IsValidIndex(S.NextCheckpoint) ? &T->Checkpoints[S.NextCheckpoint] : nullptr;
+		FVector2D RecoverPos;
+		double RecoverYaw = 0.0;
+		if (!RecoveryPose(S.Pos, Next, RecoverPos, RecoverYaw))
 		{
-			FVector2D RecoverPos;
-			double RecoverYaw = 0.0;
-			if (!RecoveryPose(S.Pos, Next, RecoverPos, RecoverYaw))
-			{
-				S.OffTrackSince = -1.0;
-			}
-			else if (S.OffTrackSince < 0.0)
-			{
-				S.OffTrackSince = S.Time;
-			}
-			else if (S.Time - S.OffTrackSince >= OffTrackRespawnSeconds)
-			{
-				Respawn(RecoverPos, RecoverYaw, TEXT("offtrack"));
-				S.OffTrackSince = -1.0;
-			}
+			S.OffTrackSince = -1.0;
 		}
+		else if (S.OffTrackSince < 0.0)
+		{
+			S.OffTrackSince = S.Time;
+		}
+		else if (S.Time - S.OffTrackSince >= OffTrackRespawnSeconds)
+		{
+			Respawn(RecoverPos, RecoverYaw, TEXT("offtrack"));
+			S.OffTrackSince = -1.0;
+		}
+	}
 
-		const double SteeringX = FMath::Clamp(Input.SteeringX, -1.0, 1.0);
-		const double Keys = (Input.bLeft ? 1.0 : 0.0) - (Input.bRight ? 1.0 : 0.0);
-		const bool bForward = Input.bForward;
-		const bool bBackward = Input.bBackward;
-		const bool bJump = Input.bJump;
-
-		UpdateWatchdogs(bForward && !bBackward);
-
+	void FKartSim::UpdateSpeed(const FStepControls& C, const FKartRaceContext& Race, double Dt)
+	{
 		// Boost timer (:1092-1106). This step still uses the multiplier it started with.
 		const double Multiplier = S.BoostMultiplier;
 		if (S.BoostTimeRemaining > 0.0)
@@ -312,8 +361,8 @@ namespace MovecadeKart
 		const double Slowdown = Multiplier < 1.0 ? Multiplier : 1.0;
 		const double Terrain = S.bOnDirt ? DirtMultiplier : 1.0;
 		const double Max = (MaxSpeed + (S.Turbo > 0.0 ? TurboBonus : 0.0) + PowerupBoost + S.RubberBandBoost + S.SlipstreamBoost) * Terrain * Slowdown;
-		const double Target = bBackward ? ReverseSpeed : bForward ? Max : 0.0;
-		const double Lambda = bBackward ? LambdaBrake : bForward ? LambdaThrottle : LambdaCoast;
+		const double Target = C.bBackward ? ReverseSpeed : C.bForward ? Max : 0.0;
+		const double Lambda = C.bBackward ? LambdaBrake : C.bForward ? LambdaThrottle : LambdaCoast;
 		S.Speed = Damp(S.Speed, Target, Lambda, Dt);
 		if (S.Speed < DriftMinSpeed)
 		{
@@ -321,28 +370,35 @@ namespace MovecadeKart
 			S.DriftPower = 0.0;
 		}
 		S.Turbo -= Dt;
+	}
 
-		// Yaw: a direct per-step turn (:1188-1199).
-		S.InputTurn = (SteeringX + Keys + S.DriftDirection) * TurnPerStep;
+	void FKartSim::UpdateYaw(const FStepControls& C)
+	{
+		// A direct per-step turn (:1188-1199).
+		S.InputTurn = (C.SteeringX + C.Keys + S.DriftDirection) * TurnPerStep;
 		// B11: a kart pressed against a wall on the gas can still turn away (the web left it wedged).
-		const bool bWedged = !bLegacyStickyWalls && S.bCollidingBarrier && bForward && !bBackward;
+		const bool bWedged = !bLegacyStickyWalls && S.bCollidingBarrier && C.bForward && !C.bBackward;
 		const double TurnSpeed = bWedged ? FMath::Max(S.Speed, 10.0) : S.Speed;
 		S.Yaw += S.InputTurn * FMath::Min(TurnSpeed, TurnSpeedReference) / TurnSpeedReference;
+	}
 
-		// Hop and drift (:1202-1244).
-		if (bJump && !S.bJumpHeld && S.HopTime < 0.0)
+	void FKartSim::UpdateHopAndDrift(const FStepControls& C, double Dt)
+	{
+		// Hop and drift (:1202-1244): pressing jump hops and picks the drift side; releasing it cashes the drift
+		// in for a mini-turbo.
+		if (C.bJump && !S.bJumpHeld && S.HopTime < 0.0)
 		{
 			S.HopTime = 0.0;
 			S.bJumpHeld = true;
-			S.DriftDirection = (Input.bLeft || SteeringX > 0.1) ? DriftTurn : (Input.bRight || SteeringX < -0.1) ? -DriftTurn : 0.0;
+			S.DriftDirection = (C.bLeft || C.SteeringX > 0.1) ? DriftTurn : (C.bRight || C.SteeringX < -0.1) ? -DriftTurn : 0.0;
 		}
-		if (!bJump)
+		if (!C.bJump)
 		{
 			S.bJumpHeld = false;
 			if (S.Turbo <= 0.0)
 			{
 				FDriftBoost Boost;
-				if (DriftExitBoost(S.DriftPower, S.DriftPower * 1000.0, SteeringX + Keys, S.DriftDirection, Boost))
+				if (DriftExitBoost(S.DriftPower, S.DriftPower * 1000.0, C.SteeringX + C.Keys, S.DriftDirection, Boost))
 				{
 					S.Turbo = Boost.Time;
 					S.BoostMultiplier = Boost.Multiplier;
@@ -360,59 +416,60 @@ namespace MovecadeKart
 		{
 			S.DriftPower = FMath::Min(S.DriftPower + Dt, DriftPowerCap);
 		}
+	}
 
-		// Heading lag (:1249-1263): an unclamped, unnormalised lerp toward the nose.
-		const FVector2D Start = S.Pos;
-		const FVector2D Desired = Forward(S.Yaw);
-		S.Dir = S.Dir + (Desired - S.Dir) * (DirLerp * Dt);
-		const double SlipAngle = FMath::Atan2(Desired.X * S.Dir.Y - Desired.Y * S.Dir.X, Desired.X * S.Dir.X + Desired.Y * S.Dir.Y);
-		S.SlipYaw = Damp(S.SlipYaw, SlipAngle * 1.3 + S.DriftDirection * 0.1, 6.0, Dt);
-		const bool bReversing = S.Speed < 0.0;
-		const FVector2D MoveDir = bReversing ? -S.Dir : S.Dir;
-		const bool bHopping = S.HopTime >= 0.0 || S.HopOffset > 0.05;
-
-		// Collision steps 1-5 (:1280-1425).
-		++S.Frame;
+	void FKartSim::ApplyRadialPush(const FStepMotion& M)
+	{
 		const uint64 Interval = S.NearestWall < CollisionSoftDistance ? FastCheckInterval : ContinuousCheckInterval;
-		if (!bHopping && S.Frame - S.LastRadialFrame >= Interval)
+		if (!M.bHopping && S.Frame - S.LastRadialFrame >= Interval)
 		{
 			ProbeRadial();
 			S.LastRadialFrame = S.Frame;
 		}
 		// The cached radial push is re-applied every step until the next probe, as on the web.
-		if (!bHopping && S.bRadialCritical)
+		if (!M.bHopping && S.bRadialCritical)
 		{
 			S.Pos += S.RadialPush;
 			S.Speed *= 0.3;
 		}
-		else if (!bHopping && S.RadialStrength > 0.0)
+		else if (!M.bHopping && S.RadialStrength > 0.0)
 		{
 			S.Pos += S.RadialPush;
 		}
+	}
 
-		const FBarrier Barrier = bHopping ? FBarrier() : ProbeBarrier(MoveDir);
-		if (!bHopping && Barrier.Assist != 0.0)
+	void FKartSim::ApplyBarrierResponse(const FBarrier& Barrier, const FStepMotion& M, const FStepControls& C)
+	{
+		if (M.bHopping)
 		{
+			return;
+		}
+		if (Barrier.Assist != 0.0)
+		{
+			// Steer away from a wall the kart is closing on, less so if the player is steering into it.
 			const double AssistMultiplier = FMath::Min(FMath::Abs(S.Speed) / MaxSpeed, 1.0);
-			const double AssistSign = bReversing ? -1.0 : 1.0;
+			const double AssistSign = M.bReversing ? -1.0 : 1.0;
 			const double Proximity = S.NearestWall < CollisionSoftDistance ? 1.2 : 1.0;
-			const bool bOpposing = (SteeringX > 0.1 && Barrier.Assist > 0.0) || (SteeringX < -0.1 && Barrier.Assist < 0.0);
+			const bool bOpposing = (C.SteeringX > 0.1 && Barrier.Assist > 0.0) || (C.SteeringX < -0.1 && Barrier.Assist < 0.0);
 			S.Yaw += Barrier.Assist * AssistMultiplier * AssistSign * Proximity * (bOpposing ? 0.15 : 1.0);
 		}
-		if (!bHopping && Barrier.Penetration > 0.0 && Barrier.bHasNormal)
+		if (Barrier.Penetration > 0.0 && Barrier.bHasNormal)
 		{
 			// Not scaled by dt, as on the web (spec 01, shipped bug 8). It runs once per fixed step, so it is
-			// stable here, and the swept constraint below still keeps the kart out of the wall.
+			// stable here, and the swept constraint still keeps the kart out of the wall.
 			S.Pos += Normalize(Barrier.Normal) * (Barrier.Penetration * CollisionPushStrength * 60.0);
 		}
+	}
 
+	void FKartSim::Advance(const FBarrier& Barrier, const FStepMotion& M, double Dt)
+	{
 		const double AbsSpeed = FMath::Abs(S.Speed);
-		const bool bNearWall = !bHopping && S.NearestWall < CollisionHardDistance;
-		if (bHopping)
+		if (M.bHopping)
 		{
+			// In the air: no wall response, but a hop straight into a wall loses its speed.
 			double Distance = 0.0;
 			FVector2D Normal;
-			if (T->RayWalls().Raycast(S.Pos, Normalize(MoveDir), 1.0, Distance, Normal) && Distance < 0.6)
+			if (T->RayWalls().Raycast(S.Pos, Normalize(M.MoveDir), 1.0, Distance, Normal) && Distance < 0.6)
 			{
 				S.Speed *= 0.3;
 			}
@@ -420,13 +477,15 @@ namespace MovecadeKart
 			{
 				S.Pos += S.Dir * S.Speed * Dt;
 			}
+			return;
 		}
-		else if (Barrier.bBlocked && AbsSpeed > 0.0)
+		if (Barrier.bBlocked && AbsSpeed > 0.0)
 		{
 			const double Closeness = Barrier.Distance != 0.0 ? 1.0 - FMath::Min(Barrier.Distance / BarrierCollisionDistance, 1.0) : 0.5;
-			const double LegacyMult = bNearWall
+			const double LegacyMult = M.bNearWall
 				? FMath::Max(0.1, MinCollisionSpeedMult - Closeness * 0.5)
 				: FMath::Max(MinCollisionSpeedMult, 1.0 - Closeness * 0.6);
+			const double Reverse = M.bReversing ? -1.0 : 1.0;
 			if (bLegacyStickyWalls)
 			{
 				if (Barrier.bHasNormal && AbsSpeed > 30.0)
@@ -436,26 +495,25 @@ namespace MovecadeKart
 				S.Speed *= LegacyMult;
 				if (Barrier.bHasNormal)
 				{
-					const FVector2D Slide = Normalize(MoveDir - Barrier.Normal * FVector2D::DotProduct(MoveDir, Barrier.Normal));
-					const double SlideSpeed = AbsSpeed * (bNearWall ? 0.15 : 0.4) * Dt;
-					S.Pos += Slide * SlideSpeed * (bReversing ? -1.0 : 1.0);
+					const FVector2D Slide = Normalize(M.MoveDir - Barrier.Normal * FVector2D::DotProduct(M.MoveDir, Barrier.Normal));
+					S.Pos += Slide * (AbsSpeed * (M.bNearWall ? 0.15 : 0.4) * Dt) * Reverse;
 				}
 			}
 			else
 			{
-				// B11: scale the web's wall response by how square-on the kart meets the wall. Head-on still
-				// bites as hard; a glancing hit keeps its speed and slides along the wall.
-				const double HeadOn = Barrier.bHasNormal ? FMath::Abs(FVector2D::DotProduct(Normalize(MoveDir), Barrier.Normal)) : 1.0;
+				// B11: scale the web's wall response by how square-on the kart meets the wall. Head-on still bites
+				// as hard; a glancing hit keeps its speed and slides along the wall.
+				const double HeadOn = Barrier.bHasNormal ? FMath::Abs(FVector2D::DotProduct(Normalize(M.MoveDir), Barrier.Normal)) : 1.0;
 				S.Speed *= 1.0 - (1.0 - LegacyMult) * HeadOn;
 				if (Barrier.bHasNormal)
 				{
-					const FVector2D Slide = Normalize(MoveDir - Barrier.Normal * FVector2D::DotProduct(MoveDir, Barrier.Normal));
-					S.Pos += Slide * (AbsSpeed * (1.0 - 0.7 * HeadOn) * Dt) * (bReversing ? -1.0 : 1.0);
+					const FVector2D Slide = Normalize(M.MoveDir - Barrier.Normal * FVector2D::DotProduct(M.MoveDir, Barrier.Normal));
+					S.Pos += Slide * (AbsSpeed * (1.0 - 0.7 * HeadOn) * Dt) * Reverse;
 				}
 			}
 		}
 		// The second clause can't be true when the first is false (Hard < Soft); kept as the web wrote it (spec 01 bug 10).
-		else if (!bNearWall || S.NearestWall > CollisionSoftDistance)
+		else if (!M.bNearWall || S.NearestWall > CollisionSoftDistance)
 		{
 			S.Pos += S.Dir * S.Speed * Dt;
 		}
@@ -463,69 +521,69 @@ namespace MovecadeKart
 		{
 			S.Pos += S.Dir * S.Speed * Dt * FMath::Min(1.0, S.NearestWall / CollisionSoftDistance);
 		}
+	}
 
+	void FKartSim::ApplyKartContact(const FKartRaceContext& Race, double Dt)
+	{
 		// Kart vs kart (:658-675, :1428-1434, kartContact.ts): the first overlapping kart pushes this one away.
-		if (Race.bKartContact)
+		if (!Race.bKartContact)
 		{
-			for (const FKartRaceContext::FOther& Other : Race.Others)
-			{
-				const FVector2D Delta = S.Pos - Other.Position;
-				const double Distance = Delta.Size();
-				if (Distance >= KartContactDistance)
-				{
-					continue;
-				}
-				const FVector2D N = Distance > 0.0001 ? Delta / Distance : FVector2D(Race.SelfSeat < Other.Seat ? -1.0 : 1.0, 0.0);
-				S.Pos += N * FMath::Min(KartContactDistance - Distance, KartBumpForce * Dt * 60.0);
-				S.Speed *= FMath::Pow(0.8, Dt * 60.0);
-				S.BumpEvent = FMath::Min(1.0, (FMath::Abs(S.Speed) / MaxSpeed) * 0.8 + 0.2);
-				S.ImpactNormal = N;
-				++S.BumpEventCount;
-				break;
-			}
+			return;
 		}
-
-		// Swept wall constraint over the whole step (:1440-1445).
-		if (ConstrainMovement(Start, S.Pos))
+		for (const FKartRaceContext::FOther& Other : Race.Others)
 		{
-			S.Speed *= FMath::Exp(-WallSpeedDecay * Dt);
-			S.bHitWallThisStep = true;
+			const FVector2D Delta = S.Pos - Other.Position;
+			const double Distance = Delta.Size();
+			if (Distance >= KartContactDistance)
+			{
+				continue;
+			}
+			const FVector2D N = Distance > 0.0001 ? Delta / Distance : FVector2D(Race.SelfSeat < Other.Seat ? -1.0 : 1.0, 0.0);
+			S.Pos += N * FMath::Min(KartContactDistance - Distance, KartBumpForce * Dt * 60.0);
+			S.Speed *= FMath::Pow(0.8, Dt * 60.0);
+			S.BumpEvent = FMath::Min(1.0, (FMath::Abs(S.Speed) / MaxSpeed) * 0.8 + 0.2);
+			S.ImpactNormal = N;
+			++S.BumpEventCount;
+			break;
 		}
+	}
 
-		// Collision feedback (:1457-1569): first contact fires at once, sustained contact every 150 ms.
+	void FKartSim::UpdateCollisionFeedback(const FBarrier& Barrier, const FStepMotion& M)
+	{
+		// Collision feedback (:1457-1569), for haptics, audio and FX: first contact fires at once, sustained
+		// contact every 150 ms.
+		const bool bWasColliding = S.bCollidingBarrier;
+		S.bCollidingBarrier = !M.bHopping && (Barrier.bBlocked || Barrier.Penetration > 0.0 || S.bRadialCritical || S.RadialStrength > 0.0 || M.bNearWall);
+		S.CollisionIntensity = S.bCollidingBarrier
+			? FMath::Min(1.0, Barrier.Penetration * 2.0 + (FMath::Abs(S.Speed) / MaxSpeed) * 0.5 + (S.bRadialCritical ? 1.0 : 0.0) + (M.bNearWall ? 0.3 : 0.0))
+			: 0.0;
+		if (S.bCollidingBarrier && !bWasColliding)
 		{
-			const bool bWasColliding = S.bCollidingBarrier;
-			S.bCollidingBarrier = !bHopping && (Barrier.bBlocked || Barrier.Penetration > 0.0 || S.bRadialCritical || S.RadialStrength > 0.0 || bNearWall);
-			S.CollisionIntensity = S.bCollidingBarrier
-				? FMath::Min(1.0, Barrier.Penetration * 2.0 + (FMath::Abs(S.Speed) / MaxSpeed) * 0.5 + (S.bRadialCritical ? 1.0 : 0.0) + (bNearWall ? 0.3 : 0.0))
-				: 0.0;
-			if (S.bCollidingBarrier && !bWasColliding)
-			{
-				S.BarrierEvent = FMath::Max(0.3, S.CollisionIntensity);
-				S.LastBarrierEventTime = S.Time;
-			}
-			else if (S.bCollidingBarrier && S.Time - S.LastBarrierEventTime >= 0.15)
-			{
-				S.BarrierEvent = FMath::Max(0.2, S.CollisionIntensity * 0.6);
-				S.bBarrierEventSustained = true;
-				S.LastBarrierEventTime = S.Time;
-			}
-			if (S.BarrierEvent > 0.0)
-			{
-				++S.BarrierEventCount;
-				// Away from the wall, toward the kart: the probe's face normal turned against the travel (a face
-				// normal may point either way), else the radial push, which already points off the wall.
-				FVector2D Away = Barrier.bHasNormal ? Barrier.Normal : Normalize(S.RadialPush);
-				if (Barrier.bHasNormal && FVector2D::DotProduct(Away, S.Dir) > 0.0)
-				{
-					Away = -Away;
-				}
-				S.ImpactNormal = Away;
-			}
+			S.BarrierEvent = FMath::Max(0.3, S.CollisionIntensity);
+			S.LastBarrierEventTime = S.Time;
 		}
+		else if (S.bCollidingBarrier && S.Time - S.LastBarrierEventTime >= 0.15)
+		{
+			S.BarrierEvent = FMath::Max(0.2, S.CollisionIntensity * 0.6);
+			S.bBarrierEventSustained = true;
+			S.LastBarrierEventTime = S.Time;
+		}
+		if (S.BarrierEvent > 0.0)
+		{
+			++S.BarrierEventCount;
+			// Away from the wall, toward the kart: the probe's face normal turned against the travel (a face normal
+			// may point either way), else the radial push, which already points off the wall.
+			FVector2D Away = Barrier.bHasNormal ? Barrier.Normal : Normalize(S.RadialPush);
+			if (Barrier.bHasNormal && FVector2D::DotProduct(Away, S.Dir) > 0.0)
+			{
+				Away = -Away;
+			}
+			S.ImpactNormal = Away;
+		}
+	}
 
-		UpdateBoostPads();
-
+	void FKartSim::UpdateWrongWayAndTerrain()
+	{
 		// Wrong way, every 15 steps above 5 SU (:1571-1586).
 		if (S.Frame - S.LastWrongWayFrame >= WrongWayInterval && FMath::Abs(S.Speed) > 5.0 && T->Waypoints.Num() > 1)
 		{
@@ -545,9 +603,6 @@ namespace MovecadeKart
 			S.LastTerrainFrame = S.Frame;
 			S.bOnDirt = IsOnDirt(S.Pos);
 		}
-
-		UpdateCheckpoints();
-		UpdatePresentation(Dt);
 	}
 
 	void FKartSim::ProbeRadial()
@@ -663,7 +718,7 @@ namespace MovecadeKart
 
 		// Sequential push-outs can move the kart up to a radius per segment, so query a wider box.
 		const double Margin = Radius * 4.0;
-		TArray<int32> Candidates;
+		FWallSet::FCandidates Candidates;
 		for (int32 i = 0; i < Steps; ++i)
 		{
 			const FVector2D Old = P;

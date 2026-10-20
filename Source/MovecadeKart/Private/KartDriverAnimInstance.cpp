@@ -112,11 +112,12 @@ void FKartDriverAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 	HeadYaw = FMath::FInterpTo(HeadYaw, Input.Steer * 0.42f, Dt, 15.f);
 }
 
-bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
+const FKartDriverAnimProxy::FDriverBones& FKartDriverAnimProxy::CacheBones(const FBoneContainer& Bones)
 {
-	Output.ResetToRefPose();
-	FCompactPose& Pose = Output.Pose;
-	const FBoneContainer& Bones = Pose.GetBoneContainer();
+	if (bBonesCached && CachedSerial == Bones.GetSerialNumber())
+	{
+		return CachedBones;
+	}
 	const FReferenceSkeleton& Ref = Bones.GetReferenceSkeleton();
 	auto Find = [&](const TCHAR* Name) -> int32
 	{
@@ -128,17 +129,35 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 		const FCompactPoseBoneIndex Index = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshIndex));
 		return Index.IsValid() ? Index.GetInt() : INDEX_NONE;
 	};
-	const int32 Torso = Find(TEXT("torso"));
-	const int32 Head = Find(TEXT("head"));
-	const int32 Neck = Find(TEXT("neck"));
-	const int32 Arm[2][3] = {
-		{ Find(TEXT("leftUpperArm")), Find(TEXT("leftForearm")), Find(TEXT("leftHand")) },
-		{ Find(TEXT("rightUpperArm")), Find(TEXT("rightForearm")), Find(TEXT("rightHand")) },
-	};
-	const int32 Leg[2][3] = {
-		{ Find(TEXT("leftUpperLeg")), Find(TEXT("leftLowerLeg")), Find(TEXT("leftFoot")) },
-		{ Find(TEXT("rightUpperLeg")), Find(TEXT("rightLowerLeg")), Find(TEXT("rightFoot")) },
-	};
+	FDriverBones& B = CachedBones;
+	B.Torso = Find(TEXT("torso"));
+	B.Head = Find(TEXT("head"));
+	B.Neck = Find(TEXT("neck"));
+	const TCHAR* ArmNames[2][3] = { { TEXT("leftUpperArm"), TEXT("leftForearm"), TEXT("leftHand") }, { TEXT("rightUpperArm"), TEXT("rightForearm"), TEXT("rightHand") } };
+	const TCHAR* LegNames[2][3] = { { TEXT("leftUpperLeg"), TEXT("leftLowerLeg"), TEXT("leftFoot") }, { TEXT("rightUpperLeg"), TEXT("rightLowerLeg"), TEXT("rightFoot") } };
+	for (int32 Side = 0; Side < 2; ++Side)
+	{
+		for (int32 Joint = 0; Joint < 3; ++Joint)
+		{
+			B.Arm[Side][Joint] = Find(ArmNames[Side][Joint]);
+			B.Leg[Side][Joint] = Find(LegNames[Side][Joint]);
+		}
+	}
+	CachedSerial = Bones.GetSerialNumber();
+	bBonesCached = true;
+	return B;
+}
+
+bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
+{
+	Output.ResetToRefPose();
+	FCompactPose& Pose = Output.Pose;
+	const FDriverBones& B = CacheBones(Pose.GetBoneContainer());
+	const int32 Torso = B.Torso;
+	const int32 Head = B.Head;
+	const int32 Neck = B.Neck;
+	const auto& Arm = B.Arm;
+	const auto& Leg = B.Leg;
 	if (Torso == INDEX_NONE || Head == INDEX_NONE || Arm[0][0] == INDEX_NONE || Arm[1][0] == INDEX_NONE)
 	{
 		return true; // not an avatar4 rig: keep the reference pose
