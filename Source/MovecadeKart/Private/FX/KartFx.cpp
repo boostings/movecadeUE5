@@ -167,9 +167,10 @@ namespace MovecadeKart::Fx
 		Smoke.Life = { 1.3, 2.0 };
 		Smoke.Size = { R * 0.2, R * 0.3 };
 		Smoke.SizeEnd = 3.0;
-		Smoke.Color = Hex(TEXT("c8501c"));
-		Smoke.ColorEnd = Hex(TEXT("3e3838"));
-		Smoke.Intensity = 1.0;
+		// Overbright at first (the puff material glows above 1), cooling to a lit charcoal grey.
+		Smoke.Color = Hex(TEXT("ff7a2a"));
+		Smoke.ColorEnd = Hex(TEXT("4a4444"));
+		Smoke.Intensity = 1.7;
 		Smoke.Jitter = R * 0.14;
 		Out.Add(Smoke);
 
