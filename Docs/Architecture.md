@@ -68,10 +68,22 @@ and UE yaw is the negated three.js yaw.
 | Race | `Race/KartRaceManager`, `Race/KartBotDriver`, `Race/KartItemPresenter`, `Race/SKartRaceOverlay` | Lockstep stepping, phases, standings, bots, item visuals, pause menu |
 | Kart | `KartPawn`, `KartMovementComponent`, `KartDriverAnimInstance`, `KartLook` | The kart actor, pose interpolation, the procedural driver pose (two-bone IK onto the wheel), character and vehicle looks |
 | Feel | `Feel/KartFeel` | Presentation-only springs: chassis pitch, roll, heave and squash; camera FOV kick, drift swing, bank, dip, rumble |
+| Rendering | `Render/KartGameUserSettings`, `Render/KartRenderQualitySubsystem`, `Render/KartGradeSubsystem`, `Render/KartRenderBudget` | Graphics presets, ray tracing and motion blur settings; split-screen budgets, dynamic resolution and a frame-time guard that hold 60 fps; the project-wide colour grade |
+| Capture | `Capture/KartCaptureSubsystem`, `Tools/video` | Fixed-step frame capture and a cinematic camera, encoded to MP4 for trailers |
 | Tracks | `TrackBuilder`, `TrackScenery`, `Tools/track-export` | Builds the road, walls and scenery from exported JSON |
 | Network | `Net/RoomHostSubsystem`, `Net/RoomProtocol`, `Net/QrCode`, `Net/KartLobbyWidget` | Hosts a PartyKit room: lobby, QR join, phone sensor frames to inputs, haptics, signed results |
 | Audio | `Audio/*` | Engine layers, drift, surfaces, impacts and cues, synthesised to match the web mix |
 | Game | `KartGameMode`, `KartPlayerController`, `KartGameViewportClient`, `KartHUD` | Local or room races, Enhanced Input built in code, split-screen layout, HUD |
+
+## Rendering
+
+Hardware ray tracing drives Lumen GI and reflections (with hit lighting at the top preset), shadows are virtual shadow
+maps, and TSR upscales. RT shadows were measured and rejected: about 2 ms more GPU for no visible gain.
+`UKartRenderQualitySubsystem` counts the local views. In split screen it caps the expensive groups, and in every
+mode it drives dynamic resolution toward a 16.6 ms budget. A frame-time guard steps GI, reflections and shadows down
+(and back up) only when resolution is already at its floor. The player's saved settings are never changed: the trims
+use Scalability's temporary levels. The colour grade is one unbound post-process volume at low priority, so each
+track's own lighting layers on top.
 
 ## Decisions worth knowing
 
@@ -94,10 +106,15 @@ and UE yaw is the negated three.js yaw.
 
 - **Sim:** lap counting, turn rate, drift tiers and release, pedal envelope, walls holding on both tracks, and an
   autopilot that must lap each track inside a fixed time window with no respawns.
+- **Determinism:** four mixed-skill bots race a minute in a pack (contact, slipstream, rubber-banding, items), twice.
+  Every kart must end bit-identical, with the same item events on the same steps; a different item seed must give
+  a different race. This test caught that Violet Loop's bots never collected an item.
+- **Bots:** every difficulty laps both tracks with no respawns, and Easy, Normal and Hard rank in order on time.
 - **Items:** odds brackets, roulette, the bomb and shot effects.
 - **Net and audio:** golden tests against values captured from the web build. These cover the protocol
   messages, sensor-frame decoding, steering mapping, QR reference matrices, and the engine and mix curves.
-- **Feel and art:** spring stability across frame rates, chassis and camera responses, and deterministic looks.
+- **Feel, art and rendering:** spring stability across frame rates, chassis and camera responses, deterministic
+  looks, and the render budget tables (presets, split-screen caps, guard steps).
 
 `.\Tools\ue\play.ps1` runs the real game with test hooks (`-KartAutoDrive`, `-KartShots=t1,t2`,
 `-KartQuitAfter=N`). That gives visual checks and end-to-end runs: a bot drives, screenshots are taken, and the
