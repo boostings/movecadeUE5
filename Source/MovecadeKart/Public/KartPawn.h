@@ -132,14 +132,6 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UStaticMeshComponent> NamePlateBack;
 
-	/** Prism aura (yellow sphere, MultiplayerKart.tsx:1697-1713). */
-	UPROPERTY(VisibleAnywhere, Category = "Kart")
-	TObjectPtr<UStaticMeshComponent> Aura;
-
-	/** Rocket shell over the kart (laid along the kart, not across it as on the web). */
-	UPROPERTY(VisibleAnywhere, Category = "Kart")
-	TObjectPtr<UStaticMeshComponent> RocketShell;
-
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UCameraComponent> Camera;
 
@@ -150,13 +142,7 @@ private:
 	TObjectPtr<UKartAudioComponent> Audio;
 
 	UPROPERTY()
-	TObjectPtr<UMaterialInterface> BaseMaterial;
-
-	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> PaintMaterial;
-
-	UPROPERTY()
-	TObjectPtr<UMaterialInstanceDynamic> AuraMaterial;
 
 	/** Driver and outfit slots tinted from the look (skin, hair, jersey, ...), by slot name. */
 	UPROPERTY()

@@ -106,15 +106,6 @@ void UKartFxComponent::Build()
 	VehicleRoot = VehicleRoot ? VehicleRoot.Get() : Root;
 	SlipPivot = SlipPivot ? SlipPivot.Get() : Root;
 
-	// The pawn's placeholder prism disc and rocket capsule are replaced by the shells below.
-	for (const TCHAR* Name : { TEXT("Aura"), TEXT("RocketShell") })
-	{
-		if (UPrimitiveComponent* Placeholder = FindPart<UPrimitiveComponent>(Owner, Name))
-		{
-			Placeholder->SetHiddenInGame(true);
-		}
-	}
-
 	for (int32 i = 0; i < 2; ++i)
 	{
 		BoostFire.Add(Fx->MakeStream(EField::Fire, ChassisPivot, *FString::Printf(TEXT("FxBoostFire%d"), i)));

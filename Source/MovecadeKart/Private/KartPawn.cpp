@@ -154,12 +154,8 @@ AKartPawn::AKartPawn()
 	BodyPivot = CreateDefaultSubobject<USceneComponent>(TEXT("BodyPivot"));
 	BodyPivot->SetupAttachment(SlipPivot);
 
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane.Plane"));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ShapeMaterial(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlateMaterial(TEXT("/Game/Karts/Materials/M_NamePlateBack.M_NamePlateBack"));
-	BaseMaterial = ShapeMaterial.Object;
 
 	VehicleRoot = CreateDefaultSubobject<USceneComponent>(TEXT("VehicleRoot"));
 	VehicleRoot->SetupAttachment(BodyPivot);
@@ -214,12 +210,7 @@ AKartPawn::AKartPawn()
 	NamePlateBack->SetOwnerNoSee(true);
 	NamePlateBack->SetCastShadow(false);
 
-	// Prism: the body cycles through the rainbow instead of the web's translucent yellow sphere.
-	Aura = MakePart(this, SlipPivot, TEXT("Aura"), SphereMesh.Object, FVector(0, 0, 8), FVector(2.6, 2.2, 0.06));
-	Aura->SetVisibility(false);
-	// Rocket: a capsule-ish shell along the kart (the web laid it across, spec 02 checklist 11).
-	RocketShell = MakePart(this, SlipPivot, TEXT("RocketShell"), CylinderMesh.Object, FVector(0, 0, 70), FVector(1.3, 1.3, 2.9), FRotator(90, 0, 0));
-	RocketShell->SetVisibility(false);
+	// The prism shimmer and the rocket shell are drawn by UKartFxComponent (FX/), which reads FKartItemVisual.
 
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(Root);
@@ -256,14 +247,6 @@ UPawnMovementComponent* AKartPawn::GetMovementComponent() const
 void AKartPawn::BeginPlay()
 {
 	Super::BeginPlay();
-	if (UMaterialInterface* Base = BaseMaterial)
-	{
-		UMaterialInstanceDynamic* Shell = UMaterialInstanceDynamic::Create(Base, this);
-		Shell->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.006f, 0.006f, 0.006f)); // #111111
-		RocketShell->SetMaterial(0, Shell);
-		AuraMaterial = UMaterialInstanceDynamic::Create(Base, this);
-		Aura->SetMaterial(0, AuraMaterial);
-	}
 	if (!bLookSet)
 	{
 		FKartLook Default = FKartLook::MakeVaried(0);
@@ -595,17 +578,12 @@ void AKartPawn::UpdateVisual(float DeltaSeconds)
 	BodyPivot->SetRelativeScale3D(FVector(Scale));
 
 	const double Time = GetWorld()->GetTimeSeconds();
-	Aura->SetVisibility(ItemVisual.bAura);
+	// Prism: the paint cycles through the rainbow.
 	const FLinearColor Rainbow = FLinearColor::MakeFromHSV8(static_cast<uint8>(FMath::Fmod(Time * 600.0, 256.0)), 200, 255);
 	if (PaintMaterial)
 	{
 		PaintMaterial->SetVectorParameterValue(TEXT("PaintColor"), ItemVisual.bAura ? Rainbow : PaintColor);
 	}
-	if (AuraMaterial)
-	{
-		AuraMaterial->SetVectorParameterValue(TEXT("Color"), Rainbow);
-	}
-	RocketShell->SetVisibility(ItemVisual.bRocket);
 	if (VehicleRoot->IsVisible() == ItemVisual.bRocket)
 	{
 		VehicleRoot->SetVisibility(!ItemVisual.bRocket, true);
