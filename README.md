@@ -65,7 +65,7 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` runs a simulated phone against bots.
 
 - C++ lives in `Source/MovecadeKart` (`Sim/` is the deterministic 60 Hz kart and item simulation in web units).
   Build: `Engine/Build/BatchFiles/Build.bat MyProjectEditor Win64 Development -Project=<path>\MyProject.uproject`.
-- Tests: `.\Tools\ue\test.ps1` builds and runs all 51 automation tests headless (`-NoBuild`, `-Filter MovecadeKart.Sim`).
+- Tests: `.\Tools\ue\test.ps1` builds and runs all 52 automation tests headless (`-NoBuild`, `-Filter MovecadeKart.Sim`).
   `.\Tools\ue\play.ps1` runs the game with the autopilot and takes screenshots.
 - Video: `.\Tools\video\capture.ps1` records a clip and `.\Tools\video\trailer.ps1` builds the trailer. Both need the
   tools venv once: `py -3.13 -m venv Tools\.cache\venv`, then `Tools\.cache\venv\Scripts\pip install imageio-ffmpeg`.
