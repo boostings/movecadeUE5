@@ -58,9 +58,10 @@ namespace
 		const TCHAR* WheelNodes[4];
 	};
 
-	// vehicles.ts VEHICLE_MOUNT_SPECS. Front slots 0/1 steer; the moto's empty slots have no mesh.
+	// vehicles.ts VEHICLE_MOUNT_SPECS. Front slots 0/1 steer; the moto's empty slots have no mesh. The kart's
+	// trim (bumper, lamps, splitter, dampers, roundels) comes from the detail pass, Tools/art/detail.
 	const FVehicleMount Mounts[] = {
-		{ TEXT("Kart"), FVector(0, -15, -92.8), TEXT("d_wheel"), false, true, true, false, { TEXT("wheel_0"), TEXT("wheel_1"), TEXT("wheel_2"), TEXT("wheel_3") } },
+		{ TEXT("Kart"), FVector(0, -15, -92.8), TEXT("d_wheel"), false, true, true, true, { TEXT("wheel_0"), TEXT("wheel_1"), TEXT("wheel_2"), TEXT("wheel_3") } },
 		{ TEXT("Moto"), FVector(0, -20, -64), TEXT("handlebar"), true, false, false, true, { TEXT("wheel_0"), nullptr, TEXT("wheel_2"), nullptr } },
 		{ TEXT("Coupe"), FVector(0, -15, -92.8), TEXT("d_wheel"), false, false, false, true, { TEXT("wheel_0"), TEXT("wheel_1"), TEXT("wheel_2"), TEXT("wheel_3") } },
 		{ TEXT("Truck"), FVector(0, -15, -3.8), TEXT("d_wheel"), false, false, false, true, { TEXT("wheel_0"), TEXT("wheel_1"), TEXT("wheel_2"), TEXT("wheel_3") } },

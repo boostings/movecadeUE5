@@ -1,12 +1,16 @@
 """Imports the decoded vehicles, avatar4 drivers and outfits (Tools/art/.cache/out, from Tools/art/decode.mjs)
 and builds their materials.
 
-Run headless from the project root, after `node Tools/art/decode.mjs`:
+Run headless from the project root, after `node Tools/art/decode.mjs` and the vehicle detail pass
+(Tools/art/detail/build.ps1, which writes Tools/art/.cache/detail/vehicles):
     .\\Tools\\ue\\run.ps1 import_karts.py              (everything)
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'vehicles' }   (vehicles | drivers | outfits | materials)
+    .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'kartmaterials' }   (vehicle masters + detail maps only)
 
 Layout:
-    /Game/Karts/Materials      M_KartPaint (clear coat), M_KartTyre, M_VehiclePart, default textures
+    /Game/Karts/Materials      M_KartPaint (clear coat, metallic flake), M_KartTyre, M_VehiclePart (detail maps),
+                               M_KartCarbon (clear-coated weave), default textures
+    /Game/Karts/Materials/Textures   the generated detail maps (Tools/art/detail/textures, make_textures.py)
     /Game/Karts/<Vehicle>      SM_<Vehicle>_<node> static meshes (node-local pivots: wheels spin about their hub)
     /Game/Avatars/Materials    M_AvatarSkin (subsurface profile), M_AvatarHair, M_AvatarCloth (cloth), M_AvatarSurface
     /Game/Avatars/SK_Avatar4_Skeleton   the one 26-joint skeleton every driver and outfit shares
@@ -30,6 +34,10 @@ KART_MATS = "/Game/Karts/Materials"
 AVATAR_MATS = "/Game/Avatars/Materials"
 SKELETON = "/Game/Avatars/SK_Avatar4_Skeleton"
 VEHICLES = {"kart": "Kart", "moto": "Moto", "coupe": "Coupe", "truck": "Truck"}
+# The detailed vehicles (Tools/art/detail/build.py) and their generated textures.
+DETAIL = os.path.join(PROJECT, "Tools", "art", ".cache", "detail", "vehicles")
+DETAIL_TEXTURES = os.path.join(PROJECT, "Tools", "art", "detail", "textures")
+DETAIL_TEX = f"{KART_MATS}/Textures"
 
 with open(os.path.join(ART, "materials.json"), encoding="utf-8") as f:
     MATERIAL_TABLE = json.load(f)
@@ -37,6 +45,15 @@ with open(os.path.join(ART, "materials.json"), encoding="utf-8") as f:
 
 def log(msg):
     unreal.log(f"KartArt: {msg}")
+
+
+def make_writable(*folders):
+    """Lockable LFS assets check out read-only, and the editor's saves (and deletes) then fail silently."""
+    for folder in folders:
+        root = os.path.join(unreal.Paths.project_content_dir(), folder[len("/Game/"):])
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                os.chmod(os.path.join(dirpath, name), 0o666)
 
 
 def set_if(obj, prop, value):
@@ -232,6 +249,66 @@ class Graph:
     def add(self, a, b, a_out="", b_out=""):
         return self.op(unreal.MaterialExpressionAdd, a, b, a_out, b_out)
 
+    def link(self, a, a_out, b, pin):
+        if not MEL.connect_material_expressions(a, a_out, b, pin):
+            log(f"  could not connect {type(a).__name__}.{a_out or '(out)'} -> {type(b).__name__}.{pin or '(in)'} "
+                f"on {self.mat.get_name()}")
+
+    def uv(self, index, scale):
+        """TexCoord[index] * scale (a parameter node)."""
+        tc = self.node(unreal.MaterialExpressionTextureCoordinate)
+        tc.set_editor_property("coordinate_index", index)
+        return self.mul(tc, scale)
+
+    def texture_at(self, name, tex, sampler, uvs):
+        n = self.texture(name, tex, sampler)
+        self.link(uvs, "", n, "UVs")
+        return n
+
+    def mask(self, node, out, channels):
+        m = self.node(unreal.MaterialExpressionComponentMask)
+        for k in "rgba":
+            m.set_editor_property(k, k in channels)
+        self.link(node, out, m, "")
+        return m
+
+    def append(self, a, b):
+        n = self.node(unreal.MaterialExpressionAppendVector)
+        self.link(a, "", n, "A")
+        self.link(b, "", n, "B")
+        return n
+
+    def lerp(self, a, b, alpha, a_out="", b_out=""):
+        n = self.node(unreal.MaterialExpressionLinearInterpolate)
+        self.link(a, a_out, n, "A")
+        self.link(b, b_out, n, "B")
+        self.link(alpha, "", n, "Alpha")
+        return n
+
+    def node_dot(self, a, b):
+        n = self.node(unreal.MaterialExpressionDotProduct)
+        self.link(a, "", n, "A")
+        self.link(b, "", n, "B")
+        return n
+
+    def const(self, value):
+        n = self.node(unreal.MaterialExpressionConstant)
+        n.set_editor_property("r", value)
+        return n
+
+    def blend_normals(self, base, base_out, detail, detail_out, strength):
+        """normalize(float3(base.xy + detail.xy * strength, base.z)): a detail map over a base normal."""
+        xy = self.add(self.mask(base, base_out, "rg"), self.mul(self.mask(detail, detail_out, "rg"), strength))
+        n = self.node(unreal.MaterialExpressionNormalize)
+        self.link(self.append(xy, self.mask(base, base_out, "b")), "", n, "VectorInput")
+        return n
+
+    def clear_coat_bottom_normal(self, node, output=""):
+        """The base layer's own normal under the clear coat (used when r.ClearCoatNormal is on)."""
+        cc = self.node(unreal.MaterialExpressionClearCoatNormalCustomOutput)
+        if not MEL.connect_material_expressions(node, output, cc, ""):
+            self.link(node, output, cc, "Input")
+
     def out(self, node, pin, output=""):
         """Connects to a pin of one MakeMaterialAttributes node (Python's MaterialProperty enum has no
         CustomData0/1, which carry Clear Coat and Cloth; the attribute pins do)."""
@@ -258,6 +335,9 @@ def set_usage(mat):
     if mat.get_path_name().startswith(AVATAR_MATS):
         for flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
             set_if(mat, flag, True)
+    if mat.get_path_name().startswith(KART_MATS):
+        # The vehicle meshes are Nanite; a cooked build can't add the flag later (fix_material_usage.py).
+        set_if(mat, "used_with_nanite", True)
 
 
 def fix_usage():
@@ -320,6 +400,45 @@ def flat_normal():
     return ASSETS.load_asset("/Engine/EngineMaterials/DefaultNormal")
 
 
+# Generated detail maps: file stem in Tools/art/detail/textures -> (asset, kind).
+DETAIL_TEXTURE_FILES = {
+    "flake_n": ("T_Flake_N", "normal"), "carbon_c": ("T_Carbon_C", "color"), "carbon_n": ("T_Carbon_N", "normal"),
+    "brushed_n": ("T_Brushed_N", "normal"), "brushed_r": ("T_Brushed_R", "mask"), "cast_n": ("T_Cast_N", "normal"),
+    "plastic_n": ("T_Plastic_N", "normal"), "seat_c": ("T_Seat_C", "color"), "seat_n": ("T_Seat_N", "normal"),
+    "tyre_n": ("T_Tyre_N", "normal"), "lens_n": ("T_Lens_N", "normal"), "roundel_c": ("T_Roundel_C", "color"),
+}
+
+
+def import_detail_textures():
+    tasks = []
+    for stem, (name, _) in sorted(DETAIL_TEXTURE_FILES.items()):
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", os.path.join(DETAIL_TEXTURES, f"{stem}.png"))
+        task.set_editor_property("destination_path", DETAIL_TEX)
+        task.set_editor_property("destination_name", name)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("replace_existing", True)
+        tasks.append(task)
+    TOOLS.import_asset_tasks(tasks)
+    for stem, (name, kind) in sorted(DETAIL_TEXTURE_FILES.items()):
+        tex = ASSETS.load_asset(f"{DETAIL_TEX}/{name}")
+        if kind == "normal":
+            # Generated DirectX-style (green down): no flip.
+            set_if(tex, "compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
+            set_if(tex, "srgb", False)
+            set_if(tex, "flip_green_channel", False)
+        elif kind == "mask":
+            set_if(tex, "compression_settings", unreal.TextureCompressionSettings.TC_MASKS)
+            set_if(tex, "srgb", False)
+        ASSETS.save_asset(f"{DETAIL_TEX}/{name}", only_if_is_dirty=False)
+    log(f"detail textures: {len(tasks)} in {DETAIL_TEX}")
+
+
+def detail_tex(name, fallback=None):
+    path = f"{DETAIL_TEX}/{name}"
+    return ASSETS.load_asset(path) if ASSETS.does_asset_exist(path) else fallback
+
+
 def make_kart_masters():
     white, linear, black = default_tex("T_Default_White"), default_tex("T_Default_WhiteLinear"), default_tex("T_Default_Black")
 
@@ -343,10 +462,24 @@ def make_kart_masters():
     MEL.connect_material_expressions(g.scalar("TexDesaturation", 0.0), "", mix, "Alpha")
     g.out(g.mul(mix, paint), "BaseColor")
     mr = g.texture("MRTex", linear, SAMPLER_MASKS)
-    g.out(g.mul(mr, g.scalar("RoughnessScale", 0.38), "G"), "Roughness")
-    g.out(g.mul(mr, g.scalar("MetallicScale", 0.12), "B"), "Metallic")
+    # Metallic flake (detail pass): flakes on UV1 (metres, FlakeScale tiles per metre). Each flake's tilt is a
+    # per-flake random value: it lifts the base layer's metallic and smooths it, so the paint sparkles under the
+    # mirror-smooth coat. With r.ClearCoatNormal on, the flakes also tilt the base layer's normal.
+    flake = g.texture_at("FlakeTex", detail_tex("T_Flake_N", flat_normal()), SAMPLER_NORMAL,
+                         g.uv(1, g.scalar("FlakeScale", 16.0)))
+    tilt = g.mask(flake, "RGB", "rg")
+    flake_amount = g.node(unreal.MaterialExpressionSaturate)
+    contrast = g.mul(g.node_dot(tilt, tilt), g.scalar("FlakeContrast", 9.0))
+    if not MEL.connect_material_expressions(contrast, "", flake_amount, ""):
+        g.link(contrast, "", flake_amount, "Input")
+    sparkle = g.mul(flake_amount, g.scalar("FlakeStrength", 0.3))
+    rough = g.mul(mr, g.scalar("RoughnessScale", 0.38), "G")
+    g.out(g.mul(rough, g.add(g.const(1.0), g.mul(sparkle, g.const(-0.4)))), "Roughness")
+    g.out(g.add(g.mul(mr, g.scalar("MetallicScale", 0.12), "B"), g.mul(sparkle, g.scalar("FlakeMetallic", 0.2))),
+          "Metallic")
     normal = g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL)
     g.out(normal, "Normal", "RGB")
+    g.clear_coat_bottom_normal(g.blend_normals(normal, "RGB", flake, "RGB", sparkle))
     glow = g.mul(paint, g.scalar("PaintGlow", 0.0135))
     lamps = g.mul(g.texture("EmissiveTex", black, SAMPLER_COLOR), g.scalar("EmissiveStrength", 4.0), "RGB")
     g.out(g.add(glow, lamps), "EmissiveColor")
@@ -354,7 +487,8 @@ def make_kart_masters():
     g.out(g.scalar("ClearCoatRoughness", 0.07), "ClearCoatRoughness")
     g.save()
 
-    # Tyre (kartMaterials.ts:46-53): #1b1b1d multiplying the tyre texture, roughness 0.9.
+    # Tyre (kartMaterials.ts:46-53): #1b1b1d multiplying the tyre texture, roughness 0.9. The detail pass's
+    # tyres put the sidewall rings and sipes (T_Tyre_N) on UV0.
     g = Graph(KART_MATS, "M_KartTyre", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     tint = g.vector("Tint", (0.0116, 0.0116, 0.0131))
     g.out(g.mul(g.texture("BaseTex", white, SAMPLER_COLOR), tint, "RGB"), "BaseColor")
@@ -364,14 +498,43 @@ def make_kart_masters():
     g.out(g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL), "Normal", "RGB")
     g.save()
 
-    # Untextured vehicle trim (moto/coupe/truck m_Accent, m_Chrome, m_Lamp, m_Glass, ...).
+    # Vehicle parts (m_Accent, m_Chrome, m_Lamp, m_Glass, and the detail pass's rims, discs, seats, lamps...):
+    # a colour, optional UV0 maps (decals, lens patterns) and optional tiling detail maps on UV1 (metres):
+    # a colour mask (seat stitching), a normal (brushed, cast, quilted) and a roughness mask.
     g = Graph(KART_MATS, "M_VehiclePart", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     color = g.vector("Color", (0.5, 0.5, 0.5))
-    g.out(color, "BaseColor")
-    g.out(g.scalar("Roughness", 0.5), "Roughness")
+    base = g.mul(color, g.texture("BaseTex", white, SAMPLER_COLOR), "", "RGB")
+    duv = g.uv(1, g.scalar("DetailScale", 4.0))
+    detail = g.texture_at("DetailTex", white, SAMPLER_COLOR, duv)
+    tinted = g.mul(base, g.lerp(g.const(1.0), detail, g.scalar("DetailTexAmount", 0.0), "", "RGB"))
+    g.out(tinted, "BaseColor")
+    drough = g.texture_at("DetailRough", linear, SAMPLER_MASKS, duv)
+    rough_mix = g.lerp(g.const(1.0), drough, g.scalar("DetailRoughAmount", 0.0), "", "R")
+    g.out(g.mul(g.scalar("Roughness", 0.5), rough_mix), "Roughness")
     g.out(g.scalar("Metallic", 0.0), "Metallic")
     g.out(g.scalar("Specular", 0.5), "Specular")
-    g.out(g.mul(color, g.scalar("Emissive", 0.0)), "EmissiveColor")
+    n0 = g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL)
+    n1 = g.texture_at("DetailNormal", flat_normal(), SAMPLER_NORMAL, duv)
+    g.out(g.blend_normals(n0, "RGB", n1, "RGB", g.scalar("DetailNormalStrength", 1.0)), "Normal")
+    g.out(g.mul(tinted, g.scalar("Emissive", 0.0)), "EmissiveColor")
+    g.save()
+
+    # Carbon fibre: the twill weave on UV1 under a glossy clear coat (the weave's relief is on the base layer).
+    g = Graph(KART_MATS, "M_KartCarbon", unreal.MaterialShadingModel.MSM_CLEAR_COAT)
+    cuv = g.uv(1, g.scalar("CarbonScale", 10.0))
+    weave = g.texture_at("CarbonTex", detail_tex("T_Carbon_C", white), SAMPLER_COLOR, cuv)
+    g.out(g.mul(weave, g.vector("Tint", (1.0, 1.0, 1.0)), "RGB"), "BaseColor")
+    weave_n = g.texture_at("CarbonNormal", detail_tex("T_Carbon_N", flat_normal()), SAMPLER_NORMAL, cuv)
+    # Without a second clear-coat normal the weave must not wrinkle the coat: keep it subtle on the top normal.
+    flat = g.node(unreal.MaterialExpressionConstant3Vector)
+    flat.set_editor_property("constant", unreal.LinearColor(0.0, 0.0, 1.0, 1.0))
+    g.out(g.blend_normals(flat, "", weave_n, "RGB", g.scalar("WeaveRelief", 0.35)), "Normal")
+    g.clear_coat_bottom_normal(weave_n, "RGB")
+    g.out(g.scalar("Roughness", 0.38), "Roughness")
+    g.out(g.scalar("Metallic", 0.0), "Metallic")
+    g.out(g.scalar("Specular", 0.5), "Specular")
+    g.out(g.scalar("ClearCoat", 1.0), "ClearCoat")
+    g.out(g.scalar("ClearCoatRoughness", 0.04), "ClearCoatRoughness")
     g.save()
 
     # Name plate: unlit, two-sided text and its backing.
@@ -491,50 +654,133 @@ def assign_slots(mesh, chooser):
 # --------------------------------------------------------------------------------------------------
 # Vehicles
 # --------------------------------------------------------------------------------------------------
+# Looks for the detail pass's material names (and premium overrides of the stock ones), as
+# (master, scalars, vectors, textures). A vector of None keeps the stock colour from materials.json.
+# Colours are linear.
+PART_LOOKS = {
+    "m_Tyre": ("tyre", {"RoughnessScale": 0.86, "Specular": 0.3}, {"Tint": (0.011, 0.011, 0.012)}, {"NormalTex": "T_Tyre_N"}),
+    "m_Rim": ("part", {"Roughness": 0.12, "Metallic": 1.0, "Specular": 0.5}, {"Color": (0.86, 0.86, 0.9)}, {}),
+    "m_Hub": ("part", {"Roughness": 0.36, "Metallic": 0.85, "DetailScale": 8.0, "DetailNormalStrength": 0.6},
+              {"Color": (0.035, 0.036, 0.04)}, {"DetailNormal": "T_Cast_N"}),
+    "m_Disc": ("part", {"Roughness": 0.3, "Metallic": 1.0, "DetailScale": 6.0, "DetailRoughAmount": 0.6,
+                        "DetailNormalStrength": 0.5}, {"Color": (0.52, 0.52, 0.54)},
+               {"DetailNormal": "T_Brushed_N", "DetailRough": "T_Brushed_R"}),
+    "m_Chrome": ("part", {"Roughness": 0.06, "Metallic": 1.0, "Specular": 0.5}, {"Color": (0.92, 0.92, 0.95)}, {}),
+    "m_Carbon": ("carbon", {"CarbonScale": 10.0, "Roughness": 0.38, "ClearCoatRoughness": 0.03}, {}, {}),
+    "m_Rubber": ("part", {"Roughness": 0.72, "Specular": 0.35, "DetailScale": 6.0, "DetailNormalStrength": 0.5},
+                 {"Color": (0.012, 0.012, 0.013)}, {"DetailNormal": "T_Plastic_N"}),
+    "m_Seat": ("part", {"Roughness": 0.48, "Specular": 0.4, "DetailScale": 5.0, "DetailNormalStrength": 1.0,
+                        "DetailTexAmount": 1.0}, {"Color": (0.04, 0.04, 0.05)},
+               {"DetailNormal": "T_Seat_N", "DetailTex": "T_Seat_C"}),
+    "m_Engine": ("part", {"Roughness": 0.42, "Metallic": 0.9, "DetailScale": 8.0, "DetailNormalStrength": 0.8},
+                 {"Color": (0.09, 0.09, 0.1)}, {"DetailNormal": "T_Cast_N"}),
+    "m_Spring": ("part", {"Roughness": 0.28, "Metallic": 0.5}, {"Color": (1.0, 0.62, 0.02)}, {}),
+    "m_Chain": ("part", {"Roughness": 0.45, "Metallic": 1.0}, {"Color": (0.12, 0.12, 0.13)}, {}),
+    "m_Lamp": ("part", {"Roughness": 0.08, "Specular": 0.8, "Emissive": 6.0}, {"Color": (1.0, 0.9, 0.72)},
+               {"NormalTex": "T_Lens_N"}),
+    "m_Tail": ("part", {"Roughness": 0.1, "Specular": 0.8, "Emissive": 3.0}, {"Color": (0.8, 0.02, 0.025)},
+               {"NormalTex": "T_Lens_N"}),
+    "m_Amber": ("part", {"Roughness": 0.1, "Specular": 0.8, "Emissive": 2.5}, {"Color": (1.0, 0.38, 0.02)},
+                {"NormalTex": "T_Lens_N"}),
+    "m_Glow": ("part", {"Roughness": 0.6, "Specular": 0.2, "Emissive": 0.5}, {"Color": (0.75, 0.1, 0.012)}, {}),
+    "m_Roundel": ("part", {"Roughness": 0.22, "Specular": 0.6}, {"Color": (1.0, 1.0, 1.0)}, {"BaseTex": "T_Roundel_C"}),
+    "m_Glass": ("part", {"Roughness": 0.04, "Metallic": 0.3, "Specular": 0.9}, {"Color": (0.02, 0.03, 0.05)}, {}),
+    "m_Trim": ("part", {"Roughness": 0.5, "DetailScale": 6.0, "DetailNormalStrength": 0.35}, None,
+               {"DetailNormal": "T_Plastic_N"}),
+    "m_Accent": ("part", {"Roughness": 0.4, "DetailScale": 6.0, "DetailNormalStrength": 0.2}, None,
+                 {"DetailNormal": "T_Plastic_N"}),
+}
+# Per vehicle: rim finishes and spring colours that suit each one.
+VEHICLE_LOOKS = {
+    "kart": {"m_Rim": ({"Roughness": 0.1, "Metallic": 1.0}, {"Color": (0.88, 0.88, 0.92)}),
+             "m_Spring": ({}, {"Color": (1.0, 0.62, 0.02)})},
+    "moto": {"m_Rim": ({"Roughness": 0.2, "Metallic": 1.0}, {"Color": (0.95, 0.6, 0.16)}),  # gold anodised
+             "m_Spring": ({}, {"Color": (0.95, 0.6, 0.16)})},
+    "coupe": {"m_Rim": ({"Roughness": 0.16, "Metallic": 1.0}, {"Color": (0.8, 0.8, 0.84)})},
+    "truck": {"m_Rim": ({"Roughness": 0.34, "Metallic": 0.6}, {"Color": (0.03, 0.03, 0.035)}),  # satin black
+              "m_Spring": ({}, {"Color": (1.0, 0.33, 0.02)})},
+}
+# Stock paint without a texture gets a metallic base under the coat.
+PAINT_METALLIC = 0.28
+
+
+def mesh_slots(mesh):
+    return [str(m.get_editor_property("material_slot_name")) for m in mesh.get_editor_property("static_materials")]
+
+
+def enable_nanite(mesh):
+    settings = mesh.get_editor_property("nanite_settings")
+    settings.set_editor_property("enabled", True)
+    subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    if hasattr(subsystem, "set_nanite_settings"):
+        subsystem.set_nanite_settings(mesh, settings, apply_changes=True)
+    else:
+        mesh.set_editor_property("nanite_settings", settings)
+
+
 def import_vehicles():
     paint = ASSETS.load_asset(f"{KART_MATS}/M_KartPaint")
     tyre = ASSETS.load_asset(f"{KART_MATS}/M_KartTyre")
     part = ASSETS.load_asset(f"{KART_MATS}/M_VehiclePart")
+    carbon = ASSETS.load_asset(f"{KART_MATS}/M_KartCarbon")
+    masters = {"tyre": tyre, "part": part, "carbon": carbon}
+    make_writable("/Game/Karts")
     for vid, vname in VEHICLES.items():
         folder = f"/Game/Karts/{vname}"
+        source = os.path.join(DETAIL, f"{vid}.glb")
+        if not os.path.exists(source):
+            raise RuntimeError(f"{source} is missing: run Tools/art/detail/build.ps1 first")
         if ASSETS.does_directory_exist(folder):
             ASSETS.delete_directory(folder)
-        import_glb(os.path.join(ART, "vehicles", f"{vid}.glb"), folder, skeletal=False)
+        import_glb(source, folder, skeletal=False)
         fix_textures(folder)
+        meshes = []
+        for mesh in assets_in(folder, unreal.StaticMesh):
+            short = mesh.get_name()
+            if short.startswith("SM_"):
+                short = short[len("SM_"):]
+            meshes.append(rename(mesh, folder, f"SM_{vname}_{short}"))
+        used = {slot for mesh in meshes for slot in mesh_slots(mesh)}
         table = MATERIAL_TABLE[f"vehicles/{vid}.glb"]
+        mats = f"{folder}/Materials"
         mis = {}
-        for mname, entry in table.items():
-            tex = {k: find_texture(folder, v) for k, v in entry["tex"].items()}
+        for mname in sorted(used):
+            entry = table.get(mname)
             if mname == "m_Body":
+                tex = {k: find_texture(folder, v) for k, v in entry["tex"].items()}
                 textured = "BaseColor" in entry["tex"]
-                mis[mname] = make_mi(f"{folder}/Materials", f"MI_{vname}_Paint", paint,
+                mis[mname] = make_mi(mats, f"MI_{vname}_Paint", paint,
                                      scalars={"TexDesaturation": PAINT_DESATURATION if textured else 0.0,
-                                              "TexBrightness": PAINT_BRIGHTNESS if textured else 1.0},
+                                              "TexBrightness": PAINT_BRIGHTNESS if textured else 1.0,
+                                              **({} if textured else {"MetallicScale": PAINT_METALLIC})},
                                      vectors={"PaintColor": entry["base"][:3]},
                                      textures={"BaseTex": tex.get("BaseColor"), "MRTex": tex.get("MetallicRoughness"),
                                                "NormalTex": tex.get("Normal"), "EmissiveTex": tex.get("Emissive")})
-            elif mname == "m_Tire" and tex:
-                mis[mname] = make_mi(f"{folder}/Materials", f"MI_{vname}_Tyre", tyre,
-                                     textures={"BaseTex": tex.get("BaseColor"), "MRTex": tex.get("MetallicRoughness"),
-                                               "NormalTex": tex.get("Normal")})
-            else:
-                emissive = {"m_Lamp": 3.0, "m_Tail": 0.6}.get(mname, 0.0)
-                spec = 0.9 if mname == "m_Glass" else 0.5
-                mis[mname] = make_mi(f"{folder}/Materials", f"MI_{vname}_{mname[2:]}", part,
-                                     scalars={"Roughness": entry["rough"], "Metallic": entry["metal"],
-                                              "Emissive": emissive, "Specular": spec},
+            elif mname in PART_LOOKS:
+                kind, scalars, vectors, textures = PART_LOOKS[mname]
+                scalars = dict(scalars)
+                if vectors is None:  # keep the stock colour (and its roughness/metalness unless overridden)
+                    vectors = {"Color": entry["base"][:3]} if entry else {}
+                    scalars.setdefault("Metallic", entry["metal"] if entry else 0.0)
+                vectors = dict(vectors)
+                over_s, over_v = VEHICLE_LOOKS.get(vid, {}).get(mname, ({}, {}))
+                scalars.update(over_s)
+                vectors.update(over_v)
+                mis[mname] = make_mi(mats, f"MI_{vname}_{mname[2:]}", masters[kind], scalars=scalars, vectors=vectors,
+                                     textures={k: detail_tex(v) for k, v in textures.items()})
+            elif entry is not None:
+                mis[mname] = make_mi(mats, f"MI_{vname}_{mname[2:]}", part,
+                                     scalars={"Roughness": entry["rough"], "Metallic": entry["metal"]},
                                      vectors={"Color": entry["base"][:3]})
-        for mesh in assets_in(folder, unreal.StaticMesh):
-            short = mesh.get_name()
-            for prefix in ("SM_",):
-                if short.startswith(prefix):
-                    short = short[len(prefix):]
-            renamed = rename(mesh, folder, f"SM_{vname}_{short}")
-            assign_slots(renamed, lambda slot: mis.get(slot))
-            box = renamed.get_bounding_box()
-            log(f"  {renamed.get_name()}: slots {[str(m.get_editor_property('material_slot_name')) for m in renamed.get_editor_property('static_materials')]} "
-                f"bounds min {box.min} max {box.max}")
-        delete_imported_materials_except(folder, f"{folder}/Materials")
+            else:
+                log(f"  WARNING {vname}: no look for slot {mname}")
+        for mesh in meshes:
+            assign_slots(mesh, lambda slot: mis.get(slot))
+            enable_nanite(mesh)
+            ASSETS.save_loaded_asset(mesh)
+            box = mesh.get_bounding_box()
+            log(f"  {mesh.get_name()}: slots {mesh_slots(mesh)} bounds min {box.min} max {box.max}")
+        delete_imported_materials_except(folder, mats)
         ASSETS.save_directory(folder)
 
 
@@ -679,8 +925,15 @@ def import_outfits():
 
 
 def main():
+    if STAGE in ("all", "materials", "vehicles", "kartmaterials"):
+        make_writable(KART_MATS, AVATAR_MATS)
+    if STAGE == "kartmaterials":
+        # Only the vehicle masters and detail maps (leaves the avatar materials alone).
+        import_detail_textures()
+        make_kart_masters()
     if STAGE in ("all", "materials"):
         import_defaults()
+        import_detail_textures()
         make_kart_masters()
         make_avatar_masters()
     if STAGE == "swaps":
