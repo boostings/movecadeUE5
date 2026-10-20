@@ -790,6 +790,12 @@ void AKartRaceManager::DispatchItemEvents(const TArray<FKartItemEvent>& Events)
 		{
 		case EKartItemEventType::Pickup: OnCue.Broadcast(E.Seat, TEXT("kart.item-pickup")); break;
 		case EKartItemEventType::Ready: OnCue.Broadcast(E.Seat, TEXT("kart.item-ready")); break;
+		case EKartItemEventType::Used:
+			if (Racers.IsValidIndex(E.Seat))
+			{
+				Racers[E.Seat].Kart->PlayItemThrow();
+			}
+			break;
 		case EKartItemEventType::Launch:
 			OnCue.Broadcast(E.Seat, TEXT("kart.projectile-launch"));
 			if (E.Item == EKartItem::Seeker || E.Item == EKartItem::SkySeeker)
