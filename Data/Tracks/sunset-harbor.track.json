@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-20T01:40:01.792Z",
+  "exportedAt": "2026-10-20T05:50:24.808Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",
@@ -31274,7 +31274,32 @@
    "radius": 0.38,
    "threshold": 1
   },
-  "vignette": 0.3
+  "vignette": 0.3,
+  "ue": {
+   "sunDirection": [0.62,0.3,-0.72],
+   "sunColor": "#ffd29a",
+   "sunScale": 1.3,
+   "skyLightScale": 1.2,
+   "skyLightTint": "#a9c8ff",
+   "skyTop": "#2a64d6",
+   "skyMid": "#6fa2ec",
+   "skyHorizon": "#ffd7a6",
+   "skyBelow": "#f2c9a0",
+   "sunDisc": "#fff4d8",
+   "glowPower": 12,
+   "sunGlow": 0.9,
+   "horizonGlow": 0.7,
+   "clouds": 0.5,
+   "cloudScale": 0.3,
+   "cloudLit": "#fff1dc",
+   "cloudShade": "#a9b7d8",
+   "fogColor": "#e9e4dc",
+   "fogDensity": 0.0009,
+   "fogFalloff": 0.008,
+   "fogStart": 160,
+   "fogMaxOpacity": 0.55,
+   "fogSunScatter": 0.35
+  }
  },
  "lookNight": {
   "mood": {
@@ -33268,15 +33293,7 @@
     "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftBeach",
     "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightBeach",
     "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftSurf",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightSurf",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftShallows",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightShallows",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCurb",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCurb",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftWall",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightWall",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCap",
-    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCap"
+    "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightSurf"
    ],
    "parts": [
     {
@@ -33375,100 +33392,6 @@
       "color": "#f4f7ec",
       "opacity": 0.85
      }
-    },
-    {
-     "node": "ribbon_leftShallows",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftShallows",
-     "material": {
-      "shader": "translucent",
-      "color": "#7fd0cc",
-      "opacity": 0.7
-     }
-    },
-    {
-     "node": "ribbon_rightShallows",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightShallows",
-     "material": {
-      "shader": "translucent",
-      "color": "#7fd0cc",
-      "opacity": 0.7
-     }
-    },
-    {
-     "node": "ribbon_leftCurb",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCurb",
-     "material": {
-      "shader": "surface",
-      "roughness": 0.7,
-      "detail": "painted_concrete",
-      "tileM": 2,
-      "albedo": 0.25,
-      "normal": 0.4,
-      "rough": 0.4
-     }
-    },
-    {
-     "node": "ribbon_rightCurb",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCurb",
-     "material": {
-      "shader": "surface",
-      "roughness": 0.7,
-      "detail": "painted_concrete",
-      "tileM": 2,
-      "albedo": 0.25,
-      "normal": 0.4,
-      "rough": 0.4
-     }
-    },
-    {
-     "node": "ribbon_leftWall",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftWall",
-     "material": {
-      "shader": "surface",
-      "color": "#8fb0ad",
-      "texture": "harbor_stone",
-      "roughness": 0.8,
-      "detail": "painted_concrete",
-      "triplanar": true,
-      "tileM": 2.4,
-      "albedo": 0.45,
-      "normal": 0.6,
-      "rough": 0.5
-     }
-    },
-    {
-     "node": "ribbon_rightWall",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightWall",
-     "material": {
-      "shader": "surface",
-      "color": "#8fb0ad",
-      "texture": "harbor_stone",
-      "roughness": 0.8,
-      "detail": "painted_concrete",
-      "triplanar": true,
-      "tileM": 2.4,
-      "albedo": 0.45,
-      "normal": 0.6,
-      "rough": 0.5
-     }
-    },
-    {
-     "node": "ribbon_leftCap",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCap",
-     "material": {
-      "shader": "vertexColor",
-      "color": "#fff0cc",
-      "roughness": 0.8
-     }
-    },
-    {
-     "node": "ribbon_rightCap",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCap",
-     "material": {
-      "shader": "vertexColor",
-      "color": "#fff0cc",
-      "roughness": 0.8
-     }
     }
    ]
   },
@@ -33512,358 +33435,615 @@
     "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f0a58a",
     "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d9c39a",
     "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f4f7ec",
-    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_96aaa2",
-    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_71b9b7"
+    "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_96aaa2"
    ],
    "parts": [
     {
      "node": "hs_b48d69",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b48d69",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#b48d69",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "dark_wooden_planks",
+      "triplanar": true,
+      "tileM": 1.8,
+      "albedo": 0.35,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 0.8
      }
     },
     {
      "node": "hs_cba77c",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_cba77c",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#cba77c",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "dark_wooden_planks",
+      "triplanar": true,
+      "tileM": 1.8,
+      "albedo": 0.35,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 0.8
      }
     },
     {
      "node": "hs_829278",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_829278",
      "material": {
-      "shader": "textured",
-      "color": "#829278",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "shader": "surface",
+      "color": "#ffffff",
+      "detail": "rock_face",
+      "triplanar": true,
+      "tileM": 4,
+      "albedo": 0.75,
+      "normal": 1,
+      "rough": 0.4,
+      "roughness": 0.92
      }
     },
     {
      "node": "hs_a87a51",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_a87a51",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#a87a51",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "dark_wooden_planks",
+      "triplanar": true,
+      "tileM": 1.8,
+      "albedo": 0.35,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 0.8
      }
     },
     {
      "node": "hs_ba9168",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ba9168",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#ba9168",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "dark_wooden_planks",
+      "triplanar": true,
+      "tileM": 1.8,
+      "albedo": 0.35,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 0.8
      }
     },
     {
      "node": "hs_63926a",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_63926a",
      "material": {
-      "shader": "textured",
+      "shader": "foliage",
       "color": "#63926a",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "leafy_grass",
+      "triplanar": true,
+      "tileM": 0.9,
+      "albedo": 0.4,
+      "normal": 0.7,
+      "rough": 0.3,
+      "roughness": 0.75
      }
     },
     {
      "node": "hs_417b64",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_417b64",
      "material": {
-      "shader": "textured",
+      "shader": "foliage",
       "color": "#417b64",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "leafy_grass",
+      "triplanar": true,
+      "tileM": 0.9,
+      "albedo": 0.4,
+      "normal": 0.7,
+      "rough": 0.3,
+      "roughness": 0.75
      }
     },
     {
      "node": "hs_e8dac0",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e8dac0",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#e8dac0",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_fff0cc",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_fff0cc",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#fff0cc",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_d86f50",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d86f50",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#d86f50",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_325e68",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_325e68",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#325e68",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 1.5,
+      "albedo": 0.2,
+      "normal": 0.3,
+      "rough": 0.4,
+      "roughness": 0.55
      }
     },
     {
      "node": "hs_f5d486",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f5d486",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#f5d486",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_c78d70",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_c78d70",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#c78d70",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_dfa483",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_dfa483",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#dfa483",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_ffe1a0",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ffe1a0",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#ffe1a0",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_e88c68",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e88c68",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#e88c68",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_b9664d",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b9664d",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#b9664d",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_ce8663",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_ce8663",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#ce8663",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_efcf99",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_efcf99",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#efcf99",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "gravelly_sand",
+      "triplanar": true,
+      "tileM": 2,
+      "albedo": 0.45,
+      "normal": 0.6,
+      "rough": 0.4,
+      "roughness": 0.95
      }
     },
     {
      "node": "hs_eadbb6",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_eadbb6",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#eadbb6",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_e3ba68",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e3ba68",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#e3ba68",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_6da9a0",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_6da9a0",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#6da9a0",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_98b5b5",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_98b5b5",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#98b5b5",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_8b968b",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_8b968b",
      "material": {
-      "shader": "textured",
-      "color": "#8b968b",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "shader": "surface",
+      "color": "#ffffff",
+      "detail": "rock_face",
+      "triplanar": true,
+      "tileM": 4,
+      "albedo": 0.75,
+      "normal": 1,
+      "rough": 0.4,
+      "roughness": 0.92
      }
     },
     {
      "node": "hs_9aa89b",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_9aa89b",
      "material": {
-      "shader": "textured",
-      "color": "#9aa89b",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "shader": "surface",
+      "color": "#ffffff",
+      "detail": "rock_face",
+      "triplanar": true,
+      "tileM": 4,
+      "albedo": 0.75,
+      "normal": 1,
+      "rough": 0.4,
+      "roughness": 0.92
      }
     },
     {
      "node": "hs_b69a5c",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_b69a5c",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#b69a5c",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "dark_wooden_planks",
+      "triplanar": true,
+      "tileM": 1.8,
+      "albedo": 0.35,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 0.8
      }
     },
     {
      "node": "hs_a2874f",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_a2874f",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#a2874f",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "dark_wooden_planks",
+      "triplanar": true,
+      "tileM": 1.8,
+      "albedo": 0.35,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 0.8
      }
     },
     {
      "node": "hs_e6cc9e",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_e6cc9e",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#e6cc9e",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "gravelly_sand",
+      "triplanar": true,
+      "tileM": 2,
+      "albedo": 0.45,
+      "normal": 0.6,
+      "rough": 0.4,
+      "roughness": 0.95
      }
     },
     {
      "node": "hs_7fd0cc",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_7fd0cc",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#7fd0cc",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_2f3a3d",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_2f3a3d",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#2f3a3d",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 1.5,
+      "albedo": 0.2,
+      "normal": 0.3,
+      "rough": 0.4,
+      "roughness": 0.55
      }
     },
     {
      "node": "hs_f0a58a",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f0a58a",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#f0a58a",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_d9c39a",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_d9c39a",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#d9c39a",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "gravelly_sand",
+      "triplanar": true,
+      "tileM": 2,
+      "albedo": 0.45,
+      "normal": 0.6,
+      "rough": 0.4,
+      "roughness": 0.95
      }
     },
     {
      "node": "hs_f4f7ec",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_f4f7ec",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#f4f7ec",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "detail": "plastered_wall_02",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.3,
+      "normal": 0.55,
+      "rough": 0.45,
+      "roughness": 0.82
      }
     },
     {
      "node": "hs_96aaa2",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_96aaa2",
      "material": {
-      "shader": "textured",
-      "color": "#96aaa2",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "shader": "surface",
+      "color": "#ffffff",
+      "detail": "rock_face",
+      "triplanar": true,
+      "tileM": 14,
+      "albedo": 0.75,
+      "normal": 1,
+      "rough": 0.4,
+      "roughness": 0.92
+     }
+    }
+   ]
+  },
+  {
+   "file": "harbor_coast.glb",
+   "decoded": "Tools/track-export/out/harbor/harbor_coast.glb",
+   "worldSpace": true,
+   "transformBaked": true,
+   "collision": false,
+   "nanite": true,
+   "ueAssets": [
+    "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seawall_right",
+    "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/kerb_right",
+    "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seabed_right",
+    "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seawall_left",
+    "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/kerb_left",
+    "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seabed_left"
+   ],
+   "parts": [
+    {
+     "node": "seawall_right",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seawall_right",
+     "material": {
+      "shader": "surface",
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 2.2,
+      "albedo": 0.4,
+      "normal": 0.6,
+      "rough": 0.45,
+      "roughness": 0.7
      }
     },
     {
-     "node": "hs_71b9b7",
-     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_scenery/StaticMeshes/hs_71b9b7",
+     "node": "kerb_right",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/kerb_right",
      "material": {
-      "shader": "textured",
-      "color": "#71b9b7",
-      "texture": "harbor_grain",
-      "roughness": 0.86
+      "shader": "surface",
+      "detail": "painted_concrete",
+      "tileM": 1.5,
+      "albedo": 0.2,
+      "normal": 0.35,
+      "rough": 0.35,
+      "roughness": 0.55
+     }
+    },
+    {
+     "node": "seabed_right",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seabed_right",
+     "material": {
+      "shader": "surface",
+      "detail": "gravelly_sand",
+      "tileM": 3,
+      "albedo": 0.6,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 1
+     }
+    },
+    {
+     "node": "seawall_left",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seawall_left",
+     "material": {
+      "shader": "surface",
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 2.2,
+      "albedo": 0.4,
+      "normal": 0.6,
+      "rough": 0.45,
+      "roughness": 0.7
+     }
+    },
+    {
+     "node": "kerb_left",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/kerb_left",
+     "material": {
+      "shader": "surface",
+      "detail": "painted_concrete",
+      "tileM": 1.5,
+      "albedo": 0.2,
+      "normal": 0.35,
+      "rough": 0.35,
+      "roughness": 0.55
+     }
+    },
+    {
+     "node": "seabed_left",
+     "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/seabed_left",
+     "material": {
+      "shader": "surface",
+      "detail": "gravelly_sand",
+      "tileM": 3,
+      "albedo": 0.6,
+      "normal": 0.7,
+      "rough": 0.4,
+      "roughness": 1
      }
     }
    ]
@@ -33874,11 +34054,555 @@
    {
     "prefab": "sea_plane",
     "x": 100,
-    "y": -7,
+    "y": -6.96,
     "z": -40,
     "yaw": 0,
     "scale": [5000,1,5000],
     "tint": "#5fb3b3"
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 24.2328,
+    "y": -1.3691,
+    "z": -7.9148,
+    "yaw": 1.957,
+    "scale": [1,0.8999,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": 34.2471,
+    "y": -4.5053,
+    "z": -44.0945,
+    "yaw": 2.74,
+    "scale": [0.9597,0.9597,0.9597]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": 34.2471,
+    "y": -4.5053,
+    "z": -44.0945,
+    "yaw": 2.74,
+    "scale": [0.9597,0.9597,0.9597]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 32.9095,
+    "y": -2.3109,
+    "z": -91.8141,
+    "yaw": 3.3858,
+    "scale": [1,0.8369,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": 42.3057,
+    "y": -4.8889,
+    "z": -100.2807,
+    "yaw": 2.2634,
+    "scale": [0.959,0.959,0.959]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": 42.3057,
+    "y": -4.8889,
+    "z": -100.2807,
+    "yaw": 2.2634,
+    "scale": [0.959,0.959,0.959]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 19.4151,
+    "y": -1.6398,
+    "z": -139.0688,
+    "yaw": 5.8282,
+    "scale": [1,0.943,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 18.7903,
+    "y": -4.1124,
+    "z": -151.1902,
+    "yaw": 0.6569,
+    "scale": [1,0.9808,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": -65.0287,
+    "y": -3.4005,
+    "z": -161.8887,
+    "yaw": 2.9827,
+    "scale": [1.0948,1.0948,1.0948]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": -65.0287,
+    "y": -3.4005,
+    "z": -161.8887,
+    "yaw": 2.9827,
+    "scale": [1.0948,1.0948,1.0948]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": -70.1154,
+    "y": -3.449,
+    "z": -175.3102,
+    "yaw": 5.6521,
+    "scale": [1.0611,1.0611,1.0611]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": -70.1154,
+    "y": -3.449,
+    "z": -175.3102,
+    "yaw": 5.6521,
+    "scale": [1.0611,1.0611,1.0611]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": -67.6563,
+    "y": -4.1633,
+    "z": -226.9042,
+    "yaw": 2.4188,
+    "scale": [1.1192,1.1192,1.1192]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": -67.6563,
+    "y": -4.1633,
+    "z": -226.9042,
+    "yaw": 2.4188,
+    "scale": [1.1192,1.1192,1.1192]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": -57.623,
+    "y": -2.5204,
+    "z": -231.6444,
+    "yaw": 4.7936,
+    "scale": [0.9379,0.9379,0.9379]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": -57.623,
+    "y": -2.5204,
+    "z": -231.6444,
+    "yaw": 4.7936,
+    "scale": [0.9379,0.9379,0.9379]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": -52.9747,
+    "y": -2.6988,
+    "z": -237.9417,
+    "yaw": 3.7341,
+    "scale": [1,1.038,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": -11.502,
+    "y": -1.6148,
+    "z": -256.6026,
+    "yaw": 3.4696,
+    "scale": [1,0.9935,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 14.8024,
+    "y": -4.0439,
+    "z": -267.5423,
+    "yaw": 5.598,
+    "scale": [1,1.0064,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 30.6489,
+    "y": -4.3445,
+    "z": -205.6018,
+    "yaw": 1.5581,
+    "scale": [1,1.2833,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 51.043,
+    "y": -2.8233,
+    "z": -260.9592,
+    "yaw": 3.7575,
+    "scale": [1,1.187,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 62.7396,
+    "y": -2.6116,
+    "z": -258.0068,
+    "yaw": 0.6795,
+    "scale": [1,1.2426,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 125.6311,
+    "y": -4.3142,
+    "z": -221.9825,
+    "yaw": 2.1622,
+    "scale": [0.9845,0.9845,0.9845]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 125.6311,
+    "y": -4.3142,
+    "z": -221.9825,
+    "yaw": 2.1622,
+    "scale": [0.9845,0.9845,0.9845]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 125.4162,
+    "y": -2.7661,
+    "z": -213.2898,
+    "yaw": 1.1228,
+    "scale": [1,1.2172,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": 71.6553,
+    "y": -4.6322,
+    "z": -154.1143,
+    "yaw": 3.4853,
+    "scale": [0.8778,0.8778,0.8778]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": 71.6553,
+    "y": -4.6322,
+    "z": -154.1143,
+    "yaw": 3.4853,
+    "scale": [0.8778,0.8778,0.8778]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": 73.9424,
+    "y": -4.1208,
+    "z": -145.3131,
+    "yaw": 0.0712,
+    "scale": [1.0327,1.0327,1.0327]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": 73.9424,
+    "y": -4.1208,
+    "z": -145.3131,
+    "yaw": 0.0712,
+    "scale": [1.0327,1.0327,1.0327]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": 219.4286,
+    "y": -1.2613,
+    "z": -120.8375,
+    "yaw": 0.8638,
+    "scale": [1.0516,1.0516,1.0516]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": 219.4286,
+    "y": -1.2613,
+    "z": -120.8375,
+    "yaw": 0.8638,
+    "scale": [1.0516,1.0516,1.0516]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 204.189,
+    "y": -2.5978,
+    "z": -172.7052,
+    "yaw": 2.0893,
+    "scale": [1,0.9599,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 219.5567,
+    "y": -3.7443,
+    "z": -196.1702,
+    "yaw": 1.1332,
+    "scale": [1,1.1323,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 230.6527,
+    "y": -2.9041,
+    "z": -202.5827,
+    "yaw": 5.2344,
+    "scale": [1,1.1405,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 280.1586,
+    "y": -4.2418,
+    "z": -219.8142,
+    "yaw": 0.2751,
+    "scale": [1,1.0735,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 300.2893,
+    "y": -5.0654,
+    "z": -216.6665,
+    "yaw": 3.5678,
+    "scale": [1,1.1187,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 347.2547,
+    "y": -4.2306,
+    "z": -164.6574,
+    "yaw": 5.4268,
+    "scale": [1,1.1638,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 352.5214,
+    "y": -3.0884,
+    "z": -125.0574,
+    "yaw": 0.587,
+    "scale": [1,0.9627,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 355.6853,
+    "y": -3.9216,
+    "z": -115.4071,
+    "yaw": 1.8663,
+    "scale": [1.0578,1.0578,1.0578]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 355.6853,
+    "y": -3.9216,
+    "z": -115.4071,
+    "yaw": 1.8663,
+    "scale": [1.0578,1.0578,1.0578]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 354.4201,
+    "y": -3.5741,
+    "z": -108.9645,
+    "yaw": 5.4433,
+    "scale": [1.0412,1.0412,1.0412]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 354.4201,
+    "y": -3.5741,
+    "z": -108.9645,
+    "yaw": 5.4433,
+    "scale": [1.0412,1.0412,1.0412]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 244.973,
+    "y": -3.2293,
+    "z": -54.8129,
+    "yaw": 3.9232,
+    "scale": [1,0.9278,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 237.989,
+    "y": -3.4182,
+    "z": -50.7106,
+    "yaw": 3.6548,
+    "scale": [1.091,1.091,1.091]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 237.989,
+    "y": -3.4182,
+    "z": -50.7106,
+    "yaw": 3.6548,
+    "scale": [1.091,1.091,1.091]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 230.9127,
+    "y": -3.2,
+    "z": -44.4519,
+    "yaw": 3.868,
+    "scale": [1,1.267,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 204.2044,
+    "y": -3.3713,
+    "z": 59.3143,
+    "yaw": 4.3659,
+    "scale": [1,0.9169,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 270.7739,
+    "y": -5.0937,
+    "z": 48.7501,
+    "yaw": 4.1637,
+    "scale": [0.8502,0.8502,0.8502]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 270.7739,
+    "y": -5.0937,
+    "z": 48.7501,
+    "yaw": 4.1637,
+    "scale": [0.8502,0.8502,0.8502]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 277.1498,
+    "y": -4.6979,
+    "z": 83.7702,
+    "yaw": 5.8469,
+    "scale": [1,1.2454,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 258.7286,
+    "y": -4.119,
+    "z": 130.9125,
+    "yaw": 5.3401,
+    "scale": [1,0.9245,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 250.5875,
+    "y": -2.8613,
+    "z": 136.1078,
+    "yaw": 3.575,
+    "scale": [1,1.1418,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 248.1109,
+    "y": -4.1926,
+    "z": 147.2637,
+    "yaw": 6.1984,
+    "scale": [1,1.194,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 198.5741,
+    "y": -2.2195,
+    "z": 173.4974,
+    "yaw": 5.3783,
+    "scale": [1,0.9079,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 141.4168,
+    "y": -2.2715,
+    "z": 175.5729,
+    "yaw": 3.9383,
+    "scale": [0.9744,0.9744,0.9744]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 141.4168,
+    "y": -2.2715,
+    "z": 175.5729,
+    "yaw": 3.9383,
+    "scale": [0.9744,0.9744,0.9744]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 94.8561,
+    "y": -3.1252,
+    "z": 151.1051,
+    "yaw": 5.6026,
+    "scale": [1,1.1612,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": 83.0093,
+    "y": -5.0733,
+    "z": 145.7993,
+    "yaw": 0.7662,
+    "scale": [1,0.9479,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_1",
+    "x": 107.5326,
+    "y": -3.4813,
+    "z": 57.8689,
+    "yaw": 4.0562,
+    "scale": [1.1,1.1,1.1]
+   },
+   {
+    "prefab": "coast_palm_fronds_1",
+    "x": 107.5326,
+    "y": -3.4813,
+    "z": 57.8689,
+    "yaw": 4.0562,
+    "scale": [1.1,1.1,1.1]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": 43.3385,
+    "y": -3.8477,
+    "z": 49.0959,
+    "yaw": 1.8812,
+    "scale": [0.8731,0.8731,0.8731]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": 43.3385,
+    "y": -3.8477,
+    "z": 49.0959,
+    "yaw": 1.8812,
+    "scale": [0.8731,0.8731,0.8731]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": -4.8452,
+    "y": -5.1615,
+    "z": 164.1473,
+    "yaw": 2.5875,
+    "scale": [1,1.2056,1]
+   },
+   {
+    "prefab": "dune_grass",
+    "x": -69.889,
+    "y": -3.6703,
+    "z": 139.0202,
+    "yaw": 0.608,
+    "scale": [1,0.9793,1]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": -101.605,
+    "y": -3.4973,
+    "z": 70.4333,
+    "yaw": 5.9938,
+    "scale": [1.0302,1.0302,1.0302]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": -101.605,
+    "y": -3.4973,
+    "z": 70.4333,
+    "yaw": 5.9938,
+    "scale": [1.0302,1.0302,1.0302]
+   },
+   {
+    "prefab": "coast_palm_trunk_0",
+    "x": -40.7189,
+    "y": -4.2235,
+    "z": -11.2523,
+    "yaw": 4.7697,
+    "scale": [0.9592,0.9592,0.9592]
+   },
+   {
+    "prefab": "coast_palm_fronds_0",
+    "x": -40.7189,
+    "y": -4.2235,
+    "z": -11.2523,
+    "yaw": 4.7697,
+    "scale": [0.9592,0.9592,0.9592]
    }
   ],
   "motionParts": {
@@ -33888,7 +34612,7 @@
     "material": {
      "shader": "additive",
      "color": "#ffe9a8",
-     "opacity": 0.16
+     "opacity": 0.07
     }
    },
    "lighthouse_lamp": {
@@ -34087,138 +34811,20 @@
    "repeat": 160,
    "roughness": 0.34,
    "metalness": 0.15,
-   "scroll": [0.012,0.006]
-  },
-  "prefabs": {
-   "ad_column_trim": {
-    "node": "ad_column_trim",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_trim",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.55
-    }
-   },
-   "ad_column_body": {
-    "node": "ad_column_body",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_body",
-    "material": {
-     "shader": "textured",
-     "roughness": 0.6,
-     "texture": "mc_column_{variant}",
-     "emissive": 0.15
-    }
-   },
-   "billboard_frame": {
-    "node": "billboard_frame",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_frame",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.6
-    }
-   },
-   "billboard_face": {
-    "node": "billboard_face",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_face",
-    "material": {
-     "shader": "textured",
-     "roughness": 0.5,
-     "texture": "mc_billboard_{variant}",
-     "emissive": 0.25
-    }
-   },
-   "arch_frame": {
-    "node": "arch_frame",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_frame",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.55
-    }
-   },
-   "arch_banner": {
-    "node": "arch_banner",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_banner",
-    "material": {
-     "shader": "textured",
-     "roughness": 0.5,
-     "texture": "mc_arch_{variant}",
-     "emissive": 0.35
-    }
-   },
-   "rock_formation": {
-    "node": "rock_formation",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/rock_formation",
-    "material": {
-     "shader": "surface",
-     "detail": "rock_face",
-     "triplanar": true,
-     "tileM": 5,
-     "albedo": 0.6,
-     "normal": 1,
-     "rough": 0.5,
-     "roughness": 0.9
-    }
-   },
-   "plinth": {
-    "node": "plinth",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/plinth",
-    "material": {
-     "shader": "surface",
-     "detail": "painted_concrete",
-     "triplanar": true,
-     "tileM": 2.6,
-     "albedo": 0.4,
-     "normal": 0.6,
-     "rough": 0.5,
-     "roughness": 0.75
-    }
-   },
-   "flag_violet": {
-    "node": "flag_violet",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_violet",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.9
-    }
-   },
-   "flag_pink": {
-    "node": "flag_pink",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_pink",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.9
-    }
-   },
-   "flag_cyan": {
-    "node": "flag_cyan",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_cyan",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.9
-    }
-   },
-   "tyre_stack": {
-    "node": "tyre_stack",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/tyre_stack",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.85
-    }
-   },
-   "palm": {
-    "node": "palm",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/palm",
-    "material": {
-     "shader": "vertexColor",
-     "roughness": 0.85
-    }
-   },
-   "boost_pad": {
-    "node": "boost_pad",
-    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/boost_pad",
-    "material": {
-     "shader": "boostPad",
-     "texture": "mc_boost_pad",
-     "roughness": 0.35
+   "scroll": [0.012,0.006],
+   "material": {
+    "shader": "water",
+    "color": "#0a1416",
+    "roughness": 0.035,
+    "params": {
+     "WaveNormal": "env_waves_normal",
+     "WaveStrength": 0.45,
+     "WaveTileA": 7,
+     "WaveTileB": 19,
+     "WaveTileC": 63,
+     "Scattering": [0.07,0.34,0.3],
+     "Absorption": [0.32,0.06,0.04],
+     "PhaseG": 0.25
     }
    }
   },
@@ -34328,6 +34934,212 @@
     "ref": "HarborMotion.tsx:271-304"
    }
   ],
+  "prefabs": {
+   "ad_column_trim": {
+    "node": "ad_column_trim",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_trim",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "ad_column_body": {
+    "node": "ad_column_body",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_body",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.6,
+     "texture": "mc_column_{variant}",
+     "emissive": 0.15
+    }
+   },
+   "billboard_frame": {
+    "node": "billboard_frame",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.6
+    }
+   },
+   "billboard_face": {
+    "node": "billboard_face",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_face",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.5,
+     "texture": "mc_billboard_{variant}",
+     "emissive": 0.25
+    }
+   },
+   "arch_frame": {
+    "node": "arch_frame",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "arch_banner": {
+    "node": "arch_banner",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_banner",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.5,
+     "texture": "mc_arch_{variant}",
+     "emissive": 0.35
+    }
+   },
+   "rock_formation": {
+    "node": "rock_formation",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/rock_formation",
+    "material": {
+     "shader": "surface",
+     "detail": "rock_face",
+     "triplanar": true,
+     "tileM": 5,
+     "albedo": 0.6,
+     "normal": 1,
+     "rough": 0.5,
+     "roughness": 0.9
+    }
+   },
+   "plinth": {
+    "node": "plinth",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/plinth",
+    "material": {
+     "shader": "surface",
+     "detail": "painted_concrete",
+     "triplanar": true,
+     "tileM": 2.6,
+     "albedo": 0.4,
+     "normal": 0.6,
+     "rough": 0.5,
+     "roughness": 0.75
+    }
+   },
+   "flag_violet": {
+    "castShadow": false,
+    "node": "flag_violet",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_violet",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "flag_pink": {
+    "castShadow": false,
+    "node": "flag_pink",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_pink",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "flag_cyan": {
+    "castShadow": false,
+    "node": "flag_cyan",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_cyan",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "tyre_stack": {
+    "node": "tyre_stack",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/tyre_stack",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.85
+    }
+   },
+   "palm": {
+    "node": "palm",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/palm",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.85
+    }
+   },
+   "boost_pad": {
+    "node": "boost_pad",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/boost_pad",
+    "material": {
+     "shader": "boostPad",
+     "texture": "mc_boost_pad",
+     "roughness": 0.35
+    }
+   },
+   "coast_palm_trunk_0": {
+    "node": "coast_palm_trunk_0",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/coast_palm_trunk_0",
+    "material": {
+     "shader": "surface",
+     "detail": "rock_face",
+     "triplanar": true,
+     "tileM": 0.9,
+     "albedo": 0.3,
+     "normal": 0.8,
+     "rough": 0.3,
+     "roughness": 0.9
+    }
+   },
+   "coast_palm_fronds_0": {
+    "node": "coast_palm_fronds_0",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/coast_palm_fronds_0",
+    "material": {
+     "shader": "foliage",
+     "detail": "leafy_grass",
+     "triplanar": true,
+     "tileM": 0.6,
+     "albedo": 0.3,
+     "normal": 0.6,
+     "rough": 0.3,
+     "roughness": 0.7
+    }
+   },
+   "coast_palm_trunk_1": {
+    "node": "coast_palm_trunk_1",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/coast_palm_trunk_1",
+    "material": {
+     "shader": "surface",
+     "detail": "rock_face",
+     "triplanar": true,
+     "tileM": 0.9,
+     "albedo": 0.3,
+     "normal": 0.8,
+     "rough": 0.3,
+     "roughness": 0.9
+    }
+   },
+   "coast_palm_fronds_1": {
+    "node": "coast_palm_fronds_1",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/coast_palm_fronds_1",
+    "material": {
+     "shader": "foliage",
+     "detail": "leafy_grass",
+     "triplanar": true,
+     "tileM": 0.6,
+     "albedo": 0.3,
+     "normal": 0.6,
+     "rough": 0.3,
+     "roughness": 0.7
+    }
+   },
+   "dune_grass": {
+    "node": "dune_grass",
+    "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_coast/StaticMeshes/dune_grass",
+    "material": {
+     "shader": "foliage",
+     "detail": "leafy_grass",
+     "triplanar": true,
+     "tileM": 0.5,
+     "albedo": 0.2,
+     "normal": 0.4,
+     "rough": 0.3,
+     "roughness": 0.8
+    }
+   }
+  },
   "signs": [
    {
     "name": "harbor-start-banner",
@@ -34473,6 +35285,22 @@
    "srgb": true,
    "width": 256,
    "height": 256
+  },
+  {
+   "name": "env_clouds",
+   "file": "env_clouds.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/env_clouds",
+   "srgb": true,
+   "width": 1024,
+   "height": 1024
+  },
+  {
+   "name": "env_waves_normal",
+   "file": "env_waves_normal.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/env_waves_normal",
+   "srgb": true,
+   "width": 512,
+   "height": 512
   }
  ],
  "detailSurfaces": {
@@ -34529,6 +35357,15 @@
    "mean": [0.0877,0.0697,0.05],
    "licence": "CC0-1.0",
    "source": "https://polyhaven.com/a/dark_wooden_planks (movecade-v2 app/public/textures/surfaces/dark_wooden_planks, LEDGER.json)"
+  },
+  "plastered_wall_02": {
+   "set": "plastered_wall_02",
+   "color": "/Game/Tracks/Shared/Surfaces/T_plastered_wall_02_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_plastered_wall_02_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_plastered_wall_02_rough",
+   "mean": [0.4932,0.4421,0.3683],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/plastered_wall_02 (movecade-v2 app/public/textures/surfaces/plastered_wall_02, LEDGER.json)"
   }
  },
  "boostPadLook": {

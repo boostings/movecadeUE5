@@ -18,6 +18,7 @@ import sharp from 'sharp';
 import * as THREE from 'three';
 import { palmFrond } from '@app/games/kart/tracks/harborGeometry';
 import { GlbFile, bake, group, mesh, savePng, type MaterialHint, type MeshEntry, type TextureEntry } from './scenery';
+import { exportEnvTextures } from './envTextures';
 
 type V3 = [number, number, number];
 const SHARED_DIR = '/Game/Tracks/Shared';
@@ -371,7 +372,7 @@ function boostPadPlane() {
 // ---- Surfaces --------------------------------------------------------------------------------------
 
 /** The CC0 sets and how the circuits use them (tile and strengths from trackSurfaces.ts / HarborTrack.tsx). */
-export const SURFACE_SETS = ['asphalt_track', 'painted_concrete', 'leafy_grass', 'gravelly_sand', 'rock_face', 'dark_wooden_planks'] as const;
+export const SURFACE_SETS = ['asphalt_track', 'painted_concrete', 'leafy_grass', 'gravelly_sand', 'rock_face', 'dark_wooden_planks', 'plastered_wall_02'] as const;
 export type SurfaceSet = (typeof SURFACE_SETS)[number];
 export interface SurfaceEntry { set: SurfaceSet; color: string; normal: string; rough: string; mean: V3; licence: 'CC0-1.0'; source: string }
 
@@ -432,9 +433,9 @@ async function build(outRoot: string, movecadeRoot: string): Promise<PropsExport
     arch_banner: file.add('arch_banner', archBanner(), { shader: 'textured', roughness: 0.5, texture: 'mc_arch_{variant}', emissive: 0.35 }),
     rock_formation: file.add('rock_formation', rockFormation(), { shader: 'surface', detail: 'rock_face', triplanar: true, tileM: 5, albedo: 0.6, normal: 1, rough: 0.5, roughness: 0.9 } as MaterialHint),
     plinth: file.add('plinth', plinth(), { shader: 'surface', detail: 'painted_concrete', triplanar: true, tileM: 2.6, albedo: 0.4, normal: 0.6, rough: 0.5, roughness: 0.75 } as MaterialHint),
-    flag_violet: file.add('flag_violet', flagCloth([BRAND.violet, BRAND.cream]), lit(0.9)),
-    flag_pink: file.add('flag_pink', flagCloth([BRAND.pink, BRAND.cream]), lit(0.9)),
-    flag_cyan: file.add('flag_cyan', flagCloth([BRAND.cyan, BRAND.deep]), lit(0.9)),
+    flag_violet: { castShadow: false, ...file.add('flag_violet', flagCloth([BRAND.violet, BRAND.cream]), lit(0.9)) },
+    flag_pink: { castShadow: false, ...file.add('flag_pink', flagCloth([BRAND.pink, BRAND.cream]), lit(0.9)) },
+    flag_cyan: { castShadow: false, ...file.add('flag_cyan', flagCloth([BRAND.cyan, BRAND.deep]), lit(0.9)) },
     tyre_stack: file.add('tyre_stack', tyreStacks(), lit(0.85)),
     palm: file.add('palm', palm(), lit(0.85)),
     boost_pad: file.add('boost_pad', boostPadPlane(), { shader: 'boostPad', texture: 'mc_boost_pad', roughness: 0.35 }),
@@ -452,6 +453,7 @@ async function build(outRoot: string, movecadeRoot: string): Promise<PropsExport
   textures.push(tex('mc_column_0', columnPoster(0)), tex('mc_column_1', columnPoster(1)));
   textures.push(tex('mc_arch_0', archBannerArt('MOVECADE  ·  KART GRAND PRIX')), tex('mc_arch_1', archBannerArt('NEON CITY  ·  NIGHT CIRCUIT')));
   textures.push(tex('mc_boost_pad', boostPadArt()));
+  textures.push(...exportEnvTextures(texDir, SHARED_DIR));
   return { prefabs, textures, surfaces: await exportSurfaces(outRoot, movecadeRoot) };
 }
 

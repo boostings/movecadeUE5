@@ -1,5 +1,7 @@
-// Checks the exported track JSON against values measured independently in Docs/Port/03,
+// Checks the exported track JSON against values measured independently in Docs/Port/03, pins its gameplay
+// data by fingerprint (the visual passes must never move it),
 // and proves a UE spline (Hermite, tangent (P[i+1]-P[i-1])/2) reproduces the Harbor centreline.
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -91,10 +93,13 @@ const VIOLET_PADS = [[205.34, -91.97, -0.37], [262.08, -36.32, -4.42], [242.92, 
 check('violet: 4 boost pads', v.boostPads.length === 4 && v.boostPads.every((p, i) => nearXZ(p, VIOLET_PADS[i]) && near(p.yaw, VIOLET_PADS[i][2], 1e-6) && p.width === 8 && p.length === 4));
 check('violet: minimap bounds', JSON.stringify(v.minimap.bounds) === JSON.stringify({ minX: -15, maxX: 320, minZ: -155, maxZ: 145 }));
 const count = (prefab) => v.scenery.instances.filter((s) => s.prefab === prefab).length;
-check('violet: trackside plan 34 kerb runs, 2 stands, 100 banners, 37 lamps',
-  v.scenery.kerbRuns.length === 34 && count('grandstand') === 2 && count('banner_board') === 100 && count('lamp_post') === 37,
-  `${v.scenery.kerbRuns.length}/${count('grandstand')}/${count('banner_board')}/${count('lamp_post')}`);
-check('violet: 53 trees', count('tree_trunk') === 53 && count('tree_canopy') === 53);
+check('violet: trackside plan 34 kerb runs, 2 stands, 100 banners (hung on the hedges)',
+  v.scenery.kerbRuns.length === 34 && count('grandstand') === 2 && count('banner_board') === 100
+  && v.scenery.instances.filter((s) => s.prefab === 'banner_board').every((s) => near(s.y - v.track.groundY, 0.45, 0.01)),
+  `${v.scenery.kerbRuns.length}/${count('grandstand')}/${count('banner_board')}`);
+check('violet: the garden is dressed (pillars, trees, crystals, lavender) and lit', count('pillar_stone') > 300 && count('garden_trunk') > 300
+  && count('lavender') > 2000 && v.scenery.instances.some((s) => s.prefab.startsWith('crystal_')) && v.scenery.lights.length > 20 && v.scenery.lights.length <= 64,
+  `${count('pillar_stone')} pillars, ${count('garden_trunk')} trees, ${count('lavender')} lavender, ${v.scenery.lights.length} lights`);
 check('violet: GLB mount (155,-28,15) x0.08', JSON.stringify(v.meshes[0].transform) === JSON.stringify({ position: [155, -28, 15], scale: 0.08 }));
 const wallPts = v.collision.profileWalls.reduce((a, w2) => a + w2.polyline.length, 0);
 const wallSamples = v.samples.points.filter((p) => p.left.wall !== null).length + v.samples.points.filter((p) => p.right.wall !== null).length;
@@ -145,25 +150,42 @@ for (const p of v.samples.points) {
   }
 }
 check('violet: the sand verge 2 m past the road edge is dirt (>= 90%)', vergeDirt / verge >= 0.9, `${vergeDirt}/${verge}`);
-check('violet: decoded GLB recorded for the UE import (7 visual nodes)', v.meshes[0].transformBaked === true && v.meshes[0].ueAssets.length === 7);
+check('violet: decoded GLB recorded for the UE import (road, lines, verge only)', v.meshes[0].transformBaked === true
+  && v.meshes[0].ueAssets.map((a) => a.split('/').pop()).join() === 'Object_11,Object_24,Object_25');
 
-// ---- Violet IP cleanup (src/violetMesh.mjs): visual only, every cut motif replaced by an original prop
+// ---- Violet rebuilt original (src/violetMesh.mjs, src/violetGarden.ts): visual only, art on every wall
 const ip = v.meshes[0].ipCleanup;
-check('violet: warp pipes and brick blocks cut from the visual mesh', ip && ip.cutNodes.join() === 'Object_12,Object_47' && !v.meshes[0].ueAssets.some((a) => /Object_(12|47)$/.test(a)));
+check('violet: every motif and rebuilt node left out of the visual mesh', ip && ip.cutNodes.join() === 'Object_10,Object_12,Object_13,Object_18,Object_27,Object_47'
+  && !v.meshes[0].ueAssets.some((a) => /Object_(10|12|13|18|27|47)$/.test(a)));
 check('violet: cut nodes still collide (meshColliders keep all 9 nodes)', v.collision.meshColliders.length === 9);
 const pipes = ip.motifs.filter((m) => m.kind === 'pipe'), bricks = ip.motifs.filter((m) => m.kind === 'bricks');
 check('violet: 6 pipes, 19 brick groups found', pipes.length === 6 && bricks.length === 19, `${pipes.length} / ${bricks.length}`);
-const replaced = new Set(v.scenery.instances.filter((s) => s.replaces).map((s) => s.replaces.split(' ').slice(1).join(' ')));
-check('violet: every motif has a replacement prop', ip.motifs.every((m, i) => replaced.has(`${m.kind} ${i}`)), `${replaced.size}/${ip.motifs.length}`);
-// A motif that reaches the kart's sweep band keeps its wall; its prop must cover the same footprint.
-const sweepBand = (m) => m.min[1] < 1.15 + v.track.groundY + 1.605 && m.max[1] > -1.15;
-const covered = ip.motifs.filter(sweepBand).every((m, i) => {
-  const props = v.scenery.instances.filter((s) => s.replaces && s.replaces.endsWith(`${m.kind} ${ip.motifs.indexOf(m)}`));
-  return props.length > 0 && props.every((s) => Math.abs(s.x - (m.min[0] + m.max[0]) / 2) < 6 && Math.abs(s.z - (m.min[2] + m.max[2]) / 2) < 6);
-});
-check('violet: props stand where the colliding motifs were', covered);
-check('violet: shared props and CC0 surfaces referenced', ['ad_column_body', 'billboard_face', 'rock_formation', 'plinth', 'boost_pad'].every((p) => v.scenery.prefabs[p])
-  && ['asphalt_track', 'painted_concrete', 'leafy_grass', 'gravelly_sand'].every((s) => v.detailSurfaces[s]?.mean?.length === 3));
+const garden = v.meshes.find((m) => m.file === 'violet_garden.glb');
+check('violet: garden meshes recorded (terrain, hedges, plinths, gate)', garden && ['garden_terrain', 'garden_hedges', 'garden_plinths', 'gate_stone'].every((n) => garden.parts.some((p) => p.node === n)));
+check('violet: every sweep wall has art on it (hedge, gate, mast or motif crystals)', garden?.wallCoverage?.uncovered === 0
+  && garden.wallCoverage.segments === roles.sweep.length, `${garden?.wallCoverage?.uncovered} of ${garden?.wallCoverage?.segments} uncovered`);
+check('violet: twilight look for UE (look.ue)', v.look.ue && v.look.ue.sunDirection.length === 3 && typeof v.look.ue.skyTop === 'string');
+check('violet: shared props and CC0 surfaces referenced', ['billboard_face', 'boost_pad', 'pillar_stone', 'crystal_spire'].every((p) => v.scenery.prefabs[p])
+  && ['asphalt_track', 'painted_concrete', 'leafy_grass', 'gravelly_sand', 'plastered_wall_02'].every((s) => v.detailSurfaces[s]?.mean?.length === 3));
+
+// ---- Sunset Harbor coast (src/harborCoast.ts): visual only
+const coast = h.meshes.find((m) => m.file === 'harbor_coast.glb');
+check('harbor: coast meshes (seawalls, kerbs, seabed both sides)', coast && ['seawall_left', 'seawall_right', 'kerb_left', 'kerb_right', 'seabed_left', 'seabed_right'].every((n) => coast.parts.some((p) => p.node === n)));
+check('harbor: the web ribbons stay in the JSON (16), redrawn ones leave the ribbon GLB', h.ribbons.length === 16
+  && !h.meshes[0].parts.some((p) => /ribbon_(left|right)(Wall|Cap|Curb|Shallows)$/.test(p.node)));
+check('harbor: single layer water sea with the generated wave normals', h.scenery.sea.material?.shader === 'water' && h.scenery.sea.material.params.WaveNormal === 'env_waves_normal'
+  && h.textures.some((t) => t.name === 'env_waves_normal'));
+check('harbor: sunset look for UE (look.ue)', h.look.ue && h.look.ue.sunDirection.length === 3 && typeof h.look.ue.skyTop === 'string');
+
+// ---- Gameplay fingerprint: everything the sim reads, hashed. A visual pass must never change it.
+const GAMEPLAY_KEYS = ['track', 'spline', 'samples', 'navigation', 'checkpoints', 'startCheckpointIndex', 'startLine', 'spawnGrid', 'itemBoxes',
+  'itemBoxConfig', 'boostPads', 'boostConfig', 'staticCameras', 'minimap', 'recovery', 'surfaces', 'raceRules', 'collision'];
+const fingerprint = (t) => createHash('sha256').update(JSON.stringify([
+  ...GAMEPLAY_KEYS.map((k) => t[k]), (t.ribbons ?? []).filter((rb) => rb.collision !== 'none'),
+])).digest('hex').slice(0, 16);
+const PINNED = { 'violet-loop': '15d3de78931a2495', 'sunset-harbor': 'aaa2450db720f9ea' };
+check('violet: gameplay fingerprint unchanged', fingerprint(v) === PINNED['violet-loop'], fingerprint(v));
+check('harbor: gameplay fingerprint unchanged', fingerprint(h) === PINNED['sunset-harbor'], fingerprint(h));
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

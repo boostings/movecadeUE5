@@ -25,11 +25,12 @@ import {
   type SideProfile,
   type TrackSample,
 } from '@app/games/kart/scene/trackside';
-import { TREE_BARK, VIOLET_TREES, foliageColorFor, placeTrees } from '@app/games/kart/scene/violetTrees';
 import { kartTrackLook } from '@app/games/kart/scene/kartLook';
 import { SPAWN_POSITIONS } from '@legacy/Experience/kart/engine/spawnGrid';
 import { exportHarborScenery, exportVioletScenery, type MaterialHint } from './scenery';
 import { exportMovecadeProps } from './props';
+import { exportVioletGarden, type VioletFootprints } from './violetGarden';
+import { HARBOR_LOOK, HARBOR_SEA_MATERIAL, HARBOR_SEA_Y } from './harborCoast';
 
 type TrackId = cat.KartTrackId;
 type XZ = [number, number];
@@ -309,6 +310,8 @@ async function exportHarbor(commit: string, assetsDir?: string, movecadeRoot?: s
       })),
     },
     ...common('sunset-harbor', c, HARBOR_ROAD_WIDTH),
+    // The web's look record, plus the UE sunset art direction (harborCoast.ts).
+    look: { ...kartTrackLook('sunset-harbor'), ue: HARBOR_LOOK },
     collision: {
       ...SWEEP,
       walls: [wall(1), wall(-1)],
@@ -317,12 +320,14 @@ async function exportHarbor(commit: string, assetsDir?: string, movecadeRoot?: s
     meshes: art?.meshes ?? [],
     scenery: {
       instances: [
-        { prefab: 'sea_plane', x: 100, y: -7, z: -40, yaw: 0, scale: [5000, 1, 5000], tint: '#5fb3b3' },
+        // HarborTrack.tsx:957-960's sea, a hair lower so the beach meets it at offset 40.
+        { prefab: 'sea_plane', x: 100, y: HARBOR_SEA_Y, z: -40, yaw: 0, scale: [5000, 1, 5000], tint: '#5fb3b3' },
+        ...(art?.coastInstances ?? []),
       ],
-      ...(art ? { motionParts: art.motionParts, sea: art.sea } : {}),
+      ...(art ? { motionParts: art.motionParts, sea: { ...art.sea, material: HARBOR_SEA_MATERIAL } } : {}),
       animated: art?.animated ?? [],
-      // The shared Movecade props (the boost pad uses props.boost_pad).
-      ...(props ? { prefabs: props.prefabs } : {}),
+      // The shared Movecade props (the boost pad uses props.boost_pad) and the coast's palms and grass.
+      ...(props ? { prefabs: { ...props.prefabs, ...(art?.coastPrefabs ?? {}) } } : {}),
       signs: art?.signs ?? [],
     },
     textures: [...(art?.textures ?? []), ...(props?.textures ?? [])],
@@ -349,6 +354,9 @@ export interface VioletMeshData {
   motifs: VioletMotif[];
   walls: { sweep: number[]; probe: number[]; sweepPieces: number; probePieces: number };
   dirtGrid: { cellM: number; minX: number; minZ: number; cols: number; rows: number; dirtCells: number; runs: number[] };
+  /** Object_13's ground blocks as closed outlines, Object_10's pieces: the rebuild's footprints. */
+  barriers: VioletFootprints['barriers'];
+  gantry: VioletFootprints['gantry'];
 }
 export type VioletMeshHook = (samples: readonly { x: number; z: number }[], rebaseY: number) => Promise<VioletMeshData>;
 
@@ -367,75 +375,49 @@ const VIOLET_WALL_RULES = {
   format: 'segments: flat [ax, az, bx, bz, nx, nz, ...] in three.js world metres, no rebase',
 };
 
-/** GLB nodes the IP cleanup cuts from the visual mesh (violetMesh.mjs MOTIF_NODES). Their faces stay in
- *  collision.walls: every one sits on the perimeter behind the barriers or at the gantry feet, and each
- *  gets an original prop of the same footprint (violetMotifProps). */
-const VIOLET_CUT_NODES = ['Object_12', 'Object_47'];
+/** GLB nodes left out of the visual mesh (violetMesh.mjs MOTIF_NODES, REBUILT_NODES). Their faces stay in
+ *  collision.walls; violetGarden.ts builds original art over the same footprints (hedges on the barrier
+ *  blocks, the start gate on the gantry and its feet, terrain for the hills, crystals for the motifs). */
+const VIOLET_CUT_NODES = ['Object_10', 'Object_12', 'Object_13', 'Object_18', 'Object_27', 'Object_47'];
 
 /** World-space CC0 detail per Violet node over its GLB palette (trackSurfaces.ts:88-153 dressVioletMaterials). */
 const VIOLET_PALETTE = (material: string) => `${VIOLET_UE_DIR}/violet_loop/Textures/${material}_basecolor`;
 const VIOLET_SURFACES: Record<string, MaterialHint> = {
-  Object_24: { shader: 'surface', textureAsset: VIOLET_PALETTE('material_18'), detail: 'asphalt_track', tileM: 4.5, albedo: 0.75, normal: 0.55, rough: 0.7, roughness: 0.82, desaturate: 0.75 },
-  Object_25: { shader: 'surface', textureAsset: VIOLET_PALETTE('material_19'), detail: 'asphalt_track', tileM: 4.5, albedo: 0.28, normal: 0.4, rough: 0.5, roughness: 0.6 },
-  Object_11: { shader: 'surface', textureAsset: VIOLET_PALETTE('material_6'), detail: 'gravelly_sand', tileM: 3.5, albedo: 0.55, normal: 0.7, rough: 0.5, roughness: 0.95, baseDesaturate: 0.3 },
-  Object_13: { shader: 'surface', textureAsset: `${VIOLET_UE_DIR}/violet_loop/Textures/material_8_recoloured`, detail: 'painted_concrete', triplanar: true, tileM: 2.6, albedo: 0.42, normal: 0.6, rough: 0.55, roughness: 0.7 },
-  Object_10: { shader: 'surface', textureAsset: VIOLET_PALETTE('material_5'), detail: 'painted_concrete', triplanar: true, tileM: 2.6, albedo: 0.3, normal: 0.5, rough: 0.5, roughness: 0.6 },
-  Object_18: { shader: 'surface', textureAsset: VIOLET_PALETTE('material_12'), detail: 'leafy_grass', tileM: 4, albedo: 0.55, normal: 0.6, rough: 0.4, roughness: 0.9 },
+  Object_24: { shader: 'surface', textureAsset: VIOLET_PALETTE('material_18'), detail: 'asphalt_track', tileM: 4.5, albedo: 0.8, normal: 0.6, rough: 0.7, roughness: 0.8, desaturate: 0.8, baseDesaturate: 0.55 },
+  Object_25: { shader: 'surface', textureAsset: `${VIOLET_UE_DIR}/violet_loop/Textures/material_19_violet`, detail: 'asphalt_track', tileM: 4.5, albedo: 0.28, normal: 0.4, rough: 0.5, roughness: 0.6 },
+  // The verge (the sim's dirt) as a clipped lawn: offroad reads as grass, like the islands' beds but flat.
+  Object_11: { shader: 'surface', color: '#5d8a3c', detail: 'leafy_grass', tileM: 2.6, albedo: 0.8, normal: 0.85, rough: 0.4, roughness: 0.95, desaturate: 0.35 },
 };
 
-/** Original props in place of the cut motifs: advertising columns for the pipes, billboards for the
- *  floating brick rows, rock outcrops for the brick stairs, painted plinths for the gantry feet. */
-function violetMotifProps(motifs: readonly VioletMotif[], samples: readonly { x: number; z: number }[], roadY: number) {
+/** Billboards for the brick rows that floated over the perimeter (12-15 m up, no collision): the
+ *  violetGarden pass dresses every other motif footprint. */
+function violetMotifBillboards(motifs: readonly VioletMotif[], samples: readonly { x: number; z: number }[], roadY: number) {
   const out: Record<string, unknown>[] = [];
   let billboard = 0;
   motifs.forEach((m, i) => {
+    if (m.kind !== 'bricks' || m.min[1] - roadY <= 6) return;
     const cx = (m.min[0] + m.max[0]) / 2, cz = (m.min[2] + m.max[2]) / 2;
     const sx = m.max[0] - m.min[0], sz = m.max[2] - m.min[2];
     const near = samples[nearestSample(samples, cx, cz)]!;
     const away = { x: cx - near.x, z: cz - near.z };
-    const len = Math.hypot(away.x, away.z) || 1;
-    const yaw = Math.atan2(-away.x, -away.z); // local +Z toward the road
-    const at = (prefab: string, x: number, y: number, z: number, extra: Record<string, unknown> = {}) =>
-      out.push({ prefab, x: r(x), y: r(y), z: r(z), yaw: r(yaw, 6), replaces: `${m.node} ${m.kind} ${i}`, ...extra });
-    if (m.kind === 'pipe') {
-      at('ad_column_trim', cx, roadY - 0.2, cz);
-      at('ad_column_body', cx, roadY - 0.2, cz, { variant: i % 2 });
-      return;
+    // The rows run along the perimeter, so the faces square up to it, toward the road side.
+    const alongX = sx >= sz;
+    const face = alongX ? (away.z < 0 ? 0 : Math.PI) : (away.x < 0 ? Math.PI / 2 : -Math.PI / 2);
+    const count = Math.max(1, Math.round(Math.max(sx, sz) / 13));
+    for (let k = 0; k < count; k++) {
+      const t = (k - (count - 1) / 2) * 13;
+      const x = alongX ? cx + t : cx, z = alongX ? cz : cz + t;
+      const v = billboard++ % 4;
+      const at = { x: r(x), y: r(roadY), z: r(z), yaw: r(face, 6), replaces: `${m.node} ${m.kind} ${i}` };
+      out.push({ prefab: 'billboard_frame', ...at }, { prefab: 'billboard_face', ...at, variant: v });
     }
-    const lift = m.min[1] - roadY;
-    if (lift > 6) {
-      // A floating row: billboards along its long side, facing the road.
-      // The rows run along the perimeter, so the faces square up to it, toward the road side.
-      const alongX = sx >= sz;
-      const face = alongX ? (away.z < 0 ? 0 : Math.PI) : (away.x < 0 ? Math.PI / 2 : -Math.PI / 2);
-      const length = Math.max(sx, sz);
-      const count = Math.max(1, Math.round(length / 13));
-      for (let k = 0; k < count; k++) {
-        const t = (k - (count - 1) / 2) * 13;
-        const x = alongX ? cx + t : cx, z = alongX ? cz : cz + t;
-        const v = billboard++ % 4;
-        at('billboard_frame', x, roadY, z, { yaw: r(face, 6) });
-        at('billboard_face', x, roadY, z, { yaw: r(face, 6), variant: v });
-      }
-      return;
-    }
-    if (Math.abs(cz - -31.3) < 5 && Math.abs(cx) < 25) {
-      // The gantry feet: same footprint, so the sim's walls there stay visible.
-      at('plinth', cx, m.min[1], cz, { yaw: 0, scale: rr([sx, m.max[1] - m.min[1], sz]) });
-      return;
-    }
-    // A brick stair behind the barrier: a rock outcrop over the same footprint, pushed outward as it grows.
-    const w = Math.max(sx, 4) * 1.25, d = Math.max(sz, 4) * 1.25;
-    const push = (Math.max(w - sx, d - sz) / 2) / len;
-    at('rock_formation', cx + away.x * push, roadY - 0.6, cz + away.z * push, { scale: rr([w, Math.max(4, (m.max[1] - roadY) * 0.9), d]), yaw: 0 });
   });
   return out;
 }
 
-/** The flagpoles by the second straight and the start gantry's pillar tops (Object_10), dressed with pennants. */
+/** The masts by the second straight (Object_10's flagpoles, rebuilt as garden masts), dressed with pennants. */
 const VIOLET_FLAGS: Array<[x: number, yTop: number, z: number, prefab: string]> = [
   [157.49, 18.6, 13.8, 'flag_violet'], [168.98, 18.6, 13.8, 'flag_pink'], [180.47, 18.6, 13.8, 'flag_cyan'],
-  [-16.02, 20.3, -31.27, 'flag_violet'], [18.24, 20.3, -31.27, 'flag_pink'],
 ];
 
 async function exportViolet(commit: string, violetMesh?: VioletMeshHook, assetsDir?: string, movecadeRoot?: string) {
@@ -481,18 +463,24 @@ async function exportViolet(commit: string, violetMesh?: VioletMeshHook, assetsD
   const mesh = violetMesh ? await violetMesh(samples, -c.groundY) : undefined;
 
   const plan = planTrackside(samples);
-  const art = assetsDir ? await exportVioletScenery(assetsDir, samples, plan.kerbs) : undefined;
+  const art = assetsDir ? await exportVioletScenery(assetsDir) : undefined;
   const props = assetsDir && movecadeRoot ? await exportMovecadeProps(assetsDir, movecadeRoot) : undefined;
-  const motifProps = mesh ? violetMotifProps(mesh.motifs, samples, c.groundY) : [];
+  const garden = assetsDir && mesh ? await exportVioletGarden({
+    outRoot: assetsDir,
+    samples,
+    kerbs: plan.kerbs,
+    footprints: { barriers: mesh.barriers, gantry: mesh.gantry, motifs: mesh.motifs, dirtGrid: dirtGrid(mesh) as unknown as VioletFootprints['dirtGrid'], sweepWalls: mesh.walls.sweep },
+    groundY: c.groundY,
+    keepClear: [...c.itemBoxes, ...c.boostPads, ...c.spawnGrid].map((p) => [p.x as number, p.z as number] as XZ),
+  }) : undefined;
+  if (garden) console.log(`violet garden: ${JSON.stringify(garden.stats)}`);
+  const billboards = mesh ? violetMotifBillboards(mesh.motifs, samples, c.groundY) : [];
   const flags = VIOLET_FLAGS.map(([x, y, z, prefab]) => ({ prefab, x: r(x + 0.25), y, z, yaw: 0 }));
   const visualNodes = VIOLET_GLB_NODES.filter((n) => !VIOLET_CUT_NODES.includes(n.node));
   const place = (prefab: string, p: { x: number; y: number; z: number; yaw: number; side: 1 | -1 }, extra: Record<string, unknown> = {}) => ({
     prefab, x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw, 6), side: p.side, ...extra,
   });
-  const trees = placeTrees(VIOLET_TREES).flatMap((t) => [
-    { prefab: 'tree_trunk', x: r(t.trunk.x), y: r(t.trunk.y), z: r(t.trunk.z), yaw: 0, scale: rr([t.trunk.radius, t.trunk.height, t.trunk.radius]), tint: TREE_BARK },
-    { prefab: 'tree_canopy', x: r(t.canopy.x), y: r(t.canopy.y), z: r(t.canopy.z), yaw: r(t.canopy.yaw, 6), scale: rr([t.canopy.width, t.canopy.height, t.canopy.width]), tint: foliageColorFor(t.tint) },
-  ]);
+  const web = common('violet-loop', c, startWidth);
 
   return {
     ...header('violet-loop', commit, c, lapLengthM, 'imported-mesh'),
@@ -517,7 +505,9 @@ async function exportViolet(commit: string, violetMesh?: VioletMeshHook, assetsD
         left: sideOut(p.sides[-1]),
       })),
     },
-    ...common('violet-loop', c, startWidth),
+    ...web,
+    // The web's look record, plus the UE art direction for the rebuilt garden (twilight).
+    look: { ...web.look, ...(garden ? { ue: garden.look } : {}) },
     collision: {
       ...SWEEP,
       // The GLB's own walls when the mesh pass ran (the sim's sweep and probes), else the profile fallback.
@@ -547,28 +537,27 @@ async function exportViolet(commit: string, violetMesh?: VioletMeshHook, assetsD
         parts: visualNodes.filter((n) => VIOLET_SURFACES[n.node]).map((n) => ({
           node: n.node, ueAsset: `${VIOLET_UE_DIR}/violet_loop/StaticMeshes/${n.node}`, material: VIOLET_SURFACES[n.node],
         })),
-        withoutVoxelTrees: true,
         ipCleanup: {
           cutNodes: VIOLET_CUT_NODES,
-          cutClouds: true,
-          barrierStudsFlattened: true,
-          barrierRecolour: 'violet / cream',
+          rebuild: 'violetGarden.ts: hedges on the barrier blocks, a stone gate on the start structure, terrain for the hills, crystals for the motifs',
           motifs: mesh?.motifs ?? [],
         },
       },
-      ...(art?.meshes ?? []),
+      ...(garden?.meshes ?? []),
     ],
     scenery: {
       instances: [
         ...plan.stands.map((p) => place('grandstand', p)),
-        ...plan.lamps.flatMap((p) => [place('lamp_post', p), place('lamp_head', p)]),
-        ...plan.banners.map((p, i) => place('banner_board', p, { variant: i % 4 })),
-        ...trees,
-        ...motifProps,
+        // The web hangs its banners on top of the 3.4 m barrier blocks; the garden hangs them on the hedge
+        // faces (0.5-1.7 m), a hand in front of the wall line, so nothing floats.
+        ...plan.banners.map((p, i) => place('banner_board', { ...p, y: c.groundY + 0.45, x: p.x + Math.sin(p.yaw) * 0.08, z: p.z + Math.cos(p.yaw) * 0.08 }, { variant: i % 4 })),
+        ...billboards,
         ...flags,
+        ...(garden?.instances ?? []),
       ],
       kerbRuns: plan.kerbs.map((k) => ({ side: k.side, fromSample: k.from, toSample: k.to })),
-      ...(art ? { prefabs: { ...art.prefabs, ...(props?.prefabs ?? {}) } } : {}),
+      ...(art ? { prefabs: { ...art.prefabs, ...(props?.prefabs ?? {}), ...(garden?.prefabs ?? {}) } } : {}),
+      lights: garden?.lights ?? [],
       animated: [],
       signs: art?.signs ?? [],
     },
