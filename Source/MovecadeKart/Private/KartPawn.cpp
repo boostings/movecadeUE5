@@ -10,6 +10,7 @@
 #include "Engine/LocalPlayer.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
+#include "FX/KartFxComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "KartCoords.h"
 #include "KartDriverAnimInstance.h"
@@ -230,6 +231,7 @@ AKartPawn::AKartPawn()
 	Movement->UpdatedComponent = Root;
 
 	Audio = CreateDefaultSubobject<UKartAudioComponent>(TEXT("Audio"));
+	CreateDefaultSubobject<UKartFxComponent>(TEXT("Fx"));
 
 	// Command-line switches for comparisons and art checks, read once per kart.
 	const TCHAR* Cmd = FCommandLine::Get();
