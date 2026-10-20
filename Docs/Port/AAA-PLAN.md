@@ -26,3 +26,20 @@ The rules from WORKSTREAMS.md still apply. In particular:
 - Never write to movecade-v2; free Fab assets only, logged in ASSETS.md.
 - Build with `-NoHotReloadFromIDE`; close any editor or game you start.
 - Gameplay stays deterministic; every test passes.
+
+## Status (2026-10-20)
+
+Every workstream is merged on master; 51 automation tests pass, and the packaged Win64 build
+(`Build/Package/Windows/MyProject.exe`) runs both tracks, every menu and split screen with no errors.
+
+| Stream | Result |
+|---|---|
+| Rendering | Hardware RT Lumen (hit-lit reflections at Ultra), VSM, TSR, dynamic resolution; presets, RT and motion blur settings; split-screen budget and frame-time guard; a global grade. About 95 fps solo at a 1440p-equivalent load, 60+ in four-way split. |
+| Environments | Violet Loop rebuilt as the original Violet Gardens (gameplay data fingerprinted unchanged); Sunset Harbor's coast, water, kerbs and sky upgraded. Neon City is parked on branch `tracks-neon-city-wip`. |
+| VFX | Niagara boost flames, tiered drift sparks, tyre marks, dust, impact sparks, a stylised explosion, lightning, ink, confetti; item meshes modelled in code with IP-safe looks (prize orbs, buzz discs, drone, cone, toy rocket). |
+| UX and UI | Slate front end (title, menus, racer and track select, settings, credits), HUD, pause, results, lobby restyle, multi-pad navigation, UI sounds and music. |
+| Feel and camera | FKartFeel chassis and camera springs, look-behind, driver reach, item throw and finish cheer, intro dolly, results orbit; bot skills; determinism test. |
+| Code quality and portfolio | Review fixes (sim step split into phases, loader validation, per-event impacts, race clock), [Architecture.md](../Architecture.md), [the case study](../Portfolio/README.md) with a trailer and gameplay video. |
+
+Open: key remapping (the controls page is read-only), Neon City's art pass, and phones acting on haptics (that
+needs a change in movecade-v2's phone code).
