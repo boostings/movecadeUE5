@@ -38,7 +38,7 @@ $lengths += 3.0
 # Normalise every input, then chain crossfades: each offset is the running length minus the fades so far.
 $filter = ''
 for ($i = 0; $i -lt $lengths.Count; $i++) {
-    $filter += "[$i`:v]scale=1920:1080,fps=60,format=yuv420p,setpts=PTS-STARTPTS[v$i];"
+    $filter += "[$i`:v]setpts=PTS-STARTPTS,scale=1920:1080,fps=60,format=yuv420p,settb=AVTB[v$i];"
 }
 $prev = 'v0'
 $offset = 0.0
