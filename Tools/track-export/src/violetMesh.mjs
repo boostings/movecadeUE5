@@ -3,9 +3,15 @@
 //
 // Outputs:
 //  - out/violet/violet_loop.glb: plain glTF (no Draco, PNG textures), the [155,-28,15] x0.08 mount
-//    and the +1.605 m rebase baked into the vertices, node and mesh names kept (Object_10 ...).
-//    Object_22 (never rendered by violet-loop.jsx) is left out, and the 53 voxel trees are cut
-//    out of Object_18 (the web discards them in the shader and draws soft instanced trees).
+//    and the +1.605 m rebase baked into the vertices, node and mesh names kept (Object_24 ...).
+//    Object_22 (never rendered by violet-loop.jsx) is left out.
+//    The original rebuild (visual only, Docs/Port/AAA-PLAN.md): only the road (Object_24), its lines and
+//    chequers (Object_25) and the sand verge (Object_11, the sim's dirt) are kept. The barrier blocks
+//    (Object_13), the start structure (Object_10), the hills (Object_18), the speed quad (Object_27), the
+//    warp pipes (Object_12) and the brick blocks (Object_47) are all left out; violetGarden.ts builds
+//    original art over the same footprints: `barriers` (Object_13's ground blocks as closed
+//    outlines), `gantry` (Object_10's pieces) and `motifs` (the pipe and brick groups). Object_25's
+//    painted kerbs are recoloured violet (material_19_violet).
 //  - The data for the track JSON: wall segments for the sweep and for the probe rays, and a
 //    dirt grid for the terrain ray. All in source units (three.js world, no rebase).
 import { Document, NodeIO } from '@gltf-transform/core';
@@ -30,8 +36,71 @@ const RENDERED = {
 };
 /** MultiplayerKart.tsx:131-132. */
 const DIRT_KEYWORDS = ['dirt', 'sand', 'grass', 'offroad', 'mud', 'gravel'];
-/** trackSurfaces.ts:71-73 VIOLET_TREE_CELLS (column, row of the 8x8 palette, raw UVs), cut from material_12. */
-const TREE_CELLS = [[1, 6], [1, 3], [1, 4], [0, 4], [0, 5], [0, 6], [1, 1]];
+// ---- IP cleanup (Docs/Port/00-PLAN.md open risks: the old "mario-circuit" test model's motifs) -------
+// Visual only: every triangle still goes through the collision analysis above the output step, so
+// collision.walls and collision.dirtGrid are byte-identical with or without the cleanup.
+/** Whole nodes cut from the visual mesh: Object_12 is six green warp pipes (body, lip, black opening),
+ *  Object_47 the brick blocks (stair stacks on the perimeter, floating rows at 13.7 m, the gantry feet). */
+const MOTIF_NODES = { Object_12: 'pipe', Object_47: 'bricks' };
+/** Nodes rebuilt as original art (violetGarden.ts) and so left out of the visual GLB. Their faces still
+ *  go through the collision analysis like every rendered node. */
+const REBUILT_NODES = ['Object_10', 'Object_13', 'Object_18', 'Object_27'];
+/** Object_13's barrier blocks stand on the ground (y -1.7..1.9); its gantry frame floats at y 10+, above this. */
+const BARRIER_GROUND_MAX_Y = 5;
+const FOOTPRINT_CELL_M = 0.25;
+/** Outlines are simplified to this tolerance: the blocks' bevel steps go, the chain corners stay. */
+const OUTLINE_TOLERANCE_M = 0.3;
+
+/** Douglas-Peucker on a closed loop, split at its two mutually furthest points. */
+function simplifyLoop(pts, tol) {
+  const dp = (a, b, list) => {
+    let best = -1, bestD = tol;
+    const [ax, az] = list[a], [bx, bz] = list[b];
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    for (let k = a + 1; k < b; k++) {
+      const d = Math.abs((bx - ax) * (az - list[k][1]) - (ax - list[k][0]) * (bz - az)) / len;
+      if (d > bestD) { bestD = d; best = k; }
+    }
+    return best < 0 ? [list[a]] : [...dp(a, best, list), ...dp(best, b, list)];
+  };
+  let far = 0, farD = 0;
+  for (let k = 1; k < pts.length; k++) {
+    const d = Math.hypot(pts[k][0] - pts[0][0], pts[k][1] - pts[0][1]);
+    if (d > farD) { farD = d; far = k; }
+  }
+  const ring = [...pts, pts[0]];
+  return [...dp(0, far, ring), ...dp(far, pts.length, ring)];
+}
+
+/** Closing radius for the block footprint: gaps up to 2 x 0.75 m between blocks are filled. */
+const CLOSE_CELLS = 3;
+
+/** Square (Chebyshev) dilation of a 0/1 grid by k cells, separable: rows then columns. */
+function dilate(grid, cols, rows, k) {
+  const tmp = new Uint8Array(cols * rows), out = new Uint8Array(cols * rows);
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    if (!grid[j * cols + i]) continue;
+    for (let d = Math.max(0, i - k); d <= Math.min(cols - 1, i + k); d++) tmp[j * cols + d] = 1;
+  }
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    if (!tmp[j * cols + i]) continue;
+    for (let d = Math.max(0, j - k); d <= Math.min(rows - 1, j + k); d++) out[d * cols + i] = 1;
+  }
+  return out;
+}
+/** Erosion as the complement of the complement's dilation. */
+function erode(grid, cols, rows, k) {
+  const inv = grid.map((v) => 1 - v);
+  return dilate(inv, cols, rows, k).map((v) => 1 - v);
+}
+/**
+ * Object_25's painted kerbs are red and white; the garden's are violet and cream (the chequers and edge
+ * lines keep their colours). Map: palette hue band -> new colour.
+ */
+const KERB_RECOLOUR = [
+  { hue: [330, 361], to: [0x76, 0x56, 0xd8] },
+  { hue: [0, 20], to: [0x76, 0x56, 0xd8] },
+];
 
 // The web's collision constants (meshBoundary.ts, MultiplayerKart.tsx).
 const WALL_NORMAL_Y = 0.7;
@@ -160,9 +229,165 @@ class SegmentSet {
   }
 }
 
-async function webpToPng(texture) {
-  const png = await sharp(Buffer.from(texture.getImage())).png().toBuffer();
-  return new Uint8Array(png);
+async function webpToPng(texture, recolour) {
+  if (!recolour) return new Uint8Array(await sharp(Buffer.from(texture.getImage())).png().toBuffer());
+  const { data, info } = await sharp(Buffer.from(texture.getImage())).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+  for (let o = 0; o < data.length; o += 4) {
+    const [r, g, b] = [data[o], data[o + 1], data[o + 2]];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const v = max / 255, s = max ? (max - min) / max : 0;
+    if (v < 0.35 || s < 0.3) continue; // dark trims and greys stay
+    const d = max - min;
+    let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+    const band = recolour.find((m) => h >= m.hue[0] && h < m.hue[1]);
+    if (!band) continue;
+    const k = Math.min(1.04, Math.max(0.8, v / 0.82));
+    for (let c = 0; c < 3; c++) data[o + c] = Math.min(255, Math.round(band.to[c] * k));
+  }
+  return new Uint8Array(await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer());
+}
+
+/** Union-find over position-welded vertices: the connected pieces of a triangle list. */
+function components(world, idx) {
+  const vcount = world.length / 3;
+  const key = new Map();
+  const weld = new Int32Array(vcount);
+  for (let i = 0; i < vcount; i++) {
+    const k = `${Math.round(world[i * 3] * 1000)},${Math.round(world[i * 3 + 1] * 1000)},${Math.round(world[i * 3 + 2] * 1000)}`;
+    if (!key.has(k)) key.set(k, i);
+    weld[i] = key.get(k);
+  }
+  const parent = Int32Array.from({ length: vcount }, (_, i) => i);
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  for (let t = 0; t < idx.length; t += 3) {
+    for (const k of [1, 2]) { const a = find(weld[idx[t]]), b = find(weld[idx[t + k]]); if (a !== b) parent[a] = b; }
+  }
+  const out = new Map();
+  for (let t = 0; t < idx.length; t += 3) {
+    const root = find(weld[idx[t]]);
+    let c = out.get(root);
+    if (!c) out.set(root, (c = { tris: 0, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }));
+    c.tris++;
+    for (let k = 0; k < 3; k++) for (let a = 0; a < 3; a++) {
+      const p = world[idx[t + k] * 3 + a];
+      c.min[a] = Math.min(c.min[a], p); c.max[a] = Math.max(c.max[a], p);
+    }
+  }
+  return { weld, list: [...out.values()] };
+}
+
+/** Joins pieces whose boxes touch (a brick stair is several stacked pieces). */
+function clusterBoxes(list, gap = 0.4) {
+  const groups = list.map((c) => ({ min: [...c.min], max: [...c.max], tris: c.tris }));
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < groups.length && !merged; i++) {
+      for (let j = i + 1; j < groups.length && !merged; j++) {
+        const a = groups[i], b = groups[j];
+        if ([0, 1, 2].every((k) => a.min[k] <= b.max[k] + gap && b.min[k] <= a.max[k] + gap)) {
+          for (let k = 0; k < 3; k++) { a.min[k] = Math.min(a.min[k], b.min[k]); a.max[k] = Math.max(a.max[k], b.max[k]); }
+          a.tris += b.tris;
+          groups.splice(j, 1);
+          merged = true;
+        }
+      }
+    }
+  }
+  return groups;
+}
+
+/**
+ * Object_13's ground blocks as outlines: the blocks' top-down footprint (every triangle below
+ * BARRIER_GROUND_MAX_Y, projected) on a 0.25 m grid, closed so each block chain becomes one solid region,
+ * then traced into closed loops along the cell edges (interior on the left, so outer outlines and the holes
+ * of ring-shaped chains wind opposite ways) with collinear runs merged. The block chains are axis-aligned
+ * and 3.5 m thick, so the loops are the blocks' outer faces: where the sim's sweep walls are.
+ * Returns { cellM, minY, maxY, loops: [[x, z], ...][] } in three.js world metres (no rebase).
+ */
+function barrierOutlines(world, idx) {
+  const C = FOOTPRINT_CELL_M;
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity, lowY = Infinity, topY = -Infinity;
+  const tris = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const v = [idx[t], idx[t + 1], idx[t + 2]].map((i) => [world[i * 3], world[i * 3 + 1], world[i * 3 + 2]]);
+    if (Math.min(v[0][1], v[1][1], v[2][1]) > BARRIER_GROUND_MAX_Y) continue;
+    tris.push(v);
+    for (const p of v) {
+      minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); minZ = Math.min(minZ, p[2]); maxZ = Math.max(maxZ, p[2]);
+      lowY = Math.min(lowY, p[1]); topY = Math.max(topY, p[1]);
+    }
+  }
+  minX = Math.floor(minX) - 1; minZ = Math.floor(minZ) - 1;
+  const cols = Math.ceil((maxX + 1 - minX) / C), rows = Math.ceil((maxZ + 1 - minZ) / C);
+  const filled = new Uint8Array(cols * rows);
+  for (const [a, b, c] of tris) {
+    const d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+    if (Math.abs(d) < 1e-9) continue; // a vertical face projects to a line
+    const i0 = Math.max(0, Math.floor((Math.min(a[0], b[0], c[0]) - minX) / C));
+    const i1 = Math.min(cols - 1, Math.floor((Math.max(a[0], b[0], c[0]) - minX) / C));
+    const j0 = Math.max(0, Math.floor((Math.min(a[2], b[2], c[2]) - minZ) / C));
+    const j1 = Math.min(rows - 1, Math.floor((Math.max(a[2], b[2], c[2]) - minZ) / C));
+    for (let j = j0; j <= j1; j++) {
+      const pz = minZ + (j + 0.5) * C;
+      for (let i = i0; i <= i1; i++) {
+        const px = minX + (i + 0.5) * C;
+        const l1 = ((b[2] - c[2]) * (px - c[0]) + (c[0] - b[0]) * (pz - c[2])) / d;
+        const l2 = ((c[2] - a[2]) * (px - c[0]) + (a[0] - c[0]) * (pz - c[2])) / d;
+        if (l1 >= -1e-6 && l2 >= -1e-6 && 1 - l1 - l2 >= -1e-6) filled[j * cols + i] = 1;
+      }
+    }
+  }
+  // The blocks are bevelled cubes with gaps between them: a morphological closing (dilate, then erode,
+  // by CLOSE_CELLS) joins each chain into one solid strip without bridging separate chains.
+  const solid = erode(dilate(filled, cols, rows, CLOSE_CELLS), cols, rows, CLOSE_CELLS);
+  const at = (i, j) => (i >= 0 && j >= 0 && i < cols && j < rows ? solid[j * cols + i] : 0);
+  // Directed boundary edges between grid corners, interior on the left of travel in (i, j).
+  const out = new Map();
+  const key = (i, j) => j * (cols + 1) + i;
+  const edge = (a, b) => { const k = key(...a); (out.get(k) ?? out.set(k, []).get(k)).push(b); };
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      if (!at(i, j)) continue;
+      if (!at(i, j - 1)) edge([i, j], [i + 1, j]);
+      if (!at(i + 1, j)) edge([i + 1, j], [i + 1, j + 1]);
+      if (!at(i, j + 1)) edge([i + 1, j + 1], [i, j + 1]);
+      if (!at(i - 1, j)) edge([i, j + 1], [i, j]);
+    }
+  }
+  const loops = [];
+  for (const [startKey, firstList] of out) {
+    while (firstList.length) {
+      const loop = [];
+      let cur = [startKey % (cols + 1), Math.floor(startKey / (cols + 1))];
+      let dir = null;
+      for (;;) {
+        const list = out.get(key(...cur));
+        if (!list || !list.length) break;
+        // At a saddle corner, keep turning left so diagonal neighbours stay separate regions.
+        let pick = 0;
+        if (list.length > 1 && dir) {
+          const score = (b) => { const d = [b[0] - cur[0], b[1] - cur[1]]; return dir[0] * d[1] - dir[1] * d[0]; };
+          pick = list.reduce((best, b, k) => (score(b) > score(list[best]) ? k : best), 0);
+        }
+        const next = list.splice(pick, 1)[0];
+        loop.push(cur);
+        dir = [next[0] - cur[0], next[1] - cur[1]];
+        cur = next;
+        if (key(...cur) === startKey) break;
+      }
+      // Keep the corners only (drop points between collinear edges).
+      const n = loop.length;
+      const corners = loop.filter((p, k) => {
+        const a = loop[(k - 1 + n) % n], b = loop[(k + 1) % n];
+        return (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) !== 0;
+      });
+      if (corners.length < 4) continue;
+      const pts = simplifyLoop(corners.map(([i, j]) => [minX + i * C, minZ + j * C]), OUTLINE_TOLERANCE_M);
+      if (pts.length >= 3) loops.push(pts.map(([x, z]) => [r3(x), r3(z)]));
+    }
+  }
+  return { cellM: C, minY: r3(lowY), maxY: r3(topY), loops };
 }
 
 /**
@@ -189,6 +414,11 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
   const sweep = new SegmentSet();
   const probe = new SegmentSet();
   const stats = {};
+  /** Motif groups cut from the visual mesh, in three.js world metres (no rebase). */
+  const motifs = [];
+  /** Object_13's ground blocks as outlines, and the start structure's pieces (three.js world, no rebase). */
+  let barriers = null;
+  const gantry = [];
 
   // ---- Output document.
   const out = new Document();
@@ -203,8 +433,11 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
       .setMetallicFactor(m.getMetallicFactor())
       .setEmissiveFactor(m.getEmissiveFactor())
       .setDoubleSided(m.getDoubleSided());
-    const copyTex = async (t, name) => t && out.createTexture(`${m.getName()}_${name}`).setMimeType('image/png').setImage(await webpToPng(t));
-    const base = await copyTex(m.getBaseColorTexture(), 'basecolor');
+    const copyTex = async (t, name, recolour) => t && out.createTexture(`${m.getName()}_${name}`).setMimeType('image/png').setImage(await webpToPng(t, recolour));
+    // material_19 is Object_25's lines, chequers and kerbs. The recoloured palette gets its own name: a UE
+    // reimport keeps an existing texture asset's pixels.
+    const recolour = m.getName() === 'material_19';
+    const base = await copyTex(m.getBaseColorTexture(), recolour ? 'violet' : 'basecolor', recolour ? KERB_RECOLOUR : undefined);
     if (base) mat.setBaseColorTexture(base);
     const emissive = await copyTex(m.getEmissiveTexture(), 'emissive');
     if (emissive) mat.setEmissiveTexture(emissive);
@@ -234,7 +467,7 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
       world[i * 3 + 2] = oz + s * pos[i * 3 + 2];
     }
     const dirt = DIRT_KEYWORDS.some((k) => meshName.includes(k));
-    const st = (stats[name] = { tris: idx.length / 3, wallTris: 0, sweepSegs: 0, probeSegs: 0, treeTrisCut: 0 });
+    const st = (stats[name] = { tris: idx.length / 3, wallTris: 0, sweepSegs: 0, probeSegs: 0 });
 
     // ---- Collision analysis (all rendered meshes are kart colliders: kartCollisionMeshes.ts).
     const V = (i) => [world[i * 3], world[i * 3 + 1], world[i * 3 + 2]];
@@ -274,26 +507,34 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
       }
     }
 
-    // ---- Output mesh: rebased world positions, unchanged normals (uniform scale).
-    let keep = idx;
-    if (name === 'Object_18' && uv) {
-      const cells = TREE_CELLS.map(([col, row]) => [col / 8, row / 8, (col + 1) / 8, (row + 1) / 8]);
-      const kept = [];
-      for (let t = 0; t < idx.length; t += 3) {
-        const u = (uv[idx[t] * 2] + uv[idx[t + 1] * 2] + uv[idx[t + 2] * 2]) / 3;
-        const v = (uv[idx[t] * 2 + 1] + uv[idx[t + 1] * 2 + 1] + uv[idx[t + 2] * 2 + 1]) / 3;
-        if (cells.some(([u0, v0, u1, v1]) => u > u0 && u < u1 && v > v0 && v < v1)) { st.treeTrisCut++; continue; }
-        kept.push(idx[t], idx[t + 1], idx[t + 2]);
+    // ---- The original rebuild, visual only (the analysis above already saw every triangle).
+    if (name === 'Object_13') barriers = barrierOutlines(world, idx);
+    if (name === 'Object_10' || name === 'Object_13') {
+      for (const c of components(world, idx).list) {
+        if (name === 'Object_10' || c.min[1] > BARRIER_GROUND_MAX_Y) gantry.push({ node: name, ...c });
       }
-      keep = Uint32Array.from(kept);
     }
+    if (REBUILT_NODES.includes(name)) {
+      st.rebuilt = true;
+      continue;
+    }
+    if (MOTIF_NODES[name]) {
+      const kind = MOTIF_NODES[name];
+      for (const g of clusterBoxes(components(world, idx).list)) motifs.push({ kind, node: name, ...g });
+      st.motifTrisCut = idx.length / 3;
+      continue; // the whole node is a motif: nothing of it is drawn
+    }
+
+    // ---- Output mesh: rebased world positions, unchanged normals (uniform scale).
+    const keep = idx;
     const rebased = Float32Array.from(world);
     for (let i = 0; i < vcount; i++) rebased[i * 3 + 1] += rebaseY;
+    const normals = nrm ? Float32Array.from(nrm) : null;
     const outPrim = out.createPrimitive()
       .setAttribute('POSITION', out.createAccessor().setType('VEC3').setArray(rebased).setBuffer(buffer))
       .setIndices(out.createAccessor().setType('SCALAR').setArray(Uint32Array.from(keep)).setBuffer(buffer))
       .setMaterial(await material(prim.getMaterial()));
-    if (nrm) outPrim.setAttribute('NORMAL', out.createAccessor().setType('VEC3').setArray(Float32Array.from(nrm)).setBuffer(buffer));
+    if (normals) outPrim.setAttribute('NORMAL', out.createAccessor().setType('VEC3').setArray(normals).setBuffer(buffer));
     if (uv) outPrim.setAttribute('TEXCOORD_0', out.createAccessor().setType('VEC2').setArray(Float32Array.from(uv)).setBuffer(buffer));
     if (uv1) outPrim.setAttribute('TEXCOORD_1', out.createAccessor().setType('VEC2').setArray(Float32Array.from(uv1)).setBuffer(buffer));
     const mesh = out.createMesh(name).addPrimitive(outPrim);
@@ -320,6 +561,9 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
   return {
     glb: glbOut,
     stats,
+    motifs: motifs.map((m) => ({ kind: m.kind, node: m.node, tris: m.tris, min: m.min.map(r3), max: m.max.map(r3) })),
+    barriers,
+    gantry: gantry.map((g) => ({ node: g.node, tris: g.tris, min: g.min.map(r3), max: g.max.map(r3) })),
     walls: { sweep: sweep.merged(), probe: probe.merged(), sweepPieces: sweep.count, probePieces: probe.count },
     dirtGrid: { cellM: DIRT_CELL_M, minX, minZ, cols, rows, dirtCells, runs },
   };

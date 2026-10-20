@@ -1,8 +1,11 @@
 #include "TrackBuilder.h"
 
+#include "Camera/CameraActor.h"
 #include "Components/DirectionalLightComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Components/PostProcessComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -11,7 +14,9 @@
 #include "Engine/StaticMesh.h"
 #include "KartCoords.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "ProceduralMeshComponent.h"
 #include "Serialization/JsonReader.h"
@@ -99,11 +104,29 @@ ATrackBuilder::ATrackBuilder()
 	SkyLight->SetMobility(EComponentMobility::Movable);
 	SkyLight->bRealTimeCapture = true;
 
+	// Movable, so ApplyLook's setters take effect at BeginPlay too (static components ignore them).
 	Atmosphere = CreateDefaultSubobject<USkyAtmosphereComponent>(TEXT("Atmosphere"));
 	Atmosphere->SetupAttachment(RootComponent);
+	Atmosphere->SetMobility(EComponentMobility::Movable);
 
 	Fog = CreateDefaultSubobject<UExponentialHeightFogComponent>(TEXT("Fog"));
 	Fog->SetupAttachment(RootComponent);
+	Fog->SetMobility(EComponentMobility::Movable);
+
+	PostProcess = CreateDefaultSubobject<UPostProcessComponent>(TEXT("PostProcess"));
+	PostProcess->SetupAttachment(RootComponent);
+	PostProcess->bUnbound = true;
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	SkySphere = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SkySphere"));
+	SkySphere->SetupAttachment(RootComponent);
+	SkySphere->SetStaticMesh(SphereMesh.Object);
+	SkySphere->SetRelativeScale3D(FVector(20000.0)); // the Sphere is 1 m across: 10 km radius
+	SkySphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SkySphere->SetCastShadow(false);
+	SkySphere->SetReceivesDecals(false);
+	SkySphere->bAffectDistanceFieldLighting = false;
+	SkySphere->SetMobility(EComponentMobility::Movable);
 }
 
 FString ATrackBuilder::TrackPath(const FString& Id)
@@ -192,6 +215,7 @@ void ATrackBuilder::Build()
 	const bool bSeaImported = GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("TrackSea")).Num() > 0;
 	BuildPrefabInstances();
 	BuildSigns();
+	BuildLights();
 	BuildMotion();
 
 	auto Right = [&T](int32 i) { const FVector2D Tg = T.CentreTangent[i % T.Centre.Num()]; return FVector2D(-Tg.Y, Tg.X); };
@@ -310,13 +334,8 @@ void ATrackBuilder::Build()
 		});
 	}
 
-	// Boost pads: the Plane mesh is 1 m square in UE X/Y; X runs along the pad (length), Y across (width).
-	BoostPads->ClearInstances();
-	for (const FBoostPad& Pad : T.BoostPads)
-	{
-		BoostPads->AddInstance(FTransform(FRotator(0.0, Coords::YawToUE(Pad.Yaw), 0.0),
-			Coords::ToUE(Pad.Position, 0.04 + Rebase), FVector(Pad.Length, Pad.Width, 1.0)), true);
-	}
+	// Boost pads: the emissive chevron prefab, or the graybox plane.
+	BuildBoostPads();
 
 	// Item boxes: 2 m cubes at y 1 (pickup arrives with the items phase).
 	ItemBoxes->ClearInstances();
@@ -334,48 +353,220 @@ void ATrackBuilder::Build()
 	}
 	if (BaseMaterial)
 	{
-		UMaterialInstanceDynamic* PadMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, this, TEXT("MID_BoostPad"));
-		PadMaterial->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("ff6a1a")));
-		BoostPads->SetMaterial(0, PadMaterial);
+		if (BoostPads->GetStaticMesh() && BoostPads->GetStaticMesh()->GetPathName().StartsWith(TEXT("/Engine/")))
+		{
+			UMaterialInstanceDynamic* PadMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, this, TEXT("MID_BoostPad"));
+			PadMaterial->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("ff6a1a")));
+			BoostPads->SetMaterial(0, PadMaterial);
+		}
 		UMaterialInstanceDynamic* BoxMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, this, TEXT("MID_ItemBox"));
 		BoxMaterial->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("ffcc00")));
 		ItemBoxes->SetMaterial(0, BoxMaterial);
 	}
 
-	// Lighting from the track's look (sun direction is toward the sun, three.js axes).
+	ApplyLook();
+}
+
+namespace
+{
+	TSharedPtr<FJsonObject> JsonObj(const TSharedPtr<FJsonObject>& O, const TCHAR* Key)
+	{
+		const TSharedPtr<FJsonObject>* Out = nullptr;
+		return O.IsValid() && O->TryGetObjectField(Key, Out) ? *Out : nullptr;
+	}
+
+	FLinearColor JsonColor(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, const TCHAR* Default)
+	{
+		FString V;
+		if (!O.IsValid() || !O->TryGetStringField(Key, V))
+		{
+			V = Default;
+		}
+		return Hex(*V.Replace(TEXT("#"), TEXT("")));
+	}
+
+	FVector JsonVec(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, const FVector& Default)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* A = nullptr;
+		return O.IsValid() && O->TryGetArrayField(Key, A) && A->Num() >= 3 ? FVector((*A)[0]->AsNumber(), (*A)[1]->AsNumber(), (*A)[2]->AsNumber()) : Default;
+	}
+}
+
+void ATrackBuilder::ApplyLook()
+{
+	using namespace MovecadeKart;
 	Sun->SetVisibility(bAddLighting);
 	SkyLight->SetVisibility(bAddLighting);
 	Atmosphere->SetVisibility(bAddLighting);
 	Fog->SetVisibility(bAddLighting);
-	Sun->SetWorldRotation((-Coords::DirToUE(T.SunDirection).GetSafeNormal()).Rotation());
-
-	// The web's linear fog starts at look.fog.near (260 m) and is full by far (2000 m); Docs/Port/03 §8 maps
-	// it to height fog that starts at near, thin enough that the scenery inside a lap stays clear.
-	const TSharedPtr<FJsonObject>* Look = nullptr;
-	if (Json.IsValid() && Json->TryGetObjectField(TEXT("look"), Look))
+	PostProcess->bEnabled = bAddLighting;
+	if (!Json.IsValid())
 	{
-		FString SunColor;
-		if ((*Look)->TryGetStringField(TEXT("sunColor"), SunColor))
+		return;
+	}
+	// kartLook.ts's record (Docs/Port/03 §5.7) is the base. The scene is lit in three.js units: with manual
+	// exposure at EV 0, a sun of `sunIntensity` lux on a white Lambert surface gives the web's 1/pi-scaled
+	// radiance. look.ue holds the UE art direction per track (sun, sky, clouds, fog, exposure), which wins
+	// over the web record; -KartLookUE="key=value,..." overrides its numbers for quick look passes.
+	const TSharedPtr<FJsonObject> Look = JsonObj(Json, TEXT("look"));
+	const TSharedPtr<FJsonObject> Mood = JsonObj(Look, TEXT("mood"));
+	const TSharedPtr<FJsonObject> Grade = JsonObj(Look, TEXT("grade"));
+	const TSharedPtr<FJsonObject> FogLook = JsonObj(Look, TEXT("fog"));
+	const TSharedPtr<FJsonObject> Hemi = JsonObj(Look, TEXT("hemisphere"));
+	const TSharedPtr<FJsonObject> Fill = JsonObj(Look, TEXT("fill"));
+	const TSharedPtr<FJsonObject> SkyLook = JsonObj(Mood, TEXT("sky"));
+	const TSharedPtr<FJsonObject> UELook = JsonObj(Look, TEXT("ue"));
+	TMap<FString, double> Overrides;
+	FString OverrideText;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KartLookUE="), OverrideText, /*bShouldStopOnSeparator*/ false))
+	{
+		TArray<FString> Pairs;
+		OverrideText.ParseIntoArray(Pairs, TEXT(","));
+		for (const FString& Pair : Pairs)
 		{
-			Sun->SetLightColor(Hex(*SunColor.Replace(TEXT("#"), TEXT(""))));
+			FString Key, Value;
+			if (Pair.Split(TEXT("="), &Key, &Value))
+			{
+				Overrides.Add(Key.TrimStartAndEnd(), FCString::Atod(*Value));
+			}
 		}
-		const TSharedPtr<FJsonObject>* FogLook = nullptr;
-		if ((*Look)->TryGetObjectField(TEXT("fog"), FogLook))
+	}
+	auto Tune = [&UELook, &Overrides](const TCHAR* Key, double Default)
+	{
+		const double* Override = Overrides.Find(Key);
+		return Override ? *Override : JsonNum(UELook, Key, Default);
+	};
+	auto TuneColor = [&UELook](const TCHAR* Key, const FLinearColor& Default)
+	{
+		FString Hex;
+		return UELook.IsValid() && UELook->TryGetStringField(Key, Hex) ? JsonColor(UELook, Key, TEXT("ffffff")) : Default;
+	};
+
+	// Sun: direction toward the sun in three.js axes.
+	const FVector WebSunDir = JsonVec(Look, TEXT("sunDirection"), Track.IsValid() ? Track->SunDirection : FVector(0.5, 0.6, 0.6));
+	const FVector SunDir = JsonVec(UELook, TEXT("sunDirection"), WebSunDir);
+	const FLinearColor SunColor = TuneColor(TEXT("sunColor"), JsonColor(Look, TEXT("sunColor"), TEXT("ffffff")));
+	Sun->SetWorldRotation((-Coords::DirToUE(SunDir).GetSafeNormal()).Rotation());
+	Sun->SetLightColor(SunColor);
+	Sun->SetIntensity(static_cast<float>(JsonNum(Look, TEXT("sunIntensity"), 3.0) * Tune(TEXT("sunScale"), 1.0)));
+	Sun->SetCastShadows(true);
+	Sun->SetDynamicShadowDistanceMovableLight(20000.f);
+
+	// Sky light: real-time capture of the dome below, tinted toward the hemisphere sky colour.
+	const double Ambient = JsonNum(Hemi, TEXT("intensity"), 0.6) + JsonNum(Fill, TEXT("intensity"), 0.3);
+	SkyLight->SetIntensity(static_cast<float>(Ambient * Tune(TEXT("skyLightScale"), 1.5)));
+	SkyLight->SetLightColor(FMath::Lerp(FLinearColor::White, TuneColor(TEXT("skyLightTint"), JsonColor(Hemi, TEXT("sky"), TEXT("ffffff"))), 0.35f));
+	SkyLight->bLowerHemisphereIsBlack = false;
+	SkyLight->SetLowerHemisphereColor(TuneColor(TEXT("groundBounce"), JsonColor(Hemi, TEXT("ground"), TEXT("6e5a48"))) * 0.5f);
+	SkyLight->RecaptureSky();
+
+	// Sky: a painted dome (M_TrackSky: gradient, sun, horizon glow, clouds). The physical atmosphere stays
+	// off: at these light levels it renders a dim grey sky, and it would tint the sun.
+	Atmosphere->SetVisibility(false);
+	Sun->SetAtmosphereSunLight(false);
+	SkySphere->SetVisibility(bAddLighting);
+	const FLinearColor Horizon = TuneColor(TEXT("skyHorizon"), JsonColor(Mood, TEXT("skyHorizon"), TEXT("d4e6f5")));
+	const FLinearColor Top = TuneColor(TEXT("skyTop"), JsonColor(Mood, TEXT("skyTop"), TEXT("4f78b8")));
+	if (UMaterialInterface* SkyMaster = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+	{
+		UMaterialInstanceDynamic* Sky = UMaterialInstanceDynamic::Create(SkyMaster, this, TEXT("MID_Sky"));
+		Sky->SetVectorParameterValue(TEXT("SkyTop"), Top);
+		Sky->SetVectorParameterValue(TEXT("SkyMid"), TuneColor(TEXT("skyMid"), FMath::Lerp(Horizon, Top, 0.55f)));
+		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), Horizon);
+		Sky->SetVectorParameterValue(TEXT("SkyBelow"), TuneColor(TEXT("skyBelow"), JsonColor(Mood, TEXT("skyGround"), TEXT("a9bfd6"))));
+		const FVector SkySun = Coords::DirToUE(UELook.IsValid() && UELook->HasField(TEXT("sunDirection")) ? SunDir : JsonVec(SkyLook, TEXT("sunDirection"), SunDir)).GetSafeNormal();
+		Sky->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(SkySun.X, SkySun.Y, SkySun.Z, 0.0));
+		Sky->SetVectorParameterValue(TEXT("SunColor"), TuneColor(TEXT("sunDisc"), JsonColor(SkyLook, TEXT("cloudColor"), TEXT("fff6ee"))));
+		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.6 * Tune(TEXT("sunSize"), JsonNum(SkyLook, TEXT("sunSize"), 0.03))));
+		Sky->SetScalarParameterValue(TEXT("SunGlow"), Tune(TEXT("sunGlow"), JsonNum(SkyLook, TEXT("sunGlow"), 0.8) * 0.6));
+		Sky->SetScalarParameterValue(TEXT("GlowPower"), Tune(TEXT("glowPower"), 24.0));
+		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), Tune(TEXT("horizonGlow"), 0.4));
+		Sky->SetScalarParameterValue(TEXT("Brightness"), Tune(TEXT("skyBrightness"), 1.0));
+		// Clouds: the generated density map, coverage from the web's mood (0 = clear).
+		if (UTexture* Clouds = LoadObject<UTexture>(nullptr, TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 		{
-			Fog->SetStartDistance(static_cast<float>(JsonNum(*FogLook, TEXT("near"), 260.0) * 100.0));
-			Fog->SetFogDensity(0.004f);
+			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
 		}
+		Sky->SetScalarParameterValue(TEXT("Clouds"), Tune(TEXT("clouds"), JsonNum(SkyLook, TEXT("clouds"), 0.4)));
+		Sky->SetScalarParameterValue(TEXT("CloudScale"), Tune(TEXT("cloudScale"), 0.35));
+		Sky->SetVectorParameterValue(TEXT("CloudLit"), TuneColor(TEXT("cloudLit"), JsonColor(SkyLook, TEXT("cloudColor"), TEXT("fff6ee"))));
+		Sky->SetVectorParameterValue(TEXT("CloudShade"), TuneColor(TEXT("cloudShade"), FMath::Lerp(Horizon, Top, 0.4f) * 0.8f));
+		SkySphere->SetMaterial(0, Sky);
+	}
+	Fog->SetFogCutoffDistance(900000.f); // the dome at 10 km stays unfogged
+
+	// Fog: height fog from `fogStart`, dense enough to read as haze at the web's far distance, in the horizon
+	// colour unless look.ue picks one; the sun side scatters warmer.
+	const double Near = JsonNum(FogLook, TEXT("near"), 260.0), Far = JsonNum(FogLook, TEXT("far"), 2000.0);
+	Fog->SetStartDistance(static_cast<float>(Tune(TEXT("fogStart"), Near) * 100.0));
+	Fog->SetFogDensity(static_cast<float>(Tune(TEXT("fogDensity"), 5.0 / FMath::Max(Far - Near, 100.0))));
+	Fog->SetFogHeightFalloff(static_cast<float>(Tune(TEXT("fogFalloff"), 0.02)));
+	Fog->SetFogMaxOpacity(static_cast<float>(Tune(TEXT("fogMaxOpacity"), 0.85)));
+	Fog->SetFogInscatteringColor(TuneColor(TEXT("fogColor"), Horizon) * static_cast<float>(Tune(TEXT("fogBrightness"), 1.0)));
+	Fog->SetDirectionalInscatteringColor(SunColor * static_cast<float>(Tune(TEXT("fogSunScatter"), 0.25)));
+	Fog->SetDirectionalInscatteringExponent(static_cast<float>(Tune(TEXT("fogSunExponent"), 6.0)));
+
+	// Post, per level: only this track's colour tint (the web's per-track gain and lift). Exposure, tone curve,
+	// saturation, bloom, vignette and AO come from the global grade (AKartGradeVolume, priority -100), whose
+	// auto exposure centres on this level's sun; look.ue's exposureBias nudges it for a track that needs it.
+	FPostProcessSettings& S = PostProcess->Settings;
+	S = FPostProcessSettings();
+	const FVector Gain = JsonVec(Grade, TEXT("gain"), FVector::OneVector), Lift = JsonVec(Grade, TEXT("lift"), FVector::ZeroVector);
+	S.bOverride_ColorGain = true;
+	S.ColorGain = FVector4(Gain.X, Gain.Y, Gain.Z, 1.0);
+	// The web lifts after tone mapping; UE's offset acts on scene colour, so a third of it gives the same tint.
+	S.bOverride_ColorOffset = true;
+	S.ColorOffset = FVector4(Lift.X / 3.0, Lift.Y / 3.0, Lift.Z / 3.0, 0.0);
+	const double ExposureBias = Tune(TEXT("exposureBias"), 0.0);
+	if (ExposureBias != 0.0)
+	{
+		S.bOverride_AutoExposureBias = true;
+		S.AutoExposureBias = static_cast<float>(1.0 + ExposureBias); // the global grade's +1 compensation, nudged
 	}
 }
 
 void ATrackBuilder::BeginPlay()
 {
 	Super::BeginPlay();
+	// -KartTrack=<id>: race another exported track on this level (local play; the room server only knows
+	// violet-loop and sunset-harbor). The whole track, scenery and look included, is rebuilt for it.
+	FString Override;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KartTrack="), Override) && !Override.IsEmpty() && Override != TrackId)
+	{
+		if (FPaths::FileExists(TrackPath(Override)))
+		{
+			UE_LOG(LogTrackBuilder, Log, TEXT("-KartTrack: %s replaces %s"), *Override, *TrackId);
+			TrackId = Override;
+			if (GetTrack())
+			{
+				Build();
+			}
+		}
+		else
+		{
+			UE_LOG(LogTrackBuilder, Error, TEXT("-KartTrack=%s: no %s"), *Override, *TrackPath(Override));
+		}
+	}
 	if (GetTrack() && SceneryCount == 0 && GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("TrackScenery")).Num() == 0)
 	{
 		Build(); // A level saved before the assets were imported.
 	}
+	else if (Json.IsValid())
+	{
+		ApplyLook(); // the look as the code has it now, even on a level saved earlier
+	}
 	GatherMotion();
+
+	// Test hook: -KartTrackCam=x,y,z,lookX,lookY,lookZ holds the first viewport on a fixed camera.
+	FString CamText;
+	TArray<FString> Bits;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KartTrackCam="), CamText, /*bShouldStopOnSeparator*/ false) && CamText.ParseIntoArray(Bits, TEXT(",")) == 6 && Track.IsValid())
+	{
+		const double Rebase = Track->SuggestedRebaseY;
+		const FVector From = MovecadeKart::Coords::ToUE(FVector(FCString::Atod(*Bits[0]), FCString::Atod(*Bits[1]) + Rebase, FCString::Atod(*Bits[2])));
+		const FVector To = MovecadeKart::Coords::ToUE(FVector(FCString::Atod(*Bits[3]), FCString::Atod(*Bits[4]) + Rebase, FCString::Atod(*Bits[5])));
+		DebugCamera = GetWorld()->SpawnActor<ACameraActor>(From, (To - From).Rotation());
+	}
 }
 
 void ATrackBuilder::SetPreviewItemBoxesVisible(bool bVisible)
@@ -388,6 +579,14 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	const double Time = GetWorld()->GetTimeSeconds();
 	TickMotion(Time);
+	if (AActor* Cam = DebugCamera.Get())
+	{
+		APlayerController* PC = GetWorld()->GetFirstPlayerController();
+		if (PC && PC->GetViewTarget() != Cam)
+		{
+			PC->SetViewTarget(Cam);
+		}
+	}
 
 	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t).
 	for (int32 i = 0; i < ItemBoxBase.Num(); ++i)

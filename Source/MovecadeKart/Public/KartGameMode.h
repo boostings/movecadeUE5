@@ -17,6 +17,9 @@ class ATrackBuilder;
  * 2..M), -KartSoloView (only seat 0 on screen), -KartSkipIntro, -KartAutoDrive (local seats drive
  * themselves), -KartLaps=N (shorter races for tests), -KartShots=2,8 (screenshots with UI at those
  * seconds), -KartQuitAfter=20.
+ *
+ * Without any of those flags (or -KartNoFrontEnd), a launch opens the front end on this level (UI/AKartFrontEnd).
+ * UKartSessionSettings decides per level: menus, a local race from the menu's setup, or the phone room.
  */
 UCLASS()
 class MOVECADEKART_API AKartGameMode : public AGameModeBase

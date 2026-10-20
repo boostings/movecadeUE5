@@ -4,7 +4,7 @@
 #include "GameFramework/HUD.h"
 #include "KartHUD.generated.h"
 
-/** A text debug HUD for the graybox: speed, lap, checkpoint, drift and boost state, and controls. */
+/** Per-view canvas pass for the item screen effects (ink, flash, Prism tint). The HUD proper is SKartRaceHud (Slate). */
 UCLASS()
 class MOVECADEKART_API AKartHUD : public AHUD
 {

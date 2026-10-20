@@ -16,9 +16,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bannerGeometry, grandstandGeometry, kerbGeometry, lampHeadGeometry, lampPostGeometry } from '@app/games/kart/scene/tracksideGeometry';
+import { bannerGeometry, grandstandGeometry, lampHeadGeometry, lampPostGeometry } from '@app/games/kart/scene/tracksideGeometry';
 import { softCanopyGeometry, trunkGeometry, TREE_BARK } from '@app/games/kart/scene/violetTrees';
-import type { KerbRun, TrackSample } from '@app/games/kart/scene/trackside';
 import { drawVioletLoopBanner } from '@app/games/kart/tracks/violetBanner';
 // @ts-expect-error appended to the in-memory source by build.mjs's stub plugin
 import { BANNER_FACES, bannerTexture } from '@app/games/kart/tracks/VioletTrackside';
@@ -26,12 +25,26 @@ import { BANNER_FACES, bannerTexture } from '@app/games/kart/tracks/VioletTracks
 import { buildHarborScenery, harborRibbon } from '@app/games/kart/tracks/HarborTrack';
 import { harborPoint } from '@app/games/kart/tracks/harbor';
 import { asphaltTexture, cobbleTexture, grainTexture, sandTexture, stoneTexture, waterTexture } from '@app/games/kart/tracks/harborTextures';
+import { HARBOR_DROPPED_BATCHES, HARBOR_REDRAWN_RIBBONS, dressRock, exportHarborCoast, harborBatchMaterial } from './harborCoast';
 
 type V3 = [number, number, number];
 
 /** Material hints for ATrackBuilder (Content/Tracks/Shared/Materials masters). */
 export interface MaterialHint {
-  shader: 'vertexColor' | 'textured' | 'unlitTexture' | 'translucent' | 'additive';
+  /** surface: M_TrackSurface, Map (UV0) x Color x vertex colour x world-space CC0 detail (props.ts SURFACE_SETS). */
+  shader: 'vertexColor' | 'textured' | 'unlitTexture' | 'translucent' | 'additive' | 'surface' | 'boostPad';
+  /** surface: the CC0 set (top-level detailSurfaces[] key), its tile in metres, strengths, and triplanar (walls, props) vs top-down. */
+  detail?: string;
+  triplanar?: boolean;
+  albedo?: number;
+  normal?: number;
+  rough?: number;
+  /** surface: desaturates the detail colour (0..1) before it multiplies the base. */
+  desaturate?: number;
+  /** surface: desaturates the base (palette or canvas) colour. */
+  baseDesaturate?: number;
+  /** A texture asset for Map given by its /Game path (an imported GLB palette) instead of a textures[] name. */
+  textureAsset?: string;
   color?: string;
   roughness?: number;
   metalness?: number;
@@ -46,13 +59,15 @@ export interface MeshEntry {
   node: string;
   ueAsset: string;
   material: MaterialHint;
+  /** false: the instances cast no shadow (sky dressing far above the road). */
+  castShadow?: boolean;
 }
 
 const ue = (dir: string, file: string, node: string) => `${dir}/${path.basename(file, '.glb')}/StaticMeshes/${node}`;
 
 // ---- GLB writer ---------------------------------------------------------------------------------
 
-class GlbFile {
+export class GlbFile {
   doc = new Document();
   buffer = this.doc.createBuffer();
   scene = this.doc.createScene();
@@ -98,7 +113,7 @@ class GlbFile {
 }
 
 /** Vertex colours from each mesh's material colour, every mesh baked into `root`'s frame and merged. */
-function bake(root: THREE.Object3D): THREE.BufferGeometry {
+export function bake(root: THREE.Object3D): THREE.BufferGeometry {
   root.updateMatrixWorld(true);
   const inverse = root.matrixWorld.clone().invert();
   const parts: THREE.BufferGeometry[] = [];
@@ -120,14 +135,14 @@ function bake(root: THREE.Object3D): THREE.BufferGeometry {
   return merged;
 }
 
-const mat = (color: string) => new THREE.MeshBasicMaterial({ color });
-function mesh(geometry: THREE.BufferGeometry, color: string, position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
+export const mat = (color: string) => new THREE.MeshBasicMaterial({ color });
+export function mesh(geometry: THREE.BufferGeometry, color: string, position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
   const m = new THREE.Mesh(geometry, mat(color));
   m.position.set(...position);
   m.rotation.set(...rotation);
   return m;
 }
-function group(children: THREE.Object3D[], position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
+export function group(children: THREE.Object3D[], position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
   const g = new THREE.Group();
   g.position.set(...position);
   g.rotation.set(...rotation);
@@ -142,14 +157,14 @@ const sphere = (...a: ConstructorParameters<typeof THREE.SphereGeometry>) => new
 
 export interface TextureEntry { name: string; file: string; ueAsset: string; srgb: true; tileM?: number; width: number; height: number }
 
-function savePng(outDir: string, ueDir: string, name: string, canvas: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number }, tileM?: number): TextureEntry {
+export function savePng(outDir: string, ueDir: string, name: string, canvas: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number }, tileM?: number): TextureEntry {
   mkdirSync(outDir, { recursive: true });
   const file = `${name}.png`;
   writeFileSync(path.join(outDir, file), canvas.toBuffer('image/png'));
   return { name, file, ueAsset: `${ueDir}/Textures/${name}`, srgb: true, width: canvas.width, height: canvas.height, ...(tileM ? { tileM } : {}) };
 }
 // The stubbed canvasTexture keeps the @napi-rs canvas as `image`.
-type StubTexture = { image: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number } };
+export type StubTexture = { image: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number } };
 
 // ---- Violet ------------------------------------------------------------------------------------
 
@@ -159,7 +174,7 @@ const SHARED_DIR = '/Game/Tracks/Shared';
 /** violetBanner.tsx:28-33: the start sign plane, facing +Z, unlit. */
 const VIOLET_SIGN = { position: [0.86, 13.94, -30.82] as V3, size: [26.4, 4.4] as [number, number] };
 
-export async function exportVioletScenery(outRoot: string, samples: readonly TrackSample[], kerbs: readonly KerbRun[]) {
+export async function exportVioletScenery(outRoot: string) {
   const outDir = path.join(outRoot, 'violet');
   // Prefabs (local +Z toward the road, base at y=0): tracksideGeometry.ts, violetTrees.ts;
   // materials from VioletTrackside.tsx:82-90 and VioletTrees.tsx:26-28.
@@ -176,11 +191,6 @@ export async function exportVioletScenery(outRoot: string, samples: readonly Tra
   };
   await prefabs.write(path.join(outRoot, 'shared'));
 
-  // Kerbs: one world-space mesh for every run (VioletTrackside.tsx:136, material :83).
-  const kerbFile = new GlbFile('violet_kerbs.glb', VIOLET_DIR);
-  const kerbMesh = kerbFile.add('violet_kerbs', kerbGeometry(samples, kerbs), { shader: 'vertexColor', roughness: 0.55 });
-  await kerbFile.write(outDir);
-
   // Banner faces 512x102 (VioletTrackside.tsx:17-46) and the start sign 1920x320 (violetBanner.tsx:35, :50-81).
   const texDir = path.join(outDir, 'textures');
   const textures: TextureEntry[] = (BANNER_FACES as unknown[]).map((face, i) =>
@@ -191,9 +201,6 @@ export async function exportVioletScenery(outRoot: string, samples: readonly Tra
 
   return {
     prefabs: prefab,
-    meshes: [
-      { file: 'violet_kerbs.glb', decoded: 'Tools/track-export/out/violet/violet_kerbs.glb', worldSpace: true, collision: false, nanite: false, ueAssets: [kerbMesh.ueAsset], parts: [kerbMesh] },
-    ],
     signs: [{ name: 'violet-start-banner', position: VIOLET_SIGN.position, size: VIOLET_SIGN.size, yaw: 0, texture: 'violet_start_banner', unlit: true }],
     textures,
   };
@@ -234,11 +241,12 @@ export interface HarborRibbonSpec { name: string; inner: number; outer: number; 
 /** The Harbor ribbon materials (HarborTrack.tsx:890-946); textures tile on 8 m (harborRibbon UVs are metres / 8). */
 function ribbonMaterial(material: string): MaterialHint {
   switch (material) {
-    case 'asphalt': return { shader: 'textured', color: '#5c6a6b', texture: 'harbor_asphalt', roughness: 0.86 };
-    case 'dirtShoulder': return { shader: 'textured', color: '#d5b58a', texture: 'harbor_cobble', roughness: 1 };
-    case 'barrier': return { shader: 'textured', color: '#8fb0ad', texture: 'harbor_stone', roughness: 0.8 };
-    case 'sand': return { shader: 'textured', color: '#e6cc9e', texture: 'harbor_sand', roughness: 1 };
-    case 'curb': return { shader: 'vertexColor', roughness: 0.85 };
+    // The canvas texture on UV0 plus the CC0 detail the web layers on top (HarborTrack.tsx:884-905).
+    case 'asphalt': return { shader: 'surface', color: '#5c6a6b', texture: 'harbor_asphalt', roughness: 0.86, detail: 'asphalt_track', tileM: 4.5, albedo: 0.6, normal: 0.55, rough: 0.6, desaturate: 0.35 };
+    case 'dirtShoulder': return { shader: 'surface', color: '#d5b58a', texture: 'harbor_cobble', roughness: 1, detail: 'gravelly_sand', tileM: 3, albedo: 0.5, normal: 0.6, rough: 0.5 };
+    case 'barrier': return { shader: 'surface', color: '#8fb0ad', texture: 'harbor_stone', roughness: 0.8, detail: 'painted_concrete', triplanar: true, tileM: 2.4, albedo: 0.45, normal: 0.6, rough: 0.5 };
+    case 'sand': return { shader: 'surface', color: '#e6cc9e', texture: 'harbor_sand', roughness: 1, detail: 'gravelly_sand', tileM: 4, albedo: 0.5, normal: 0.6, rough: 0.4 };
+    case 'curb': return { shader: 'surface', roughness: 0.7, detail: 'painted_concrete', tileM: 2, albedo: 0.25, normal: 0.4, rough: 0.4 };
     case 'edgeLine': return { shader: 'vertexColor', color: '#fff0cc', roughness: 0.9 };
     case 'wallCap': return { shader: 'vertexColor', color: '#fff0cc', roughness: 0.8 };
     case 'surf': return { shader: 'translucent', color: '#f4f7ec', opacity: 0.85 };
@@ -252,7 +260,8 @@ export async function exportHarborScenery(outRoot: string, ribbons: readonly Har
 
   // Ribbons: harborRibbon() itself, so UVs (metres / 8), asphalt tones and curb stripes match.
   const ribbonFile = new GlbFile('harbor_ribbons.glb', HARBOR_DIR);
-  const ribbonParts = ribbons.map((r) => {
+  // The coast pass (harborCoast.ts) draws the walls, caps, curbs and shallows its own way.
+  const ribbonParts = ribbons.filter((r) => !HARBOR_REDRAWN_RIBBONS.has(r.name)).map((r) => {
     const striped = r.material === 'asphalt' ? 'asphalt' : r.material === 'curb';
     return ribbonFile.add(`ribbon_${r.name}`, harborRibbon(r.inner, r.outer, r.innerY, r.outerY, striped), ribbonMaterial(r.material));
   });
@@ -260,10 +269,23 @@ export async function exportHarborScenery(outRoot: string, ribbons: readonly Har
 
   // Static props: buildHarborScenery's colour batches (HarborTrack.tsx:67-818), material :961-965.
   const sceneryFile = new GlbFile('harbor_scenery.glb', HARBOR_DIR);
-  const batches = buildHarborScenery() as { color: string; geometry: THREE.BufferGeometry }[];
-  const sceneryParts = batches.map(({ color, geometry }) =>
-    sceneryFile.add(`hs_${color.replace('#', '')}`, geometry, { shader: 'textured', color, texture: 'harbor_grain', roughness: 0.86 }));
+  // Each colour batch gets the CC0 surface its colour stands for (plaster, timber, sandstone, leaves).
+  const batches = (buildHarborScenery() as { color: string; geometry: THREE.BufferGeometry }[]).filter((b) => !HARBOR_DROPPED_BATCHES.has(b.color));
+  const sceneryParts = batches.map(({ color, geometry }) => sceneryFile.add(`hs_${color.replace('#', '')}`, dressRock(geometry, color), harborBatchMaterial(color)));
   await sceneryFile.write(outDir);
+
+  // Where the web's scenery stands (2 m cells), so the coast pass dresses only free beach.
+  const taken = new Set<string>();
+  const cell = (x: number, z: number) => `${Math.floor(x / 2)},${Math.floor(z / 2)}`;
+  for (const { geometry } of batches) {
+    const pos = geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) > -6.5) taken.add(cell(pos.getX(i), pos.getZ(i)));
+  }
+  const occupied = (x: number, z: number) => {
+    for (let dx = -3; dx <= 3; dx += 1.5) for (let dz = -3; dz <= 3; dz += 1.5) if (taken.has(cell(x + dx, z + dz))) return true;
+    return false;
+  };
+  const coast = await exportHarborCoast(outDir, occupied);
 
   // Animated actors (HarborMotion.tsx), one node per moving part, each in its own pivot's frame.
   const motion = new GlbFile('harbor_motion.glb', HARBOR_DIR);
@@ -272,8 +294,9 @@ export async function exportHarborScenery(outRoot: string, ribbons: readonly Har
   const add = (name: string, root: THREE.Object3D, material: MaterialHint) => { parts[name] = motion.add(name, bake(group([root])), material); };
   const lit = (roughness = 0.7): MaterialHint => ({ shader: 'vertexColor', roughness });
   // :21-42 lighthouse beams (additive) and lamp.
-  add('lighthouse_beams', group([0, Math.PI].map((a) => group([mesh(cyl(9, 0.8, 140, 12, 1, true), '#ffe9a8', [70, 0, 0], [0, 0, -Math.PI / 2])], [0, 0, 0], [0, a, 0]))),
-    { shader: 'additive', color: '#ffe9a8', opacity: 0.16 });
+  // The beams are soft light shafts (M_TrackAdditive fades their silhouette edges), fainter than the web's.
+  add('lighthouse_beams', group([0, Math.PI].map((a) => group([mesh(cyl(9, 0.8, 140, 24, 1, true), '#ffe9a8', [70, 0, 0], [0, 0, -Math.PI / 2])], [0, 0, 0], [0, a, 0]))),
+    { shader: 'additive', color: '#ffe9a8', opacity: 0.07 });
   add('lighthouse_lamp', mesh(sphere(1.5, 12, 8), '#fff6cc'), { shader: 'translucent', color: '#fff6cc', opacity: 1 });
   // :45-113 Ferris wheel: frame in the base frame, wheel about the hub (y 11.6), gondolas about their pivots.
   const legs = [-1, 1].flatMap((s) => [mesh(box(0.5, 13, 0.5), '#325e68', [s * 4, 6, 1.6], [0, 0, s * 0.36]), mesh(box(0.5, 13, 0.5), '#325e68', [s * 4, 6, -1.6], [0, 0, s * 0.36])]);
@@ -345,7 +368,10 @@ export async function exportHarborScenery(outRoot: string, ribbons: readonly Har
     meshes: [
       { file: 'harbor_ribbons.glb', decoded: 'Tools/track-export/out/harbor/harbor_ribbons.glb', worldSpace: true, replacesRibbons: true, collision: false, nanite: false, ueAssets: ribbonParts.map((p) => p.ueAsset), parts: ribbonParts },
       { file: 'harbor_scenery.glb', decoded: 'Tools/track-export/out/harbor/harbor_scenery.glb', worldSpace: true, collision: false, nanite: true, ueAssets: sceneryParts.map((p) => p.ueAsset), parts: sceneryParts },
+      coast.mesh,
     ],
+    coastPrefabs: coast.prefabs,
+    coastInstances: coast.instances,
     motionParts: parts,
     animated,
     // HarborTrack.tsx:948-951: plane 32 x 4 at (3, 13, -29.48), facing +Z, unlit.
