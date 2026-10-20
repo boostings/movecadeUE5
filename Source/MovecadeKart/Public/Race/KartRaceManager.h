@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "KartLook.h"
 #include "Race/KartBotDriver.h"
 #include "Sim/KartItems.h"
 #include "Sim/KartSim.h"
@@ -46,6 +47,13 @@ struct FKartSeatSpec
 
 	UPROPERTY(EditAnywhere, Category = "Kart")
 	FLinearColor Paint = FLinearColor::White;
+
+	/** Vehicle and driver; without one the seat gets FKartLook::MakeVaried(seat). Paint and Name above win. */
+	UPROPERTY(EditAnywhere, Category = "Kart")
+	FKartLook Look;
+
+	UPROPERTY(EditAnywhere, Category = "Kart")
+	bool bHasLook = false;
 };
 
 USTRUCT()

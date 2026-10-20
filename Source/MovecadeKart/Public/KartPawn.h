@@ -2,14 +2,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "KartLook.h"
 #include "KartPawn.generated.h"
 
 class UCameraComponent;
 class USphereComponent;
+class USkeletalMeshComponent;
 class UStaticMeshComponent;
+class UTextRenderComponent;
 class UKartMovementComponent;
 class UKartAudioComponent;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
 
 /** Item-driven presentation for one kart (set by AKartItemPresenter each frame). */
 struct FKartItemVisual
@@ -25,7 +29,8 @@ struct FKartItemVisual
 /**
  * A kart: a sphere root that only carries the sim pose, a visual body with the web build's
  * presentation layers (slip yaw, body yaw, lean, hop), and the chase camera (Docs/Port/01 §9, §10).
- * The body is a placeholder until the kart model is imported.
+ * The body is the shipped vehicle art (kart.glb or a moto/coupe/truck mount) with separate wheels that
+ * steer and spin, a skinned avatar4 driver holding the wheel, and a name plate (SetLook).
  */
 UCLASS()
 class MOVECADEKART_API AKartPawn : public APawn
@@ -42,7 +47,11 @@ public:
 	UKartAudioComponent* GetKartAudio() const { return Audio; }
 	/** Snap the chase camera behind the kart (after spawn or respawn). */
 	void SnapCamera();
+	/** Repaints the current vehicle (and a jersey that follows the paint). */
 	void SetPaint(const FLinearColor& Color);
+	/** Vehicle, paint, driver and name plate. Safe to call again at any time. */
+	void SetLook(const FKartLook& InLook);
+	const FKartLook& GetLook() const { return Look; }
 	/** Split-screen rig: fixed 6/8 m offsets and a 75° vertical FOV (SplitScreenRenderer); otherwise the single-view speed rig. */
 	void SetSplitScreenCamera(bool bSplit) { bSplitScreenCamera = bSplit; }
 	void SetItemVisual(const FKartItemVisual& InVisual) { ItemVisual = InVisual; }
@@ -56,8 +65,13 @@ protected:
 	virtual void BeginPlay() override;
 
 private:
-	void UpdateVisual();
+	void UpdateVisual(float DeltaSeconds);
+	void UpdateDriver(float DeltaSeconds);
+	void UpdateNamePlate();
 	void UpdateCamera(float DeltaSeconds);
+	void ApplyVehicle();
+	void ApplyDriver();
+	void ApplyColours();
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<USphereComponent> Root;
@@ -70,14 +84,45 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<USceneComponent> BodyPivot;
 
+	/** The vehicle's model frame: GLB units x100, model forward (+Y) turned to the kart's +X, origin 49 cm up (wheels on the road). */
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<USceneComponent> VehicleRoot;
+
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UStaticMeshComponent> Body;
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
-	TObjectPtr<UStaticMeshComponent> Driver;
+	TObjectPtr<UStaticMeshComponent> Trim;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<UStaticMeshComponent> Booster;
+
+	/** The steering wheel (or handlebar) turns about this pivot. */
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<USceneComponent> GripPivot;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<UStaticMeshComponent> Grip;
+
+	/** Hub pivots (steer + spin), 0/1 front. */
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TArray<TObjectPtr<USceneComponent>> WheelPivots;
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TArray<TObjectPtr<UStaticMeshComponent>> Wheels;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<USkeletalMeshComponent> Driver;
+
+	/** A paid outfit over the driver (leader-posed to it). */
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<USkeletalMeshComponent> Outfit;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<UTextRenderComponent> NamePlate;
+
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<UStaticMeshComponent> NamePlateBack;
 
 	/** Prism aura (yellow sphere, MultiplayerKart.tsx:1697-1713). */
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
@@ -100,10 +145,37 @@ private:
 	TObjectPtr<UMaterialInterface> BaseMaterial;
 
 	UPROPERTY()
-	TObjectPtr<class UMaterialInstanceDynamic> PaintMaterial;
+	TObjectPtr<UMaterialInstanceDynamic> PaintMaterial;
 
 	UPROPERTY()
-	TObjectPtr<class UMaterialInstanceDynamic> AuraMaterial;
+	TObjectPtr<UMaterialInstanceDynamic> AuraMaterial;
+
+	/** Driver and outfit slots tinted from the look (skin, hair, jersey, ...), by slot name. */
+	UPROPERTY()
+	TMap<FName, TObjectPtr<UMaterialInstanceDynamic>> DriverTints;
+
+	UPROPERTY()
+	TMap<FName, TObjectPtr<UMaterialInstanceDynamic>> OutfitTints;
+
+	FKartLook Look;
+	bool bLookSet = false;
+	bool bVehicleBuilt = false;
+	EKartVehicle BuiltVehicle = EKartVehicle::Kart;
+	FString BuiltDriver;
+	EKartOutfit BuiltOutfit = EKartOutfit::Classic;
+	bool bRebuildOutfit = true;
+
+	/** Steering wheel frame in VehicleRoot space: centre, normal toward the driver, radius (cm). */
+	FVector GripCentre = FVector::ZeroVector;
+	FVector GripNormal = FVector::UpVector;
+	double GripRadius = 0.0;
+	bool bHandlebar = false;
+	bool bStraddle = false;
+	TArray<FVector> WheelHubs;
+	double WheelSpin = 0.0;
+	double RimTurn = 0.0;
+	double NextBlink = 2.0;
+	double BlinkStart = -10.0;
 
 	bool bSplitScreenCamera = false;
 	FKartItemVisual ItemVisual;
