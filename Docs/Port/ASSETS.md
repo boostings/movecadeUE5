@@ -27,3 +27,17 @@ Pipeline: `Tools/art/decode.mjs` (Node, @gltf-transform 4.2.1 + draco3dgltf, raw
 `Tools/art/.cache/out`), then `Tools/ue/import_karts.py` (Interchange import, master materials and instances).
 Materials are new: `M_KartPaint` (clear coat), `M_KartTyre`, `M_VehiclePart`, `M_NamePlateBack`,
 `M_AvatarSkin` (subsurface profile), `M_AvatarHair`, `M_AvatarCloth` (cloth shading), `M_AvatarSurface`.
+
+### VFX (VFX workstream)
+
+No third-party assets: everything under `/Game/FX` is generated from this repo's scripts (`Tools/fx/build_fx.ps1`).
+
+| Asset | Made by | Notes |
+|---|---|---|
+| `T_FX_Star`, `T_FX_Noise`, `T_FX_Chevron`, `T_ItemBox_Question` | `Tools/fx/make_fx_textures.py` (numpy, procedural) | twinkle star, tileable value noise, boost-pad chevrons, the item box "?" glyph; PNGs in `Tools/fx/textures` |
+| `M_FX_*`, `M_KartItem`, `M_ItemPrism`, `M_ItemBoxGlass`, `M_ItemBoxLabel`, `M_PP_KartScreen` | `Tools/ue/make_fx_materials.py` | particle, glow, fireball, bolt, pad, skid, item and per-view post-process materials |
+| `NS_FX_{Smoke,Fire,Spark,Ring,Flare,Confetti,SpeedLines}` | `Tools/ue/make_fx_niagara.py` (Niagara toolset) | parameterised CPU particle fields |
+| Item meshes (shells, banana, bomb, nitro, prism, lightning, ink, rocket, box core and glyphs, lightning strikes) | `Source/MovecadeKart/Private/FX/KartItemMeshes.cpp` | modelled in code at runtime, no asset files |
+
+Engine content used: `/Engine/BasicShapes/{Sphere,Plane,Cube}` (glows, pad flash, skid quads, box shell) and the
+Niagara plugin's `DirectionalBurst` / `Minimal` templates the systems are created from.
