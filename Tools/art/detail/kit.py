@@ -20,6 +20,12 @@ def V(x, y, z):
     return Vector((x, y, z))
 
 
+def ordered(items):
+    """De-duplicates BMesh elements in first-seen order. A set orders them by memory address, so a bevel fed
+    from one builds its new elements in a different order on every run and the GLB bytes change."""
+    return list(dict.fromkeys(items))
+
+
 # --------------------------------------------------------------------------------------------------
 # Materials
 # --------------------------------------------------------------------------------------------------
@@ -98,7 +104,7 @@ class Part:
         return len(mats) - 1
 
     def faces_of(self, verts):
-        return list({f for v in verts for f in v.link_faces})
+        return ordered(f for v in verts for f in v.link_faces)
 
     def finish(self, faces, mat):
         idx = self.mat(mat)
@@ -173,10 +179,10 @@ def box(part, mat, size, matrix=Matrix.Identity(4), bevel=0.0, segments=2, uv_sc
     s = Matrix.Diagonal((*size, 1.0))
     bmesh.ops.transform(part.bm, matrix=matrix @ s, verts=verts)
     if bevel > 0:
-        edges = list({e for v in verts for e in v.link_edges})
+        edges = ordered(e for v in verts for e in v.link_edges)
         bres = bmesh.ops.bevel(part.bm, geom=verts + edges, offset=bevel, offset_type="OFFSET", segments=segments,
                                profile=0.5, affect="EDGES", clamp_overlap=True)
-        verts = list(set(verts) | set(bres.get("verts", [])))
+        verts = ordered(list(verts) + list(bres.get("verts", [])))
         verts = [v for v in verts if v.is_valid]
     faces = part.faces_of(verts)
     if matrix.determinant() < 0:
@@ -503,7 +509,7 @@ def delete_islands(part, predicate):
         if predicate(mats, c, s):
             doomed.extend(g)
     if doomed:
-        verts = list({v for f in doomed for v in f.verts})
+        verts = ordered(v for f in doomed for v in f.verts)
         bmesh.ops.delete(part.bm, geom=verts, context="VERTS")
     return len(doomed)
 
@@ -585,10 +591,13 @@ def decal(part, mat, tree, origin, direction, radius, up=Vector((0, 0, 1)), ring
 
 def islands(bm, faces=None):
     """Connected face groups (by shared vertices)."""
-    faces = set(faces if faces is not None else bm.faces)
+    remaining = ordered(faces if faces is not None else bm.faces)
+    faces = set(remaining)
     out = []
-    while faces:
-        seed = faces.pop()
+    for seed in remaining:
+        if seed not in faces:
+            continue
+        faces.discard(seed)
         group = {seed}
         stack = [seed]
         while stack:

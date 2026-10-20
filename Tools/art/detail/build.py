@@ -4,8 +4,12 @@ Tools/art/.cache/detail/vehicles/<v>.glb out, plus detail_report.json (triangle 
     "C:\\Program Files\\Blender Foundation\\Blender 5.0\\blender.exe" --background --factory-startup ^
         --python Tools/art/detail/build.py -- [kart moto coupe truck]
 
-Deterministic: no randomness, so the same inputs give the same GLBs. Then import with
+Deterministic: no randomness, and the vertex positions come out identical on every run. (Blender's bevel keys
+its work by pointer, so the triangle order and the UVs of bevelled corners can differ in the bytes.) Then
+import with Tools/art/detail/build.ps1, or by hand:
+    .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'kartmaterials' }
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'vehicles' }
+    .\\Tools\\ue\\run.ps1 fix_material_usage.py
 """
 import json
 import math

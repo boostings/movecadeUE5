@@ -44,8 +44,8 @@ All from movecade-v2 `app/public` (project-owned art, ported unchanged apart fro
 
 | Source (`app/public/...`) | UE location | Notes |
 |---|---|---|
-| `models/kart.glb` | `/Game/Karts/Kart/SM_Kart_{body,booster,d_wheel,wheel_0..3}` | Draco decoded; the root's x10 scale and the unused `shape` mesh dropped |
-| `game-assets/vehicles/{moto,coupe,truck}.glb` | `/Game/Karts/{Moto,Coupe,Truck}/SM_<V>_*` | Draco decoded; node names kept (`body`, `trim`, `d_wheel`/`handlebar`, `wheel_N`); `seat` read into `AKartPawn`'s mount table |
+| `models/kart.glb` | `/Game/Karts/Kart/SM_Kart_{body,booster,d_wheel,trim,wheel_0..3}` | Draco decoded; the root's x10 scale and the unused `shape` mesh dropped; wheels rebuilt and `trim` added by the detail pass (below) |
+| `game-assets/vehicles/{moto,coupe,truck}.glb` | `/Game/Karts/{Moto,Coupe,Truck}/SM_<V>_*` | Draco decoded; node names kept (`body`, `trim`, `d_wheel`/`handlebar`, `wheel_N`); `seat` read into `AKartPawn`'s mount table; wheels rebuilt, bodies rounded and detail added by the detail pass |
 | `game-assets/avatar4/{kai,leo,mira,nia,omar,rose}-{female,male}.glb` | `/Game/Avatars/Drivers/<face>_<body>/SK_Driver_<face>_<body>` on `/Game/Avatars/SK_Avatar4_Skeleton` | Draco decoded; the 65 skinned parts merged into one mesh (one section per material), 26 joint names and 13 morph targets kept; shared materials split per toggle (`hair_<style>`, `acc_*`, `skin_body`, `waist`) |
 | `game-assets/clothing/{7 outfits}-{female,male}.glb` | `/Game/Avatars/Outfits/<outfit>_<body>/SK_Outfit_<outfit>_<body>` | parts merged into one mesh, same skeleton |
 
@@ -53,6 +53,26 @@ Pipeline: `Tools/art/decode.mjs` (Node, @gltf-transform 4.2.1 + draco3dgltf, raw
 `Tools/art/.cache/out`), then `Tools/ue/import_karts.py` (Interchange import, master materials and instances).
 Materials are new: `M_KartPaint` (clear coat), `M_KartTyre`, `M_VehiclePart`, `M_NamePlateBack`,
 `M_AvatarSkin` (subsurface profile), `M_AvatarHair`, `M_AvatarCloth` (cloth shading), `M_AvatarSurface`.
+
+**Vehicle detail pass.** No third-party assets. `Tools/art/detail/build.ps1` runs a Blender 5.0 script
+(`Tools/art/detail/*.py`) over the decoded GLBs and writes `Tools/art/.cache/detail/vehicles` (git-ignored),
+which `import_karts.py` imports. Everything it adds is modelled in code: tyres, rims, hubs and brake discs
+(`wheels.py`), bumpers, lamps, exhausts, springs, a chain, a fairing, aero parts, a spare wheel and roundels
+(`vehicles.py`), and the edge rounding of the stock bodies (`kit.py`). The roundel emblem (a star with a
+lightning notch) is an original design. The twelve textures in `/Game/Karts/Materials/Textures` are drawn by
+`Tools/art/detail/make_textures.py` (numpy, fixed seeds; PNGs in `Tools/art/detail/textures`):
+
+| Asset | Used for |
+|---|---|
+| `T_Flake_N` | metallic flakes under the paint's clear coat (`M_KartPaint`) |
+| `T_Carbon_C`, `T_Carbon_N` | 2x2 twill carbon weave (`M_KartCarbon`) |
+| `T_Brushed_N`, `T_Brushed_R` | brushed steel brake discs |
+| `T_Cast_N` | sand-cast hubs and engine cases |
+| `T_Plastic_N` | trim plastics and rubber |
+| `T_Seat_C`, `T_Seat_N` | quilted, stitched seats |
+| `T_Tyre_N` | tyre sidewall rings and tread sipes |
+| `T_Lens_N` | prismatic headlamp and tail-lamp lenses |
+| `T_Roundel_C` | the racing roundel on bodies and wheel caps |
 
 ### UI (UX workstream)
 

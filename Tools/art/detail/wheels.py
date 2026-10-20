@@ -41,10 +41,10 @@ def _tread_block(part, M, x0, x1, s_len, h0, h1, theta, r_base, skew=0.0, bevel=
         h = h0 + (v.co.z + 0.5) * (h1 - h0)
         v.co = V(x, s, h)
     if bevel > 0:
-        edges = list({e for v in verts for e in v.link_edges})
+        edges = kit.ordered(e for v in verts for e in v.link_edges)
         out = bmesh.ops.bevel(part.bm, geom=verts + edges, offset=bevel, offset_type="OFFSET", segments=1,
                               profile=0.5, affect="EDGES", clamp_overlap=True)
-        verts = [v for v in set(verts) | set(out.get("verts", [])) if v.is_valid]
+        verts = [v for v in kit.ordered(list(verts) + list(out.get("verts", []))) if v.is_valid]
     for v in verts:
         x, s, h = v.co
         a = theta + s / r_base

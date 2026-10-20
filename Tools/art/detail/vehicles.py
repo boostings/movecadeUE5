@@ -394,7 +394,7 @@ def build_truck(objs):
     spare_style = wheels.WheelStyle(rim=0.52, tread="lugs", tread_depth=0.06, blocks=16, spokes=8, spoke_style="single",
                                     lugs=8, beadlock=True, segments=40, disc=False)
     wheels.build_wheel(trim, V(0, 0, 0), 0.40, 0.26, 1.0, spare_style)
-    new_verts = {v for f in trim.new_faces[start:] if f.is_valid for v in f.verts}
+    new_verts = kit.ordered(v for f in trim.new_faces[start:] if f.is_valid for v in f.verts)
     # The bed is a solid block up to its rim (z ~1.135): the spare lies on top of it.
     deck, _ = kit.hit(tree, V(0, 1.22, 3.0), V(0, 0, -1))
     deck_z = deck.z if deck is not None else 1.135
