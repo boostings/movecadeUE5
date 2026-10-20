@@ -248,5 +248,7 @@ namespace MovecadeKart
 		const FTrack* T = nullptr;
 		FKartState S;
 		int32 Slot = 0;
+		/** Where the last centreline search succeeded: a starting point only, never part of the result. */
+		mutable int32 CentreHint = 0;
 	};
 }

@@ -52,7 +52,13 @@ Done before this plan: e33a905 Mac clang build fix, afc95be fingerprint test.
   FX/KartFxComponent.cpp (cached manager/anchors, LoadObject once); Race/KartRaceManager.cpp,
   Audio/KartSoundObserver.h/.cpp (static FNames, no FString copies).
   - Accept: gate green, fingerprint identical, smoke race clean.
-- [ ] **5. Sim, bit-exact.** Sim/KartTrack.h/.cpp, Sim/KartSim.cpp (inline candidates 512, direct-cell Raycast with
+- [x] **5. Sim, bit-exact.** Done: gate 56/0, fingerprint identical, smoke clean (543/464). New
+  MovecadeKart.Sim.TrackQueriesExact compares NearestCentre, IsNearCentre (at the exact boundary and one ulp either
+  side), Raycast and LookAhead with verbatim copies of the original code over 3000 random points per track: 0
+  mismatches. Raycast walks cells in place (lowest index wins an exact tie); centre segments precomputed; Harbor's
+  per-step wall check stops at the first segment within the limit (sqrt monotonic, so exact), searching outward
+  from a per-kart hint (`mutable int32 CentreHint` in Sim/KartSim.h, a file from phase 7's list); checkpoint
+  waypoint and pad cos/sin cached at load; bots locate themselves once per decision. Original scope: Sim/KartTrack.h/.cpp, Sim/KartSim.cpp (inline candidates 512, direct-cell Raycast with
   lowest-index tie-break, cached checkpoint waypoint and pad cos/sin, precomputed centre D/LenSq, provable
   NearestCentre early-out); Race/KartBotDriver.cpp/.h (segment found once per tick, TConstArrayView).
   - Accept: gate green, fingerprint identical.

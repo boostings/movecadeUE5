@@ -43,20 +43,33 @@ namespace MovecadeKart
 		static constexpr double RefreshSeconds = 1.0;
 
 		/** The input the bot holds at time Now (seconds). Boxes: the item boxes this kart could collect right now. */
-		FKartInput Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now, TConstArrayView<FVector2D> Boxes = {});
+		FKartInput Update(const FKartState& State, TConstArrayView<FVector2D> Path, bool bRacing, double Now, TConstArrayView<FVector2D> Boxes = {});
 		/** Back to the grid state; the tuning stays. */
 		void Reset() { const FKartBotTuning Keep = Tuning; *this = FKartBotDriver(); Tuning = Keep; }
 
 		FKartBotTuning Tuning;
 
+		/** Where a kart sits on the closed line: the alignment-weighted nearest segment and how far along it. */
+		struct FPathCursor
+		{
+			int32 Segment = 0;
+			double Along = 0.0;
+		};
+		/** Finds the kart on the line (O(path) with a sqrt per segment), once per decision. Path needs 2+ points. */
+		[[nodiscard]] static FPathCursor Locate(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path);
+		/** The point Distance further along the closed line from Cursor. */
+		[[nodiscard]] static FVector2D Advance(TConstArrayView<FVector2D> Path, const FPathCursor& Cursor, double Distance);
 		/** The point Distance further along the closed line from where the kart is (alignment-weighted). */
-		static FVector2D LookAhead(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double Distance);
+		[[nodiscard]] static FVector2D LookAhead(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, double Distance);
 		/** Steering units needed to hold the line: +-1 is full lock; up to +-2.4 needs a drift. */
-		static double TurnDemand(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double LookAheadDistance = 24.0, double Gain = 5.0);
+		[[nodiscard]] static double TurnDemand(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, double LookAheadDistance = 24.0, double Gain = 5.0);
 		/** Steering units to point at Target. */
-		static double TurnDemandTo(const FVector2D& Position, double Yaw, const FVector2D& Target, double Gain = 5.0);
+		[[nodiscard]] static double TurnDemandTo(const FVector2D& Position, double Yaw, const FVector2D& Target, double Gain = 5.0);
 		/** The box worth a detour: 4-28 m ahead and within 7 m of the racing line there. False if none. */
-		static bool PickBox(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, TConstArrayView<FVector2D> Boxes, FVector2D& OutBox);
+		[[nodiscard]] static bool PickBox(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, TConstArrayView<FVector2D> Boxes, FVector2D& OutBox);
+		/** PickBox with the kart already located on Path (which has 2+ points). */
+		[[nodiscard]] static bool PickBox(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, const FPathCursor& Cursor,
+			TConstArrayView<FVector2D> Boxes, FVector2D& OutBox);
 		/** kartWheel: the wheel and drift side (-1, 0, 1) for a demand, given the drift held. */
 		static void Wheel(double Demand, int32 HeldDrift, double& OutSteering, int32& OutDrift, double DriftEnter = 1.4);
 
