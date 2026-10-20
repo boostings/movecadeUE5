@@ -62,7 +62,14 @@ Done before this plan: e33a905 Mac clang build fix, afc95be fingerprint test.
   lowest-index tie-break, cached checkpoint waypoint and pad cos/sin, precomputed centre D/LenSq, provable
   NearestCentre early-out); Race/KartBotDriver.cpp/.h (segment found once per tick, TConstArrayView).
   - Accept: gate green, fingerprint identical.
-- [ ] **6. Load time.** TrackBuilder.cpp, Sim/KartTrack.cpp/.h (one JSON parse); TrackScenery.cpp (struct key, batched
+- [x] **6. Load time.** Done: gate 56/0, fingerprint identical, smoke clean on both maps (exit 0, no ensure/error;
+  frame counts swung 73-777 with a 5-min load average of 52 from other work, so no timing claim). The track JSON
+  (4.7 MB on violet) is parsed once: new `FTrack::LoadFromJsonObject`, TrackBuilder keeps that DOM. Prefab instances
+  grouped by a struct key {FName prefab, FName tint without '#', variant} (same case-insensitive grouping as the old
+  FString key) and added with one AddInstances per group; new log line reports 68 in 5 groups (harbor) and 12857 in
+  61 groups (violet), matching a Python re-implementation of the old key. Scalability: while temporary levels are
+  active a new budget is forced once instead of forcing the player's levels live and then the budget.
+  Original scope: TrackBuilder.cpp, Sim/KartTrack.cpp/.h (one JSON parse); TrackScenery.cpp (struct key, batched
   AddInstances); Render/KartRenderQualitySubsystem.cpp (scalability applied once).
   - Accept: gate green, fingerprint identical, smoke race clean.
 - [ ] **7. Modern C++.** Sim/*.h, Race/KartBotDriver.h, Race/KartRaceManager.h ([[nodiscard]], constexpr pools,

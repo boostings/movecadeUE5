@@ -43,6 +43,41 @@ namespace
 		return FString::Printf(TEXT("/Game/Tracks/Shared/Materials/%s.%s"), *Asset, *Asset);
 	}
 
+	/** Groups prefab instances exactly as the old "<prefab>_<tint without '#'>_<variant>" FString key did (FName
+	 *  compares case-insensitively, like FString), without formatting a string per instance. */
+	struct FPrefabGroupKey
+	{
+		FName Prefab;
+		FName Tint;
+		int32 Variant = 0;
+
+		static FPrefabGroupKey Make(const FString& Prefab, const FString& Tint, int32 Variant)
+		{
+			TStringBuilder<16> Bare;
+			for (const TCHAR Char : Tint)
+			{
+				if (Char != TEXT('#'))
+				{
+					Bare.AppendChar(Char);
+				}
+			}
+			return { FName(*Prefab), FName(Bare.ToView()), Variant };
+		}
+
+		bool operator==(const FPrefabGroupKey& Other) const = default;
+
+		friend uint32 GetTypeHash(const FPrefabGroupKey& Key)
+		{
+			return HashCombineFast(HashCombineFast(GetTypeHash(Key.Prefab), GetTypeHash(Key.Tint)), ::GetTypeHash(Key.Variant));
+		}
+	};
+
+	struct FPrefabGroup
+	{
+		UInstancedStaticMeshComponent* Component = nullptr;
+		TArray<FTransform> Transforms;
+	};
+
 	template <typename T>
 	T* LoadAsset(const FString& PackagePath)
 	{
@@ -453,8 +488,9 @@ void ATrackBuilder::BuildPrefabInstances()
 		return;
 	}
 	const double Rebase = Track->SuggestedRebaseY;
-	// One instanced component per prefab, tint and variant (trees by foliage swatch, banners by face).
-	TMap<FString, UInstancedStaticMeshComponent*> Groups;
+	// One instanced component per prefab, tint and variant (trees by foliage swatch, banners by face). Thousands of
+	// instances fall into a few dozen groups, so each group's transforms are gathered and added in one call.
+	TMap<FPrefabGroupKey, FPrefabGroup> Groups;
 	for (const TSharedPtr<FJsonValue>& V : Arr(Scenery, TEXT("instances")))
 	{
 		const TSharedPtr<FJsonObject> I = V->AsObject();
@@ -466,34 +502,35 @@ void ATrackBuilder::BuildPrefabInstances()
 		}
 		const FString Tint = Str(I, TEXT("tint"));
 		const int32 Variant = static_cast<int32>(Num(I, TEXT("variant")));
-		const FString Key = FString::Printf(TEXT("%s_%s_%d"), *Prefab, *Tint.Replace(TEXT("#"), TEXT("")), Variant);
-		UInstancedStaticMeshComponent*& Group = Groups.FindOrAdd(Key);
-		if (!Group)
+		FPrefabGroup& Group = Groups.FindOrAdd(FPrefabGroupKey::Make(Prefab, Tint, Variant));
+		if (!Group.Component)
 		{
 			UStaticMesh* Mesh = LoadAsset<UStaticMesh>(Str(Def, TEXT("ueAsset")));
 			if (!Mesh)
 			{
 				continue;
 			}
-			Group = NewObject<UInstancedStaticMeshComponent>(this, MakeUniqueObjectName(this, UInstancedStaticMeshComponent::StaticClass(), *Key));
-			Group->SetStaticMesh(Mesh);
-			Group->SetupAttachment(RootComponent);
-			Group->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-			Group->ComponentTags.Add(SceneryTag);
+			const FString Name = FString::Printf(TEXT("%s_%s_%d"), *Prefab, *Tint.Replace(TEXT("#"), TEXT("")), Variant);
+			UInstancedStaticMeshComponent* Component = NewObject<UInstancedStaticMeshComponent>(this, MakeUniqueObjectName(this, UInstancedStaticMeshComponent::StaticClass(), *Name));
+			Group.Component = Component;
+			Component->SetStaticMesh(Mesh);
+			Component->SetupAttachment(RootComponent);
+			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Component->ComponentTags.Add(SceneryTag);
 			// Sky dressing (balloons, pennants high on masts) would throw detached shadows far across the road
 			// under a low sun; such prefabs opt out with "castShadow": false.
 			bool bCastShadow = true;
 			if (Def->TryGetBoolField(TEXT("castShadow"), bCastShadow) && !bCastShadow)
 			{
-				Group->SetCastShadow(false);
+				Component->SetCastShadow(false);
 			}
 			if (UMaterialInterface* Material = MaterialFor(Obj(Def, TEXT("material")), Tint, Variant))
 			{
-				Group->SetMaterial(0, Material);
-				MatchNaniteToMaterial(Group, Material);
+				Component->SetMaterial(0, Material);
+				MatchNaniteToMaterial(Component, Material);
 			}
-			AddInstanceComponent(Group);
-			Group->RegisterComponent();
+			AddInstanceComponent(Component);
+			Component->RegisterComponent();
 			++SceneryCount;
 		}
 		FVector Scale = FVector::OneVector;
@@ -504,8 +541,19 @@ void ATrackBuilder::BuildPrefabInstances()
 		}
 		// Placement yaw turns the prefab's local +Z toward the road (trackside.ts:145-148).
 		const FTransform Local = Three(FVector(Num(I, TEXT("x")), Num(I, TEXT("y")), Num(I, TEXT("z"))), Euler(0.0, Num(I, TEXT("yaw")), 0.0), Scale);
-		Group->AddInstance(ToUETransform(Local, Rebase), false);
+		Group.Transforms.Add(ToUETransform(Local, Rebase));
 	}
+	int32 GroupCount = 0, InstanceCount = 0;
+	for (const TPair<FPrefabGroupKey, FPrefabGroup>& Pair : Groups)
+	{
+		if (Pair.Value.Component)
+		{
+			Pair.Value.Component->AddInstances(Pair.Value.Transforms, /*bShouldReturnIndices*/ false, /*bWorldSpace*/ false);
+			++GroupCount;
+			InstanceCount += Pair.Value.Transforms.Num();
+		}
+	}
+	UE_LOG(LogTrackScenery, Log, TEXT("%s: %d prefab instances in %d groups"), *TrackId, InstanceCount, GroupCount);
 }
 
 void ATrackBuilder::BuildSigns()

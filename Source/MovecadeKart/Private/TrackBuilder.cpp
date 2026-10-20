@@ -154,15 +154,18 @@ bool ATrackBuilder::Load()
 		UE_LOG(LogTrackBuilder, Error, TEXT("Track file not found: %s. Run Tools/track-export (npm run export)."), *Path);
 		return false;
 	}
+	// One DOM serves both the sim track and the presentation data (ribbons, scenery) read by Build().
+	TSharedPtr<FJsonObject> Root;
+	FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root);
 	TSharedPtr<MovecadeKart::FTrack> Parsed = MakeShared<MovecadeKart::FTrack>();
 	FString Error;
-	if (!MovecadeKart::FTrack::LoadFromJsonString(Text, *Parsed, Error))
+	if (!MovecadeKart::FTrack::LoadFromJsonObject(Root, *Parsed, Error))
 	{
 		UE_LOG(LogTrackBuilder, Error, TEXT("%s: %s"), *Path, *Error);
 		return false;
 	}
-	FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Json);
-	Track = Parsed;
+	Json = MoveTemp(Root);
+	Track = MoveTemp(Parsed);
 	return true;
 }
 

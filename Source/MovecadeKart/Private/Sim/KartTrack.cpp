@@ -654,7 +654,17 @@ namespace MovecadeKart
 	bool FTrack::LoadFromJsonString(const FString& Json, FTrack& Out, FString& OutError)
 	{
 		TSharedPtr<FJsonObject> Root;
-		if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid())
+		if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root))
+		{
+			OutError = TEXT("Track JSON did not parse");
+			return false;
+		}
+		return LoadFromJsonObject(Root, Out, OutError);
+	}
+
+	bool FTrack::LoadFromJsonObject(const TSharedPtr<FJsonObject>& Root, FTrack& Out, FString& OutError)
+	{
+		if (!Root.IsValid())
 		{
 			OutError = TEXT("Track JSON did not parse");
 			return false;

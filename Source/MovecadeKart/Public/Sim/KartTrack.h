@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+class FJsonObject;
+
 /**
  * Track data for the kart sim, loaded from Data/Tracks/<id>.track.json.
  *
@@ -176,5 +178,7 @@ namespace MovecadeKart
 
 		static bool LoadFromJsonFile(const FString& Path, FTrack& Out, FString& OutError);
 		static bool LoadFromJsonString(const FString& Json, FTrack& Out, FString& OutError);
+		/** For callers that also read the rest of the document: parse once, then load the sim track from the DOM. */
+		static bool LoadFromJsonObject(const TSharedPtr<FJsonObject>& Root, FTrack& Out, FString& OutError);
 	};
 }
