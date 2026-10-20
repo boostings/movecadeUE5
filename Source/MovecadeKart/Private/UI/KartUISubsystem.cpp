@@ -298,7 +298,10 @@ void UKartUISubsystem::HandleMapLoaded(UWorld* World)
 		return;
 	}
 	bTravelling = false;
-	Curtain.Reset(); // LoadMap removed it from the viewport
+	if (IsTourActive())
+	{
+		TourStepStarted = FPlatformTime::Seconds(); // a step that travelled starts timing on arrival
+	}
 	ApplyVolumes();
 	if (bWantMusic && (!Music || !Music->IsPlaying()))
 	{
@@ -306,8 +309,21 @@ void UKartUISubsystem::HandleMapLoaded(UWorld* World)
 	}
 	if (bCurtainOnLoad)
 	{
+		// The closed curtain survived the load (or LoadMap dropped it); either way, open it on the new level.
 		bCurtainOnLoad = false;
 		ShowCurtain(false);
+	}
+	else if (Curtain.IsValid())
+	{
+		if (UGameViewportClient* Viewport = World->GetGameViewport())
+		{
+			Viewport->RemoveViewportWidgetContent(Curtain.ToSharedRef());
+		}
+		Curtain.Reset();
+	}
+	if (IsTourActive() && GEngine)
+	{
+		GEngine->Exec(World, TEXT("DisableAllScreenMessages"));
 	}
 }
 
@@ -363,6 +379,19 @@ bool UKartUISubsystem::TickTour(float DeltaTime)
 		return true;
 	}
 
+	if (Step == TEXT("lobby"))
+	{
+		// Party Mode from the menu: the level reloads into the phone lobby (no room server needed for the shot).
+		if (AKartFrontEnd* FrontEnd = AKartFrontEnd::Find(World))
+		{
+			FrontEnd->StartParty();
+		}
+		else if (InStep > 6.0)
+		{
+			TourShot(Step);
+		}
+		return true;
+	}
 	if (AKartFrontEnd* FrontEnd = AKartFrontEnd::Find(World))
 	{
 		// Menu screens: open it, let the entry animation settle, capture.
@@ -410,12 +439,15 @@ bool UKartUISubsystem::TickTour(float DeltaTime)
 		}
 		else if (Race->IsPaused() && InStep > 1.2)
 		{
-			TourShot(Step);
-			Overlay->ClosePauseMenu();
+			TourShot(Step); // the menu closes on the next step, once the capture has been drawn
 		}
 	}
 	else if (Step == TEXT("results"))
 	{
+		if (Race->IsPaused() && Race->GetPauseReason() == TEXT("local") && InStep > 0.5)
+		{
+			Overlay->ClosePauseMenu();
+		}
 		if (Race->GetPhase() == EKartRacePhase::Finished && InStep > 4.0 && Race->GetPhaseSeconds() > 4.0)
 		{
 			TourShot(Step);

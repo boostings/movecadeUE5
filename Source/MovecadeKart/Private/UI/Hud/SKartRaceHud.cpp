@@ -22,6 +22,8 @@ namespace
 	/** The sim's top speed is 40 SU (m/s); the HUD shows km/h (B12). */
 	constexpr double TopSpeedKmh = 144.0;
 	constexpr double FinishBannerSeconds = 2.6;
+	/** The shared minimap's height in four views, as a fraction of the screen height. */
+	constexpr double SharedMapFraction = 0.19;
 
 	bool IsRacingPhase(EKartRacePhase Phase)
 	{
@@ -235,13 +237,28 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 		// Shared space in 3 and 4 views: the minimap (and the standings for 3).
 		if (Views.Num() == 3)
 		{
-			const double H = Screen.Y * 0.36;
-			PaintMinimap(P, *Race, FVector2D(Screen.X * 0.125 - H * 0.6, Screen.Y * 0.75 - H * 0.5), static_cast<float>(H), INDEX_NONE);
-			PaintStandings(P, *Race, FVector2D(Screen.X - Margin.X * 0.5, Screen.Y * 0.5 + Margin.Y), 0.75f);
+			// The two empty bottom corners become panels: the minimap on the left, the standings on the right.
+			const FVector2D Corner(Screen.X * 0.25, Screen.Y * 0.5);
+			for (int32 Side = 0; Side < 2; ++Side)
+			{
+				const FVector2D Pos(Side == 0 ? 0.0 : Screen.X - Corner.X, Screen.Y * 0.5);
+				P.Gradient(Pos, Corner, Color::NightSoft, Color::Night);
+				for (int32 Stripe = 0; Stripe < 7; ++Stripe)
+				{
+					const double X = Pos.X + Stripe * Corner.X / 6.0 - 60.0;
+					P.Polygon({ FVector2D(X, Pos.Y), FVector2D(X + 40.0, Pos.Y), FVector2D(X + 100.0, Screen.Y), FVector2D(X + 60.0, Screen.Y) }, Color::WithAlpha(Color::White, 0.03f));
+				}
+			}
+			const double H = Corner.Y * 0.62;
+			PaintMinimap(P, *Race, FVector2D(Corner.X * 0.5 - H * 0.6, Screen.Y * 0.75 - H * 0.5), static_cast<float>(H), INDEX_NONE);
+			const float RailScale = 0.85f;
+			const double RailH = Race->GetStandings().Num() * 52.0 * RailScale;
+			P.Text(LOCTEXT("Standings", "STANDINGS"), Font(EFont::Label, 20.f), FVector2D(Screen.X - Corner.X * 0.5, Screen.Y * 0.75 - RailH * 0.5 - 40.0), Color::Sun, FVector2D(0.5, 0.0));
+			PaintStandings(P, *Race, FVector2D(Screen.X - Corner.X * 0.5 + 125.0 * RailScale, Screen.Y * 0.75 - RailH * 0.5), RailScale);
 		}
 		else if (Views.Num() >= 4)
 		{
-			const double H = Screen.Y * 0.24;
+			const double H = Screen.Y * SharedMapFraction;
 			const FVector2D Centre = Screen * 0.5;
 			P.Circle(Centre, static_cast<float>(H * 0.72), Color::WithAlpha(Color::Night, 0.7f), Color::WithAlpha(Color::White, 0.6f), 3.f);
 			PaintMinimap(P, *Race, Centre - FVector2D(H * 0.5, H * 0.5), static_cast<float>(H), INDEX_NONE);
@@ -276,8 +293,22 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 	const FKartPainter P = Root;
 	const float Scale = FMath::Clamp(static_cast<float>(FMath::Min(View.Size.X / Metric::CanvasW, View.Size.Y / Metric::CanvasH) * 1.25), 0.58f, 1.f);
 	const FVector2D Margin(FMath::Max(View.Size.X * 0.04, 24.0), FMath::Max(View.Size.Y * 0.05, 18.0));
-	const FVector2D Min = View.Pos + Margin;
-	const FVector2D Max = View.Pos + View.Size - Margin;
+	FVector2D Min = View.Pos + Margin;
+	FVector2D Max = View.Pos + View.Size - Margin;
+	if (NumViews >= 4)
+	{
+		// Keep the corner each view shares with the centre minimap clear: push the inner side's elements out.
+		const FVector2D Screen = Root.Size();
+		const double Clear = Screen.Y * SharedMapFraction * 0.72 + 8.0;
+		if (View.Pos.X + View.Size.X * 0.5 < Screen.X * 0.5)
+		{
+			Max.X -= Clear;
+		}
+		else
+		{
+			Min.X += Clear;
+		}
+	}
 	const int32 Laps = Race.GetTrack()->Laps;
 	const double Intro = Ease::OutBack(static_cast<float>((Now - PhaseAt) / 0.5), 1.4f);
 	const bool bCountdown = Race.GetPhase() == EKartRacePhase::Countdown;

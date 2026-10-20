@@ -1,6 +1,9 @@
 #include "Net/KartLobbyWidget.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/ButtonSlot.h"
@@ -17,43 +20,47 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/GameInstance.h"
 #include "Engine/Texture2D.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "KartCoords.h"
 #include "Misc/PackageName.h"
 #include "Net/RoomHostSubsystem.h"
-#include "Styling/CoreStyle.h"
+#include "TrackBuilder.h"
+#include "UI/KartPaintWidget.h"
+#include "UI/KartSessionSettings.h"
+#include "UI/KartTrackCatalog.h"
+#include "UI/KartUIStyle.h"
+#include "UI/KartUISubsystem.h"
+#include "UI/KartWidgets.h"
+
+// The lobby's look follows the UI style (UI/KartUIStyle.h): white cards on the track backdrop, the game's type and
+// palette, and the shared button glyphs. Its behaviour (room calls, keys, auto-hide) is the network workstream's.
 
 namespace
 {
-	struct FTrackCard
-	{
-		const TCHAR* Id;
-		const TCHAR* Name;
-		const TCHAR* Blurb;
-		const TCHAR* Hex;
-	};
-
-	// app/src/games/kart/tracks/catalog.ts + TrackPicker.tsx
-	const FTrackCard GTracks[] = {
-		{ TEXT("sunset-harbor"), TEXT("Sunset Harbor"), TEXT("Lighthouse bends · coral tunnel · marina"), TEXT("f3ad74") },
-		{ TEXT("violet-loop"), TEXT("Violet Loop"), TEXT("The original figure-eight circuit"), TEXT("b8a1ff") },
-	};
-
-	const FLinearColor Ink = FLinearColor(FColor(0x0d, 0x10, 0x20));
-	const FLinearColor Panel = FLinearColor(FColor(0x1b, 0x20, 0x3a));
-	const FLinearColor PanelHi = FLinearColor(FColor(0x2a, 0x31, 0x55));
-	const FLinearColor TextMain = FLinearColor(FColor(0xf4, 0xf0, 0xea));
-	const FLinearColor TextDim = FLinearColor(FColor(0x9a, 0xa3, 0xc7));
-	const FLinearColor Accent = FLinearColor(FColor(0x3f, 0xc9, 0xc2));
-	const FLinearColor Brand = FLinearColor(FColor(0x6d, 0x8b, 0xff));
-
-	FSlateFontInfo Font(const char* Face, int32 Size, int32 Spacing = 0)
-	{
-		FSlateFontInfo Info = FCoreStyle::GetDefaultFontStyle(Face, Size);
-		Info.LetterSpacing = Spacing;
-		return Info;
-	}
+	using namespace KartUI;
 
 	const TCHAR* LobbyClassPath = TEXT("/Game/UI/Lobby/WBP_Lobby.WBP_Lobby_C");
+
+	FSlateRoundedBoxBrush Rounded(float Radius, const FLinearColor& Outline = FLinearColor::Transparent, float OutlineWidth = 0.f)
+	{
+		// White fill: UBorder's brush colour and UButton's background colour tint it.
+		return FSlateRoundedBoxBrush(FLinearColor::White, Radius, Outline, OutlineWidth);
+	}
+
+	FButtonStyle CardButtonStyle(float Radius)
+	{
+		FButtonStyle Style;
+		Style.SetNormal(Rounded(Radius));
+		Style.SetHovered(Rounded(Radius, Color::Sun, 4.f));
+		Style.SetPressed(Rounded(Radius, Color::SunDeep, 4.f));
+		Style.SetDisabled(Rounded(Radius));
+		Style.SetNormalPadding(FMargin(0.f));
+		Style.SetPressedPadding(FMargin(0.f));
+		return Style;
+	}
 }
 
 UKartLobbyWidget* UKartLobbyWidget::Show(APlayerController* PC)
@@ -112,9 +119,10 @@ void UKartLobbyWidget::BuildTree()
 		Block->SetColorAndOpacity(FSlateColor(Color));
 		return Block;
 	};
-	auto Box = [this](const FLinearColor& Color, const FMargin& InPadding, UWidget* Content)
+	auto Card = [this](const FLinearColor& Color, float Radius, const FMargin& InPadding, UWidget* Content)
 	{
 		UBorder* Border = WidgetTree->ConstructWidget<UBorder>();
+		Border->SetBrush(Rounded(Radius));
 		Border->SetBrushColor(Color);
 		Border->SetPadding(InPadding);
 		if (Content)
@@ -153,85 +161,134 @@ void UKartLobbyWidget::BuildTree()
 		return Slot;
 	};
 
-	UBorder* Root = Box(Ink.CopyWithNewOpacity(0.94f), FMargin(64.f, 48.f), nullptr);
+	UOverlay* Root = WidgetTree->ConstructWidget<UOverlay>();
 	WidgetTree->RootWidget = Root;
-	UHorizontalBox* Columns = WidgetTree->ConstructWidget<UHorizontalBox>();
-	Root->SetContent(Columns);
 
-	// Left: how to join.
+	// Painted layer: the dimming behind the cards and the button hints.
+	UKartPaintWidget* Backdrop = WidgetTree->ConstructWidget<UKartPaintWidget>();
+	Backdrop->OnPaintKart = [](const FKartPainter& P, const FKartScreenFrame& Frame)
+	{
+		P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X * 0.62, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.82f), Color::WithAlpha(Color::Night, 0.45f), false);
+		P.Gradient(FVector2D(Frame.Size.X * 0.62, 0.0), FVector2D(Frame.Size.X * 0.38, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.45f), Color::WithAlpha(Color::Night, 0.3f), false);
+		KartWidgets::Hints(P, Frame, {
+			{ EKartMenuAction::Left, NSLOCTEXT("KartLobby", "Track", "Track") },
+			{ EKartMenuAction::Accept, NSLOCTEXT("KartLobby", "Start", "Start") },
+			{ EKartMenuAction::Back, NSLOCTEXT("KartLobby", "Leave", "Leave") },
+		});
+	};
+	if (UOverlaySlot* BackSlot = Root->AddChildToOverlay(Backdrop))
+	{
+		BackSlot->SetHorizontalAlignment(HAlign_Fill);
+		BackSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+
+	UBorder* Safe = WidgetTree->ConstructWidget<UBorder>();
+	Safe->SetBrushColor(FLinearColor::Transparent);
+	Safe->SetPadding(FMargin(96.f, 54.f, 96.f, 120.f));
+	if (UOverlaySlot* SafeSlot = Root->AddChildToOverlay(Safe))
+	{
+		SafeSlot->SetHorizontalAlignment(HAlign_Fill);
+		SafeSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+	UHorizontalBox* Columns = WidgetTree->ConstructWidget<UHorizontalBox>();
+	Safe->SetContent(Columns);
+
+	// Left: how to join, on a white card.
 	UVerticalBox* Left = WidgetTree->ConstructWidget<UVerticalBox>();
-	AddV(Left, Text(TEXT("KART RACER"), Font("Bold", 18, 400), Accent), 4.f);
-	AddV(Left, Text(TEXT("Scan to join"), Font("Bold", 40), TextMain), 18.f);
+	AddV(Left, Text(TEXT("SCAN TO JOIN"), Font(EFont::Display, 46.f), Color::Navy), 18.f)->SetHorizontalAlignment(HAlign_Center);
 	QrImage = WidgetTree->ConstructWidget<UImage>();
 	QrImage->SetColorAndOpacity(FLinearColor::White);
-	AddV(Left, Sized(Box(FLinearColor::White, FMargin(0.f), QrImage), 320.f, 320.f), 18.f)->SetHorizontalAlignment(HAlign_Left);
-	AddV(Left, Text(TEXT("ROOM CODE"), Font("Bold", 14, 300), TextDim), 0.f);
-	CodeText = Text(TEXT("------"), Font("Bold", 64, 350), TextMain);
-	AddV(Left, CodeText, 6.f);
-	UrlText = Text(TEXT(""), Font("Regular", 13), TextDim);
-	AddV(Left, UrlText, 6.f);
-	ConnectionText = Text(TEXT("Connecting to the room server..."), Font("Regular", 13), TextDim);
+	UBorder* QrFrame = Card(FLinearColor::White, 22.f, FMargin(14.f), QrImage);
+	QrFrame->SetBrush(Rounded(22.f, Color::Navy, 4.f));
+	AddV(Left, Sized(QrFrame, 360.f, 360.f), 22.f)->SetHorizontalAlignment(HAlign_Center);
+	AddV(Left, Text(TEXT("ROOM CODE"), Font(EFont::Label, 20.f), Color::NavyDim), 0.f)->SetHorizontalAlignment(HAlign_Center);
+	CodeText = Text(TEXT("------"), Font(EFont::Display, 88.f), Color::Hot);
+	AddV(Left, CodeText, 4.f)->SetHorizontalAlignment(HAlign_Center);
+	UrlText = Text(TEXT(""), Font(EFont::Body, 18.f), Color::NavyDim);
+	AddV(Left, UrlText, 12.f)->SetHorizontalAlignment(HAlign_Center);
+	ConnectionText = Text(TEXT("Connecting to the room server..."), Font(EFont::Body, 18.f), Color::Navy);
 	ConnectionText->SetAutoWrapText(true);
-	AddV(Left, Sized(ConnectionText, 360.f, 0.f), 0.f);
-	AddH(Columns, Left, 64.f)->SetVerticalAlignment(VAlign_Top);
+	ConnectionText->SetJustification(ETextJustify::Center);
+	AddV(Left, Card(Color::PaperShade, 22.f, FMargin(16.f, 10.f), Sized(ConnectionText, 360.f, 0.f)), 0.f)->SetHorizontalAlignment(HAlign_Center);
+	UBorder* LeftCard = Card(Color::Paper, 30.f, FMargin(40.f, 32.f), Left);
+	AddH(Columns, Sized(LeftCard, 500.f, 0.f), 56.f)->SetVerticalAlignment(VAlign_Center);
 
-	// Right: track, seats, start.
+	// Right: title, track, seats, start.
 	UVerticalBox* Right = WidgetTree->ConstructWidget<UVerticalBox>();
-	AddV(Right, Text(TEXT("TRACK"), Font("Bold", 14, 300), TextDim), 8.f);
+	AddV(Right, Text(TEXT("Party Mode"), Font(EFont::Display, 84.f, 5.f), Color::White), 0.f);
+	AddV(Right, Text(TEXT("Phones are the controllers: scan the code, tilt to steer."), Font(EFont::Body, 26.f, 2.f), Color::White), 30.f);
+
+	AddV(Right, Text(TEXT("TRACK"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Tracks = WidgetTree->ConstructWidget<UHorizontalBox>();
-	for (int32 i = 0; i < static_cast<int32>(UE_ARRAY_COUNT(GTracks)); ++i)
+	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
+	for (int32 i = 0; i < Catalog.Num() && i < 2; ++i)
 	{
-		UHorizontalBox* Card = WidgetTree->ConstructWidget<UHorizontalBox>();
-		AddH(Card, Sized(Box(FLinearColor(FColor::FromHex(GTracks[i].Hex)), FMargin(0.f), nullptr), 10.f, 56.f), 14.f);
+		UHorizontalBox* TrackCard = WidgetTree->ConstructWidget<UHorizontalBox>();
+		UBorder* Bar = Card(Catalog[i].Accent, 9.f, FMargin(0.f), nullptr);
+		AddH(TrackCard, Sized(Bar, 18.f, 76.f), 18.f);
 		UVerticalBox* Words = WidgetTree->ConstructWidget<UVerticalBox>();
-		AddV(Words, Text(GTracks[i].Name, Font("Bold", 20), TextMain), 2.f);
-		AddV(Words, Text(GTracks[i].Blurb, Font("Regular", 12), TextDim), 0.f);
-		AddH(Card, Words, 0.f, true);
+		AddV(Words, Text(Catalog[i].Name.ToString(), Font(EFont::Title, 34.f), Color::Navy), 0.f);
+		UTextBlock* Tagline = Text(Catalog[i].Tagline.ToString(), Font(EFont::Body, 17.f), Color::NavyDim);
+		Tagline->SetAutoWrapText(true);
+		AddV(Words, Tagline, 0.f);
+		AddH(TrackCard, Words, 0.f, true);
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
-		if (UButtonSlot* CardSlot = Cast<UButtonSlot>(Button->SetContent(Card)))
+		Button->SetStyle(CardButtonStyle(24.f));
+		if (UButtonSlot* CardSlot = Cast<UButtonSlot>(Button->SetContent(TrackCard)))
 		{
 			CardSlot->SetHorizontalAlignment(HAlign_Fill);
-			CardSlot->SetPadding(FMargin(8.f, 6.f));
+			CardSlot->SetPadding(FMargin(18.f, 14.f));
 		}
-		Button->SetBackgroundColor(Panel);
+		Button->SetBackgroundColor(Color::Paper);
 		TrackButtons.Add(Button);
-		AddH(Tracks, Button, i == 0 ? 16.f : 0.f, true);
+		AddH(Tracks, Button, i == 0 ? 20.f : 0.f, true);
 	}
-	TrackButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack0Clicked);
-	TrackButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack1Clicked);
-	AddV(Right, Tracks, 28.f);
+	if (TrackButtons.Num() > 0) TrackButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack0Clicked);
+	if (TrackButtons.Num() > 1) TrackButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack1Clicked);
+	AddV(Right, Tracks, 30.f);
 
-	AddV(Right, Text(TEXT("PLAYERS"), Font("Bold", 14, 300), TextDim), 8.f);
+	AddV(Right, Text(TEXT("PLAYERS"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
+	UHorizontalBox* SeatRowsBox[2] = { WidgetTree->ConstructWidget<UHorizontalBox>(), WidgetTree->ConstructWidget<UHorizontalBox>() };
 	for (int32 Seat = 1; Seat <= 4; ++Seat)
 	{
 		UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-		UBorder* Swatch = Box(PanelHi, FMargin(0.f), nullptr);
-		AddH(Row, Sized(Swatch, 34.f, 34.f), 16.f);
-		AddH(Row, Text(FString::Printf(TEXT("P%d"), Seat), Font("Bold", 16), TextDim), 16.f);
-		UTextBlock* Name = Text(TEXT("Open seat"), Font("Bold", 22), TextDim);
-		AddH(Row, Name, 12.f, true);
-		UTextBlock* State = Text(TEXT(""), Font("Regular", 16), TextDim);
+		UBorder* Swatch = Card(Color::PaperShade, 28.f, FMargin(0.f), nullptr);
+		Swatch->SetBrush(Rounded(28.f, Color::Navy, 3.f));
+		Swatch->SetBrushColor(Color::PaperShade);
+		AddH(Row, Sized(Swatch, 56.f, 56.f), 16.f);
+		UVerticalBox* Who = WidgetTree->ConstructWidget<UVerticalBox>();
+		AddV(Who, Text(FString::Printf(TEXT("P%d"), Seat), Font(EFont::Label, 16.f), Color::NavyDim), 0.f);
+		UTextBlock* Name = Text(TEXT("Open seat"), Font(EFont::Title, 28.f), Color::NavyDim);
+		AddV(Who, Name, 0.f);
+		AddH(Row, Who, 12.f, true);
+		UTextBlock* State = Text(TEXT(""), Font(EFont::Button, 22.f), Color::NavyDim);
 		AddH(Row, State, 0.f);
-		UBorder* RowBox = Box(Panel, FMargin(16.f, 10.f), Row);
-		AddV(Right, RowBox, 8.f);
+		UBorder* RowBox = Card(Color::Paper, 26.f, FMargin(16.f, 12.f, 24.f, 12.f), Row);
+		UHorizontalBoxSlot* RowSlot = SeatRowsBox[(Seat - 1) / 2]->AddChildToHorizontalBox(RowBox);
+		RowSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		RowSlot->SetPadding(FMargin(0.f, 0.f, Seat % 2 == 1 ? 20.f : 0.f, 0.f));
 		SeatRows.Add(RowBox);
 		SeatSwatches.Add(Swatch);
 		SeatNames.Add(Name);
 		SeatStates.Add(State);
 	}
+	AddV(Right, SeatRowsBox[0], 16.f);
+	AddV(Right, SeatRowsBox[1], 30.f);
 
 	UHorizontalBox* Footer = WidgetTree->ConstructWidget<UHorizontalBox>();
-	StatusText = Text(TEXT(""), Font("Bold", 20), TextMain);
+	StatusText = Text(TEXT(""), Font(EFont::Title, 30.f, 2.f), Color::White);
 	StatusText->SetAutoWrapText(true);
 	AddH(Footer, StatusText, 24.f, true);
 	StartButton = WidgetTree->ConstructWidget<UButton>();
-	StartLabel = Text(TEXT("Start  (Enter)"), Font("Bold", 20), Ink);
-	StartButton->SetContent(Box(FLinearColor::Transparent, FMargin(24.f, 10.f), StartLabel));
-	StartButton->SetBackgroundColor(Accent);
+	StartButton->SetStyle(CardButtonStyle(40.f));
+	StartLabel = Text(TEXT("Start"), Font(EFont::Display, 40.f, 3.f), Color::White);
+	UBorder* StartPad = Card(FLinearColor::Transparent, 0.f, FMargin(40.f, 12.f), StartLabel);
+	StartButton->SetContent(StartPad);
+	StartButton->SetBackgroundColor(Color::Hot);
 	StartButton->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleStartClicked);
 	AddH(Footer, StartButton, 0.f);
-	AddV(Right, Footer, 0.f)->SetPadding(FMargin(0.f, 20.f, 0.f, 0.f));
-	AddH(Columns, Right, 0.f, true)->SetVerticalAlignment(VAlign_Top);
+	AddV(Right, Footer, 0.f);
+	AddH(Columns, Right, 0.f, true)->SetVerticalAlignment(VAlign_Center);
 }
 
 void UKartLobbyWidget::NativeConstruct()
@@ -252,6 +309,12 @@ void UKartLobbyWidget::NativeConstruct()
 		PC->SetInputMode(Mode);
 		PC->SetShowMouseCursor(true);
 	}
+	ShowBackdrop(true);
+	if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+	{
+		UI->ApplyVolumes();
+		UI->SetMenuMusic(true);
+	}
 	Refresh();
 }
 
@@ -263,12 +326,74 @@ void UKartLobbyWidget::NativeDestruct()
 		Subsystem->OnReturnedToLobby.RemoveDynamic(this, &UKartLobbyWidget::HandleReturnedToLobby);
 		bBound = false;
 	}
+	if (BackdropCamera)
+	{
+		BackdropCamera->Destroy();
+		BackdropCamera = nullptr;
+	}
 	Super::NativeDestruct();
+}
+
+void UKartLobbyWidget::ShowBackdrop(bool bShow)
+{
+	// A slow orbit of the track behind the lobby, like the front end's menus.
+	APlayerController* PC = GetOwningPlayer();
+	UWorld* World = GetWorld();
+	if (!PC || !World)
+	{
+		return;
+	}
+	if (!bShow)
+	{
+		return; // the race takes the view over itself
+	}
+	if (!BackdropCamera)
+	{
+		BackdropCamera = World->SpawnActor<ACameraActor>();
+		if (BackdropCamera)
+		{
+			BackdropCamera->GetCameraComponent()->SetFieldOfView(70.f);
+			BackdropCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+		}
+	}
+	if (BackdropCamera)
+	{
+		UpdateBackdrop(0.f);
+		PC->SetViewTarget(BackdropCamera);
+	}
+}
+
+void UKartLobbyWidget::UpdateBackdrop(float DeltaSeconds)
+{
+	if (!BackdropCamera)
+	{
+		return;
+	}
+	BackdropClock += DeltaSeconds;
+	FBox2D Bounds(FVector2D(-100.0, -100.0), FVector2D(100.0, 100.0));
+	for (TActorIterator<ATrackBuilder> It(GetWorld()); It; ++It)
+	{
+		if (const TSharedPtr<const MovecadeKart::FTrack> Track = It->GetTrack(); Track.IsValid() && Track->MinimapBounds.bIsValid)
+		{
+			Bounds = Track->MinimapBounds;
+		}
+		break;
+	}
+	const double Extent = FMath::Max(Bounds.GetSize().X, Bounds.GetSize().Y);
+	const double Angle = BackdropClock * 0.035;
+	const FVector2D Eye = Bounds.GetCenter() + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Extent * 0.62;
+	const FVector EyeUE = MovecadeKart::Coords::ToUE(Eye, Extent * 0.32);
+	const FVector Target = MovecadeKart::Coords::ToUE(Bounds.GetCenter(), 0.0);
+	BackdropCamera->SetActorLocationAndRotation(EyeUE, (Target - EyeUE).Rotation());
 }
 
 void UKartLobbyWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+	if (GetVisibility() != ESlateVisibility::Collapsed)
+	{
+		UpdateBackdrop(InDeltaTime);
+	}
 	RefreshAccumulator += InDeltaTime;
 	if (RefreshAccumulator >= 0.1f)
 	{
@@ -289,11 +414,39 @@ FReply UKartLobbyWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 	{
 		if (const URoomHostSubsystem* Subsystem = Room())
 		{
-			SelectTrack(Subsystem->GetRoom().SelectedMapId == GTracks[0].Id ? 1 : 0);
+			const int32 Current = FKartTrackCatalog::IndexOf(Subsystem->GetRoom().SelectedMapId);
+			SelectTrack(Current == 0 ? 1 : 0);
+			if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+			{
+				UI->PlaySound(EKartUISound::Tick);
+			}
 		}
 		return FReply::Handled();
 	}
+	if (Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right)
+	{
+		LeaveParty();
+		return FReply::Handled();
+	}
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+void UKartLobbyWidget::LeaveParty()
+{
+	// Back to the main menu: close the room and travel with the curtain.
+	UKartSessionSettings* Session = UKartSessionSettings::Get(this);
+	UKartUISubsystem* UI = UKartUISubsystem::Get(this);
+	if (!Session || !UI || UI->IsTravelling())
+	{
+		return;
+	}
+	UI->PlaySound(EKartUISound::Back);
+	if (URoomHostSubsystem* Subsystem = Room())
+	{
+		Subsystem->CloseRoom(true);
+	}
+	Session->ReturnToMenu(EKartMenuEntry::MainMenu);
+	UI->TravelTo(UGameplayStatics::GetCurrentLevelName(this));
 }
 
 void UKartLobbyWidget::Refresh()
@@ -322,20 +475,24 @@ void UKartLobbyWidget::Refresh()
 	}
 
 	FString Connection;
+	FLinearColor ConnectionColor = Color::Navy;
 	switch (Subsystem->GetConnectionState())
 	{
 	case EMcConnection::Idle: Connection = TEXT("Room closed."); break;
 	case EMcConnection::Connecting: Connection = TEXT("Connecting to the room server..."); break;
-	case EMcConnection::Reconnecting: Connection = TEXT("Reconnecting... everyone keeps their spot."); break;
+	case EMcConnection::Reconnecting: Connection = TEXT("Reconnecting... everyone keeps their spot."); ConnectionColor = Color::SunDeep; break;
 	case EMcConnection::Open: Connection = Subsystem->IsHost() ? TEXT("Room open. Phones join from the QR code.") : TEXT("Another screen is hosting this room."); break;
-	case EMcConnection::Failed: Connection = TEXT("Room server error: ") + Subsystem->GetLastError(); break;
+	case EMcConnection::Failed: Connection = TEXT("Room server error: ") + Subsystem->GetLastError(); ConnectionColor = Color::Hot; break;
 	}
 	ConnectionText->SetText(FText::FromString(Connection));
+	ConnectionText->SetColorAndOpacity(FSlateColor(ConnectionColor));
 
-	for (int32 i = 0; i < TrackButtons.Num(); ++i)
+	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
+	for (int32 i = 0; i < TrackButtons.Num() && i < Catalog.Num(); ++i)
 	{
-		const bool bSelected = State.SelectedMapId == GTracks[i].Id;
-		TrackButtons[i]->SetBackgroundColor(bSelected ? FLinearColor(FColor::FromHex(GTracks[i].Hex)) * 0.55f + Panel * 0.45f : Panel);
+		const bool bSelected = State.SelectedMapId == Catalog[i].Id;
+		TrackButtons[i]->SetBackgroundColor(bSelected ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f));
+		TrackButtons[i]->SetRenderScale(bSelected ? FVector2D(1.03, 1.03) : FVector2D(1.0, 1.0));
 	}
 
 	for (int32 i = 0; i < SeatRows.Num(); ++i)
@@ -343,17 +500,19 @@ void UKartLobbyWidget::Refresh()
 		const FMcSeat* Seat = State.FindBySeat(i + 1);
 		if (!Seat)
 		{
-			SeatSwatches[i]->SetBrushColor(PanelHi);
-			SeatNames[i]->SetText(FText::FromString(TEXT("Open seat")));
-			SeatNames[i]->SetColorAndOpacity(FSlateColor(TextDim));
+			SeatRows[i]->SetBrushColor(Color::WithAlpha(Color::Paper, 0.55f));
+			SeatSwatches[i]->SetBrushColor(Color::PaperShade);
+			SeatNames[i]->SetText(FText::FromString(TEXT("Waiting for a phone")));
+			SeatNames[i]->SetColorAndOpacity(FSlateColor(Color::NavyDim));
 			SeatStates[i]->SetText(FText::GetEmpty());
 			continue;
 		}
+		SeatRows[i]->SetBrushColor(Color::Paper);
 		SeatSwatches[i]->SetBrushColor(Seat->PaintColor);
 		SeatNames[i]->SetText(FText::FromString(Seat->bBot ? Seat->Name + TEXT("  (bot)") : Seat->Name));
-		SeatNames[i]->SetColorAndOpacity(FSlateColor(TextMain));
+		SeatNames[i]->SetColorAndOpacity(FSlateColor(Color::Navy));
 		FString Status;
-		FLinearColor Color = TextDim;
+		FLinearColor StatusColor = Color::NavyDim;
 		if (Seat->bEliminated)
 		{
 			Status = TEXT("Out");
@@ -361,19 +520,19 @@ void UKartLobbyWidget::Refresh()
 		else if (!Seat->bConnected)
 		{
 			Status = FString::Printf(TEXT("Reconnecting · %ds"), FMath::CeilToInt32(Seat->GraceRemainingMs / 1000.f));
-			Color = FLinearColor(FColor::FromHex(TEXT("f2b23f")));
+			StatusColor = Color::SunDeep;
 		}
 		else if (Seat->bReady)
 		{
-			Status = TEXT("Ready");
-			Color = Accent;
+			Status = TEXT("Ready!");
+			StatusColor = FLinearColor::FromSRGBColor(FColor(0x1f, 0xa8, 0x72));
 		}
 		else
 		{
 			Status = Seat->bCalibrated ? TEXT("Not ready") : TEXT("Calibrating");
 		}
 		SeatStates[i]->SetText(FText::FromString(Status));
-		SeatStates[i]->SetColorAndOpacity(FSlateColor(Color));
+		SeatStates[i]->SetColorAndOpacity(FSlateColor(StatusColor));
 	}
 
 	const bool bSolo = State.Players.Num() == 1 && !State.Players[0].bBot;
@@ -389,20 +548,20 @@ void UKartLobbyWidget::Refresh()
 	}
 	else if (Line.IsEmpty())
 	{
-		Line = bSolo ? TEXT("Everyone ready. Start solo when you are.") : TEXT("Everyone ready");
+		Line = bSolo ? TEXT("Everyone ready. Start solo when you are.") : TEXT("Everyone ready!");
 	}
 	StatusText->SetText(FText::FromString(Line));
-	StartLabel->SetText(FText::FromString(bSolo ? TEXT("Start solo  (Enter)") : TEXT("Start  (Enter)")));
+	StartLabel->SetText(FText::FromString(bSolo ? TEXT("Start solo") : TEXT("Start")));
 	const bool bCanStart = Subsystem->CanStart();
 	StartButton->SetIsEnabled(bCanStart);
-	StartButton->SetBackgroundColor(bCanStart ? Accent : PanelHi);
+	StartButton->SetBackgroundColor(bCanStart ? Color::Hot : Color::NavyDim);
 }
 
 void UKartLobbyWidget::SelectTrack(int32 Index)
 {
-	if (URoomHostSubsystem* Subsystem = Room(); Subsystem && Index >= 0 && Index < static_cast<int32>(UE_ARRAY_COUNT(GTracks)))
+	if (URoomHostSubsystem* Subsystem = Room(); Subsystem && FKartTrackCatalog::All().IsValidIndex(Index))
 	{
-		Subsystem->SelectMap(GTracks[Index].Id);
+		Subsystem->SelectMap(FKartTrackCatalog::All()[Index].Id);
 	}
 }
 
@@ -426,6 +585,11 @@ void UKartLobbyWidget::HandleTrack1Clicked()
 
 void UKartLobbyWidget::HandleStartRequested(const FString& MapId)
 {
+	if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+	{
+		UI->SetMenuMusic(false);
+		UI->PlaySound(EKartUISound::Go);
+	}
 	if (!bAutoHide)
 	{
 		return;
@@ -445,6 +609,7 @@ void UKartLobbyWidget::HandleReturnedToLobby()
 		return;
 	}
 	SetVisibility(ESlateVisibility::Visible);
+	ShowBackdrop(true);
 	if (APlayerController* PC = GetOwningPlayer())
 	{
 		FInputModeGameAndUI Mode;
