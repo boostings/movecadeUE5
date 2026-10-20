@@ -27,7 +27,15 @@ Done before this plan: e33a905 Mac clang build fix, afc95be fingerprint test.
   capture); KartGameMode.cpp, Race/KartRaceManager.cpp (RemoveDynamic, null checks); Net/RoomProtocol.cpp,
   Net/RoomHostSubsystem.cpp (saturating numeric casts); Sim/KartTrack.cpp (validate substep/radius, finite guard).
   - Accept: gate green, fingerprint identical.
-- [ ] **3. Render-thread waste.** Race/KartItemPresenter.cpp (dirty/clear ISMs only on change); TrackBuilder.cpp
+- [x] **3. Render-thread waste.** Done: gate 54/0, fingerprint identical, smoke clean (641/554 frames), rendered
+  showcase run (GUI binary + -KartCapture) shows boxes, pop-ups and fireballs drawing and clearing. UE 5.8 sends
+  ISM transform/custom-data/add changes incrementally, so the per-frame MarkRenderStateDirty calls (full proxy
+  rebuilds) are gone; item/blast ISMs are rewritten in place when their count holds and untouched when empty;
+  hidden preview/live boxes are skipped; skid marks no longer dirty per segment; box twinkles only update on
+  show/hide; scenery parts switch on an enum by FName (no FString per part per frame); audio volume/pitch/low-pass
+  only sent when the value changes. NOT done: a per-stream Niagara option cache (needs a field in
+  KartFxSubsystem.h or KartFxComponent.h, which are unlisted) — KartFxSubsystem.cpp untouched; ask before doing it.
+  Race/KartItemPresenter.cpp (dirty/clear ISMs only on change); TrackBuilder.cpp
   (item boxes); TrackScenery.cpp (part kind enum, lamp MID on change); FX/KartFxComponent.cpp,
   FX/KartFxSubsystem.cpp (constant Niagara params once, double dirty); Audio/KartAudioComponent.cpp (skip unchanged).
   - Accept: gate green, fingerprint identical, smoke race clean.

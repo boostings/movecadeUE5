@@ -136,6 +136,59 @@ namespace
 
 	/** Nanite draws opaque and masked materials only: a translucent part (glass, spray, beams) renders
 	 *  through its fallback mesh instead. */
+	/** How each animated part moves. GatherMotion strips colour-variant suffixes ("ferris_gondola_3" -> "ferris_gondola"),
+	 *  so a part is one of the names spawned for the animated scenery; any other part stays where it was placed. */
+	enum class EMotion : uint8
+	{
+		Fixed,
+		LighthouseBeams,
+		FerrisFrame,
+		FerrisWheel,
+		FerrisGondola,
+		Ferry,
+		CargoShip,
+		JetSki,
+		JetWake,
+		GullBody,
+		GullWingL,
+		GullWingR,
+		FountainJet,
+		FountainSpray,
+		Buoy,
+		BuoyLamp,
+	};
+
+	/** An FName compare is an integer compare, so this costs no string work per part per frame. */
+	EMotion MotionOf(FName Part)
+	{
+		static const TPair<FName, EMotion> Parts[] = {
+			{ TEXT("lighthouse_beams"), EMotion::LighthouseBeams },
+			{ TEXT("ferris_frame"), EMotion::FerrisFrame },
+			{ TEXT("ferris_wheel"), EMotion::FerrisWheel },
+			{ TEXT("ferris_gondola"), EMotion::FerrisGondola },
+			{ TEXT("ferry"), EMotion::Ferry },
+			{ TEXT("ferry_smoke"), EMotion::Ferry },
+			{ TEXT("cargo_ship"), EMotion::CargoShip },
+			{ TEXT("jet_ski"), EMotion::JetSki },
+			{ TEXT("jet_wake"), EMotion::JetWake },
+			{ TEXT("gull_body"), EMotion::GullBody },
+			{ TEXT("gull_wing_l"), EMotion::GullWingL },
+			{ TEXT("gull_wing_r"), EMotion::GullWingR },
+			{ TEXT("fountain_jet"), EMotion::FountainJet },
+			{ TEXT("fountain_spray"), EMotion::FountainSpray },
+			{ TEXT("buoy"), EMotion::Buoy },
+			{ TEXT("buoy_lamp"), EMotion::BuoyLamp },
+		};
+		for (const TPair<FName, EMotion>& Entry : Parts)
+		{
+			if (Entry.Key == Part)
+			{
+				return Entry.Value;
+			}
+		}
+		return EMotion::Fixed;
+	}
+
 	void MatchNaniteToMaterial(UStaticMeshComponent* Component, const UMaterialInterface* Material)
 	{
 		if (Material && IsTranslucentBlendMode(Material->GetBlendMode()))
@@ -687,24 +740,29 @@ void ATrackBuilder::TickMotion(double T)
 		{
 			continue;
 		}
-		const FString Part = M.Part.ToString();
 		const int32 i = M.Index;
 		FTransform X = Three(M.Base);
-		if (Part == TEXT("lighthouse_beams"))
+		const EMotion Kind = MotionOf(M.Part);
+		switch (Kind)
 		{
+		case EMotion::Fixed:
+			break;
+		case EMotion::LighthouseBeams:
 			X = Three(M.Base, Euler(0.0, 0.7 * T, 0.0)); // :23-25
-		}
-		else if (Part.StartsWith(TEXT("ferris")))
+			break;
+		case EMotion::FerrisFrame:
+		case EMotion::FerrisWheel:
+		case EMotion::FerrisGondola:
 		{
 			// :52-62: rim rolls 0.25 rad/s about the hub at y 11.6; gondolas counter-rotate to stay level.
 			const FTransform BaseX = Three(M.Base, Euler(0.0, M.Yaw, 0.0));
 			const double Roll = 0.25 * T;
 			const FTransform Wheel = Three(FVector(0.0, 11.6, 0.0), Euler(0.0, 0.0, Roll));
-			if (Part == TEXT("ferris_frame"))
+			if (Kind == EMotion::FerrisFrame)
 			{
 				X = BaseX;
 			}
-			else if (Part == TEXT("ferris_wheel"))
+			else if (Kind == EMotion::FerrisWheel)
 			{
 				X = Wheel * BaseX;
 			}
@@ -713,56 +771,70 @@ void ATrackBuilder::TickMotion(double T)
 				const double Angle = i / 10.0 * UE_DOUBLE_TWO_PI;
 				X = Three(FVector(FMath::Cos(Angle) * 9.0, FMath::Sin(Angle) * 9.0, 0.0), Euler(0.0, 0.0, -Roll)) * Wheel * BaseX;
 			}
+			break;
 		}
-		else if (Part == TEXT("ferry") || Part == TEXT("ferry_smoke"))
+		case EMotion::Ferry:
 		{
 			const double A = T * 0.02; // :124-128
 			X = Three(FVector(130.0 + FMath::Cos(A) * 330.0, -3.5 + FMath::Sin(T * 0.9) * 0.25, -35.0 + FMath::Sin(A) * 300.0),
 				Euler(FMath::Sin(T * 0.7) * 0.015, -A, FMath::Sin(T * 0.9) * 0.02));
+			break;
 		}
-		else if (Part == TEXT("cargo_ship"))
+		case EMotion::CargoShip:
 		{
 			const double A = -T * 0.012 + 2.2; // :129-133
 			X = Three(FVector(130.0 + FMath::Cos(A) * 420.0, -3.5 + FMath::Sin(T * 0.6) * 0.2, -35.0 + FMath::Sin(A) * 400.0),
 				Euler(0.0, -A + UE_DOUBLE_PI, FMath::Sin(T * 0.6) * 0.015));
+			break;
 		}
-		else if (Part == TEXT("jet_ski") || Part == TEXT("jet_wake"))
+		case EMotion::JetSki:
+		case EMotion::JetWake:
 		{
 			// :165-178. The web yaws the wake after laying it flat (Euler XYZ), which rolls it about its
 			// length; here the wake stays flat and yaws with its ski.
 			const double A = T * 0.55 + i * (UE_DOUBLE_TWO_PI / 3.0);
 			const double R = 24.0 + FMath::Sin(T * 0.3 + i) * 5.0;
 			const double PX = 110.0 + FMath::Cos(A) * R, PZ = -45.0 + FMath::Sin(A) * R * 0.75;
-			X = Part == TEXT("jet_ski")
+			X = Kind == EMotion::JetSki
 				? Three(FVector(PX, -6.6 + FMath::Sin(T * 4.0 + i) * 0.12, PZ), Euler(FMath::Sin(T * 4.0 + i) * 0.05, -A, -0.25))
 				: Three(FVector(PX, -6.92, PZ), Euler(0.0, -A, 0.0));
+			break;
 		}
-		else if (Part.StartsWith(TEXT("gull")))
+		case EMotion::GullBody:
+		case EMotion::GullWingL:
+		case EMotion::GullWingR:
 		{
 			// :206-220.
 			const double A = T * (0.35 + (i % 3) * 0.08) + i * 0.8;
 			const double R = 14.0 + (i % 4) * 5.0;
 			const FTransform Bird = Three(FVector(M.Base.X + FMath::Cos(A) * R, 18.0 + (i % 5) * 2.5 + FMath::Sin(T * 1.3 + i) * 0.8, M.Base.Z + FMath::Sin(A) * R), Euler(0.0, -A, 0.0));
 			const double Flap = FMath::Sin(T * 6.0 + i) * 0.55;
-			X = Part == TEXT("gull_body") ? Bird : Three(FVector::ZeroVector, Euler(0.0, 0.0, Part == TEXT("gull_wing_l") ? Flap : -Flap)) * Bird;
+			X = Kind == EMotion::GullBody ? Bird : Three(FVector::ZeroVector, Euler(0.0, 0.0, Kind == EMotion::GullWingL ? Flap : -Flap)) * Bird;
+			break;
 		}
-		else if (Part.StartsWith(TEXT("fountain")))
+		case EMotion::FountainJet:
+		case EMotion::FountainSpray:
 		{
 			// :246-257.
 			const double Pulse = 0.7 + FMath::Sin(T * 1.6) * 0.3;
-			X = Part == TEXT("fountain_jet")
+			X = Kind == EMotion::FountainJet
 				? Three(M.Base + FVector(0.0, 4.6 + Pulse * 1.4, 0.0), FQuat::Identity, FVector(1.0, Pulse, 1.0))
 				: Three(M.Base + FVector(0.0, 6.4, 0.0), Euler(0.0, T * 0.8, 0.0), FVector(0.8 + Pulse * 0.5));
+			break;
 		}
-		else if (Part.StartsWith(TEXT("buoy")))
+		case EMotion::Buoy:
+		case EMotion::BuoyLamp:
 		{
-			// :278-289: bob and rock; the lamp shows when sin(2.5 t + phase) > 0.6.
+			// :278-289: bob and rock; the lamp shows when sin(2.5 t + phase) > 0.6 (a MID ignores an unchanged value).
+			static const FName OpacityName(TEXT("Opacity"));
 			X = Three(FVector(M.Base.X, -6.6 + FMath::Sin(T * 1.4 + M.Phase) * 0.35, M.Base.Z),
 				Euler(FMath::Sin(T * 1.1 + M.Phase) * 0.12, 0.0, FMath::Cos(T * 0.9 + M.Phase) * 0.12));
-			if (Part == TEXT("buoy_lamp") && M.Lamp.IsValid())
+			if (Kind == EMotion::BuoyLamp && M.Lamp.IsValid())
 			{
-				M.Lamp->SetScalarParameterValue(TEXT("Opacity"), FMath::Sin(T * 2.5 + M.Phase) > 0.6 ? 1.0 : 0.15);
+				M.Lamp->SetScalarParameterValue(OpacityName, FMath::Sin(T * 2.5 + M.Phase) > 0.6 ? 1.0 : 0.15);
 			}
+			break;
+		}
 		}
 		C->SetRelativeTransform(ToUETransform(X, Rebase));
 	}

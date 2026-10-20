@@ -588,11 +588,17 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 		}
 	}
 
-	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t).
-	for (int32 i = 0; i < ItemBoxBase.Num(); ++i)
+	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t). Only while the preview boxes show (a race
+	// hides them for the item presenter's live ones). Each update is an incremental instance change, so the render
+	// state is never rebuilt for it.
+	if (ItemBoxes->IsVisible())
 	{
-		const FVector P = ItemBoxBase[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time));
-		ItemBoxes->UpdateInstanceTransform(i, FTransform(FRotator(0.0, -FMath::RadiansToDegrees(1.5 * Time), 0.0), P, FVector(2.0)), true, i == ItemBoxBase.Num() - 1);
+		const FRotator Spin(0.0, -FMath::RadiansToDegrees(1.5 * Time), 0.0);
+		const FVector Bob(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time));
+		for (int32 i = 0; i < ItemBoxBase.Num(); ++i)
+		{
+			ItemBoxes->UpdateInstanceTransform(i, FTransform(Spin, ItemBoxBase[i] + Bob, FVector(2.0)), /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false);
+		}
 	}
 
 	if (bShowCheckpoints && Track.IsValid())

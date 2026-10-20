@@ -827,11 +827,13 @@ void UKartFxComponent::UpdateSkids(const FKartState& S, double Time)
 		else
 		{
 			Index = NextSkid;
-			SkidMarks->UpdateInstanceTransform(Index, Segment, /*bWorldSpace*/ true, false, true);
+			SkidMarks->UpdateInstanceTransform(Index, Segment, /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false, /*bTeleport*/ true);
 		}
 		NextSkid = (Index + 1) % MaxSkidSegments;
-		// The material fades each segment out by its age: custom data 0 is when it was laid, "Now" the time.
-		SkidMarks->SetCustomDataValue(Index, 0, static_cast<float>(Time), true);
+		// The material fades each segment out by its age: custom data 0 is when it was laid, "Now" the time. Adding,
+		// moving and re-stamping an instance are all incremental instance updates; dirtying the render state here
+		// rebuilt the whole skid-mark proxy for every new segment.
+		SkidMarks->SetCustomDataValue(Index, 0, static_cast<float>(Time), /*bMarkRenderStateDirty*/ false);
 		LastMark[Wheel] = Contact;
 	}
 }

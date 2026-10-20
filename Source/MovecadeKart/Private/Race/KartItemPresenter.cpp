@@ -53,6 +53,91 @@ namespace
 		return Item == EKartItem::Shot || Item == EKartItem::Seeker || Item == EKartItem::SkySeeker || Item == EKartItem::Banana || Item == EKartItem::Bomb;
 	}
 
+	/**
+	 * One frame of instances for a set of ISMs, staged and then committed with as little render work as the change
+	 * needs. An ISM showing as many instances as last frame is rewritten in place, which the renderer takes as an
+	 * incremental instance update; a changed count clears and re-adds, which recreates its render state; an ISM that
+	 * was and stays empty is not touched at all. (Each ISM used to be cleared every frame, so every one of them,
+	 * empty or not, rebuilt its scene proxy every frame.)
+	 */
+	class FInstanceFrame
+	{
+	public:
+		/** Takes part in this frame even if nothing is added, so last frame's instances are removed. */
+		void Track(UInstancedStaticMeshComponent* Component)
+		{
+			if (Component)
+			{
+				Find(Component);
+			}
+		}
+
+		/** CustomData is the instance's first custom float, for ISMs that have one (0 as AddInstance leaves it). */
+		void Add(UInstancedStaticMeshComponent* Component, const FTransform& WorldTransform, float CustomData = 0.f)
+		{
+			if (!Component)
+			{
+				return;
+			}
+			FStaged& Staged = Find(Component);
+			Staged.Transforms.Add(WorldTransform);
+			Staged.CustomData.Add(CustomData);
+		}
+
+		void Commit() const
+		{
+			for (const FStaged& Staged : Components)
+			{
+				UInstancedStaticMeshComponent* Component = Staged.Component;
+				const int32 Count = Staged.Transforms.Num();
+				const bool bInPlace = Component->GetInstanceCount() == Count;
+				if (!bInPlace)
+				{
+					Component->ClearInstances();
+				}
+				for (int32 i = 0; i < Count; ++i)
+				{
+					if (bInPlace)
+					{
+						Component->UpdateInstanceTransform(i, Staged.Transforms[i], /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false);
+					}
+					else
+					{
+						Component->AddInstance(Staged.Transforms[i], /*bWorldSpace*/ true);
+					}
+					if (Component->NumCustomDataFloats > 0)
+					{
+						Component->SetCustomDataValue(i, 0, Staged.CustomData[i], /*bMarkRenderStateDirty*/ false);
+					}
+				}
+			}
+		}
+
+	private:
+		struct FStaged
+		{
+			UInstancedStaticMeshComponent* Component = nullptr;
+			TArray<FTransform, TInlineAllocator<8>> Transforms;
+			TArray<float, TInlineAllocator<8>> CustomData;
+		};
+
+		FStaged& Find(UInstancedStaticMeshComponent* Component)
+		{
+			for (FStaged& Staged : Components)
+			{
+				if (Staged.Component == Component)
+				{
+					return Staged;
+				}
+			}
+			FStaged& Staged = Components.AddDefaulted_GetRef();
+			Staged.Component = Component;
+			return Staged;
+		}
+
+		TArray<FStaged, TInlineAllocator<16>> Components;
+	};
+
 	const TCHAR* const ShowcaseBeats[] = { TEXT("explosion"), TEXT("lightning"), TEXT("prism"), TEXT("rocket"), TEXT("ink"), TEXT("hit"), TEXT("confetti"), TEXT("box") };
 	constexpr int32 NumShowcaseBeats = UE_ARRAY_COUNT(ShowcaseBeats);
 }
@@ -699,20 +784,28 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 			Out.Add(Ring);
 			Poof(BoxPositions[i], Hex(TEXT("5ff0ff")), 1.3, Out);
 		}
+		const bool bWasVisible = BoxWasVisible[i];
 		BoxWasVisible[i] = bVisible;
 		// Pop back in with a springy overshoot.
 		const double Scale = bVisible ? FMath::Max(0.0, Pop((Time - BoxShownAt[i]) / 0.5)) : 0.0;
+		// A box that was already hidden last frame is already scaled to nothing.
+		const bool bMoves = bVisible || bWasVisible;
 		// MultiplayerPowerups.tsx: spin 1.5 rad/s, bob 0.1 m at 2.5 rad/s, inner icon +0.5 rad/s.
-		const FVector P = BoxPositions[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time + i * 0.7));
-		const FQuat Spin(FVector::UpVector, -1.5 * Time - i);
-		Boxes->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize * 0.9 / 100.0 * Scale)), true, false);
-		// The gem stands on a corner (a cube tipped onto its diagonal) and tumbles slowly.
-		const FQuat Corner(FVector(1.0, -1.0, 0.0).GetSafeNormal(), FMath::Acos(1.0 / FMath::Sqrt(3.0)));
-		const FQuat Core = FQuat(FVector::UpVector, -2.0 * Time - i) * Corner * FQuat(FVector(1.0, 1.0, 1.0).GetSafeNormal(), 0.3 * FMath::Sin(Time * 1.3 + i));
-		BoxCores->UpdateInstanceTransform(i, FTransform(Core, P, FVector(BoxSize * 0.42 / 100.0 * Scale)), true, false);
-		BoxHalos->UpdateInstanceTransform(i, FTransform(FQuat::Identity, P, FVector(BoxSize * 0.9 * 2.0 / 100.0 * Scale * (1.0 + 0.04 * FMath::Sin(Time * 3.0 + i)))), true, false);
-		BoxLabels->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)), true, false);
-		if (BoxTwinkles.IsValidIndex(i) && BoxTwinkles[i])
+		if (bMoves)
+		{
+			const FVector P = BoxPositions[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time + i * 0.7));
+			const FQuat Spin(FVector::UpVector, -1.5 * Time - i);
+			Boxes->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize * 0.9 / 100.0 * Scale)), true, false);
+			// The gem stands on a corner (a cube tipped onto its diagonal) and tumbles slowly.
+			const FQuat Corner(FVector(1.0, -1.0, 0.0).GetSafeNormal(), FMath::Acos(1.0 / FMath::Sqrt(3.0)));
+			const FQuat Core = FQuat(FVector::UpVector, -2.0 * Time - i) * Corner * FQuat(FVector(1.0, 1.0, 1.0).GetSafeNormal(), 0.3 * FMath::Sin(Time * 1.3 + i));
+			BoxCores->UpdateInstanceTransform(i, FTransform(Core, P, FVector(BoxSize * 0.42 / 100.0 * Scale)), true, false);
+			BoxHalos->UpdateInstanceTransform(i, FTransform(FQuat::Identity, P, FVector(BoxSize * 0.9 * 2.0 / 100.0 * Scale * (1.0 + 0.04 * FMath::Sin(Time * 3.0 + i)))), true, false);
+			BoxLabels->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)), true, false);
+		}
+		// The twinkle's options never change, so the stream only needs telling when the box appears or goes (or when
+		// it isn't running yet), not 11 parameters every frame.
+		if (BoxTwinkles.IsValidIndex(i) && BoxTwinkles[i] && (bVisible != bWasVisible || (bVisible && !BoxTwinkles[i]->IsActive())))
 		{
 			FKartFxEmit Twinkle;
 			Twinkle.Field = EField::Flare;
@@ -729,10 +822,6 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 			UKartFxSubsystem::UpdateStream(BoxTwinkles[i], Twinkle, bVisible ? 5.0 : 0.0);
 		}
 	}
-	Boxes->MarkRenderStateDirty();
-	BoxCores->MarkRenderStateDirty();
-	BoxHalos->MarkRenderStateDirty();
-	BoxLabels->MarkRenderStateDirty();
 	if (Fx)
 	{
 		Fx->Emit(Out);
@@ -744,15 +833,13 @@ void AKartItemPresenter::UpdateItems(double Time)
 	const AKartRaceManager* Race = Manager.Get();
 	const FKartItemWorld& Items = Race->GetItems();
 	UKartFxSubsystem* Fx = UKartFxSubsystem::Get(this);
+	FInstanceFrame Frame;
 	for (UInstancedStaticMeshComponent* Component : ItemMeshes)
 	{
-		if (Component)
-		{
-			Component->ClearInstances();
-		}
+		Frame.Track(Component);
 	}
-	Glows->ClearInstances();
-	BombGlows->ClearInstances();
+	Frame.Track(Glows);
+	Frame.Track(BombGlows);
 	for (TPair<int32, FTrail>& Pair : Trails)
 	{
 		Pair.Value.bSeen = false;
@@ -775,7 +862,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 		case EKartItem::Banana:
 			// Stationary, yaw += 2 rad/s, y + 0.3 (scaled up 1.5x so it reads at speed).
 			At = Coords::ToUE(P.Pos, 0.3 + 0.12);
-			Component->AddInstance(FTransform(FRotator(0.0, FMath::RadiansToDegrees(2.0 * P.Age), 14.0), At, FVector(1.5)), true);
+			Frame.Add(Component, FTransform(FRotator(0.0, FMath::RadiansToDegrees(2.0 * P.Age), 14.0), At, FVector(1.5)));
 			TrailAt = At;
 			break;
 		case EKartItem::Bomb:
@@ -784,23 +871,22 @@ void AKartItemPresenter::UpdateItems(double Time)
 			At = Coords::ToUE(P.Pos, P.Y);
 			const FRotator Tumble(FMath::RadiansToDegrees(3.0 * P.Age), 0.0, FMath::RadiansToDegrees(5.0 * P.Age));
 			const double Pulse = 1.0 + FMath::Sin(P.Age * (3.0 + 2.0 * P.Age)) * 0.3;
-			const int32 Index = Component->AddInstance(FTransform(Tumble, At, FVector(1.0)), true);
-			Component->SetCustomDataValue(Index, 0, static_cast<float>(1.0 + (Pulse - 0.7) * 6.0), false);
-			BombGlows->AddInstance(FTransform(FQuat::Identity, At, FVector(1.2 * Pulse)), true);
+			Frame.Add(Component, FTransform(Tumble, At, FVector(1.0)), static_cast<float>(1.0 + (Pulse - 0.7) * 6.0));
+			Frame.Add(BombGlows, FTransform(FQuat::Identity, At, FVector(1.2 * Pulse)));
 			TrailAt = At + Tumble.RotateVector(BombFuseTip());
 			break;
 		}
 		case EKartItem::SkySeeker:
 			// Altitude y + 0.5, roll wobble sin(t*10)*0.1, glow 1.5x pulsing 1 + sin(t*8)*0.2.
 			At = Coords::ToUE(P.Pos, P.Y + 0.5);
-			Component->AddInstance(FTransform(FRotator(0.0, Coords::YawToUE(Yaw), FMath::RadiansToDegrees(0.1 * FMath::Sin(Time * 10.0))), At, FVector(1.15)), true);
-			Glows->AddInstance(FTransform(FQuat::Identity, At, FVector(0.9 * (1.0 + 0.2 * FMath::Sin(Time * 8.0)))), true);
+			Frame.Add(Component, FTransform(FRotator(0.0, Coords::YawToUE(Yaw), FMath::RadiansToDegrees(0.1 * FMath::Sin(Time * 10.0))), At, FVector(1.15)));
+			Frame.Add(Glows, FTransform(FQuat::Identity, At, FVector(0.9 * (1.0 + 0.2 * FMath::Sin(Time * 8.0)))));
 			TrailAt = At;
 			break;
 		default:
 			// Green spins yaw += 8 rad/s; red faces its velocity. y + 0.3.
 			At = Coords::ToUE(P.Pos, 0.3);
-			Component->AddInstance(FTransform(FRotator(0.0, Coords::YawToUE(Yaw) + (P.Type == EKartItem::Shot ? FMath::RadiansToDegrees(8.0 * P.Age) : 0.0), 0.0), At, FVector(1.0)), true);
+			Frame.Add(Component, FTransform(FRotator(0.0, Coords::YawToUE(Yaw) + (P.Type == EKartItem::Shot ? FMath::RadiansToDegrees(8.0 * P.Age) : 0.0), 0.0), At, FVector(1.0)));
 			TrailAt = At;
 			break;
 		}
@@ -964,7 +1050,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 		}
 		const double Scale = Pop(Age / 0.35) * (Age > PopupSeconds - 0.12 ? 1.0 + (Age - (PopupSeconds - 0.12)) * 3.0 : 1.0) * 2.0;
 		const FVector At = Kart->GetActorLocation() + FVector(0.0, 0.0, 170.0 + 80.0 * EaseOut(Age / 0.4));
-		Mesh->AddInstance(FTransform(FRotator(0.0, Kart->GetActorRotation().Yaw + 90.0 + Age * 540.0, 0.0), At, FVector(FMath::Max(0.01, Scale))), true);
+		Frame.Add(Mesh, FTransform(FRotator(0.0, Kart->GetActorRotation().Yaw + 90.0 + Age * 540.0, 0.0), At, FVector(FMath::Max(0.01, Scale))));
 	}
 
 	// Showcase: every item mesh floating in a row ahead of the grid, spinning.
@@ -977,17 +1063,11 @@ void AKartItemPresenter::UpdateItems(double Time)
 			const EKartItem Item = static_cast<EKartItem>(i);
 			const FVector At = ShowcaseOrigin + ShowcaseForward * 650.0 + Right * ((i - 1 - (Count - 1) * 0.5) * 115.0) + FVector(0.0, 0.0, 130.0 + 12.0 * FMath::Sin(Time * 2.0 + i));
 			const double Scale = Item == EKartItem::Rocket ? 0.3 : (Item == EKartItem::Banana ? 1.8 : (Item == EKartItem::Bomb ? 0.9 : 1.3));
-			MeshesFor(Item)->AddInstance(FTransform(FRotator(0.0, Time * 45.0 + i * 30.0, 0.0), At, FVector(Scale)), true);
+			Frame.Add(MeshesFor(Item), FTransform(FRotator(0.0, Time * 45.0 + i * 30.0, 0.0), At, FVector(Scale)));
 		}
 	}
 
-	for (UInstancedStaticMeshComponent* Component : ItemMeshes)
-	{
-		if (Component)
-		{
-			Component->MarkRenderStateDirty();
-		}
-	}
+	Frame.Commit();
 	if (Fx)
 	{
 		Fx->Emit(Out);
@@ -998,7 +1078,8 @@ void AKartItemPresenter::UpdateBlasts(double Time)
 {
 	// Explosion fireballs: three overlapping lobes that swell fast (0.2 s) to ~0.42 x the blast radius, keep
 	// expanding slowly and burn out to soot (toon fire colours in M_FX_Fireball), under the puffs of ExplosionBurst.
-	Blasts->ClearInstances();
+	FInstanceFrame Frame;
+	Frame.Track(Blasts);
 	ActiveBlasts.RemoveAll([Time](const FBlast& B) { return Time - B.Start > BlastSeconds; });
 	for (const FBlast& B : ActiveBlasts)
 	{
@@ -1011,11 +1092,10 @@ void AKartItemPresenter::UpdateBlasts(double Time)
 			const double Grow = EaseOut(U / 0.27) * (1.0 + 0.18 * U);
 			const double Radius = Peak * (i == 0 ? 1.0 : 0.68) * Grow;
 			const FVector Center = B.Center + B.Lobes[i] * (i == 0 ? 0.2 : 1.0) * Grow + FVector(0.0, 0.0, Radius * 0.35 + U * 120.0);
-			const int32 Index = Blasts->AddInstance(FTransform(FQuat(FVector::UpVector, i * 2.1), Center, FVector(FMath::Max(0.01, Radius / 50.0))), true);
-			Blasts->SetCustomDataValue(Index, 0, static_cast<float>(U), false);
+			Frame.Add(Blasts, FTransform(FQuat(FVector::UpVector, i * 2.1), Center, FVector(FMath::Max(0.01, Radius / 50.0))), static_cast<float>(U));
 		}
 	}
-	Blasts->MarkRenderStateDirty();
+	Frame.Commit();
 
 	// Light flash: up in 0.05 s, gone by 0.6 s.
 	for (int32 i = BlastLights.Num() - 1; i >= 0; --i)

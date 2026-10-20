@@ -27,6 +27,24 @@ namespace
 	const TCHAR* LoopNames[] = { TEXT("skid"), TEXT("wind"), TEXT("dirt"), TEXT("boost"), TEXT("roulette"), TEXT("aura"), TEXT("rocket") };
 	static_assert(UE_ARRAY_COUNT(LoopNames) == static_cast<int32>(ELoopLayer::Count));
 
+	// Each UAudioComponent setter queues a command to the audio thread, even for the value it already has. Engine
+	// layers and loops settle to steady values (a held throttle, a cruise), so most frames would resend all of them.
+	void SetVolume(UAudioComponent& Voice, float Volume)
+	{
+		if (Voice.VolumeMultiplier != Volume)
+		{
+			Voice.SetVolumeMultiplier(Volume);
+		}
+	}
+
+	void SetPitch(UAudioComponent& Voice, float Pitch)
+	{
+		if (Voice.PitchMultiplier != Pitch)
+		{
+			Voice.SetPitchMultiplier(Pitch);
+		}
+	}
+
 	ERacePhase ToRacePhase(EKartAudioPhase Phase)
 	{
 		switch (Phase)
@@ -207,8 +225,8 @@ void UKartAudioComponent::ApplyEngine(UKartAudioSubsystem& Mixer, double Dt)
 		LayerRate[i] = Approach(LayerRate[i], RateTarget, EngineLayerRateTau, Dt);
 		if (UAudioComponent* Voice = EngineVoices.IsValidIndex(i) ? EngineVoices[i].Get() : nullptr)
 		{
-			Voice->SetVolumeMultiplier(static_cast<float>(LayerGain[i] * (bOn ? OnBus : OffBus) * EngineOut * Output));
-			Voice->SetPitchMultiplier(static_cast<float>(LayerRate[i]));
+			SetVolume(*Voice, static_cast<float>(LayerGain[i] * (bOn ? OnBus : OffBus) * EngineOut * Output));
+			SetPitch(*Voice, static_cast<float>(LayerRate[i]));
 		}
 	}
 }
@@ -280,12 +298,17 @@ void UKartAudioComponent::ApplyLoops(UKartAudioSubsystem& Mixer, double Dt)
 		Loop.Gain = Approach(Loop.Gain, Loop.TargetGain, LoopGainTau, Dt);
 		Loop.Rate = Approach(Loop.Rate, FMath::Clamp(Command.Rate, 0.25, 4.0), LoopRateTau, Dt);
 		UAudioComponent* Voice = LoopVoices[i];
-		Voice->SetVolumeMultiplier(static_cast<float>(Loop.Gain * Output));
-		Voice->SetPitchMultiplier(static_cast<float>(Loop.Rate));
+		SetVolume(*Voice, static_cast<float>(Loop.Gain * Output));
+		SetPitch(*Voice, static_cast<float>(Loop.Rate));
 		if (Loop.Lowpass >= 0.0 && Command.Lowpass >= 0.0)
 		{
-			Loop.Lowpass = Approach(Loop.Lowpass, FMath::Clamp(Command.Lowpass, 40.0, 20000.0), LoopLowpassTau, Dt);
-			Voice->SetLowPassFilterFrequency(static_cast<float>(Loop.Lowpass));
+			// The component keeps no copy of its filter frequency; the last one sent is Loop.Lowpass.
+			const double Lowpass = Approach(Loop.Lowpass, FMath::Clamp(Command.Lowpass, 40.0, 20000.0), LoopLowpassTau, Dt);
+			if (static_cast<float>(Lowpass) != static_cast<float>(Loop.Lowpass))
+			{
+				Voice->SetLowPassFilterFrequency(static_cast<float>(Lowpass));
+			}
+			Loop.Lowpass = Lowpass;
 		}
 	}
 }
