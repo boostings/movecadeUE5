@@ -20,6 +20,7 @@ import bpy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.dont_write_bytecode = True  # no __pycache__ beside the scripts
 
 import kit  # noqa: E402
 import vehicles  # noqa: E402
