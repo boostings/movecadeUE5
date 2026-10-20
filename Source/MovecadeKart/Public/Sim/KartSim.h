@@ -109,6 +109,11 @@ namespace MovecadeKart
 		double LastBarrierEventTime = -1000.0;
 		/** > 0 on a step where this kart bumped another. */
 		double BumpEvent = 0.0;
+		/** Count up with each barrier and bump event, so presentation running at any frame rate sees each once. */
+		uint32 BarrierEventCount = 0;
+		uint32 BumpEventCount = 0;
+		/** The latest event's normal, pointing away from what was hit (zero if unknown). */
+		FVector2D ImpactNormal = FVector2D::ZeroVector;
 
 		// Surfaces and walls
 		bool bOnDirt = false;

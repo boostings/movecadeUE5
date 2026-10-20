@@ -231,7 +231,18 @@ AKartPawn::AKartPawn()
 
 	Audio = CreateDefaultSubobject<UKartAudioComponent>(TEXT("Audio"));
 
-	Feel.bEnabled = !FParse::Param(FCommandLine::Get(), TEXT("KartWebFeel"));
+	// Command-line switches for comparisons and art checks, read once per kart.
+	const TCHAR* Cmd = FCommandLine::Get();
+	Feel.bEnabled = !FParse::Param(Cmd, TEXT("KartWebFeel"));
+	bDebugGrip = FParse::Param(Cmd, TEXT("KartDebugGrip"));
+	// -KartCloseCam=<yaw deg>,<distance m>,<height m>[,<deg/s>]: an orbit shot of this kart for art checks
+	// (yaw 0 = straight ahead of the kart looking back at it; the optional rate orbits it).
+	FString Value;
+	TArray<FString> Parts;
+	if (FParse::Value(Cmd, TEXT("KartCloseCam="), Value, false) && Value.ParseIntoArray(Parts, TEXT(",")) >= 3)
+	{
+		CloseCam = FVector4(FCString::Atod(*Parts[0]), FCString::Atod(*Parts[1]), FCString::Atod(*Parts[2]), Parts.Num() > 3 ? FCString::Atod(*Parts[3]) : 0.0);
+	}
 }
 
 UPawnMovementComponent* AKartPawn::GetMovementComponent() const
@@ -513,10 +524,16 @@ void AKartPawn::Tick(float DeltaSeconds)
 	UpdateCamera(DeltaSeconds);
 
 	const MovecadeKart::FKartState& S = Movement->SimState();
+	if (S.LapsCompleted < LoggedLaps)
+	{
+		// A restart put the kart back on the grid.
+		LoggedLaps = 0;
+		LastLapTime = 0.0;
+	}
 	if (S.LapsCompleted > LoggedLaps)
 	{
 		LoggedLaps = S.LapsCompleted;
-		UE_LOG(LogTemp, Display, TEXT("Kart lap %d: %.2f s (race %.2f s)%s"), LoggedLaps, S.Time - LastLapTime, S.Time, S.bFinished ? TEXT(" FINISHED") : TEXT(""));
+		UE_LOG(LogKartPawn, Display, TEXT("Kart lap %d: %.2f s (race %.2f s)%s"), LoggedLaps, S.Time - LastLapTime, S.Time, S.bFinished ? TEXT(" FINISHED") : TEXT(""));
 		LastLapTime = S.Time;
 	}
 }
@@ -534,18 +551,22 @@ void AKartPawn::UpdateFeel(float DeltaSeconds)
 	In.BoostMultiplier = S.BoostMultiplier;
 	In.BoostTimeRemaining = S.BoostTimeRemaining;
 	In.bOnDirt = S.bOnDirt;
-	In.WallImpact = S.BarrierEvent;
-	if (!S.LastCollisionNormal.IsNearlyZero())
+	// Impacts are one-step pulses: react once per event, however many frames (or steps) pass in between.
+	const bool bNewWallHit = S.BarrierEventCount != SeenBarrierEvents;
+	const bool bNewBump = S.BumpEventCount != SeenBumpEvents;
+	SeenBarrierEvents = S.BarrierEventCount;
+	SeenBumpEvents = S.BumpEventCount;
+	In.WallImpact = bNewWallHit ? FMath::Max(S.BarrierEvent, 0.2) : 0.0;
+	In.BumpImpact = bNewBump ? FMath::Max(S.BumpEvent, 0.2) : 0.0;
+	if ((bNewWallHit || bNewBump) && !S.ImpactNormal.IsNearlyZero())
 	{
-		// The normal points from the wall to the kart: pointing left means the wall is on the right.
+		// The normal points away from what was hit: pointing to the kart's left means the hit was on its right.
 		const double Yaw = Movement->RenderYaw();
 		const FVector2D Right(FMath::Cos(Yaw), -FMath::Sin(Yaw));
-		In.WallSide = FVector2D::DotProduct(S.LastCollisionNormal, Right) < 0.0 ? 1.0 : -1.0;
+		In.WallSide = FVector2D::DotProduct(S.ImpactNormal, Right) < 0.0 ? 1.0 : -1.0;
 	}
-	In.BumpImpact = S.BumpEvent;
 	In.DriftBoostCount = S.DriftBoostCount;
 	In.TeleportCount = S.TeleportCount;
-	In.Time = S.Time;
 	const MovecadeKart::FKartFeelPose& Pose = Feel.Update(In);
 
 	// The model frame: +X is the kart's left, +Y forward, +Z up (see VehicleRoot). Signs come from the axes, so
@@ -633,6 +654,8 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 	In.Bounce = static_cast<float>(FMath::Clamp(S.HopOffset * 2.0, -1.0, 1.0));
 	In.Time = GetWorld()->GetTimeSeconds();
 	In.bStraddle = bStraddle;
+	Cheer = FMath::FInterpTo(Cheer, S.bFinished ? 1.0 : 0.0, DeltaSeconds, 3.0);
+	In.Cheer = static_cast<float>(Cheer);
 
 	// Grip targets, from where the rim (or bar) actually is this frame, into the driver's component space.
 	const FTransform GripFrame = GripPivot->GetComponentTransform();
@@ -656,7 +679,6 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 		Left = GripFrame.GetLocation() + Turn.RotateVector(-Side) * Reach + Normal * 2.0;
 		Right = GripFrame.GetLocation() + Turn.RotateVector(Side) * Reach + Normal * 2.0;
 	}
-	static const bool bDebugGrip = FParse::Param(FCommandLine::Get(), TEXT("KartDebugGrip"));
 	if (bDebugGrip)
 	{
 		DrawDebugSphere(GetWorld(), Left, 3.f, 8, FColor::Green);
@@ -798,18 +820,6 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 		Eye = Coords::ToUE(Pos + Fwd * 3.6, EyeHeight * 0.6);
 		View = (Coords::ToUE(Pos - Fwd * 9.0, LookHeight * 0.45) - Eye).Rotation();
 	}
-	// -KartCloseCam=<yaw deg>,<distance m>,<height m>[,<deg/s>]: an orbit shot of this kart for art
-	// checks (yaw 0 = straight ahead of the kart looking back at it; the optional rate orbits it).
-	static const FVector4 CloseCam = []()
-	{
-		FString Value;
-		TArray<FString> Parts;
-		if (FParse::Value(FCommandLine::Get(), TEXT("KartCloseCam="), Value, false) && Value.ParseIntoArray(Parts, TEXT(",")) >= 3)
-		{
-			return FVector4(FCString::Atod(*Parts[0]), FCString::Atod(*Parts[1]), FCString::Atod(*Parts[2]), Parts.Num() > 3 ? FCString::Atod(*Parts[3]) : 0.0);
-		}
-		return FVector4(0, -1, 0, 0);
-	}();
 	if (CloseCam.Y > 0.0)
 	{
 		const FVector Centre = VehicleRoot->GetComponentLocation() + FVector(0, 0, 50);

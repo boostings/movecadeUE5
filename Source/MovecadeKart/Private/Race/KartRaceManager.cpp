@@ -211,6 +211,7 @@ void AKartRaceManager::RestartRace()
 		Racer.bFinished = false;
 		Racer.FinishMs = 0.0;
 		Racer.bUseItemHeld = false;
+		Racer.LastTerrainRumble = -1000.0;
 	}
 	++RaceNumber;
 	Items.Reset(1234 + RaceNumber);
@@ -392,7 +393,9 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 		// Everything freezes: the pause menu, or the room waiting for a phone (pauseLifecycle.ts).
 		return;
 	}
-	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0);
+	// Up to MaxStepsPerFrame steps of real time per frame: a busy GPU (down to 15 fps) keeps race time, and only a
+	// long hitch drops time instead of spiralling.
+	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), MaxStepsPerFrame * FKartSim::StepSeconds);
 	PhaseSeconds += Dt;
 
 	switch (Phase)

@@ -203,7 +203,8 @@ namespace MovecadeKart
 
 	void FKartSim::Init(const FTrack* InTrack, int32 GridSlot)
 	{
-		check(InTrack && InTrack->Grid.Num() > 0);
+		// FTrack::LoadFromJsonString validates these; a hand-built track must too.
+		check(InTrack && InTrack->Grid.Num() > 0 && InTrack->Checkpoints.IsValidIndex(InTrack->StartCheckpoint));
 		T = InTrack;
 		Slot = FMath::Clamp(GridSlot, 0, T->Grid.Num() - 1);
 		S = FKartState();
@@ -400,6 +401,8 @@ namespace MovecadeKart
 		}
 		if (!bHopping && Barrier.Penetration > 0.0 && Barrier.bHasNormal)
 		{
+			// Not scaled by dt, as on the web (spec 01, shipped bug 8). It runs once per fixed step, so it is
+			// stable here, and the swept constraint below still keeps the kart out of the wall.
 			S.Pos += Normalize(Barrier.Normal) * (Barrier.Penetration * CollisionPushStrength * 60.0);
 		}
 
@@ -451,6 +454,7 @@ namespace MovecadeKart
 				}
 			}
 		}
+		// The second clause can't be true when the first is false (Hard < Soft); kept as the web wrote it (spec 01 bug 10).
 		else if (!bNearWall || S.NearestWall > CollisionSoftDistance)
 		{
 			S.Pos += S.Dir * S.Speed * Dt;
@@ -475,6 +479,8 @@ namespace MovecadeKart
 				S.Pos += N * FMath::Min(KartContactDistance - Distance, KartBumpForce * Dt * 60.0);
 				S.Speed *= FMath::Pow(0.8, Dt * 60.0);
 				S.BumpEvent = FMath::Min(1.0, (FMath::Abs(S.Speed) / MaxSpeed) * 0.8 + 0.2);
+				S.ImpactNormal = N;
+				++S.BumpEventCount;
 				break;
 			}
 		}
@@ -503,6 +509,18 @@ namespace MovecadeKart
 				S.BarrierEvent = FMath::Max(0.2, S.CollisionIntensity * 0.6);
 				S.bBarrierEventSustained = true;
 				S.LastBarrierEventTime = S.Time;
+			}
+			if (S.BarrierEvent > 0.0)
+			{
+				++S.BarrierEventCount;
+				// Away from the wall, toward the kart: the probe's face normal turned against the travel (a face
+				// normal may point either way), else the radial push, which already points off the wall.
+				FVector2D Away = Barrier.bHasNormal ? Barrier.Normal : Normalize(S.RadialPush);
+				if (Barrier.bHasNormal && FVector2D::DotProduct(Away, S.Dir) > 0.0)
+				{
+					Away = -Away;
+				}
+				S.ImpactNormal = Away;
 			}
 		}
 
