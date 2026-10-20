@@ -14,6 +14,7 @@
 #include "KartCoords.h"
 #include "KartDriverAnimInstance.h"
 #include "KartMovementComponent.h"
+#include "KartPlayerController.h"
 #include "Misc/CommandLine.h"
 #include "DrawDebugHelpers.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -163,11 +164,14 @@ AKartPawn::AKartPawn()
 	VehicleRoot->SetupAttachment(BodyPivot);
 	VehicleRoot->SetRelativeLocationAndRotation(FVector(0, 0, RoadBelowOrigin), FRotator(0, -90, 0));
 
-	Body = MakePart(this, VehicleRoot, TEXT("Body"), nullptr, FVector::ZeroVector, FVector::OneVector);
-	Trim = MakePart(this, VehicleRoot, TEXT("Trim"), nullptr, FVector::ZeroVector, FVector::OneVector);
-	Booster = MakePart(this, VehicleRoot, TEXT("Booster"), nullptr, FVector::ZeroVector, FVector::OneVector);
+	// Everything but the wheels rides the chassis spring (about the hub line, the model origin).
+	ChassisPivot = CreateDefaultSubobject<USceneComponent>(TEXT("ChassisPivot"));
+	ChassisPivot->SetupAttachment(VehicleRoot);
+	Body = MakePart(this, ChassisPivot, TEXT("Body"), nullptr, FVector::ZeroVector, FVector::OneVector);
+	Trim = MakePart(this, ChassisPivot, TEXT("Trim"), nullptr, FVector::ZeroVector, FVector::OneVector);
+	Booster = MakePart(this, ChassisPivot, TEXT("Booster"), nullptr, FVector::ZeroVector, FVector::OneVector);
 	GripPivot = CreateDefaultSubobject<USceneComponent>(TEXT("GripPivot"));
-	GripPivot->SetupAttachment(VehicleRoot);
+	GripPivot->SetupAttachment(ChassisPivot);
 	Grip = MakePart(this, GripPivot, TEXT("Grip"), nullptr, FVector::ZeroVector, FVector::OneVector);
 	for (int32 i = 0; i < 4; ++i)
 	{
@@ -178,7 +182,7 @@ AKartPawn::AKartPawn()
 	}
 
 	Driver = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Driver"));
-	Driver->SetupAttachment(VehicleRoot);
+	Driver->SetupAttachment(ChassisPivot);
 	Driver->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Driver->SetGenerateOverlapEvents(false);
 	Driver->SetAnimationMode(EAnimationMode::AnimationBlueprint);
@@ -226,6 +230,8 @@ AKartPawn::AKartPawn()
 	Movement->UpdatedComponent = Root;
 
 	Audio = CreateDefaultSubobject<UKartAudioComponent>(TEXT("Audio"));
+
+	Feel.bEnabled = !FParse::Param(FCommandLine::Get(), TEXT("KartWebFeel"));
 }
 
 UPawnMovementComponent* AKartPawn::GetMovementComponent() const
@@ -500,6 +506,7 @@ void AKartPawn::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	UpdateFeel(DeltaSeconds);
 	UpdateVisual(DeltaSeconds);
 	UpdateDriver(DeltaSeconds);
 	UpdateNamePlate();
@@ -512,6 +519,44 @@ void AKartPawn::Tick(float DeltaSeconds)
 		UE_LOG(LogTemp, Display, TEXT("Kart lap %d: %.2f s (race %.2f s)%s"), LoggedLaps, S.Time - LastLapTime, S.Time, S.bFinished ? TEXT(" FINISHED") : TEXT(""));
 		LastLapTime = S.Time;
 	}
+}
+
+void AKartPawn::UpdateFeel(float DeltaSeconds)
+{
+	const MovecadeKart::FKartState& S = Movement->SimState();
+	MovecadeKart::FKartFeelInput In;
+	In.DeltaSeconds = DeltaSeconds;
+	In.Speed = S.Speed;
+	In.Yaw = Movement->RenderYaw();
+	In.HopOffset = S.HopOffset;
+	In.DriftDirection = S.DriftDirection;
+	In.DriftPower = S.DriftPower;
+	In.BoostMultiplier = S.BoostMultiplier;
+	In.BoostTimeRemaining = S.BoostTimeRemaining;
+	In.bOnDirt = S.bOnDirt;
+	In.WallImpact = S.BarrierEvent;
+	if (!S.LastCollisionNormal.IsNearlyZero())
+	{
+		// The normal points from the wall to the kart: pointing left means the wall is on the right.
+		const double Yaw = Movement->RenderYaw();
+		const FVector2D Right(FMath::Cos(Yaw), -FMath::Sin(Yaw));
+		In.WallSide = FVector2D::DotProduct(S.LastCollisionNormal, Right) < 0.0 ? 1.0 : -1.0;
+	}
+	In.BumpImpact = S.BumpEvent;
+	In.DriftBoostCount = S.DriftBoostCount;
+	In.TeleportCount = S.TeleportCount;
+	In.Time = S.Time;
+	const MovecadeKart::FKartFeelPose& Pose = Feel.Update(In);
+
+	// The model frame: +X is the kart's left, +Y forward, +Z up (see VehicleRoot). Signs come from the axes, so
+	// "nose up" and "right side down" stay true whatever the handedness.
+	static const double PitchSign = SignToward(FVector::XAxisVector, FVector::YAxisVector, FVector::UpVector);
+	static const double RollSign = SignToward(FVector::YAxisVector, -FVector::XAxisVector, -FVector::UpVector);
+	const FQuat Chassis = FQuat(FVector::YAxisVector, RollSign * FMath::DegreesToRadians(Pose.ChassisRoll))
+		* FQuat(FVector::XAxisVector, PitchSign * FMath::DegreesToRadians(Pose.ChassisPitch));
+	// Squash keeps the volume: what the height and length lose, the width gains.
+	const double Width = 1.0 / FMath::Sqrt(FMath::Max(0.25, Pose.SquashUp * Pose.StretchForward));
+	ChassisPivot->SetRelativeTransform(FTransform(Chassis, FVector(0, 0, Pose.ChassisHeave * 100.0), FVector(Width, Pose.StretchForward, Pose.SquashUp)));
 }
 
 void AKartPawn::UpdateVisual(float DeltaSeconds)
@@ -591,7 +636,7 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 
 	// Grip targets, from where the rim (or bar) actually is this frame, into the driver's component space.
 	const FTransform GripFrame = GripPivot->GetComponentTransform();
-	const FTransform Vehicle = VehicleRoot->GetComponentTransform();
+	const FTransform Vehicle = ChassisPivot->GetComponentTransform();
 	const FVector DriverRight = Vehicle.TransformVectorNoScale(-FVector::XAxisVector); // model right is -X
 	const FVector DriverBack = Vehicle.TransformVectorNoScale(-FVector::YAxisVector);
 	FVector Left, Right;
@@ -708,7 +753,8 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 	using namespace MovecadeKart;
 	const FKartState& S = Movement->SimState();
 	const double Speed = FMath::Abs(S.Speed);
-	const double Chase = bSplitScreenCamera ? 6.0 : 5.4 + FMath::Min(1.35, Speed * 0.018);
+	const FKartFeelPose& Juice = Feel.Pose();
+	const double Chase = (bSplitScreenCamera ? 6.0 : 5.4 + FMath::Min(1.35, Speed * 0.018)) + Juice.CameraPullBack;
 	const double Ahead = bSplitScreenCamera ? 8.0 : 7.2 + FMath::Min(2.2, Speed * 0.045);
 	const double Yaw = Movement->RenderYaw();
 	const FVector2D Fwd(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
@@ -728,11 +774,15 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 		CameraPos = FMath::Lerp(CameraPos, EyeTarget, Alpha);
 		CameraLook = FMath::Lerp(CameraLook, LookTarget, Alpha);
 	}
-	// kartFxBus.ts shake: applied on top of the follow, never accumulated into it.
-	FRotator View = (CameraLook - CameraPos).Rotation();
-	FVector Eye = CameraPos;
+	// Feel offsets (drift swing, landing dip, corner bank) and the kartFxBus.ts shake ride on top of the
+	// follow, never accumulated into it: the springs already smooth them.
+	const FVector Right = Coords::DirToUE(FVector(FMath::Cos(Yaw), 0.0, -FMath::Sin(Yaw))); // the kart's right on the ground
+	FVector Eye = CameraPos + Right * Juice.CameraSide * 100.0 + FVector(0, 0, Juice.CameraDip * 100.0);
+	FRotator View = (CameraLook + FVector(0, 0, Juice.CameraDip * 40.0) - Eye).Rotation();
+	View.Yaw += Juice.CameraYaw;
+	View.Roll += Juice.CameraRoll;
 	const double Now = GetWorld()->GetTimeSeconds();
-	const double Amp = ShakePeak * FMath::Exp(-6.5 * (Now - ShakeStart));
+	const double Amp = ShakePeak * FMath::Exp(-6.5 * (Now - ShakeStart)) + Juice.CameraRumble;
 	if (Amp > 0.001)
 	{
 		const FRotationMatrix Axes(View);
@@ -741,6 +791,12 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 		const double Roll = (FMath::Sin(Now * 39.1 + 0.7) * 0.6 + FMath::Sin(Now * 71.3 + 2.9) * 0.4) * Amp * 0.06;
 		Eye += Axes.GetUnitAxis(EAxis::Y) * X * 100.0 + Axes.GetUnitAxis(EAxis::Z) * Y * 100.0;
 		View.Roll += FMath::RadiansToDegrees(Roll);
+	}
+	// Look behind: from just ahead of the kart, back down the road (the kart stays in the foreground).
+	if (const AKartPlayerController* Player = Cast<AKartPlayerController>(GetController()); Player && Player->IsLookingBack())
+	{
+		Eye = Coords::ToUE(Pos + Fwd * 3.6, EyeHeight * 0.6);
+		View = (Coords::ToUE(Pos - Fwd * 9.0, LookHeight * 0.45) - Eye).Rotation();
 	}
 	// -KartCloseCam=<yaw deg>,<distance m>,<height m>[,<deg/s>]: an orbit shot of this kart for art
 	// checks (yaw 0 = straight ahead of the kart looking back at it; the optional rate orbits it).
@@ -767,7 +823,7 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 
 	// Vertical FOV: 75 in split-screen, 72 + speed in a single view; converted to UE's horizontal FOV
 	// for this player's part of the screen.
-	const double VerticalFov = bSplitScreenCamera ? 75.0 : 72.0 + FMath::Min(8.0, Speed * 0.05);
+	const double VerticalFov = (bSplitScreenCamera ? 75.0 : 72.0 + FMath::Min(8.0, Speed * 0.05)) + Juice.CameraFovKick * (bSplitScreenCamera ? 0.6 : 1.0);
 	double Aspect = 16.0 / 9.0;
 	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
 	{

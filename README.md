@@ -14,6 +14,7 @@ Open `MyProject.uproject` and press **Play**. The editor opens on Sunset Harbor;
 | Steer | A D / Left Right | Left stick, D-pad |
 | Hop / drift (hold) | Space | RB / LB |
 | Use item | E / Left Shift | X / Y |
+| Look behind (hold) | C | Right stick click |
 | Skip intro, race again | Enter | Start |
 | Pause (resume, R restart, Q quit) | Esc or P | Back |
 
