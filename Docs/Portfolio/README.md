@@ -2,7 +2,7 @@
 
 **A party kart racer in Unreal Engine 5.8 that up to four players steer by tilting their phones.**
 It is a port of a shipped three.js web game, rebuilt to console quality: hardware ray-traced lighting,
-original environments, a sprung "game feel" layer, a full Slate front end, and a deterministic simulation with 47
+original environments, a sprung "game feel" layer, a full Slate front end, and a deterministic simulation with 51
 automated tests.
 
 ![Hero shot](media/hero.jpg)
@@ -13,11 +13,20 @@ automated tests.
 | **Platforms** | Windows (DX12, SM6); split screen up to 4 players; phones as controllers over WebSockets |
 | **Rendering** | Lumen GI and reflections on hardware ray tracing, virtual shadow maps, Nanite, TSR, dynamic resolution |
 | **Performance** | About 95 fps solo at a 1440p-equivalent load on an RTX 4070 SUPER; 60+ fps in four-way split screen |
-| **Tests** | 47 automation tests: sim, determinism, bots, items, network protocol, audio, feel, rendering budgets, UI logic |
+| **Effects** | Niagara boost flames, tiered drift sparks, tyre marks, dust, impact sparks, a stylised explosion, lightning, confetti; per-view screen effects |
+| **Tests** | 51 automation tests: sim, determinism, bots, items, effects, network protocol, audio, feel, rendering budgets, UI logic |
 
 ## Video
 
-[Trailer (MP4)](media/trailer.mp4) · [Gameplay, Violet Loop](media/gameplay_violet.mp4) · [Gameplay, Sunset Harbor](media/gameplay_harbor.mp4)
+[Trailer, 41 s (MP4)](media/trailer.mp4) · [Gameplay, Violet Loop](media/gameplay_violet.mp4) · [Gameplay, Sunset Harbor](media/gameplay_harbor.mp4)
+
+Every frame here is captured from the game itself. The cinematic shots come from its `-KartCinematic` camera and
+fixed-step frame capture (`Tools/video`).
+
+| | |
+|---|---|
+| ![Violet Loop](media/violet.jpg) | ![Sunset Harbor](media/harbor.jpg) |
+| ![Racer select](media/racers.jpg) | ![Results](media/results.jpg) |
 
 ## What was built, and the interesting problems
 
@@ -38,6 +47,8 @@ the original's units. Every constant ports verbatim, and behaviour can be checke
 
 ### 2. Game feel without touching gameplay
 
+![Boost pad](media/boost.jpg)
+
 The kart, camera and driver are pure presentation, reading the sim and never writing to it, so all the "juice" sits in
 its own layer (`FKartFeel`):
 
@@ -52,7 +63,7 @@ its own layer (`FKartFeel`):
 
 ### 3. Holding 60 fps with ray tracing on
 
-![Split screen](media/split4.jpg)
+![Four-way split screen](media/split4.jpg)
 
 - **Settings:** `UKartGameUserSettings` adds presets, a ray tracing switch and a motion blur switch on top of the
   engine's scalability.
@@ -66,7 +77,7 @@ its own layer (`FKartFeel`):
 
 ### 4. Tracks as data, art rebuilt from scratch
 
-![Violet Loop](media/violet.jpg)
+![Track select](media/tracks.jpg)
 
 A Node exporter turns the web game's track modules into JSON: centreline, walls, checkpoints, pads, boxes and scenery.
 The game loads the gameplay from that file and builds the visuals from the same file. So Violet Loop's art could be
@@ -75,7 +86,7 @@ fingerprint check proves that not one wall, checkpoint or pad moved.
 
 ### 5. A console-style front end in code
 
-![Front end](media/frontend.jpg)
+![Title screen](media/frontend.jpg)
 
 The title, menus, racer select, track select, settings, HUD, pause and results are Slate, drawn by one painter and
 style. That keeps them reviewable as text, with no binary merge conflicts, and makes elastic motion easy with render
@@ -100,6 +111,13 @@ and signed scores back. `Tools/net-sim` races a simulated phone against bots end
   became named phases, and every bot lap time stayed identical to the step.
 - **Docs:** [Architecture](../Architecture.md), the port specs in [Docs/Port](../Port), and an asset ledger with a
   licence for every third-party file ([ASSETS.md](../Port/ASSETS.md)).
+
+### 7. Original look, borrowed mechanics
+
+The web game's items followed a famous franchise closely: yellow "?" boxes, shells, a banana, a bullet with eyes,
+a star. The mechanics are kept, and every look is original. Item boxes are glass prize orbs, projectiles are buzz
+discs and a rotor drone, the dropped hazard is a traffic cone, and the rocket is a white toy rocket. All are
+modelled in code (`FX/KartItemMeshes`).
 
 ## Credits
 
