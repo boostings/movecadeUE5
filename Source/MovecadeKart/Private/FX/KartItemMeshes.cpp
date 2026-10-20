@@ -237,7 +237,14 @@ namespace
 			{
 				const FPolygonGroupID Group = Mesh.CreatePolygonGroup();
 				SlotNames[Group] = Sec.Slot;
-				Result->GetStaticMaterials().Add(FStaticMaterial(nullptr, Sec.Slot, Sec.Slot));
+				// The imported slot name only exists in editor builds.
+				FStaticMaterial Material(nullptr, Sec.Slot);
+				// Runtime-built meshes get no texture streaming data from a cook; a default density keeps the renderer happy.
+				Material.UVChannelData = FMeshUVChannelInfo(1.f);
+#if WITH_EDITORONLY_DATA
+				Material.ImportedMaterialSlotName = Sec.Slot;
+#endif
+				Result->GetStaticMaterials().Add(Material);
 				for (int32 t = 0; t + 2 < Sec.Verts.Num(); t += 3)
 				{
 					TArray<FVertexInstanceID, TInlineAllocator<3>> Corners;

@@ -695,7 +695,10 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 		if (S.DriftBoostCount != LastDriftBoostCount)
 		{
 			const FLinearColor Grade = DriftGradeColor(S.LastDriftBoost);
-			const FVector Rear = (BoostFire[0]->GetComponentLocation() + BoostFire[1]->GetComponentLocation()) * 0.5;
+			// The pipes' midpoint; the kart's own origin if the streams are missing (FX content not built or cooked).
+			const FVector Rear = BoostFire.Num() == 2 && BoostFire[0] && BoostFire[1]
+				? (BoostFire[0]->GetComponentLocation() + BoostFire[1]->GetComponentLocation()) * 0.5
+				: VehicleRoot->GetComponentLocation();
 			const FVector Ground = VehicleRoot->GetComponentTransform().TransformPosition((Anchors.Wheel[0] + Anchors.Wheel[1]) * 0.5);
 			FKartFxEmit Ring;
 			Ring.Field = EField::Ring;
