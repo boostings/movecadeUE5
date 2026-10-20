@@ -133,6 +133,14 @@ namespace
 		}
 	}
 
+	/** 0 -> 1 with a springy overshoot. */
+	double EaseOutBack(double T)
+	{
+		constexpr double C1 = 1.70158, C3 = C1 + 1.0;
+		const double X = FMath::Clamp(T, 0.0, 1.0) - 1.0;
+		return 1.0 + C3 * X * X * X + C1 * X * X;
+	}
+
 	/** Where a rotation about Axis by +Angle carries Probe: used to pick signs without trusting handedness. */
 	double SignToward(const FVector& Axis, const FVector& Probe, const FVector& Toward)
 	{
@@ -576,7 +584,11 @@ void AKartPawn::UpdateFeel(float DeltaSeconds)
 		* FQuat(FVector::XAxisVector, PitchSign * FMath::DegreesToRadians(Pose.ChassisPitch));
 	// Squash keeps the volume: what the height and length lose, the width gains.
 	const double Width = 1.0 / FMath::Sqrt(FMath::Max(0.25, Pose.SquashUp * Pose.StretchForward));
-	ChassisPivot->SetRelativeTransform(FTransform(Chassis, FVector(0, 0, Pose.ChassisHeave * 100.0), FVector(Width, Pose.StretchForward, Pose.SquashUp)));
+	// Revving on the grid: the chassis buzzes with the engine.
+	const double Time = GetWorld()->GetTimeSeconds();
+	const double Buzz = GridRev * (FMath::Sin(Time * 47.0) * 0.45 + FMath::Sin(Time * 71.0 + 1.3) * 0.25);
+	const FQuat Shudder(FVector::YAxisVector, FMath::DegreesToRadians(GridRev * 0.35 * FMath::Sin(Time * 39.0)));
+	ChassisPivot->SetRelativeTransform(FTransform(Shudder * Chassis, FVector(0, 0, Pose.ChassisHeave * 100.0 + Buzz), FVector(Width, Pose.StretchForward, Pose.SquashUp)));
 }
 
 void AKartPawn::UpdateVisual(float DeltaSeconds)
@@ -586,9 +598,11 @@ void AKartPawn::UpdateVisual(float DeltaSeconds)
 	SlipPivot->SetRelativeRotation(FRotator(0, YawToUE(S.SlipYaw) + ItemVisual.SpinDegrees, 0));
 	BodyPivot->SetRelativeLocationAndRotation(FVector(0, 0, S.HopOffset * 100.0 + ItemVisual.PopCm),
 		FRotator(0, YawToUE(S.GroupYaw), FMath::RadiansToDegrees(-S.Lean) + ItemVisual.TumbleDegrees));
-	// Lightning shrink eases in and out.
-	const double Scale = FMath::FInterpTo(BodyPivot->GetRelativeScale3D().X, ItemVisual.Scale, DeltaSeconds, 8.0);
-	BodyPivot->SetRelativeScale3D(FVector(Scale));
+	// Lightning shrink eases in and out; a respawned kart pops back in with an overshoot.
+	ShrinkScale = FMath::FInterpTo(ShrinkScale, ItemVisual.Scale, DeltaSeconds, 8.0);
+	const double SincePop = GetWorld()->GetTimeSeconds() - RespawnPopStart;
+	const double Pop = SincePop < 0.5 ? FMath::Lerp(0.15, 1.0, EaseOutBack(SincePop / 0.5)) : 1.0;
+	BodyPivot->SetRelativeScale3D(FVector(ShrinkScale * Pop));
 
 	const double Time = GetWorld()->GetTimeSeconds();
 	// Prism: the paint cycles through the rainbow.
@@ -848,8 +862,25 @@ void AKartPawn::AddShake(double PeakMetres)
 	ShakeStart = Now;
 }
 
+void AKartPawn::PlayCountdownSwoop(double Seconds)
+{
+	SwoopStart = GetWorld()->GetTimeSeconds();
+	SwoopSeconds = FMath::Max(0.1, Seconds);
+}
+
+void AKartPawn::PlayRaceStart()
+{
+	Feel.Punch(bSplitScreenCamera ? 4.0 : 7.0, 0.5);
+	AddShake(0.05);
+}
+
 void AKartPawn::SnapCamera()
 {
+	if (Movement && Movement->HasSim())
+	{
+		CameraTeleports = Movement->SimState().TeleportCount;
+	}
+	FinishCamStart = -1.0;
 	CameraPos = FVector::ZeroVector;
 	CameraLook = FVector::ZeroVector;
 	if (Movement && Movement->HasSim())
@@ -872,6 +903,15 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 	const FVector EyeTarget = Coords::ToUE(Pos - Fwd * Chase, EyeHeight);
 	const FVector LookTarget = Coords::ToUE(Pos + Fwd * Ahead, LookHeight);
 
+	if (S.TeleportCount != CameraTeleports && !(CameraPos.IsZero() && CameraLook.IsZero()))
+	{
+		// A respawn: rather than whip across the track to the new spot, start lifted above it and settle in as
+		// the kart pops back.
+		CameraTeleports = S.TeleportCount;
+		CameraPos = Coords::ToUE(Pos - Fwd * (Chase + 3.0), EyeHeight + 5.0);
+		CameraLook = Coords::ToUE(Pos, 0.5);
+		RespawnPopStart = GetWorld()->GetTimeSeconds();
+	}
 	if (CameraPos.IsZero() && CameraLook.IsZero())
 	{
 		CameraPos = EyeTarget;
@@ -901,6 +941,37 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 		const double Roll = (FMath::Sin(Now * 39.1 + 0.7) * 0.6 + FMath::Sin(Now * 71.3 + 2.9) * 0.4) * Amp * 0.06;
 		Eye += Axes.GetUnitAxis(EAxis::Y) * X * 100.0 + Axes.GetUnitAxis(EAxis::Z) * Y * 100.0;
 		View.Roll += FMath::RadiansToDegrees(Roll);
+	}
+	// Countdown swoop: from high behind and to the side of the grid, a crane down onto the chase view.
+	const FVector2D RightXZ(FMath::Cos(Yaw), -FMath::Sin(Yaw));
+	double FovOffset = 0.0;
+	if (Now - SwoopStart < SwoopSeconds)
+	{
+		const double T = FMath::InterpEaseInOut(0.0, 1.0, FMath::Clamp((Now - SwoopStart) / SwoopSeconds, 0.0, 1.0), 2.5);
+		const FVector Kart = Coords::ToUE(Pos, 1.0);
+		const FVector High = Coords::ToUE(Pos - Fwd * 15.0 + RightXZ * 8.0, 10.0);
+		Eye = FMath::Lerp(High, Eye, T);
+		View = FQuat::Slerp((Kart - Eye).ToOrientationQuat(), View.Quaternion(), T).Rotator();
+		FovOffset -= 12.0 * (1.0 - T);
+	}
+	// Finish: the camera swings from behind round to the driver's face (front three-quarter) and keeps a slow
+	// orbit until the results take over.
+	if (S.bFinished)
+	{
+		if (FinishCamStart < 0.0)
+		{
+			FinishCamStart = Now;
+		}
+		const double T = Now - FinishCamStart;
+		const double In = FMath::SmoothStep(0.0, 1.0, T / 0.9);
+		const double Swing = FMath::SmoothStep(0.0, 1.0, T / 2.6);
+		const double Angle = 180.0 - 148.0 * Swing - 9.0 * FMath::Max(0.0, T - 2.6);
+		const FVector Centre = VehicleRoot->GetComponentLocation() + FVector(0, 0, 80);
+		const FVector Around = FRotator(0, GetActorRotation().Yaw + Angle, 0).Vector();
+		const FVector OrbitEye = Centre + Around * (bSplitScreenCamera ? 700.0 : 600.0) + FVector(0, 0, 120);
+		Eye = FMath::Lerp(Eye, OrbitEye, In);
+		View = FQuat::Slerp(View.Quaternion(), (Centre + FVector(0, 0, 25) - OrbitEye).ToOrientationQuat(), In).Rotator();
+		FovOffset -= 10.0 * In;
 	}
 	// Look behind: from just ahead of the kart, back down the road (the kart stays in the foreground).
 	if (const AKartPlayerController* Player = Cast<AKartPlayerController>(GetController()); Player && Player->IsLookingBack())
@@ -937,7 +1008,7 @@ void AKartPawn::UpdateCamera(float DeltaSeconds)
 
 	// Vertical FOV: 75 in split-screen, 72 + speed in a single view; converted to UE's horizontal FOV
 	// for this player's part of the screen.
-	const double VerticalFov = (bSplitScreenCamera ? 75.0 : 72.0 + FMath::Min(8.0, Speed * 0.05)) + Juice.CameraFovKick * (bSplitScreenCamera ? 0.6 : 1.0);
+	const double VerticalFov = (bSplitScreenCamera ? 75.0 : 72.0 + FMath::Min(8.0, Speed * 0.05)) + Juice.CameraFovKick * (bSplitScreenCamera ? 0.6 : 1.0) + FovOffset;
 	double Aspect = 16.0 / 9.0;
 	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
 	{

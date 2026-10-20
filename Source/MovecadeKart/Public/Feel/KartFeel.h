@@ -120,6 +120,8 @@ namespace MovecadeKart
 
 		void Reset();
 		const FKartFeelPose& Update(const FKartFeelInput& In);
+		/** A one-shot camera kick (the start's GO): the FOV and pull-back springs peak near these values, then settle. */
+		void Punch(double FovDegrees, double PullBackMetres);
 		const FKartFeelPose& Pose() const { return Out; }
 
 	private:

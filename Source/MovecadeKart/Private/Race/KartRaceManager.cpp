@@ -3,6 +3,7 @@
 #include "Algo/Count.h"
 
 #include "Camera/CameraActor.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
@@ -304,12 +305,27 @@ void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
 		ResultsCameraPos = FVector::ZeroVector;
 		if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 		{
-			PC->SetViewTargetWithBlend(ResultsCamera, 0.8f, VTBlend_Cubic);
+			// A cut under a quick white flash: blending between two moving cameras flies through the scenery.
+			PC->SetViewTarget(ResultsCamera);
+			if (PC->PlayerCameraManager)
+			{
+				PC->PlayerCameraManager->StartCameraFade(0.85f, 0.f, 0.55f, FLinearColor(1.f, 0.97f, 0.92f), false, false);
+			}
 		}
 	}
 	else if (!bFullScreenShot)
 	{
 		UseRaceViews();
+	}
+	// The crane down onto the grid opens the countdown after the flyover; without a flyover it is the race's very
+	// first shot (so there is no cut from the chase view up to the crane).
+	const bool bSwoop = bSkipIntro ? NewPhase == EKartRacePhase::Waiting : NewPhase == EKartRacePhase::Countdown;
+	if (bSwoop)
+	{
+		for (FKartRacer& Racer : Racers)
+		{
+			Racer.Kart->PlayCountdownSwoop(bSkipIntro ? WaitingSeconds + 2.4 : 2.4);
+		}
 	}
 	for (FKartRacer& Racer : Racers)
 	{
@@ -327,7 +343,8 @@ void AKartRaceManager::UseRaceViews()
 	{
 		if (Racer.Viewer && Racer.Viewer->GetViewTarget() != Racer.Kart)
 		{
-			Racer.Viewer->SetViewTargetWithBlend(Racer.Kart, Phase == EKartRacePhase::Countdown ? 0.8f : 0.f, VTBlend_Cubic);
+			// A cut: the countdown opens on the crane shot (AKartPawn::PlayCountdownSwoop), which carries the motion.
+			Racer.Viewer->SetViewTarget(Racer.Kart);
 		}
 	}
 }
@@ -566,6 +583,10 @@ void AKartRaceManager::BeginRacing()
 	RaceSteps = 0;
 	Accumulator = 0.0;
 	SetPhase(EKartRacePhase::Racing);
+	for (FKartRacer& Racer : Racers)
+	{
+		Racer.Kart->PlayRaceStart();
+	}
 	OnCue.Broadcast(-1, TEXT("race.go"));
 	if (UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this))
 	{

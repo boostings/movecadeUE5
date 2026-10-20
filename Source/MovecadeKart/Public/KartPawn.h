@@ -63,6 +63,10 @@ public:
 	void SetFinishPlace(int32 Place) { FinishPlace = Place; }
 	/** 0..1 revving on the grid during the countdown. */
 	void SetGridRev(float Amount) { GridRev = Amount; }
+	/** The countdown's opening shot: the camera cranes down from high over the grid onto the chase view. */
+	void PlayCountdownSwoop(double Seconds);
+	/** GO: a punch of FOV and pull-back. */
+	void PlayRaceStart();
 	/** Camera shake (kartFxBus.ts): peak in metres, decaying at 6.5/s; a new kick keeps the larger envelope. */
 	void AddShake(double PeakMetres);
 
@@ -184,6 +188,18 @@ private:
 	int32 FinishPlace = 0;
 	float GridRev = 0.f;
 	uint32 SeenDriftBoosts = 0;
+
+	// Camera transitions (UpdateCamera).
+	double SwoopStart = -1000.0;
+	double SwoopSeconds = 2.4;
+	/** World time the finish orbit began, or < 0 before this kart finishes. */
+	double FinishCamStart = -1.0;
+	/** The teleport the camera last saw; a new one drops the camera in from above instead of whipping across. */
+	uint32 CameraTeleports = 0;
+	/** World time of the last respawn: the kart pops back in. */
+	double RespawnPopStart = -1000.0;
+	/** The lightning shrink, eased. */
+	double ShrinkScale = 1.0;
 
 	/** The driver's moods, eased (see UpdateDriverMood). */
 	struct FDriverMood

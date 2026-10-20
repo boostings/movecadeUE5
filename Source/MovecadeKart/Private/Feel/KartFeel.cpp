@@ -45,6 +45,17 @@ namespace MovecadeKart
 		Out = FKartFeelPose();
 	}
 
+	void FKartFeel::Punch(double FovDegrees, double PullBackMetres)
+	{
+		if (!bEnabled)
+		{
+			return;
+		}
+		// An impulse v on a spring of angular frequency w peaks near v / w (lightly damped).
+		Fov.Kick(FovDegrees * 2.0 * UE_DOUBLE_PI * 3.0);
+		PullBack.Kick(PullBackMetres * 2.0 * UE_DOUBLE_PI * 2.0);
+	}
+
 	const FKartFeelPose& FKartFeel::Update(const FKartFeelInput& In)
 	{
 		const double Dt = FMath::Min(In.DeltaSeconds, MaxFrame);
