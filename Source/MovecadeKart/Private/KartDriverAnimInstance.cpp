@@ -117,7 +117,7 @@ void FKartDriverAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 	HeadYaw = FMath::FInterpTo(HeadYaw, Input.Steer * 0.42f, Dt, 15.f);
 }
 
-const FKartDriverAnimProxy::FDriverBones& FKartDriverAnimProxy::CacheBones(const FBoneContainer& Bones)
+const FKartDriverAnimProxy::FDriverBones& FKartDriverAnimProxy::CacheDriverBones(const FBoneContainer& Bones)
 {
 	if (bBonesCached && CachedSerial == Bones.GetSerialNumber())
 	{
@@ -157,7 +157,7 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 {
 	Output.ResetToRefPose();
 	FCompactPose& Pose = Output.Pose;
-	const FDriverBones& B = CacheBones(Pose.GetBoneContainer());
+	const FDriverBones& B = CacheDriverBones(Pose.GetBoneContainer());
 	const int32 Torso = B.Torso;
 	const int32 Head = B.Head;
 	const int32 Neck = B.Neck;

@@ -82,7 +82,7 @@ private:
 		int32 Leg[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
 	};
 	/** Looks the joints up by name only when the bone container changes (LOD, mesh swap), not every evaluation. */
-	const FDriverBones& CacheBones(const FBoneContainer& Bones);
+	const FDriverBones& CacheDriverBones(const FBoneContainer& Bones);
 
 	FDriverBones CachedBones;
 	uint16 CachedSerial = 0;

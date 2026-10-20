@@ -90,7 +90,7 @@ AKartRaceManager* AKartRaceManager::Get(const UObject* WorldContext)
 	{
 		return nullptr;
 	}
-	for (TActorIterator<AKartRaceManager> It(World); It; ++It)
+	if (TActorIterator<AKartRaceManager> It{World})
 	{
 		return *It;
 	}

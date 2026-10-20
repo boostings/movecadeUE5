@@ -53,7 +53,7 @@ AKartFrontEnd* AKartFrontEnd::Find(const UWorld* World)
 	{
 		return nullptr;
 	}
-	for (TActorIterator<AKartFrontEnd> It(const_cast<UWorld*>(World)); It; ++It)
+	if (TActorIterator<AKartFrontEnd> It{const_cast<UWorld*>(World)})
 	{
 		return *It;
 	}

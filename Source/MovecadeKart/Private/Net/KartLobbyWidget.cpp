@@ -371,13 +371,12 @@ void UKartLobbyWidget::UpdateBackdrop(float DeltaSeconds)
 	}
 	BackdropClock += DeltaSeconds;
 	FBox2D Bounds(FVector2D(-100.0, -100.0), FVector2D(100.0, 100.0));
-	for (TActorIterator<ATrackBuilder> It(GetWorld()); It; ++It)
+	if (TActorIterator<ATrackBuilder> It{GetWorld()})
 	{
 		if (const TSharedPtr<const MovecadeKart::FTrack> Track = It->GetTrack(); Track.IsValid() && Track->MinimapBounds.bIsValid)
 		{
 			Bounds = Track->MinimapBounds;
 		}
-		break;
 	}
 	const double Extent = FMath::Max(Bounds.GetSize().X, Bounds.GetSize().Y);
 	const double Angle = BackdropClock * 0.035;

@@ -43,10 +43,9 @@ ATrackBuilder* AKartGameMode::GetTrackBuilder()
 {
 	if (!TrackBuilder)
 	{
-		for (TActorIterator<ATrackBuilder> It(GetWorld()); It; ++It)
+		if (TActorIterator<ATrackBuilder> It{GetWorld()})
 		{
 			TrackBuilder = *It;
-			break;
 		}
 	}
 	if (!TrackBuilder)
