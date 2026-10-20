@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "Feel/KartFeel.h"
 #include "KartLook.h"
 #include "KartPawn.generated.h"
 
@@ -69,6 +70,7 @@ private:
 	void UpdateDriver(float DeltaSeconds);
 	void UpdateNamePlate();
 	void UpdateCamera(float DeltaSeconds);
+	void UpdateFeel(float DeltaSeconds);
 	void ApplyVehicle();
 	void ApplyDriver();
 	void ApplyColours();
@@ -87,6 +89,10 @@ private:
 	/** The vehicle's model frame: GLB units x100, model forward (+Y) turned to the kart's +X, origin 49 cm up (wheels on the road). */
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<USceneComponent> VehicleRoot;
+
+	/** The sprung body: pitch, roll, heave and squash from FKartFeel. The wheels stay on VehicleRoot, on the road. */
+	UPROPERTY(VisibleAnywhere, Category = "Kart")
+	TObjectPtr<USceneComponent> ChassisPivot;
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<UStaticMeshComponent> Body;
@@ -175,12 +181,23 @@ private:
 	double WheelSpin = 0.0;
 	double RimTurn = 0.0;
 	double NextBlink = 2.0;
+	/** 0..1, eases in once this kart has finished. */
+	double Cheer = 0.0;
 	double BlinkStart = -10.0;
 
 	bool bSplitScreenCamera = false;
 	FKartItemVisual ItemVisual;
 	double ShakePeak = 0.0;
 	double ShakeStart = -1000.0;
+
+	/** Chassis and camera juice on top of the sim's presentation layers (-KartWebFeel turns it off). */
+	MovecadeKart::FKartFeel Feel;
+
+	uint32 SeenBarrierEvents = 0;
+	uint32 SeenBumpEvents = 0;
+	bool bDebugGrip = false;
+	/** -KartCloseCam: yaw, distance and height of an orbit shot, and its rate; Y <= 0 means off. */
+	FVector4 CloseCam = FVector4(0, -1, 0, 0);
 
 	FVector CameraPos = FVector::ZeroVector;
 	FVector CameraLook = FVector::ZeroVector;

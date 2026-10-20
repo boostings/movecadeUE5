@@ -1,5 +1,6 @@
 #include "Sim/KartTrack.h"
 
+#include "Algo/AllOf.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/JsonReader.h"
@@ -183,6 +184,344 @@ namespace MovecadeKart
 			const TSharedPtr<FJsonObject>* Out = nullptr;
 			return O.IsValid() && O->TryGetObjectField(Key, Out) ? *Out : nullptr;
 		}
+
+		/** The object in an array entry, or null when the entry is something else (bad entries are skipped). */
+		TSharedPtr<FJsonObject> ObjOf(const TSharedPtr<FJsonValue>& V)
+		{
+			return V.IsValid() && V->Type == EJson::Object ? V->AsObject() : nullptr;
+		}
+
+		using FNumbers = TArray<double, TInlineAllocator<8>>;
+
+		/** The numbers in an array entry; false unless it is an array of at least Min numbers. */
+		bool NumbersOf(const TSharedPtr<FJsonValue>& V, int32 Min, FNumbers& Out)
+		{
+			Out.Reset();
+			if (!V.IsValid() || V->Type != EJson::Array)
+			{
+				return false;
+			}
+			for (const TSharedPtr<FJsonValue>& E : V->AsArray())
+			{
+				if (!E.IsValid() || E->Type != EJson::Number)
+				{
+					return false;
+				}
+				Out.Add(E->AsNumber());
+			}
+			return Out.Num() >= Min;
+		}
+
+		FString Str(const TSharedPtr<FJsonObject>& O, const TCHAR* Key)
+		{
+			FString V;
+			if (O.IsValid())
+			{
+				O->TryGetStringField(Key, V);
+			}
+			return V;
+		}
+
+		/** Centreline samples (and, for spline tracks, the wall offset from the first sample). */
+		void ParseCentre(const TSharedPtr<FJsonObject>& Root, FTrack& Out)
+		{
+			for (const TSharedPtr<FJsonValue>& V : Arr(Obj(Root, TEXT("samples")), TEXT("points")))
+			{
+				if (const TSharedPtr<FJsonObject> P = ObjOf(V))
+				{
+					if (Out.bAnalyticWalls && Out.Centre.Num() == 0)
+					{
+						Out.WallOffset = Num(Obj(P, TEXT("right")), TEXT("wall"), 16.3);
+					}
+					Out.Centre.Add(XZ(P));
+					Out.CentreTangent.Add(FVector2D(Num(P, TEXT("tx")), Num(P, TEXT("tz"))));
+				}
+			}
+		}
+
+		/** Waypoints, checkpoints and each checkpoint's respawn pose. */
+		void ParseRoute(const TSharedPtr<FJsonObject>& Root, FTrack& Out)
+		{
+			for (const TSharedPtr<FJsonValue>& V : Arr(Obj(Root, TEXT("navigation")), TEXT("waypoints")))
+			{
+				if (const TSharedPtr<FJsonObject> W = ObjOf(V))
+				{
+					Out.Waypoints.Add(XZ(W));
+				}
+			}
+			for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("checkpoints")))
+			{
+				if (const TSharedPtr<FJsonObject> C = ObjOf(V))
+				{
+					FCheckpoint& Cp = Out.Checkpoints.AddDefaulted_GetRef();
+					Cp.Id = Str(C, TEXT("id"));
+					Cp.Position = XZ(C);
+					Cp.Radius = Num(C, TEXT("radius"), 24);
+					C->TryGetBoolField(TEXT("isFinish"), Cp.bFinish);
+				}
+			}
+			Out.StartCheckpoint = static_cast<int32>(Num(Root, TEXT("startCheckpointIndex"), 1));
+
+			// Respawn poses: the waypoint before the checkpoint's nearest waypoint, facing the next one.
+			const int32 W = Out.Waypoints.Num();
+			if (W > 1)
+			{
+				for (FCheckpoint& Cp : Out.Checkpoints)
+				{
+					const int32 Recovery = (Out.NearestWaypoint(Cp.Position) - 1 + W) % W;
+					const FVector2D P = Out.Waypoints[Recovery];
+					const FVector2D Next = Out.Waypoints[(Recovery + 1) % W];
+					Cp.ApproachPosition = P;
+					Cp.ApproachYaw = FMath::Atan2(P.X - Next.X, P.Y - Next.Y);
+				}
+			}
+		}
+
+		/** Spawn grid, boost pads and their config, and the ground bands. */
+		void ParseSurfaces(const TSharedPtr<FJsonObject>& Root, FTrack& Out)
+		{
+			for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("spawnGrid")))
+			{
+				if (const TSharedPtr<FJsonObject> S = ObjOf(V))
+				{
+					Out.Grid.Add({ XZ(S), Num(S, TEXT("yaw")) });
+				}
+			}
+			for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("boostPads")))
+			{
+				if (const TSharedPtr<FJsonObject> B = ObjOf(V))
+				{
+					Out.BoostPads.Add({ XZ(B), Num(B, TEXT("yaw")), Num(B, TEXT("width")), Num(B, TEXT("length")) });
+				}
+			}
+			if (const TSharedPtr<FJsonObject> Boost = Obj(Root, TEXT("boostConfig")))
+			{
+				Out.BoostMultiplier = Num(Boost, TEXT("multiplier"), 1.8);
+				Out.BoostDuration = Num(Boost, TEXT("durationS"), 1.5);
+				Out.BoostCooldown = Num(Boost, TEXT("cooldownS"), 2.0);
+				Out.BoostPadding = Num(Boost, TEXT("triggerPaddingM"), 1.5);
+			}
+			for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("ribbons")))
+			{
+				const TSharedPtr<FJsonObject> R = ObjOf(V);
+				if (R && Str(R, TEXT("collision")) == TEXT("ground"))
+				{
+					const double Inner = Num(R, TEXT("inner")), Outer = Num(R, TEXT("outer"));
+					Out.GroundBands.Add({ FMath::Min(Inner, Outer), FMath::Max(Inner, Outer),
+						FMath::Max(Num(R, TEXT("innerY")), Num(R, TEXT("outerY"))), Str(R, TEXT("surface")) == TEXT("dirt") });
+				}
+			}
+		}
+
+		/** Walls: explicit mesh-wall segments (Violet) or offset polylines (Harbor); then the dirt grid. */
+		void ParseCollision(const TSharedPtr<FJsonObject>& Root, FTrack& Out)
+		{
+			const TSharedPtr<FJsonObject> Collision = Obj(Root, TEXT("collision"));
+			Out.KartRadius = Num(Collision, TEXT("kartRadiusM"), 1.15);
+			Out.SweepSubstep = Num(Collision, TEXT("substepM"), 0.65);
+
+			// The web build tests the left wall's segments before the right wall's.
+			TArray<TSharedPtr<FJsonObject>> Walls;
+			for (const TSharedPtr<FJsonValue>& V : Arr(Collision, TEXT("walls")))
+			{
+				if (const TSharedPtr<FJsonObject> W = ObjOf(V))
+				{
+					Walls.Add(W);
+				}
+			}
+			Walls.StableSort([](const TSharedPtr<FJsonObject>& A, const TSharedPtr<FJsonObject>& B)
+			{
+				return Num(A, TEXT("side")) < Num(B, TEXT("side"));
+			});
+
+			// B14: where a bend is tighter than the wall offset, the inner offset curve folds back on itself and
+			// leaves wall segments across the road (Harbor's final hairpin). A real wall point is a full offset
+			// away from the centreline; drop segments that come closer. The analytic sweep still pulls back any
+			// kart more than offset + radius out, so the trimmed apex can't leak.
+			auto Folded = [&Out](const FVector2D& A, const FVector2D& B)
+			{
+				if (!Out.bAnalyticWalls)
+				{
+					return false;
+				}
+				FVector2D Nearest;
+				double Offset = 0.0;
+				const double Limit = Out.WallOffset - 0.25;
+				return Out.NearestCentre(A, Nearest, Offset) < Limit || Out.NearestCentre(B, Nearest, Offset) < Limit;
+			};
+
+			TArray<FWallSegment> Segments;
+			TArray<FWallSegment> ProbeSegments;
+			FNumbers E;
+			for (const TSharedPtr<FJsonObject>& W : Walls)
+			{
+				// Mesh walls (Violet): explicit [ax, az, bx, bz, nx, nz] segments with the face normal the web's
+				// raycast reports, for the sweep ("sweep"), the probe rays ("probe") or both (no role).
+				const TArray<TSharedPtr<FJsonValue>>& Explicit = Arr(W, TEXT("segments"));
+				if (Explicit.Num() > 0)
+				{
+					const FString Role = Str(W, TEXT("role"));
+					for (const TSharedPtr<FJsonValue>& SV : Explicit)
+					{
+						if (!NumbersOf(SV, 6, E))
+						{
+							continue;
+						}
+						FWallSegment S;
+						S.A = FVector2D(E[0], E[1]);
+						S.D = FVector2D(E[2], E[3]) - S.A;
+						S.LengthSq = S.D.SizeSquared();
+						S.FaceNormal = FVector2D(E[4], E[5]);
+						if (S.LengthSq <= 0.0)
+						{
+							continue;
+						}
+						if (Role != TEXT("probe"))
+						{
+							Segments.Add(S);
+						}
+						if (Role != TEXT("sweep"))
+						{
+							ProbeSegments.Add(S);
+						}
+					}
+					Out.bRadialWallPush = true;
+					continue;
+				}
+
+				const double Side = Num(W, TEXT("side"), 1);
+				bool bClosed = false;
+				W->TryGetBoolField(TEXT("closed"), bClosed);
+				TArray<FVector2D> Line;
+				for (const TSharedPtr<FJsonValue>& PV : Arr(W, TEXT("polyline")))
+				{
+					if (NumbersOf(PV, 2, E))
+					{
+						Line.Add(FVector2D(E[0], E[1]));
+					}
+				}
+				const int32 Count = bClosed ? Line.Num() : Line.Num() - 1;
+				for (int32 i = 0; i < Count; ++i)
+				{
+					FWallSegment S;
+					S.A = Line[i];
+					S.D = Line[(i + 1) % Line.Num()] - S.A;
+					S.LengthSq = S.D.SizeSquared();
+					if (S.LengthSq <= 0.0 || Folded(S.A, S.A + S.D))
+					{
+						continue;
+					}
+					const FVector2D Right = FVector2D(-S.D.Y, S.D.X) / FMath::Sqrt(S.LengthSq);
+					S.FaceNormal = Right * Side;
+					Segments.Add(S);
+				}
+			}
+			Out.Walls.Reset(MoveTemp(Segments));
+			if (Out.bRadialWallPush)
+			{
+				Out.ProbeWalls.Reset(MoveTemp(ProbeSegments));
+			}
+
+			if (const TSharedPtr<FJsonObject> Dirt = Obj(Collision, TEXT("dirtGrid")))
+			{
+				FDirtGrid& G = Out.DirtGrid;
+				G.CellSize = Num(Dirt, TEXT("cellM"));
+				G.Min = FVector2D(Num(Dirt, TEXT("minX")), Num(Dirt, TEXT("minZ")));
+				G.Cols = static_cast<int32>(Num(Dirt, TEXT("cols")));
+				G.Rows = static_cast<int32>(Num(Dirt, TEXT("rows")));
+				if (G.IsValid())
+				{
+					G.Cells.Init(false, G.Cols * G.Rows);
+					for (const TSharedPtr<FJsonValue>& RV : Arr(Dirt, TEXT("runs")))
+					{
+						if (!NumbersOf(RV, 3, E))
+						{
+							continue;
+						}
+						const int32 Row = static_cast<int32>(E[0]);
+						const int32 First = FMath::Max(0, static_cast<int32>(E[1]));
+						const int32 Last = FMath::Min(G.Cols - 1, static_cast<int32>(E[2]));
+						if (Row < 0 || Row >= G.Rows)
+						{
+							continue;
+						}
+						for (int32 Col = First; Col <= Last; ++Col)
+						{
+							G.Cells[Row * G.Cols + Col] = true;
+						}
+					}
+				}
+			}
+		}
+
+		/** Recovery tuning, item boxes, intro cameras, minimap bounds and the sun. */
+		void ParsePresentation(const TSharedPtr<FJsonObject>& Root, FTrack& Out)
+		{
+			if (const TSharedPtr<FJsonObject> Recovery = Obj(Root, TEXT("recovery")))
+			{
+				Out.RecoveryDistance = Num(Recovery, TEXT("maxDistanceM"), 64);
+				Out.RecoverySkipWaypoints = static_cast<int32>(Num(Recovery, TEXT("skipWaypoints"), 3));
+			}
+			for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("itemBoxes")))
+			{
+				if (const TSharedPtr<FJsonObject> B = ObjOf(V))
+				{
+					Out.ItemBoxes.Add(FVector(Num(B, TEXT("x")), Num(B, TEXT("y"), 1.0), Num(B, TEXT("z"))));
+				}
+			}
+			auto Vec3 = [](const TSharedPtr<FJsonObject>& O, const TCHAR* Key)
+			{
+				const TArray<TSharedPtr<FJsonValue>>& P = Arr(O, Key);
+				const bool bNumbers = P.Num() == 3 && Algo::AllOf(P, [](const TSharedPtr<FJsonValue>& V) { return V.IsValid() && V->Type == EJson::Number; });
+				return bNumbers ? FVector(P[0]->AsNumber(), P[1]->AsNumber(), P[2]->AsNumber()) : FVector::ZeroVector;
+			};
+			for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("staticCameras")))
+			{
+				if (const TSharedPtr<FJsonObject> C = ObjOf(V))
+				{
+					FStaticCamera& Camera = Out.StaticCameras.AddDefaulted_GetRef();
+					Camera.Name = Str(C, TEXT("name"));
+					Camera.Position = Vec3(C, TEXT("position"));
+					Camera.LookAt = Vec3(C, TEXT("lookAt"));
+				}
+			}
+			if (const TSharedPtr<FJsonObject> Bounds = Obj(Obj(Root, TEXT("minimap")), TEXT("bounds")))
+			{
+				Out.MinimapBounds = FBox2D(FVector2D(Num(Bounds, TEXT("minX")), Num(Bounds, TEXT("minZ"))),
+					FVector2D(Num(Bounds, TEXT("maxX")), Num(Bounds, TEXT("maxZ"))));
+			}
+			const TSharedPtr<FJsonObject> Look = Obj(Root, TEXT("look"));
+			if (Look && Arr(Look, TEXT("sunDirection")).Num() == 3)
+			{
+				Out.SunDirection = Vec3(Look, TEXT("sunDirection"));
+			}
+		}
+
+		/** Everything the sim relies on without checking again. */
+		bool Validate(const FTrack& T, FString& OutError)
+		{
+			if (T.Centre.Num() < 3)
+			{
+				OutError = TEXT("Track has no centreline samples");
+			}
+			else if (T.Grid.Num() == 0 || T.Checkpoints.Num() == 0)
+			{
+				OutError = TEXT("Track has no spawn grid or checkpoints");
+			}
+			else if (!T.Checkpoints.IsValidIndex(T.StartCheckpoint))
+			{
+				OutError = FString::Printf(TEXT("startCheckpointIndex %d is out of range (%d checkpoints)"), T.StartCheckpoint, T.Checkpoints.Num());
+			}
+			else if (T.Waypoints.Num() < 2)
+			{
+				OutError = TEXT("Track needs at least two waypoints");
+			}
+			else if (T.Laps < 1)
+			{
+				OutError = TEXT("Track needs at least one lap");
+			}
+			return OutError.IsEmpty();
+		}
 	}
 
 	bool FTrack::LoadFromJsonFile(const FString& Path, FTrack& Out, FString& OutError)
@@ -209,282 +548,27 @@ namespace MovecadeKart
 			OutError = TEXT("Unsupported track schemaVersion (expected 1)");
 			return false;
 		}
+		const TSharedPtr<FJsonObject> Header = Obj(Root, TEXT("track"));
+		if (!Header)
+		{
+			OutError = TEXT("Track JSON has no \"track\" header");
+			return false;
+		}
 
 		Out = FTrack();
-		const TSharedPtr<FJsonObject> Track = Obj(Root, TEXT("track"));
-		Track->TryGetStringField(TEXT("id"), Out.Id);
-		Track->TryGetStringField(TEXT("name"), Out.Name);
-		Out.Laps = static_cast<int32>(Num(Track, TEXT("laps"), 3));
-		Out.GroundY = Num(Track, TEXT("groundY"));
-		Out.SuggestedRebaseY = Num(Track, TEXT("suggestedRebaseY"));
-		FString TrackType;
-		Track->TryGetStringField(TEXT("trackType"), TrackType);
-		Out.bAnalyticWalls = TrackType == TEXT("analytic-spline");
+		Out.Id = Str(Header, TEXT("id"));
+		Out.Name = Str(Header, TEXT("name"));
+		Out.Laps = static_cast<int32>(Num(Header, TEXT("laps"), 3));
+		Out.GroundY = Num(Header, TEXT("groundY"));
+		Out.SuggestedRebaseY = Num(Header, TEXT("suggestedRebaseY"));
+		Out.bAnalyticWalls = Str(Header, TEXT("trackType")) == TEXT("analytic-spline");
 
-		const TArray<TSharedPtr<FJsonValue>>& Points = Arr(Obj(Root, TEXT("samples")), TEXT("points"));
-		for (const TSharedPtr<FJsonValue>& V : Points)
-		{
-			const TSharedPtr<FJsonObject> P = V->AsObject();
-			Out.Centre.Add(XZ(P));
-			Out.CentreTangent.Add(FVector2D(Num(P, TEXT("tx")), Num(P, TEXT("tz"))));
-		}
-		if (Out.Centre.Num() < 3)
-		{
-			OutError = TEXT("Track has no centreline samples");
-			return false;
-		}
-		if (Out.bAnalyticWalls)
-		{
-			const TSharedPtr<FJsonObject> Right = Obj(Points[0]->AsObject(), TEXT("right"));
-			Out.WallOffset = Num(Right, TEXT("wall"), 16.3);
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Obj(Root, TEXT("navigation")), TEXT("waypoints")))
-		{
-			Out.Waypoints.Add(XZ(V->AsObject()));
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("checkpoints")))
-		{
-			const TSharedPtr<FJsonObject> C = V->AsObject();
-			FCheckpoint& Cp = Out.Checkpoints.AddDefaulted_GetRef();
-			C->TryGetStringField(TEXT("id"), Cp.Id);
-			Cp.Position = XZ(C);
-			Cp.Radius = Num(C, TEXT("radius"), 24);
-			C->TryGetBoolField(TEXT("isFinish"), Cp.bFinish);
-		}
-		Out.StartCheckpoint = static_cast<int32>(Num(Root, TEXT("startCheckpointIndex"), 1));
-
-		// Respawn poses: the waypoint before the checkpoint's nearest waypoint, facing the next one.
-		if (Out.Waypoints.Num() > 1)
-		{
-			const int32 W = Out.Waypoints.Num();
-			for (FCheckpoint& Cp : Out.Checkpoints)
-			{
-				const int32 Near = Out.NearestWaypoint(Cp.Position);
-				const int32 Recovery = (Near - 1 + W) % W;
-				const FVector2D P = Out.Waypoints[Recovery];
-				const FVector2D Next = Out.Waypoints[(Recovery + 1) % W];
-				Cp.ApproachPosition = P;
-				Cp.ApproachYaw = FMath::Atan2(P.X - Next.X, P.Y - Next.Y);
-			}
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("spawnGrid")))
-		{
-			const TSharedPtr<FJsonObject> S = V->AsObject();
-			Out.Grid.Add({ XZ(S), Num(S, TEXT("yaw")) });
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("boostPads")))
-		{
-			const TSharedPtr<FJsonObject> B = V->AsObject();
-			Out.BoostPads.Add({ XZ(B), Num(B, TEXT("yaw")), Num(B, TEXT("width")), Num(B, TEXT("length")) });
-		}
-		if (const TSharedPtr<FJsonObject> Boost = Obj(Root, TEXT("boostConfig")))
-		{
-			Out.BoostMultiplier = Num(Boost, TEXT("multiplier"), 1.8);
-			Out.BoostDuration = Num(Boost, TEXT("durationS"), 1.5);
-			Out.BoostCooldown = Num(Boost, TEXT("cooldownS"), 2.0);
-			Out.BoostPadding = Num(Boost, TEXT("triggerPaddingM"), 1.5);
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("ribbons")))
-		{
-			const TSharedPtr<FJsonObject> R = V->AsObject();
-			FString Collision, Surface;
-			R->TryGetStringField(TEXT("collision"), Collision);
-			R->TryGetStringField(TEXT("surface"), Surface);
-			if (Collision == TEXT("ground"))
-			{
-				const double Inner = Num(R, TEXT("inner")), Outer = Num(R, TEXT("outer"));
-				Out.GroundBands.Add({ FMath::Min(Inner, Outer), FMath::Max(Inner, Outer),
-					FMath::Max(Num(R, TEXT("innerY")), Num(R, TEXT("outerY"))), Surface == TEXT("dirt") });
-			}
-		}
-
-		const TSharedPtr<FJsonObject> Collision = Obj(Root, TEXT("collision"));
-		Out.KartRadius = Num(Collision, TEXT("kartRadiusM"), 1.15);
-		Out.SweepSubstep = Num(Collision, TEXT("substepM"), 0.65);
-		{
-			// The web build tests the left wall's segments before the right wall's.
-			TArray<TSharedPtr<FJsonObject>> Walls;
-			for (const TSharedPtr<FJsonValue>& V : Arr(Collision, TEXT("walls")))
-			{
-				Walls.Add(V->AsObject());
-			}
-			Walls.StableSort([](const TSharedPtr<FJsonObject>& A, const TSharedPtr<FJsonObject>& B)
-			{
-				return Num(A, TEXT("side")) < Num(B, TEXT("side"));
-			});
-			TArray<FWallSegment> Segments;
-			// B14: where a bend is tighter than the wall offset, the inner offset curve folds back on itself
-			// and leaves wall segments across the road (Harbor's final hairpin). A real wall point is a full
-			// offset away from the centreline; drop segments that come closer. The analytic sweep still pulls
-			// back any kart more than offset + radius out, so the trimmed apex can't leak.
-			auto Folded = [&Out](const FVector2D& A, const FVector2D& B)
-			{
-				if (!Out.bAnalyticWalls)
-				{
-					return false;
-				}
-				FVector2D Nearest;
-				double Offset = 0.0;
-				const double Limit = Out.WallOffset - 0.25;
-				return Out.NearestCentre(A, Nearest, Offset) < Limit || Out.NearestCentre(B, Nearest, Offset) < Limit;
-			};
-			TArray<FWallSegment> ProbeSegments;
-			for (const TSharedPtr<FJsonObject>& W : Walls)
-			{
-				// Mesh walls (Violet): explicit [ax, az, bx, bz, nx, nz] segments with the face normal the web's
-				// raycast reports, for the sweep ("sweep"), the probe rays ("probe") or both (no role).
-				const TArray<TSharedPtr<FJsonValue>>& Explicit = Arr(W, TEXT("segments"));
-				if (Explicit.Num() > 0)
-				{
-					FString Role;
-					W->TryGetStringField(TEXT("role"), Role);
-					for (const TSharedPtr<FJsonValue>& SV : Explicit)
-					{
-						const TArray<TSharedPtr<FJsonValue>>& E = SV->AsArray();
-						if (E.Num() < 6)
-						{
-							continue;
-						}
-						FWallSegment S;
-						S.A = FVector2D(E[0]->AsNumber(), E[1]->AsNumber());
-						S.D = FVector2D(E[2]->AsNumber(), E[3]->AsNumber()) - S.A;
-						S.LengthSq = S.D.SizeSquared();
-						S.FaceNormal = FVector2D(E[4]->AsNumber(), E[5]->AsNumber());
-						if (S.LengthSq <= 0.0)
-						{
-							continue;
-						}
-						if (Role != TEXT("probe"))
-						{
-							Segments.Add(S);
-						}
-						if (Role != TEXT("sweep"))
-						{
-							ProbeSegments.Add(S);
-						}
-					}
-					Out.bRadialWallPush = true;
-					continue;
-				}
-
-				const double Side = Num(W, TEXT("side"), 1);
-				bool bClosed = false;
-				W->TryGetBoolField(TEXT("closed"), bClosed);
-				TArray<FVector2D> Line;
-				for (const TSharedPtr<FJsonValue>& PV : Arr(W, TEXT("polyline")))
-				{
-					const TArray<TSharedPtr<FJsonValue>>& XZPair = PV->AsArray();
-					Line.Add(FVector2D(XZPair[0]->AsNumber(), XZPair[1]->AsNumber()));
-				}
-				const int32 Count = bClosed ? Line.Num() : Line.Num() - 1;
-				for (int32 i = 0; i < Count; ++i)
-				{
-					FWallSegment S;
-					S.A = Line[i];
-					S.D = Line[(i + 1) % Line.Num()] - S.A;
-					S.LengthSq = S.D.SizeSquared();
-					if (S.LengthSq <= 0.0 || Folded(S.A, S.A + S.D))
-					{
-						continue;
-					}
-					const FVector2D Right = FVector2D(-S.D.Y, S.D.X) / FMath::Sqrt(S.LengthSq);
-					S.FaceNormal = Right * Side;
-					Segments.Add(S);
-				}
-			}
-			Out.Walls.Reset(MoveTemp(Segments));
-			if (Out.bRadialWallPush)
-			{
-				Out.ProbeWalls.Reset(MoveTemp(ProbeSegments));
-			}
-		}
-
-		if (const TSharedPtr<FJsonObject> Dirt = Obj(Collision, TEXT("dirtGrid")))
-		{
-			FDirtGrid& G = Out.DirtGrid;
-			G.CellSize = Num(Dirt, TEXT("cellM"));
-			G.Min = FVector2D(Num(Dirt, TEXT("minX")), Num(Dirt, TEXT("minZ")));
-			G.Cols = static_cast<int32>(Num(Dirt, TEXT("cols")));
-			G.Rows = static_cast<int32>(Num(Dirt, TEXT("rows")));
-			if (G.IsValid())
-			{
-				G.Cells.Init(false, G.Cols * G.Rows);
-				for (const TSharedPtr<FJsonValue>& RV : Arr(Dirt, TEXT("runs")))
-				{
-					const TArray<TSharedPtr<FJsonValue>>& Run = RV->AsArray();
-					if (Run.Num() < 3)
-					{
-						continue;
-					}
-					const int32 Row = static_cast<int32>(Run[0]->AsNumber());
-					const int32 First = FMath::Max(0, static_cast<int32>(Run[1]->AsNumber()));
-					const int32 Last = FMath::Min(G.Cols - 1, static_cast<int32>(Run[2]->AsNumber()));
-					if (Row < 0 || Row >= G.Rows)
-					{
-						continue;
-					}
-					for (int32 Col = First; Col <= Last; ++Col)
-					{
-						G.Cells[Row * G.Cols + Col] = true;
-					}
-				}
-			}
-		}
-
-		if (const TSharedPtr<FJsonObject> Recovery = Obj(Root, TEXT("recovery")))
-		{
-			Out.RecoveryDistance = Num(Recovery, TEXT("maxDistanceM"), 64);
-			Out.RecoverySkipWaypoints = static_cast<int32>(Num(Recovery, TEXT("skipWaypoints"), 3));
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("itemBoxes")))
-		{
-			const TSharedPtr<FJsonObject> B = V->AsObject();
-			Out.ItemBoxes.Add(FVector(Num(B, TEXT("x")), Num(B, TEXT("y"), 1.0), Num(B, TEXT("z"))));
-		}
-
-		for (const TSharedPtr<FJsonValue>& V : Arr(Root, TEXT("staticCameras")))
-		{
-			const TSharedPtr<FJsonObject> C = V->AsObject();
-			auto Vec = [&C](const TCHAR* Key)
-			{
-				const TArray<TSharedPtr<FJsonValue>>& P = Arr(C, Key);
-				return P.Num() == 3 ? FVector(P[0]->AsNumber(), P[1]->AsNumber(), P[2]->AsNumber()) : FVector::ZeroVector;
-			};
-			FStaticCamera& Camera = Out.StaticCameras.AddDefaulted_GetRef();
-			C->TryGetStringField(TEXT("name"), Camera.Name);
-			Camera.Position = Vec(TEXT("position"));
-			Camera.LookAt = Vec(TEXT("lookAt"));
-		}
-
-		if (const TSharedPtr<FJsonObject> Minimap = Obj(Root, TEXT("minimap")))
-		{
-			if (const TSharedPtr<FJsonObject> Bounds = Obj(Minimap, TEXT("bounds")))
-			{
-				Out.MinimapBounds = FBox2D(FVector2D(Num(Bounds, TEXT("minX")), Num(Bounds, TEXT("minZ"))),
-					FVector2D(Num(Bounds, TEXT("maxX")), Num(Bounds, TEXT("maxZ"))));
-			}
-		}
-
-		if (const TSharedPtr<FJsonObject> Look = Obj(Root, TEXT("look")))
-		{
-			const TArray<TSharedPtr<FJsonValue>>& Sun = Arr(Look, TEXT("sunDirection"));
-			if (Sun.Num() == 3)
-			{
-				Out.SunDirection = FVector(Sun[0]->AsNumber(), Sun[1]->AsNumber(), Sun[2]->AsNumber());
-			}
-		}
-
-		if (Out.Grid.Num() == 0 || Out.Checkpoints.Num() == 0)
-		{
-			OutError = TEXT("Track has no spawn grid or checkpoints");
-			return false;
-		}
-		return true;
+		// Order matters: the walls are trimmed against the centreline, and the respawn poses use the waypoints.
+		ParseCentre(Root, Out);
+		ParseRoute(Root, Out);
+		ParseSurfaces(Root, Out);
+		ParseCollision(Root, Out);
+		ParsePresentation(Root, Out);
+		return Validate(Out, OutError);
 	}
 }

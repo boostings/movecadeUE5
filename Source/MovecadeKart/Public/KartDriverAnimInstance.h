@@ -21,6 +21,8 @@ struct FKartDriverPoseInput
 	bool bStraddle = false;
 	/** Raises the right hand off the wheel (item throw), 0..1. */
 	float ItemRaise = 0.f;
+	/** Both arms up and waving, head back: the finish-line celebration, 0..1. */
+	float Cheer = 0.f;
 	bool bHasGrip = false;
 	FVector LeftHand = FVector::ZeroVector;
 	FVector RightHand = FVector::ZeroVector;

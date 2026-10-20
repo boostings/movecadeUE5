@@ -14,6 +14,7 @@ Open `MyProject.uproject` and press **Play**. The editor opens on Sunset Harbor;
 | Steer | A D / Left Right | Left stick, D-pad |
 | Hop / drift (hold) | Space | RB / LB |
 | Use item | E / Left Shift | X / Y |
+| Look behind (hold) | C | Right stick click |
 | Skip intro, race again | Enter | Start |
 | Pause (resume, R restart, Q quit) | Esc or P | Back |
 
@@ -35,6 +36,8 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` runs a simulated phone against bots.
 | Flag | Effect |
 |---|---|
 | `-KartBots=N` | Bots in the race (default 3 locally, 0 in room mode) |
+| `-KartBotSkill=easy\|normal\|hard` | Bot difficulty (normal is the web build's bot) |
+| `-KartWebFeel` | The web build's presentation: no chassis springs or camera juice |
 | `-KartLocalPlayers=M` | Extra local players on gamepads 2..M |
 | `-KartSoloView` | Only your kart on screen (default: one view per kart, like the TV host) |
 | `-KartLaps=N` | Shorter races |
