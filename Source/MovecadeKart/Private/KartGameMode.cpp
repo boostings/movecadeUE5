@@ -118,6 +118,13 @@ void AKartGameMode::SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	FParse::Value(Cmd, TEXT("KartLocalPlayers="), LocalPlayers);
 	LocalPlayers = FMath::Clamp(LocalPlayers, 1, Track->Grid.Num());
 	Bots = FMath::Clamp(Bots, 0, Track->Grid.Num() - LocalPlayers);
+	// -KartBotSkill=easy|normal|hard (normal is the web's lobby bot).
+	EKartBotSkill Skill = EKartBotSkill::Normal;
+	FString SkillName;
+	if (FParse::Value(Cmd, TEXT("KartBotSkill="), SkillName))
+	{
+		Skill = SkillName == TEXT("easy") ? EKartBotSkill::Easy : SkillName == TEXT("hard") ? EKartBotSkill::Hard : EKartBotSkill::Normal;
+	}
 
 	TArray<FKartSeatSpec> Seats;
 	for (int32 i = 0; i < LocalPlayers + Bots; ++i)
@@ -126,6 +133,7 @@ void AKartGameMode::SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 		Seat.Kind = i < LocalPlayers ? EKartSeatKind::Local : EKartSeatKind::Bot;
 		Seat.Name = i < LocalPlayers ? FString::Printf(TEXT("Player %d"), i + 1) : BotNames[(i - LocalPlayers) % UE_ARRAY_COUNT(BotNames)];
 		Seat.Paint = SeatPaint[i % UE_ARRAY_COUNT(SeatPaint)];
+		Seat.BotSkill = Skill;
 	}
 
 	RaceManager = GetWorld()->SpawnActor<AKartRaceManager>();

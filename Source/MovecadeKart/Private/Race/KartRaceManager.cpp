@@ -138,6 +138,12 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Racer.Name = Seats[Seat].Name;
 		Racer.Kind = Seats[Seat].Kind;
 		Racer.Paint = Seats[Seat].Paint;
+		switch (Seats[Seat].BotSkill)
+		{
+		case EKartBotSkill::Easy: Racer.Bot.Tuning = FKartBotTuning::Easy(); break;
+		case EKartBotSkill::Hard: Racer.Bot.Tuning = FKartBotTuning::Hard(); break;
+		default: Racer.Bot.Tuning = FKartBotTuning::Normal(); break;
+		}
 		Racer.Kart = Kart;
 		Racer.Viewer = Viewers.IsValidIndex(Seat) ? Viewers[Seat] : nullptr;
 		if (Racer.Viewer)
