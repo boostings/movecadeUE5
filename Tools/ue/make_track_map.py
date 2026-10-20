@@ -23,13 +23,18 @@ def make_map():
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
-    if unreal.EditorAssetLibrary.does_asset_exist(map_path):
-        unreal.EditorAssetLibrary.delete_asset(map_path)
-    if not levels.new_level(map_path):
-        raise RuntimeError(f"Could not create {map_path}")
-
     builder_class = unreal.load_class(None, "/Script/MovecadeKart.TrackBuilder")
     mode_class = unreal.load_class(None, "/Script/MovecadeKart.KartGameMode")
+
+    # Rebuild in place: deleting a map and creating it again at the same path fails while it is loaded.
+    if unreal.EditorAssetLibrary.does_asset_exist(map_path):
+        if not levels.load_level(map_path):
+            raise RuntimeError(f"Could not load {map_path}")
+        for actor in actors.get_all_level_actors():
+            if actor.get_class() == builder_class:
+                actors.destroy_actor(actor)
+    elif not levels.new_level(map_path):
+        raise RuntimeError(f"Could not create {map_path}")
     builder = actors.spawn_actor_from_class(builder_class, unreal.Vector(0, 0, 0))
     # Setting the property in the editor re-runs the actor's construction, which builds the track.
     builder.set_editor_property("track_id", track_id)

@@ -4,12 +4,23 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { processVioletMesh } from './src/violetMesh.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(here, '../..');
-const movecade = path.resolve(process.env.MOVECADE_ROOT ?? path.join(projectDir, '../../Projects/movecade/movecade-v2'));
+// Default: <Documents>/Projects/movecade/movecade-v2 next to <Documents>/Unreal Projects/MyProject,
+// found from any ancestor so git worktrees (MyProject/.claude/worktrees/...) resolve it too.
+function findMovecade() {
+  for (let dir = projectDir; ; dir = path.dirname(dir)) {
+    const candidate = path.join(dir, '../Projects/movecade/movecade-v2');
+    if (existsSync(path.join(candidate, 'app/src'))) return candidate;
+    if (path.dirname(dir) === dir) return path.join(projectDir, '../../Projects/movecade/movecade-v2');
+  }
+}
+const movecade = path.resolve(process.env.MOVECADE_ROOT ?? findMovecade());
 const appSrc = path.join(movecade, 'app/src');
 if (!existsSync(appSrc)) {
   console.error(`movecade-v2 not found at ${movecade}. Set MOVECADE_ROOT.`);
@@ -25,10 +36,49 @@ const aliases = {
     b.onResolve({ filter: /^@\// }, (a) => ({ path: resolveTs(path.join(appSrc, 'legacy', a.path.slice(2))) }));
     // catalog.ts builds a zustand store for React renderers; the exporter never reads it, and zustand pulls in React.
     b.onResolve({ filter: /^zustand$/ }, () => ({ path: 'zustand', namespace: 'stub' }));
-    b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
+    b.onLoad({ filter: /^zustand$/, namespace: 'stub' }, () => ({
       contents: 'export const create = (init) => { let s; const set = (p) => { s = { ...s, ...p }; }; s = init(set, () => s); return () => s; };',
       loader: 'js',
     }));
+  },
+};
+
+// The scenery modules are React components around plain three.js builders. These stubs let Node load
+// them without a DOM or WebGL; nothing they stand in for is used by the export (Docs/Port/03 §4.2).
+const STUBS = {
+  react: 'export const useMemo = (f) => f(); export const useRef = (v = null) => ({ current: v }); export const useEffect = () => {}; export const useLayoutEffect = () => {}; export const useCallback = (f) => f; export const useState = (v) => [v, () => {}]; export default {};',
+  'react/jsx-runtime': 'export const jsx = () => null; export const jsxs = () => null; export const Fragment = null;',
+  '@react-three/fiber': 'export const useFrame = () => {}; export const useThree = () => ({});',
+  '@react-three/drei': 'export const useTexture = () => ({}); export const useGLTF = () => ({ nodes: {}, materials: {} });',
+  quality: 'export const useQualityController = () => ({ tier: "high", profile: {} }); export const useQualityVersion = () => {};',
+  trackSurfaces: 'export const KART_SURFACE_URLS = {}; export const KART_SURFACE_SETS = {}; export const groupKartSurfaceTextures = () => ({});',
+  worldSurface: 'export const applyWorldSurface = (m) => m;',
+  // A canvas texture is drawn into @napi-rs/canvas; the export saves `image` as a PNG.
+  canvasTexture: `import { createCanvas } from '@napi-rs/canvas';
+    export function canvasTexture(width, height, draw) {
+      const image = createCanvas(width, height);
+      draw(image.getContext('2d'), width, height);
+      const v2 = { set() {} };
+      return { image, wrapS: 0, wrapT: 0, repeat: v2, offset: v2, dispose() {}, colorSpace: '' };
+    }`,
+};
+const stubs = {
+  name: 'movecade-stubs',
+  setup(b) {
+    for (const bare of ['react', 'react/jsx-runtime', '@react-three/fiber', '@react-three/drei']) {
+      b.onResolve({ filter: new RegExp(`^${bare}$`) }, () => ({ path: bare, namespace: 'movecade-stub' }));
+    }
+    b.onResolve({ filter: /render\/quality$|scene\/trackSurfaces$|scene\/worldSurface$|render\/canvasTexture$/ }, (a) => ({
+      path: a.path.split('/').pop(),
+      namespace: 'movecade-stub',
+    }));
+    b.onLoad({ filter: /.*/, namespace: 'movecade-stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js', resolveDir: here }));
+    // Expose the builders these components keep private, in memory only (the file on disk is untouched).
+    const expose = { 'HarborTrack.tsx': 'buildHarborScenery', 'VioletTrackside.tsx': 'BANNER_FACES, bannerTexture' };
+    b.onLoad({ filter: /(HarborTrack|VioletTrackside)\.tsx$/ }, async (a) => {
+      const source = await readFile(a.path, 'utf8');
+      return { contents: `${source}\nexport { ${expose[path.basename(a.path)]} };\n`, loader: 'tsx' };
+    });
   },
 };
 function resolveTs(p) {
@@ -47,7 +97,9 @@ await build({
   target: 'node20',
   outfile,
   nodePaths: [path.join(here, 'node_modules')],
-  plugins: [aliases],
+  plugins: [aliases, stubs],
+  jsx: 'automatic',
+  external: ['@napi-rs/canvas', 'sharp', 'draco3dgltf'],
   logLevel: 'warning',
 });
 
@@ -60,5 +112,18 @@ try {
 
 const { exportTracks } = await import(pathToFileURL(outfile).href);
 const outTracks = path.join(projectDir, 'Data/Tracks');
-const written = await exportTracks({ outDir: outTracks, commit: dirty ? `${commit}-dirty` : commit, movecadeRoot: movecade });
+// Generated binaries (decoded GLBs, prefab meshes, canvas PNGs) go to out/, which git ignores;
+// Tools/ue/import_track_assets.py imports them into Content/Tracks.
+const outAssets = path.join(here, 'out');
+const violetMesh = async (samples, rebaseY) => {
+  const res = await processVioletMesh({
+    glbPath: path.join(movecade, 'app/public/models/violet-loop.glb'),
+    outDir: path.join(outAssets, 'violet'),
+    samples,
+    rebaseY,
+  });
+  console.log(`decoded ${path.relative(projectDir, res.glb)}; walls: ${res.walls.sweep.length / 6} sweep, ${res.walls.probe.length / 6} probe segments; dirt cells ${res.dirtGrid.dirtCells}`);
+  return res;
+};
+const written = await exportTracks({ outDir: outTracks, commit: dirty ? `${commit}-dirty` : commit, movecadeRoot: movecade, violetMesh, assetsDir: outAssets });
 for (const f of written) console.log(`wrote ${path.relative(projectDir, f)}`);
