@@ -45,9 +45,9 @@ public:
 		bool bVertical = true, float Radius = 0.f) const;
 	void Circle(const FVector2D& Centre, float Radius, const FLinearColor& Fill,
 		const FLinearColor& Outline = FLinearColor::Transparent, float OutlineWidth = 0.f) const;
-	/** A convex or star-shaped polygon, filled as a fan from its centroid. */
-	void Polygon(const TArray<FVector2D>& Points, const FLinearColor& Fill) const;
-	void Lines(const TArray<FVector2D>& Points, const FLinearColor& Color, float Thickness, bool bClosed = false) const;
+	/** A convex or star-shaped polygon, filled as a fan from its centroid. A braced point list binds without a copy. */
+	void Polygon(TConstArrayView<FVector2D> Points, const FLinearColor& Fill) const;
+	void Lines(TConstArrayView<FVector2D> Points, const FLinearColor& Color, float Thickness, bool bClosed = false) const;
 
 	/** Draws String with its anchor at Pos (Align: 0,0 top-left .. 1,1 bottom-right). Returns its size. */
 	FVector2D Text(const FString& String, const FSlateFontInfo& Font, const FVector2D& Pos, const FLinearColor& Color,

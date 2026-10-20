@@ -2,6 +2,7 @@
 
 #include "Engine/FontFace.h"
 #include "Fonts/CompositeFont.h"
+#include "FX/KartFx.h"
 #include "Styling/CoreStyle.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartUIStyle, Log, All);
@@ -10,7 +11,7 @@ namespace
 {
 	FLinearColor Hex(const TCHAR* Code, float Alpha = 1.f)
 	{
-		FLinearColor C = FLinearColor::FromSRGBColor(FColor::FromHex(Code));
+		FLinearColor C = MovecadeKart::Fx::Hex(Code);
 		C.A = Alpha;
 		return C;
 	}
@@ -107,8 +108,9 @@ namespace KartUI
 	{
 		const FFontSet& Set = Fonts();
 		const TSharedPtr<const FCompositeFont>& Composite = Set.Faces[static_cast<int32>(Face)];
+		static const FName Regular(TEXT("Regular"));
 		FSlateFontInfo Info = Composite.IsValid()
-			? FSlateFontInfo(Composite, Size, TEXT("Regular"))
+			? FSlateFontInfo(Composite, Size, Regular)
 			: FCoreStyle::GetDefaultFontStyle(Face == EFont::Body ? "Bold" : "Black", FMath::RoundToInt32(Size * 0.8f));
 		if (OutlineSize > 0.f)
 		{

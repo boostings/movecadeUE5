@@ -556,6 +556,7 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 	};
 	TArray<FVector2D> Road;
 	const int32 Stride = FMath::Max(1, Track->Centre.Num() / 180);
+	Road.Reserve((Track->Centre.Num() + Stride - 1) / Stride);
 	for (int32 i = 0; i < Track->Centre.Num(); i += Stride)
 	{
 		Road.Add(ToMap(Track->Centre[i]));
@@ -574,7 +575,7 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 		}
 	}
 	// Karts: everyone's dot in paint, the focus kart bigger with a heading pointer, drawn last.
-	TArray<const FKartRacer*> Order;
+	TArray<const FKartRacer*, TInlineAllocator<8>> Order;
 	for (const FKartRacer& Racer : Race.GetRacers())
 	{
 		if (Racer.Kart)

@@ -39,7 +39,14 @@ Done before this plan: e33a905 Mac clang build fix, afc95be fingerprint test.
   (item boxes); TrackScenery.cpp (part kind enum, lamp MID on change); FX/KartFxComponent.cpp,
   FX/KartFxSubsystem.cpp (constant Niagara params once, double dirty); Audio/KartAudioComponent.cpp (skip unchanged).
   - Accept: gate green, fingerprint identical, smoke race clean.
-- [ ] **4. Game-thread allocations.** One allocation-free `Hex()` (FX/KartFx.cpp/.h, KartLook.cpp, UI/KartUIStyle.cpp,
+- [x] **4. Game-thread allocations.** Done: gate 55/0 (new MovecadeKart.Fx.Hex: 4000 random strings match
+  FColor::FromHex bit-for-bit), fingerprint identical, smoke clean (534/471), rendered race shows HUD icons and
+  minimap. Painter Polygon/Lines take TConstArrayView (braced point lists no longer build a TArray); Hex() parses an
+  FStringView in place; FindPart walks the owned set; per-frame material/haptic/item names interned once; sound
+  observer no longer copies its snapshot; rival scan rate-limited to 0.25 s while nobody is near. NOT done (need
+  unlisted headers): KartFxComponent bScreenTried flag (KartFxComponent.h), GatherViews inline allocator
+  (SKartRaceHud.h); Tint() left as a switch since Hex() no longer allocates. Test lives in FX/Tests/KartFxHexTests.cpp.
+  Original scope: One allocation-free `Hex()` (FX/KartFx.cpp/.h, KartLook.cpp, UI/KartUIStyle.cpp,
   TrackBuilder.cpp, TrackScenery.cpp) + equivalence test; UI/KartUIPainter.cpp/.h, UI/KartUIStyle.cpp,
   UI/Hud/SKartRaceHud.cpp, UI/Hud/KartItemIcons.cpp; KartPawn.cpp (rival cache, static FNames);
   FX/KartFxComponent.cpp (cached manager/anchors, LoadObject once); Race/KartRaceManager.cpp,

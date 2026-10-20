@@ -1,11 +1,10 @@
 #include "KartLook.h"
 
+#include "FX/KartFx.h"
+
 namespace
 {
-	FLinearColor Hex(const TCHAR* Code)
-	{
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Code));
-	}
+	using MovecadeKart::Fx::Hex;
 
 	// appearanceColors.ts
 	namespace Skin

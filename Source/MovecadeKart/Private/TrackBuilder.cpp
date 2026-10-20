@@ -2,6 +2,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Components/DirectionalLightComponent.h"
+#include "FX/KartFx.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -27,10 +28,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogTrackBuilder, Log, All);
 
 namespace
 {
-	FLinearColor Hex(const TCHAR* Value)
-	{
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Value));
-	}
+	using MovecadeKart::Fx::Hex;
 
 	/** Graybox colours per ribbon material (from HarborTrack.tsx where the web uses a flat colour). */
 	FLinearColor RibbonColor(const FString& Material)

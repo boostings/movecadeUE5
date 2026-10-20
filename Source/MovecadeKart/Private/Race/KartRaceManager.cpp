@@ -42,21 +42,12 @@ namespace
 	/** The web's item ids, which the audio observer keys item-spend sounds on. */
 	FName WebItemId(EKartItem Item)
 	{
-		switch (Item)
-		{
-		case EKartItem::Shot: return TEXT("GREEN_SHELL");
-		case EKartItem::Seeker: return TEXT("RED_SHELL");
-		case EKartItem::SkySeeker: return TEXT("BLUE_SHELL");
-		case EKartItem::Banana: return TEXT("BANANA");
-		case EKartItem::Nitro: return TEXT("MUSHROOM");
-		case EKartItem::TripleNitro: return TEXT("TRIPLE_MUSHROOM");
-		case EKartItem::Prism: return TEXT("STAR");
-		case EKartItem::Lightning: return TEXT("LIGHTNING");
-		case EKartItem::Ink: return TEXT("BLOOPER");
-		case EKartItem::Bomb: return TEXT("BOB_OMB");
-		case EKartItem::Rocket: return TEXT("BULLET_BILL");
-		default: return NAME_None;
-		}
+		// Read per kart per frame, so the names are interned once rather than looked up on every call.
+		static const FName Ids[] = { NAME_None, TEXT("GREEN_SHELL"), TEXT("RED_SHELL"), TEXT("BLUE_SHELL"), TEXT("BANANA"), TEXT("MUSHROOM"),
+			TEXT("TRIPLE_MUSHROOM"), TEXT("STAR"), TEXT("LIGHTNING"), TEXT("BLOOPER"), TEXT("BOB_OMB"), TEXT("BULLET_BILL") };
+		static_assert(UE_ARRAY_COUNT(Ids) == static_cast<SIZE_T>(EKartItem::Count), "one web id per item");
+		const SIZE_T Index = static_cast<uint8>(Item);
+		return Index < UE_ARRAY_COUNT(Ids) ? Ids[Index] : NAME_None;
 	}
 
 	EKartAudioPhase AudioPhase(EKartRacePhase Phase)
@@ -743,14 +734,17 @@ void AKartRaceManager::StepRace()
 
 void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
 {
+	static const FName BarrierHaptic(TEXT("barrier"));
+	static const FName KartHaptic(TEXT("kart"));
+	static const FName TerrainHaptic(TEXT("terrain"));
 	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
 	if (S.BarrierEvent > 0.0)
 	{
-		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BarrierEvent), TEXT("barrier"), S.bBarrierEventSustained);
+		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BarrierEvent), BarrierHaptic, S.bBarrierEventSustained);
 	}
 	if (S.BumpEvent > 0.0)
 	{
-		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), TEXT("kart"), false);
+		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), KartHaptic, false);
 		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
 		{
 			Audio->PlayImpact(static_cast<float>(S.BumpEvent));
@@ -760,7 +754,7 @@ void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
 	if (S.bOnDirt && FMath::Abs(S.Speed) > 5.0 && S.Time - Racer.LastTerrainRumble >= 0.2)
 	{
 		Racer.LastTerrainRumble = S.Time;
-		OnHaptic.Broadcast(Racer.Seat, 0.075f, TEXT("terrain"), true);
+		OnHaptic.Broadcast(Racer.Seat, 0.075f, TerrainHaptic, true);
 	}
 }
 

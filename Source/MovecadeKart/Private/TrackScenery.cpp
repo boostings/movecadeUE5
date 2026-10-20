@@ -6,6 +6,7 @@
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
+#include "FX/KartFx.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Engine/StaticMesh.h"
@@ -60,7 +61,16 @@ namespace
 		{
 			return Default;
 		}
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Hex.Replace(TEXT("#"), TEXT(""))));
+		// Every '#' dropped, as the content tools write them.
+		TStringBuilder<16> Digits;
+		for (const TCHAR C : Hex)
+		{
+			if (C != TEXT('#'))
+			{
+				Digits.AppendChar(C);
+			}
+		}
+		return MovecadeKart::Fx::Hex(Digits.ToView());
 	}
 
 	double Num(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, double Default = 0.0)
