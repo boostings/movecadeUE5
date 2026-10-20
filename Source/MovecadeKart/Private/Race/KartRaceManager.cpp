@@ -975,16 +975,19 @@ void AKartRaceManager::UpdateCameras(float DeltaSeconds)
 	}
 	else if (Phase == EKartRacePhase::Finished && ResultsCamera && Results.Num() > 0)
 	{
-		// Results shot (KartRaceCamera resultMode): from the web's offset (6.4, 4.6, 8.4) off the winner, a slow
-		// orbit round it, looking at it.
+		// Results shot: a low, slow orbit round the winner (the web sat high at (6.4, 4.6, 8.4)), close enough
+		// to see the driver celebrate.
 		const AKartPawn* Winner = Racers[Results[0].Seat].Kart;
 		const FVector2D P = Winner->GetKartMovement()->RenderPosition();
 		const double Orbit = FMath::Atan2(8.4, 6.4) + 0.18 * PhaseSeconds;
-		const double Radius = FVector2D(6.4, 8.4).Size();
-		const FVector Target = Coords::ToUE(FVector(P.X + Radius * FMath::Cos(Orbit), 4.6, P.Y + Radius * FMath::Sin(Orbit)));
-		const FVector Look = Coords::ToUE(P, 0.9);
+		constexpr double Radius = 6.5;
+		const FVector Target = Coords::ToUE(FVector(P.X + Radius * FMath::Cos(Orbit), 2.1, P.Y + Radius * FMath::Sin(Orbit)));
+		const FVector Look = Coords::ToUE(P, 1.2);
 		const double Alpha = 1.0 - FMath::Exp(-4.6 * FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0));
 		ResultsCameraPos = ResultsCameraPos.IsZero() ? Target : FMath::Lerp(ResultsCameraPos, Target, Alpha);
-		ResultsCamera->SetActorLocationAndRotation(ResultsCameraPos, (Look - ResultsCameraPos).Rotation());
+		// The standings card fills the left of the screen: turn the view so the winner sits on the right third.
+		FRotator View = (Look - ResultsCameraPos).Rotation();
+		View.Yaw -= 22.0;
+		ResultsCamera->SetActorLocationAndRotation(ResultsCameraPos, View);
 	}
 }
