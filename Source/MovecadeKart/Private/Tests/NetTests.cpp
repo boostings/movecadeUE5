@@ -222,6 +222,33 @@ bool FNetClientMessagesTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetPracticeTest, "MovecadeKart.Net.PracticeAck", NetTestFlags)
+bool FNetPracticeTest::RunTest(const FString&)
+{
+	auto Read = [](const FString& Json, FString& Id) { return ReadPracticeAction(*ParseJson(Json), TEXT("kart"), Id); };
+	auto Action = [](const TCHAR* Game, const TCHAR* Kind, const FString& ActionId)
+	{
+		return FString::Printf(TEXT("{\"gameId\":\"%s\",\"kind\":\"%s\",\"actionId\":\"%s\"}"), Game, Kind, *ActionId);
+	};
+	FString Id;
+	TestTrue(TEXT("a kart steer practice is read"), Read(Action(TEXT("kart"), TEXT("steer"), TEXT("A-1")), Id));
+	TestEqual(TEXT("its action id"), Id, FString(TEXT("A-1")));
+	TestFalse(TEXT("another game's practice is refused"), Read(Action(TEXT("darts"), TEXT("throw"), TEXT("A")), Id));
+	TestFalse(TEXT("the wrong kind is refused"), Read(Action(TEXT("kart"), TEXT("roll"), TEXT("A")), Id));
+	TestFalse(TEXT("an empty action id is refused"), Read(Action(TEXT("kart"), TEXT("steer"), FString()), Id));
+	TestFalse(TEXT("an 81-char action id is refused"), Read(Action(TEXT("kart"), TEXT("steer"), FString::ChrN(81, 'a')), Id));
+
+	const TSharedPtr<FJsonObject> Ack = ParseJson(Msg::PracticeAck(TEXT("kart"), TEXT("p1"), TEXT("A-1")));
+	if (!TestTrue(TEXT("ack parses"), Ack.IsValid())) return false;
+	TestEqual(TEXT("ack type"), Ack->GetStringField(TEXT("t")), FString(TEXT("game-event")));
+	TestEqual(TEXT("ack event"), Ack->GetStringField(TEXT("event")), FString(TEXT("practice:ack")));
+	const TSharedPtr<FJsonObject> Data = Ack->GetObjectField(TEXT("data"));
+	TestEqual(TEXT("ack game"), Data->GetStringField(TEXT("gameId")), FString(TEXT("kart")));
+	TestEqual(TEXT("ack player"), Data->GetStringField(TEXT("playerId")), FString(TEXT("p1")));
+	TestEqual(TEXT("ack action"), Data->GetStringField(TEXT("actionId")), FString(TEXT("A-1")));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetJoinUrlTest, "MovecadeKart.Net.JoinUrlAndRoomCode", NetTestFlags)
 bool FNetJoinUrlTest::RunTest(const FString&)
 {

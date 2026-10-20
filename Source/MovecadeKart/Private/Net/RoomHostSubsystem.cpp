@@ -368,6 +368,10 @@ void URoomHostSubsystem::HandleText(const FString& Text)
 		{
 			HandleKartInput(From, **Data);
 		}
+		else if (Event == TEXT("practice:action") && Message->TryGetObjectField(TEXT("data"), Data))
+		{
+			HandlePracticeAction(From, **Data);
+		}
 	}
 	else if (Type == TEXT("error"))
 	{
@@ -646,6 +650,20 @@ void URoomHostSubsystem::HandleSensorFrame(const uint8* Data, int32 Size)
 		UE_LOG(LogRoomHost, Verbose, TEXT("Sensor %s: seq=%u gamma=%.2f -> steering %+.3f (%d frames, %d bytes, orientation %u)"),
 			*Describe(*Seat), Frame.Sequence, Frame.Gamma, In.Steering, In.SensorFrames, Size, Frame.ScreenOrientation);
 	}
+}
+
+void URoomHostSubsystem::HandlePracticeAction(const FString& FromPlayerId, const FJsonObject& Data)
+{
+	// useLobbyPractice.ts: lobby only, from a connected seat that isn't ready yet; never touches the race.
+	const FMcSeat* Seat = Room.FindByPlayerId(FromPlayerId);
+	FString ActionId;
+	if (Room.Status != EMcRoomStatus::Lobby || !Seat || !Seat->bConnected || Seat->bEliminated || Seat->bReady
+		|| !ReadPracticeAction(Data, GameId, ActionId))
+	{
+		return;
+	}
+	Send(Msg::PracticeAck(GameId, Seat->PlayerId, ActionId), TEXT("game-event"));
+	UE_LOG(LogRoomHost, Display, TEXT("Practice move from seat %d \"%s\" acknowledged"), Seat->Seat, *Seat->Name);
 }
 
 void URoomHostSubsystem::HandleKartInput(const FString& FromPlayerId, const FJsonObject& Data)

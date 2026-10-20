@@ -112,6 +112,12 @@ namespace MovecadeKart::Net
 	};
 	MOVECADEKART_API FKartInputEvent ParseKartInput(const FJsonObject& Data);
 
+	/**
+	 * game-event `practice:action` data, the phone's lobby rehearsal (useLobbyPractice.ts readPracticeAction):
+	 * {gameId, kind, actionId} with this game's id, its kind (kart: "steer") and a 1..80 char action id.
+	 */
+	MOVECADEKART_API bool ReadPracticeAction(const FJsonObject& Data, const FString& GameId, FString& OutActionId);
+
 	// Room codes and the QR join URL (roomCode.ts).
 	/** generateRoomCode: 6 chars, uniform rejection sampling over the 31-glyph alphabet. */
 	MOVECADEKART_API FString GenerateRoomCode(TFunctionRef<void(uint8* Bytes, int32 Count)> RandomBytes);
@@ -169,6 +175,8 @@ namespace MovecadeKart::Net
 		MOVECADEKART_API FString Haptic(const FString& TargetPlayerId, double Intensity, const FString& CollisionType, bool bSustained);
 		/** Out-of-union ack that stops signed-scores redelivery (engine.ts handleScoresAck). */
 		MOVECADEKART_API FString ScoresAck(int32 MatchNumber);
+		/** game-event `practice:ack` {gameId, playerId, actionId}: the phone's practice step waits for it. */
+		MOVECADEKART_API FString PracticeAck(const FString& GameId, const FString& PlayerId, const FString& ActionId);
 	}
 
 	/** Types the web transport drops when they sat in the offline queue for more than 1.5 s (transportPolicy.ts). */

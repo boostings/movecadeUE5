@@ -261,6 +261,7 @@ private:
 	void HandleBinary(const void* Data, SIZE_T Size, bool bIsLastFragment);
 	void HandleSensorFrame(const uint8* Data, int32 Size);
 	void HandleKartInput(const FString& FromPlayerId, const FJsonObject& Data);
+	void HandlePracticeAction(const FString& FromPlayerId, const FJsonObject& Data);
 	void HandleWelcome(const FJsonObject& Message);
 	void HandleError(const FJsonObject& Message);
 	void ApplyState(const FJsonObject& State, bool bFromWelcome);

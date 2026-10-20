@@ -220,6 +220,24 @@ namespace MovecadeKart::Net
 		return S == 0.0 ? 0.0 : -S;
 	}
 
+	bool ReadPracticeAction(const FJsonObject& Data, const FString& GameId, FString& OutActionId)
+	{
+		// PRACTICE_KINDS in useLobbyPractice.ts.
+		static const TMap<FString, FString> Kinds = {
+			{ TEXT("bowling"), TEXT("roll") }, { TEXT("samurai"), TEXT("cut") }, { TEXT("stacker"), TEXT("drop") },
+			{ TEXT("darts"), TEXT("throw") }, { TEXT("kart"), TEXT("steer") } };
+		const FString* Kind = Kinds.Find(GameId);
+		FString DataGame, DataKind, ActionId;
+		if (!Kind || !Data.TryGetStringField(TEXT("gameId"), DataGame) || !Data.TryGetStringField(TEXT("kind"), DataKind)
+			|| !Data.TryGetStringField(TEXT("actionId"), ActionId) || DataGame != GameId || DataKind != *Kind
+			|| ActionId.Len() < 1 || ActionId.Len() > 80)
+		{
+			return false;
+		}
+		OutActionId = ActionId;
+		return true;
+	}
+
 	FKartInputEvent ParseKartInput(const FJsonObject& Data)
 	{
 		FKartInputEvent Event;
@@ -585,6 +603,13 @@ namespace MovecadeKart::Net
 		}
 
 		FString ScoresAck(int32 MatchNumber) { return FJsonOut(TEXT("scores-ack")).Int(TEXT("matchNumber"), MatchNumber).Done(); }
+
+		FString PracticeAck(const FString& GameId, const FString& PlayerId, const FString& ActionId)
+		{
+			const FString Data = FString::Printf(TEXT("{\"gameId\":%s,\"playerId\":%s,\"actionId\":%s}"),
+				*FJsonOut::Quote(GameId), *FJsonOut::Quote(PlayerId), *FJsonOut::Quote(ActionId));
+			return FJsonOut(TEXT("game-event")).Str(TEXT("event"), TEXT("practice:ack")).Raw(TEXT("data"), Data).Done();
+		}
 	}
 
 	bool IsMomentaryType(const FString& Type)
