@@ -1,5 +1,7 @@
 #include "Race/KartRaceManager.h"
 
+#include "Algo/Count.h"
+
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/Engine.h"
@@ -232,6 +234,7 @@ void AKartRaceManager::RestartRace()
 		Racer.FinishMs = 0.0;
 		Racer.bUseItemHeld = false;
 		Racer.LastTerrainRumble = -1000.0;
+		Racer.Kart->SetFinishPlace(0);
 	}
 	++RaceNumber;
 	Items.Reset(1234 + RaceNumber);
@@ -450,9 +453,13 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 		{
 			if (Racer.Kind == EKartSeatKind::Bot)
 			{
+				// Bots rev up for the last two counts, in their own rhythm.
+				const double Eager = PhaseSeconds > CountdownSeconds - 2.0 ? 0.6 + 0.4 * FMath::Sin(PhaseSeconds * 5.0 + Racer.Seat * 1.7) : 0.0;
+				Racer.Kart->SetGridRev(static_cast<float>(Eager));
 				continue;
 			}
 			const FKartInput Input = GatherInput(Racer, false);
+			Racer.Kart->SetGridRev(Input.bForward ? 1.f : 0.f);
 			if (!Input.bForward)
 			{
 				Racer.GasHeldSince = -1.0;
@@ -547,6 +554,7 @@ void AKartRaceManager::BeginRacing()
 	for (FKartRacer& Racer : Racers)
 	{
 		Racer.Bot.Reset();
+		Racer.Kart->SetGridRev(0.f);
 		FDriftBoost Start;
 		if (Racer.GasHeldSince >= 0.0 && RocketStartBoost((CountdownSeconds - Racer.GasHeldSince) * 1000.0, Start))
 		{
@@ -718,6 +726,7 @@ void AKartRaceManager::StepRace()
 			{
 				Racer.bFinished = true;
 				Racer.FinishMs = RaceMs;
+				Racer.Kart->SetFinishPlace(Algo::CountIf(Racers, [](const FKartRacer& R) { return R.bFinished; }));
 				if (LeaderFinishMs <= 0.0)
 				{
 					LeaderFinishMs = RaceMs;

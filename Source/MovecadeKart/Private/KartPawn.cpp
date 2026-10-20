@@ -16,6 +16,7 @@
 #include "KartDriverAnimInstance.h"
 #include "KartMovementComponent.h"
 #include "KartPlayerController.h"
+#include "EngineUtils.h"
 #include "Misc/CommandLine.h"
 #include "DrawDebugHelpers.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -41,8 +42,9 @@ namespace
 	/** The avatar rig stands 2.56 units tall; the web seats it at 0.9 scale (Kart.jsx:649-679). */
 	constexpr double DriverScale = 0.9;
 	constexpr double DriverHeight = 256.0;
-	/** The wrist sits half a hand outside the rim, so the palm lands on the tube (drivingGrip.ts). */
-	constexpr double WristClearance = 7.0;
+	/** The grip point sits just outside the rim's tube; the anim instance then backs the wrist off along the arm
+	 *  so the hand, which reaches past the wrist, wraps the rim. */
+	constexpr double WristClearance = 2.0;
 	constexpr double HandlebarGripInset = 6.0;
 
 	struct FVehicleMount
@@ -549,7 +551,18 @@ void AKartPawn::UpdateFeel(float DeltaSeconds)
 		// The normal points away from what was hit: pointing to the kart's left means the hit was on its right.
 		const double Yaw = Movement->RenderYaw();
 		const FVector2D Right(FMath::Cos(Yaw), -FMath::Sin(Yaw));
+		const FVector2D Ahead(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
 		In.WallSide = FVector2D::DotProduct(S.ImpactNormal, Right) < 0.0 ? 1.0 : -1.0;
+		// The driver's whiplash: thrown forward then back by a head-on hit, toward the struck side by a glancing one.
+		const double Impact = FMath::Max(In.WallImpact, In.BumpImpact);
+		const double HeadOn = FMath::Abs(FVector2D::DotProduct(S.ImpactNormal, Ahead));
+		JoltBack.Kick(-4.0 * Impact * HeadOn);
+		JoltSide.Kick(4.0 * Impact * (1.0 - HeadOn) * In.WallSide);
+	}
+	if (S.DriftBoostCount != SeenDriftBoosts)
+	{
+		SeenDriftBoosts = S.DriftBoostCount;
+		JoltBack.Kick(2.5); // a mini-turbo presses the driver back
 	}
 	In.DriftBoostCount = S.DriftBoostCount;
 	In.TeleportCount = S.TeleportCount;
@@ -635,8 +648,11 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 	In.Bounce = static_cast<float>(FMath::Clamp(S.HopOffset * 2.0, -1.0, 1.0));
 	In.Time = GetWorld()->GetTimeSeconds();
 	In.bStraddle = bStraddle;
-	Cheer = FMath::FInterpTo(Cheer, S.bFinished ? 1.0 : 0.0, DeltaSeconds, 3.0);
+	// The podium celebrates; everyone else slumps (place 0: not known yet, so celebrate).
+	const bool bPodium = FinishPlace <= 3;
+	Cheer = FMath::FInterpTo(Cheer, S.bFinished && bPodium ? 1.0 : 0.0, DeltaSeconds, 3.0);
 	In.Cheer = static_cast<float>(Cheer);
+	UpdateDriverMood(DeltaSeconds, In);
 	// Item throw: up in 0.12 s, held 0.2 s, back on the wheel over 0.3 s.
 	const double SinceThrow = GetWorld()->GetTimeSeconds() - ItemThrowStart;
 	const double Raise = SinceThrow < 0.12 ? SinceThrow / 0.12 : SinceThrow < 0.32 ? 1.0 : 1.0 - (SinceThrow - 0.32) / 0.3;
@@ -685,6 +701,88 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 	const double T = (Now - BlinkStart) * 1000.0;
 	const double Blink = T < 65.0 ? T / 65.0 : T < 85.0 ? 1.0 : T < 220.0 ? 1.0 - (T - 85.0) / 135.0 : 0.0;
 	Driver->SetMorphTarget(TEXT("eyeBlink"), static_cast<float>(FMath::Clamp(Blink, 0.0, 1.0)));
+	UpdateFace(DeltaSeconds);
+}
+
+void AKartPawn::UpdateDriverMood(float DeltaSeconds, FKartDriverPoseInput& In)
+{
+	const MovecadeKart::FKartState& S = Movement->SimState();
+	const double Now = GetWorld()->GetTimeSeconds();
+	auto Ease = [DeltaSeconds](double& Value, double Target, double Rate) { Value = FMath::FInterpTo(Value, Target, DeltaSeconds, Rate); };
+
+	// Drift (+ = drifting right in UE terms; the sim's +1 is left), scaled by the charge.
+	const double DriftTarget = S.DriftDirection != 0.0 ? -FMath::Sign(S.DriftDirection) * (0.6 + 0.4 * FMath::Clamp(S.DriftPower / 10.0, 0.0, 1.0)) : 0.0;
+	Ease(Mood.Drift, DriftTarget, 6.0);
+	Ease(Mood.Boost, S.BoostTimeRemaining > 0.0 && S.BoostMultiplier > 1.01 ? 1.0 : 0.0, 7.0);
+	Ease(Mood.Rev, GridRev, 8.0);
+	Ease(Mood.Spin, FMath::Abs(ItemVisual.SpinDegrees) > 1.0 || FMath::Abs(ItemVisual.TumbleDegrees) > 1.0 ? 1.0 : 0.0, 9.0);
+	Ease(Mood.Slump, S.bFinished && FinishPlace > 3 ? 1.0 : 0.0, 2.5);
+	JoltBack.Step(0.0, 3.2, 0.32, DeltaSeconds);
+	JoltSide.Step(0.0, 3.2, 0.32, DeltaSeconds);
+
+	// Glance at a rival running alongside (or anyone close while waiting on the grid); hold a glance at least
+	// 1.2 s so the head doesn't flick between karts.
+	const FVector Me = GetActorLocation();
+	const FVector Ahead = GetActorForwardVector();
+	AKartPawn* Rival = Mood.LookTarget.Get();
+	const bool bWaiting = FMath::Abs(S.Speed) < 1.0;
+	auto Interesting = [&](const AKartPawn* Other)
+	{
+		const FVector To = Other->GetActorLocation() - Me;
+		const double Range = bWaiting ? 1400.0 : 900.0;
+		return To.SizeSquared() < Range * Range && (bWaiting || FMath::Abs(FVector::DotProduct(To.GetSafeNormal(), Ahead)) < 0.7);
+	};
+	if (!Rival || (Now > Mood.LookUntil && !Interesting(Rival)))
+	{
+		Rival = nullptr;
+		double Best = TNumericLimits<double>::Max();
+		for (TActorIterator<AKartPawn> It(GetWorld()); It; ++It)
+		{
+			if (*It != this && Interesting(*It) && FVector::DistSquared(It->GetActorLocation(), Me) < Best)
+			{
+				Best = FVector::DistSquared(It->GetActorLocation(), Me);
+				Rival = *It;
+			}
+		}
+		Mood.LookTarget = Rival;
+		Mood.LookUntil = Now + 1.2;
+	}
+	const bool bLooking = Rival && Mood.Spin < 0.5 && Cheer < 0.5;
+	if (Rival)
+	{
+		Mood.LookAt = FMath::VInterpTo(Mood.LookAt.IsNearlyZero() ? Rival->GetActorLocation() : Mood.LookAt, Rival->GetActorLocation() + FVector(0, 0, 120), DeltaSeconds, 6.f);
+	}
+	Ease(Mood.LookWeight, bLooking ? (bWaiting ? 0.8 : 0.55) : 0.0, 4.0);
+
+	In.DriftSide = static_cast<float>(Mood.Drift);
+	In.Boost = static_cast<float>(Mood.Boost);
+	In.Rev = static_cast<float>(Mood.Rev);
+	In.Spin = static_cast<float>(Mood.Spin);
+	In.Slump = static_cast<float>(Mood.Slump);
+	In.JoltBack = static_cast<float>(FMath::Clamp(JoltBack.Value, -1.0, 1.0));
+	In.JoltSide = static_cast<float>(FMath::Clamp(JoltSide.Value, -1.0, 1.0));
+	In.LookWeight = static_cast<float>(Mood.LookWeight);
+	In.LookAt = Mood.LookWeight > 0.01 ? Driver->GetComponentTransform().InverseTransformPosition(Mood.LookAt) : FVector::ZeroVector;
+}
+
+void AKartPawn::UpdateFace(float DeltaSeconds)
+{
+	using namespace MovecadeKart::DriverFace;
+	FMood Face;
+	Face.Drift = static_cast<float>(FMath::Abs(Mood.Drift));
+	Face.Boost = static_cast<float>(Mood.Boost);
+	Face.Rev = static_cast<float>(Mood.Rev);
+	Face.Shock = static_cast<float>(FMath::Max(Mood.Spin, FMath::Clamp(FMath::Max(FMath::Abs(JoltBack.Value), FMath::Abs(JoltSide.Value)) * 1.6, 0.0, 1.0)));
+	Face.Cheer = static_cast<float>(Cheer);
+	Face.Slump = static_cast<float>(Mood.Slump);
+	float Target[MorphCount];
+	Mix(Face, Target);
+	for (int32 i = 0; i < MorphCount; ++i)
+	{
+		// Faces change fast but not in a single frame.
+		Mood.Face[i] = FMath::FInterpTo(Mood.Face[i], Target[i], DeltaSeconds, 12.f);
+		Driver->SetMorphTarget(MorphName(static_cast<EMorph>(i)), Mood.Face[i]);
+	}
 }
 
 void AKartPawn::UpdateNamePlate()

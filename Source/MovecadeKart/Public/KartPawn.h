@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "Feel/KartFeel.h"
+#include "KartDriverExpression.h"
 #include "KartLook.h"
 #include "KartPawn.generated.h"
 
@@ -58,6 +59,10 @@ public:
 	void SetItemVisual(const FKartItemVisual& InVisual) { ItemVisual = InVisual; }
 	/** The driver's right hand leaves the wheel to throw or fire (drivingExpression.ts). */
 	void PlayItemThrow();
+	/** This kart's finishing place (1 = winner): the podium cheers, the rest slump. 0 = not finished. */
+	void SetFinishPlace(int32 Place) { FinishPlace = Place; }
+	/** 0..1 revving on the grid during the countdown. */
+	void SetGridRev(float Amount) { GridRev = Amount; }
 	/** Camera shake (kartFxBus.ts): peak in metres, decaying at 6.5/s; a new kick keeps the larger envelope. */
 	void AddShake(double PeakMetres);
 
@@ -70,6 +75,10 @@ protected:
 private:
 	void UpdateVisual(float DeltaSeconds);
 	void UpdateDriver(float DeltaSeconds);
+	/** The driver's acting on top of the grip pose: moods, glances, whiplash. Fills the anim input. */
+	void UpdateDriverMood(float DeltaSeconds, struct FKartDriverPoseInput& In);
+	/** Blends and writes the face morphs from the moods. */
+	void UpdateFace(float DeltaSeconds);
 	void UpdateNamePlate();
 	void UpdateCamera(float DeltaSeconds);
 	void UpdateFeel(float DeltaSeconds);
@@ -172,6 +181,27 @@ private:
 	/** 0..1, eases in once this kart has finished. */
 	double Cheer = 0.0;
 	double ItemThrowStart = -1000.0;
+	int32 FinishPlace = 0;
+	float GridRev = 0.f;
+	uint32 SeenDriftBoosts = 0;
+
+	/** The driver's moods, eased (see UpdateDriverMood). */
+	struct FDriverMood
+	{
+		double Drift = 0.0;
+		double Boost = 0.0;
+		double Rev = 0.0;
+		double Spin = 0.0;
+		double Slump = 0.0;
+		double LookWeight = 0.0;
+		FVector LookAt = FVector::ZeroVector;
+		TWeakObjectPtr<AKartPawn> LookTarget;
+		double LookUntil = 0.0;
+		float Face[MovecadeKart::DriverFace::MorphCount] = {};
+	} Mood;
+	/** Whiplash springs, kicked by impacts: torso thrown back, and sideways. */
+	MovecadeKart::FFeelSpring JoltBack;
+	MovecadeKart::FFeelSpring JoltSide;
 	double BlinkStart = -10.0;
 
 	bool bSplitScreenCamera = false;
