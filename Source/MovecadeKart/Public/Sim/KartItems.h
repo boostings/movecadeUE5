@@ -152,6 +152,8 @@ namespace MovecadeKart
 		const TArray<FKartItemSlot>& Slots() const { return SlotsArr; }
 		const TArray<FKartItemProjectile>& Projectiles() const { return ProjectilesArr; }
 		const TArray<FKartItemBox>& Boxes() const { return BoxesArr; }
+		/** The roulette RNG's position, so tests can prove two races drew the same numbers. */
+		int32 RandomSeed() const { return Random.GetCurrentSeed(); }
 		/** True if any seat can still collect this box (it is hidden when everyone has it). */
 		bool IsBoxVisible(int32 Box, double Now) const;
 

@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Race/KartBotDriver.h"
+#include "Race/KartStandings.h"
 #include "Sim/KartItems.h"
 #include "Sim/KartSim.h"
 #include "Sim/KartTrack.h"
@@ -47,6 +48,30 @@ namespace
 			Pod(K.HopOffset); Str(K.LastDriftBoost); Pod(K.DriftBoostCount);
 		}
 
+		/** The item world's whole state: slots, projectiles in flight, box timers and the RNG. A projectile that
+		 *  moves differently shows up on that step, not only when it next raises an event. */
+		void Items(const FKartItemWorld& W)
+		{
+			for (const FKartItemSlot& S : W.Slots())
+			{
+				Pod(S.Held); Pod(S.bRolling); Pod(S.RollEnds); Pod(S.InvincibleUntil); Pod(S.PrismUntil);
+				Pod(S.RocketUntil); Pod(S.SpinStart); Pod(S.SpinUntil); Pod(S.ExplodeStart); Pod(S.LockUntil);
+				Pod(S.ProtectedUntil); Pod(S.ShrinkUntil); Pod(S.InkUntil); Pod(S.FlashUntil); Pod(S.BotUseAt);
+				Pod(S.LastUsed); Pod(S.LastUsedAt);
+			}
+			Pod(W.Projectiles().Num());
+			for (const FKartItemProjectile& P : W.Projectiles())
+			{
+				Pod(P.Id); Pod(P.Type); Pod(P.Owner); Vec(P.Pos); Pod(P.Y); Vec(P.Vel); Pod(P.VY); Pod(P.Age);
+				Pod(P.Bounces); Pod(P.bAlive);
+			}
+			for (const FKartItemBox& B : W.Boxes())
+			{
+				for (const double At : B.CollectedAt) { Pod(At); }
+			}
+			Pod(W.RandomSeed());
+		}
+
 		uint64 Value = 0xcbf29ce484222325ull;
 	};
 
@@ -81,24 +106,26 @@ namespace
 		FRaceOutcome Out;
 		FTraceHash Trace;
 		TArray<FKartItemEvent> Events;
+		TArray<int32> Order;
 		for (int32 Step = 1; Step <= 60 * 60; ++Step)
 		{
-			const double Now = Step * FKartSim::StepSeconds;
-			// Everyone sees the others where they were at the start of the step (as AKartRaceManager does).
+			// AKartRaceManager's two clocks, computed as it computes them: bots see RaceSteps * StepSeconds and the
+			// item world sees GetItemTime() = RaceSteps / 60.0. They differ in the last bit on about 1 step in 11.
+			const double BotNow = Step * FKartSim::StepSeconds;
+			const double ItemTime = Step / 60.0;
+			// Ranked, and everyone sees the others where they were at the start of the step, through the same
+			// functions AKartRaceManager uses.
+			FKartStanding Standings[Count];
+			for (int32 i = 0; i < Count; ++i)
+			{
+				const FKartState& S = Karts[i].State();
+				Standings[i] = { S.Pos, S.LapsCompleted, S.ProgressPercent, S.bFinished, S.FinishTime * 1000.0 };
+			}
+			RankRacers(Standings, Order);
 			FKartRaceContext Contexts[Count];
 			for (int32 i = 0; i < Count; ++i)
 			{
-				FKartRaceContext& C = Contexts[i];
-				C.PlayerCount = Count;
-				C.SelfSeat = i;
-				C.RacePosition = i + 1;
-				for (int32 j = 0; j < Count; ++j)
-				{
-					if (j != i)
-					{
-						C.Others.Add({ j, Karts[j].State().Pos });
-					}
-				}
+				Contexts[i] = MakeRaceContext(Standings, i, true, true);
 			}
 			for (int32 i = 0; i < Count; ++i)
 			{
@@ -114,7 +141,7 @@ namespace
 						}
 					}
 				}
-				const FKartInput Input = Bots[i].Update(Karts[i].State(), Track.Waypoints, true, Now, Boxes);
+				const FKartInput Input = Bots[i].Update(Karts[i].State(), Track.Waypoints, true, BotNow, Boxes);
 				Racers[i].bUseItem = Input.bUseItem;
 				Karts[i].Step(Input, Contexts[i]);
 				Trace.Pod(Input.SteeringX);
@@ -125,7 +152,8 @@ namespace
 				Racers[i].Progress = Karts[i].State().ProgressPercent;
 			}
 			Events.Reset();
-			Items.Step(Racers, Now, Events);
+			Items.Step(Racers, ItemTime, Events);
+			Trace.Items(Items);
 			for (const FKartItemEvent& E : Events)
 			{
 				Out.EventTrail.Append({ Step, static_cast<int32>(E.Type), E.Seat, static_cast<int32>(E.Item) });
