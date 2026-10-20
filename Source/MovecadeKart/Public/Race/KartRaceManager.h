@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "KartLook.h"
 #include "Race/KartBotDriver.h"
 #include "Sim/KartItems.h"
 #include "Sim/KartSim.h"
@@ -46,6 +47,13 @@ struct FKartSeatSpec
 
 	UPROPERTY(EditAnywhere, Category = "Kart")
 	FLinearColor Paint = FLinearColor::White;
+
+	/** Vehicle and driver; without one the seat gets FKartLook::MakeVaried(seat). Paint and Name above win. */
+	UPROPERTY(EditAnywhere, Category = "Kart")
+	FKartLook Look;
+
+	UPROPERTY(EditAnywhere, Category = "Kart")
+	bool bHasLook = false;
 };
 
 USTRUCT()
@@ -161,8 +169,10 @@ public:
 	TArray<MovecadeKart::FKartItemEvent> ConsumeItemEvents() { return MoveTemp(PendingItemEvents); }
 
 	/** Room pause (a phone disconnected): the race clock, sims and countdown freeze. */
-	void SetPaused(bool bInPaused, const FString& Reason = FString()) { bPaused = bInPaused; PauseReason = Reason; }
+	void SetPaused(bool bInPaused, const FString& Reason = FString());
 	bool IsPaused() const { return bPaused; }
+	/** "local" for the host's own pause menu (Esc / P / Back), else the room's reason. */
+	const FString& GetPauseReason() const { return PauseReason; }
 
 	/** If set, "race again" on the results screen calls this (room mode sends the room back to the lobby). */
 	TFunction<void()> OnRestartRequested;
@@ -202,6 +212,7 @@ private:
 	MovecadeKart::FKartInput RocketAutopilot(const FKartRacer& Racer) const;
 	void EndRace();
 	void UpdateCameras(float DeltaSeconds);
+	void UpdateOccluders();
 	void UseRaceViews();
 	void HandleHostKeys();
 

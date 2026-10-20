@@ -8,10 +8,10 @@ Every asset that didn't originate in this repo or movecade-v2 is listed here wit
 | `WhiteSquareTexture` | Unreal Engine 5.8 engine content | UE EULA | Default `Map` of the track master materials |
 | Poly Haven `asphalt_track` 1k (colour, normal GL, roughness) | https://polyhaven.com/a/asphalt_track, via movecade-v2 `app/public/textures/surfaces` (`LEDGER.json`) | CC0-1.0 | Road detail on all tracks (`/Game/Tracks/Shared/Surfaces/T_asphalt_track_*`) |
 | Poly Haven `painted_concrete` 1k | https://polyhaven.com/a/painted_concrete, same ledger | CC0-1.0 | Barriers, walls, kerbs, plinths, gantries |
-| Poly Haven `leafy_grass` 1k | https://polyhaven.com/a/leafy_grass, same ledger | CC0-1.0 | Violet's hills, Neon City's verges |
+| Poly Haven `leafy_grass` 1k | https://polyhaven.com/a/leafy_grass, same ledger | CC0-1.0 | Violet's hills |
 | Poly Haven `gravelly_sand` 1k | https://polyhaven.com/a/gravelly_sand, same ledger | CC0-1.0 | Violet's sand verge, Harbor's beach and shoulder |
 | Poly Haven `rock_face` 1k | https://polyhaven.com/a/rock_face, same ledger | CC0-1.0 | Rock outcrops (the Violet brick-stack replacements) |
-| Poly Haven `dark_wooden_planks` 1k | https://polyhaven.com/a/dark_wooden_planks, same ledger | CC0-1.0 | Imported for boardwalk/deck surfaces (Neon City's waterfront deck) |
+| Poly Haven `dark_wooden_planks` 1k | https://polyhaven.com/a/dark_wooden_planks, same ledger | CC0-1.0 | Boardwalk and deck surfaces |
 
 Assets ported from movecade-v2 (owned by the project): `kart.glb`, `violet-loop.glb` (confirmed usable by Jimmy
 on 2026-10-19), the `kart-*.wav` audio set, and the track data in `Data/Tracks`. `Content/Tracks` holds the
@@ -22,9 +22,25 @@ The Poly Haven sets above are copied from movecade-v2's own ledger (project-owne
 exporter converts WebP to PNG and flips the normal maps' green channel (OpenGL to DirectX). Everything else the
 maps pass added is original: the Movecade props (`Tools/track-export/src/props.ts`: advertising columns,
 billboards, sponsor arches, rock outcrops, plinths, flags, tyre stacks, palms, boost pad), their canvas-drawn
-Movecade artwork (`mc_*` textures), and Neon City's track, buildings and signs (`src/neonCity.ts`).
+Movecade artwork (`mc_*` textures).
 
 **Violet Loop IP cleanup.** The decoded Violet GLB no longer draws the old "mario-circuit" motifs: the six warp
 pipes (`Object_12`), the brick blocks (`Object_47`: stair stacks, floating rows, the gantry feet) and the puffy
 clouds are cut from the visual mesh, and the four-colour studded barrier blocks are flattened and repainted
 violet/cream. Collision is unchanged (the sim's walls come from the JSON, measured before the cut).
+
+### Vehicles and drivers (art workstream)
+
+All from movecade-v2 `app/public` (project-owned art, ported unchanged apart from decoding):
+
+| Source (`app/public/...`) | UE location | Notes |
+|---|---|---|
+| `models/kart.glb` | `/Game/Karts/Kart/SM_Kart_{body,booster,d_wheel,wheel_0..3}` | Draco decoded; the root's x10 scale and the unused `shape` mesh dropped |
+| `game-assets/vehicles/{moto,coupe,truck}.glb` | `/Game/Karts/{Moto,Coupe,Truck}/SM_<V>_*` | Draco decoded; node names kept (`body`, `trim`, `d_wheel`/`handlebar`, `wheel_N`); `seat` read into `AKartPawn`'s mount table |
+| `game-assets/avatar4/{kai,leo,mira,nia,omar,rose}-{female,male}.glb` | `/Game/Avatars/Drivers/<face>_<body>/SK_Driver_<face>_<body>` on `/Game/Avatars/SK_Avatar4_Skeleton` | Draco decoded; the 65 skinned parts merged into one mesh (one section per material), 26 joint names and 13 morph targets kept; shared materials split per toggle (`hair_<style>`, `acc_*`, `skin_body`, `waist`) |
+| `game-assets/clothing/{7 outfits}-{female,male}.glb` | `/Game/Avatars/Outfits/<outfit>_<body>/SK_Outfit_<outfit>_<body>` | parts merged into one mesh, same skeleton |
+
+Pipeline: `Tools/art/decode.mjs` (Node, @gltf-transform 4.2.1 + draco3dgltf, raw output in the git-ignored
+`Tools/art/.cache/out`), then `Tools/ue/import_karts.py` (Interchange import, master materials and instances).
+Materials are new: `M_KartPaint` (clear coat), `M_KartTyre`, `M_VehiclePart`, `M_NamePlateBack`,
+`M_AvatarSkin` (subsurface profile), `M_AvatarHair`, `M_AvatarCloth` (cloth shading), `M_AvatarSurface`.

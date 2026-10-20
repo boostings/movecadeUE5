@@ -43,6 +43,52 @@ void AKartHUD::DrawHUD()
 	const float X = 18.f;
 	const float Bottom = Canvas->ClipY - 18.f;
 	Line(Canvas, Medium, Racer->Name, X, Bottom - 92.f, Racer->Paint.ToFColor(true));
+
+	// Minimap above the name (RaceUI.tsx:597-704): racing only; the track line, every kart as a dot in its
+	// paint, and this view's kart larger with a heading tick. x = (x - minX) / scaleX, y = (z - minZ) / scaleZ.
+	const MovecadeKart::FTrack* Track = Race->GetTrack();
+	if (Race->GetPhase() == EKartRacePhase::Racing && Track->MinimapBounds.bIsValid && Track->Centre.Num() > 1)
+	{
+		const FVector2D Extent = Track->MinimapBounds.GetSize();
+		const float MapH = FMath::Clamp(Canvas->ClipY * 0.3f, 90.f, 220.f);
+		const float MapW = static_cast<float>(MapH * Extent.X / FMath::Max(1.0, Extent.Y));
+		const FVector2D Origin(X, Bottom - 104.f - MapH);
+		auto ToMap = [&](const FVector2D& P)
+		{
+			const FVector2D T = (P - Track->MinimapBounds.Min) / Extent;
+			return Origin + FVector2D(FMath::Clamp(T.X, 0.02, 0.98) * MapW, FMath::Clamp(T.Y, 0.02, 0.98) * MapH);
+		};
+		FCanvasTileItem Back(Origin - FVector2D(6.0, 6.0), FVector2D(MapW + 12.0, MapH + 12.0), FLinearColor(0.02f, 0.02f, 0.035f, 0.55f));
+		Back.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(Back);
+		const int32 Points = Track->Centre.Num();
+		const int32 Stride = FMath::Max(1, Points / 160);
+		for (int32 i = 0; i < Points; i += Stride)
+		{
+			FCanvasLineItem Road(ToMap(Track->Centre[i]), ToMap(Track->Centre[(i + Stride) % Points]));
+			Road.SetColor(FLinearColor(1.f, 1.f, 1.f, 0.85f));
+			Road.LineThickness = 3.f;
+			Canvas->DrawItem(Road);
+		}
+		// Start/finish marker.
+		FCanvasTileItem Finish(ToMap(Track->Checkpoints[0].Position) - FVector2D(4.0, 4.0), FVector2D(8.0, 8.0), FLinearColor::Black);
+		Canvas->DrawItem(Finish);
+		for (const FKartRacer& Other : Race->GetRacers())
+		{
+			const FVector2D P = ToMap(Other.Kart->GetKartMovement()->RenderPosition());
+			const bool bFocus = Other.Kart == Kart;
+			FCanvasNGonItem Dot(P, FVector2D(bFocus ? 7.0 : 5.0), 12, Other.Paint);
+			Canvas->DrawItem(Dot);
+			if (bFocus)
+			{
+				const double Yaw = Kart->GetKartMovement()->RenderYaw();
+				FCanvasLineItem Heading(P, P + FVector2D(-FMath::Sin(Yaw), -FMath::Cos(Yaw)) * 14.0);
+				Heading.SetColor(FLinearColor::White);
+				Heading.LineThickness = 2.f;
+				Canvas->DrawItem(Heading);
+			}
+		}
+	}
 	Line(Canvas, Large, SKartRaceOverlay::Ordinal(Racer->Place), X, Bottom - 72.f, FColor::White, 1.6f);
 	Line(Canvas, Medium, FString::Printf(TEXT("Lap %d / %d"), FMath::Min(S.LapsCompleted + 1, Laps), Laps), X, Bottom - 22.f, FColor::White);
 

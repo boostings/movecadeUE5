@@ -3,7 +3,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$Script,
     [hashtable]$Env = @{},
-    [int]$TimeoutSeconds = 600
+    [int]$TimeoutSeconds = 600,
+    # No GPU: for asset-only scripts (imports), so a busy GPU shared with other editors can't drop the device.
+    [switch]$NullRhi
 )
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path "$PSScriptRoot\..\..").Path
@@ -15,7 +17,8 @@ foreach ($key in $Env.Keys) { Set-Item "env:$key" $Env[$key] }
 $env:KART_QUIT = '1'
 # exec() avoids the py command's relative path lookup; the command contains no ',' or ';' (ExecCmds separators).
 $exec = "py exec(open(r'$scriptPath').read())"
-$proc = Start-Process -FilePath $editor -PassThru -WorkingDirectory $project -ArgumentList @(
-    "`"$project\MyProject.uproject`"", '-unattended', '-nosplash', '-nosound', "-log=$logName", "-ExecCmds=`"$exec`"")
+$editorArgs = @("`"$project\MyProject.uproject`"", '-unattended', '-nosplash', '-nosound', "-log=$logName", "-ExecCmds=`"$exec`"")
+if ($NullRhi) { $editorArgs += '-nullrhi' }
+$proc = Start-Process -FilePath $editor -PassThru -WorkingDirectory $project -ArgumentList $editorArgs
 if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) { Stop-Process -Id $proc.Id -Force; Write-Output 'timed out' }
 Select-String -Path "$project\Saved\Logs\$logName" -Pattern 'LogPython|Traceback' | Select-Object -Last 25 | ForEach-Object { $_.Line }

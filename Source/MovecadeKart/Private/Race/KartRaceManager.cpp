@@ -8,6 +8,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "KartCoords.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
@@ -124,7 +125,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		AKartPawn* Kart = GetWorld()->SpawnActor<AKartPawn>(AKartPawn::StaticClass(),
 			FTransform(FRotator(0.0, Coords::YawToUE(Slot.Yaw), 0.0), Coords::ToUE(Slot.Position)), Params);
-		Kart->SetPaint(Seats[Seat].Paint);
+		FKartLook Look = Seats[Seat].bHasLook ? Seats[Seat].Look : FKartLook::MakeVaried(Seat);
+		Look.Paint = Seats[Seat].Paint;
+		Look.Name = Seats[Seat].Name;
+		Kart->SetLook(Look);
 		Kart->GetKartMovement()->SetExternallyStepped(true);
 		Kart->GetKartMovement()->MutableSim().bLegacyStickyWalls = bLegacyWalls;
 		Kart->GetKartMovement()->InitSim(Track, Seat);
@@ -298,6 +302,19 @@ void AKartRaceManager::UseRaceViews()
 	}
 }
 
+void AKartRaceManager::SetPaused(bool bInPaused, const FString& Reason)
+{
+	bPaused = bInPaused;
+	PauseReason = bInPaused ? Reason : FString();
+	for (FKartRacer& Racer : Racers)
+	{
+		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		{
+			Audio->SetPaused(bInPaused);
+		}
+	}
+}
+
 void AKartRaceManager::HandleHostKeys()
 {
 	APlayerController* PC = GetWorld()->GetFirstPlayerController();
@@ -306,6 +323,35 @@ void AKartRaceManager::HandleHostKeys()
 		return;
 	}
 	const bool bConfirm = PC->WasInputKeyJustPressed(EKeys::Enter) || PC->WasInputKeyJustPressed(EKeys::Gamepad_Special_Right);
+	const bool bPauseKey = PC->WasInputKeyJustPressed(EKeys::Escape) || PC->WasInputKeyJustPressed(EKeys::P) || PC->WasInputKeyJustPressed(EKeys::Gamepad_Special_Left);
+
+	// Local pause menu (not in room mode, where the room owns pauses).
+	if (bPaused && PauseReason == TEXT("local"))
+	{
+		if (bPauseKey || bConfirm)
+		{
+			SetPaused(false);
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::R))
+		{
+			SetPaused(false);
+			RestartRace();
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Q))
+		{
+			UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);
+		}
+		return;
+	}
+	if (bPaused)
+	{
+		return;
+	}
+	if (bPauseKey && !OnRestartRequested && (Phase == EKartRacePhase::Countdown || Phase == EKartRacePhase::Racing))
+	{
+		SetPaused(true, TEXT("local"));
+		return;
+	}
 	if (!bConfirm)
 	{
 		return;
@@ -334,14 +380,14 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	HandleHostKeys();
 	if (bPaused)
 	{
-		// Everything freezes while the room waits for a phone (pauseLifecycle.ts).
+		// Everything freezes: the pause menu, or the room waiting for a phone (pauseLifecycle.ts).
 		return;
 	}
 	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0);
 	PhaseSeconds += Dt;
-	HandleHostKeys();
 
 	switch (Phase)
 	{
@@ -420,6 +466,47 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 	}
 
 	UpdateCameras(DeltaSeconds);
+	UpdateOccluders();
+}
+
+void AKartRaceManager::UpdateOccluders()
+{
+	// A kart bunched between a viewport's chase camera and its own kart blocks the view (the web has the
+	// same problem). Hide such karts for that viewport only.
+	for (FKartRacer& Racer : Racers)
+	{
+		APlayerController* PC = Racer.Viewer;
+		if (!PC || !PC->PlayerCameraManager)
+		{
+			continue;
+		}
+		PC->HiddenActors.Reset();
+		if (PC->GetViewTarget() != Racer.Kart)
+		{
+			continue;
+		}
+		const FVector Eye = PC->PlayerCameraManager->GetCameraLocation();
+		const FVector Own = Racer.Kart->GetActorLocation();
+		const FVector Seg = Own - Eye;
+		const double SegLenSq = Seg.SizeSquared();
+		if (SegLenSq < 1.0)
+		{
+			continue;
+		}
+		for (FKartRacer& Other : Racers)
+		{
+			if (&Other == &Racer)
+			{
+				continue;
+			}
+			const FVector P = Other.Kart->GetActorLocation() + FVector(0.0, 0.0, 80.0);
+			const double T = FVector::DotProduct(P - Eye, Seg) / SegLenSq;
+			if (T > 0.0 && T < 0.92 && FVector::Dist(P, Eye + Seg * T) < 220.0)
+			{
+				PC->HiddenActors.Add(Other.Kart);
+			}
+		}
+	}
 }
 
 void AKartRaceManager::BeginRacing()
