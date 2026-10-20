@@ -25,6 +25,9 @@ public class MovecadeKart : ModuleRules
 			// Phone host (Net/): room server socket and the lobby UI.
 			"WebSockets",
 			"UMG",
+			// Render/: GPU frame timing, ray tracing support queries, dynamic resolution state.
+			"RenderCore",
+			"RHI",
 		});
 	}
 }
