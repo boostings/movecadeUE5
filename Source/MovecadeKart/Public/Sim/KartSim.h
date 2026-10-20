@@ -201,6 +201,41 @@ namespace MovecadeKart
 			double Assist = 0.0;
 		};
 
+		/** This step's controls, clamped and decoded once. */
+		struct FStepControls
+		{
+			double SteeringX = 0.0;
+			/** Keyboard steering: +1 left, -1 right. */
+			double Keys = 0.0;
+			bool bLeft = false;
+			bool bRight = false;
+			bool bForward = false;
+			bool bBackward = false;
+			bool bJump = false;
+		};
+
+		/** How the kart moves this step, decided before the collision phases. */
+		struct FStepMotion
+		{
+			FVector2D MoveDir = FVector2D::ZeroVector;
+			bool bReversing = false;
+			bool bHopping = false;
+			bool bNearWall = false;
+		};
+
+		// The phases of Step, in order.
+		void BeginStep(double Dt);
+		void UpdateOffTrack();
+		void UpdateSpeed(const FStepControls& C, const FKartRaceContext& Race, double Dt);
+		void UpdateYaw(const FStepControls& C);
+		void UpdateHopAndDrift(const FStepControls& C, double Dt);
+		void ApplyRadialPush(const FStepMotion& M);
+		void ApplyBarrierResponse(const FBarrier& Barrier, const FStepMotion& M, const FStepControls& C);
+		void Advance(const FBarrier& Barrier, const FStepMotion& M, double Dt);
+		void ApplyKartContact(const FKartRaceContext& Race, double Dt);
+		void UpdateCollisionFeedback(const FBarrier& Barrier, const FStepMotion& M);
+		void UpdateWrongWayAndTerrain();
+
 		void Respawn(const FVector2D& Position, double Yaw, const TCHAR* Reason);
 		double UpdateSlipstream(const FKartRaceContext& Race, double Dt);
 		void ProbeRadial();
