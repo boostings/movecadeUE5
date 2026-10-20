@@ -25,6 +25,10 @@ public class MovecadeKart : ModuleRules
 			// Phone host (Net/): room server socket and the lobby UI.
 			"WebSockets",
 			"UMG",
+			// FX/: Niagara particles and the item meshes built in code.
+			"Niagara",
+			"MeshDescription",
+			"StaticMeshDescription",
 		});
 	}
 }
