@@ -386,8 +386,7 @@ namespace
 			{
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
 				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + 22.0));
-				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Names[i], Focus.State(i, Frame.Now), Accents[i], i,
-					Focus.Cursor.Index == i ? Details[i] : FText::GetEmpty());
+				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Names[i], Focus.State(i, Frame.Now), Accents[i], i);
 			}
 
 			// The focused entry's card on the right: a big icon over its accent colour.
@@ -410,7 +409,7 @@ namespace
 			}
 			MenuIcon(Card, Item, CardPos + FVector2D(CardSize.X * 0.5, 153.0), 110.f, Frame.Now);
 			Card.Text(Names[Item], Font(EFont::Title, 46.f), CardPos + FVector2D(36.0, 312.0), Color::Navy);
-			Card.Text(Details[Item], Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 372.0), Color::NavyDim);
+			Card.TextWrapped(Details[Item], Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 368.0), CardSize.X - 76.0, Color::NavyDim);
 		}
 
 	private:
@@ -615,7 +614,7 @@ namespace
 			const int32 Cards = FMath::Min(4, Joined + 1);
 			const double Gap = 24.0;
 			const double CardW = FMath::Min(470.0, (Frame.SafeSize().X - Gap * 3) / 4.0);
-			const double CardH = 430.0;
+			const double CardH = 486.0;
 			const double Total = Cards * CardW + (Cards - 1) * Gap;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
 			const double Top = Frame.SafeMax.Y - CardH - 64.0;
@@ -981,7 +980,7 @@ namespace
 			// Summary card: the grid as a row of paint dots.
 			const int32 Racers = Setup.LocalPlayers + Setup.Bots;
 			const FVector2D CardPos(Frame.SafeMax.X - 600.0, Top);
-			const FVector2D CardSize(600.0, 300.0);
+			const FVector2D CardSize(600.0, 262.0);
 			const FKartPainter Card = P.Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 4.f);
 			Card.Text(FText::Format(LOCTEXT("RacersCount", "{0} racers"), Racers), Font(EFont::Display, 56.f), CardPos + FVector2D(36.0, 26.0), Color::Navy);
@@ -1141,7 +1140,7 @@ namespace
 				const FVector2D Pos(Left + i * (CardSize.X + Gap) + KartWidgets::SlideX(Frame), Top + (1.0 - In) * 120.0);
 				P.Hit(i, Pos, CardSize);
 				const float Pop = bFocused ? 1.f + 0.04f * Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / 0.25), 3.f) : 0.95f;
-				const FKartPainter Card = P.Transformed(Pos + CardSize * 0.5, Pop, bFocused ? -1.f : 0.f).Faded(In * (bFocused ? 1.f : 0.85f));
+				const FKartPainter Card = P.Transformed(Pos + CardSize * 0.5, Pop, bFocused ? -1.f : 0.f).Faded(In);
 				if (bFocused)
 				{
 					Card.Box(Pos - FVector2D(10.0, 10.0), CardSize + FVector2D(20.0, 20.0), Color::WithAlpha(Track.Accent, 0.5f), Metric::RadiusLarge + 10.f);
@@ -1150,7 +1149,7 @@ namespace
 				// The outline panel: the track drawn from its centreline, with a dot running a lap.
 				const FVector2D MapPos = Pos + FVector2D(18.0, 18.0);
 				const FVector2D MapSize(CardSize.X - 36.0, 330.0);
-				Card.Gradient(MapPos, MapSize, Track.Accent, FLinearColor::LerpUsingHSV(Track.Accent, Color::Night, 0.45f), true, Metric::Radius);
+				Card.Gradient(MapPos, MapSize, Track.Accent, FMath::Lerp(Track.Accent, Color::Night, 0.4f), true, Metric::Radius);
 				const TSharedPtr<const FKartTrackPreview> Preview = FKartTrackCatalog::GetPreview(Track.Id);
 				if (Preview.IsValid())
 				{
@@ -1162,7 +1161,7 @@ namespace
 					Card.Text(LOCTEXT("Loading", "..."), Font(EFont::Display, 60.f), MapPos + MapSize * 0.5, Color::White, FVector2D(0.5, 0.5));
 				}
 				Card.Text(Track.Name, Font(EFont::Display, 56.f), Pos + FVector2D(34.0, 364.0), Color::Navy);
-				Card.Text(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 436.0), Color::NavyDim);
+				Card.TextWrapped(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 432.0), CardSize.X - 72.0, Color::NavyDim);
 				// Stat chips.
 				double ChipX = Pos.X + 34.0;
 				auto Chip = [&](const FString& Text, const FLinearColor& Fill)
@@ -1180,6 +1179,11 @@ namespace
 				if (Setup)
 				{
 					Chip(FString::Printf(TEXT("%d %s"), Setup->Laps, Setup->Laps == 1 ? TEXT("LAP") : TEXT("LAPS")), Track.Accent);
+				}
+				if (!bFocused)
+				{
+					// The card not picked steps back: dimmed rather than see-through.
+					Card.Box(Pos, CardSize, Color::WithAlpha(Color::Night, 0.28f), Metric::RadiusLarge);
 				}
 			}
 			// Arrows either side when there is more to pick.
@@ -1264,7 +1268,7 @@ namespace
 				{ LOCTEXT("C2H", "Engine"), LOCTEXT("C2B", "Unreal Engine 5.8 by Epic Games: Lumen, Nanite, Slate.") },
 				{ LOCTEXT("C3H", "Type"), LOCTEXT("C3B", "Fredoka, Nunito and Lilita One, under the SIL Open Font License 1.1.") },
 				{ LOCTEXT("C4H", "Sound"), LOCTEXT("C4B", "Kart sounds from the Movecade web game. Menu sounds and music synthesised in-house.") },
-				{ LOCTEXT("C5H", "Art"), LOCTEXT("C5B", "Karts, drivers and tracks from Movecade, with Unreal Engine sample content.") },
+				{ LOCTEXT("C5H", "Art"), LOCTEXT("C5B", "Karts, drivers and tracks from the Movecade web game, rebuilt for Unreal.") },
 				{ LOCTEXT("C6H", "Thanks"), LOCTEXT("C6B", "Everyone who raced the web build with a phone in hand.") },
 			};
 			double Y = Frame.SafeMin.Y + 190.0;
@@ -1274,11 +1278,12 @@ namespace
 				const FKartPainter L = P.Faded(In);
 				const double X = Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * 120.0;
 				L.Text(Lines[i].Heading, Font(EFont::Label, 22.f), FVector2D(X, Y), Color::Sun);
-				L.Text(Lines[i].Body, Font(EFont::Body, 28.f), FVector2D(X, Y + 30.0), Color::White);
-				Y += 104.0;
+				Y += 30.0 + L.TextWrapped(Lines[i].Body, Font(EFont::Body, 27.f), FVector2D(X, Y + 30.0), 940.0, Color::White).Y + 26.0;
 			}
-			KartWidgets::Star(P, FVector2D(Frame.SafeMax.X - 220.0, Frame.Size.Y * 0.5), 150.f, 64.f, Color::Sun, static_cast<float>(Frame.Now * 20.0));
-			KartWidgets::Star(P, FVector2D(Frame.SafeMax.X - 220.0, Frame.Size.Y * 0.5), 90.f, 38.f, Color::Hot, static_cast<float>(-Frame.Now * 30.0));
+			const FVector2D StarAt(Frame.SafeMax.X - 260.0, Frame.Size.Y * 0.5);
+			KartWidgets::Star(P, StarAt + FVector2D(0.0, 10.0), 160.f, 70.f, Color::Shadow, static_cast<float>(FMath::Sin(Frame.Now) * 8.0));
+			KartWidgets::Star(P, StarAt, 160.f, 70.f, Color::Sun, static_cast<float>(FMath::Sin(Frame.Now) * 8.0));
+			KartWidgets::Star(P, StarAt, 92.f, 40.f, Color::SunDeep, static_cast<float>(FMath::Sin(Frame.Now) * 8.0));
 		}
 	};
 
@@ -1287,8 +1292,8 @@ namespace
 	class FConfirmScreen final : public FKartScreen
 	{
 	public:
-		FConfirmScreen(const FText& InTitle, const FText& InBody, const FText& InYes, const FText& InNo, TFunction<void()> InOnYes)
-			: Title(InTitle), Body(InBody), Yes(InYes), No(InNo), OnYes(MoveTemp(InOnYes))
+		FConfirmScreen(const FText& InTitle, const FText& InBody, const FText& InYes, const FText& InNo, TFunction<void()> InOnYes, TFunction<void()> InOnNo)
+			: Title(InTitle), Body(InBody), Yes(InYes), No(InNo), OnYes(MoveTemp(InOnYes)), OnNo(MoveTemp(InOnNo))
 		{
 			Focus.Cursor.Count = 2;
 			Focus.Cursor.Index = 1;
@@ -1313,6 +1318,9 @@ namespace
 				return true;
 			case EKartMenuAction::Accept:
 				Choose(Focus.Cursor.Index == 0);
+				return true;
+			case EKartMenuAction::Back:
+				Choose(false);
 				return true;
 			default:
 				return false;
@@ -1352,7 +1360,7 @@ namespace
 		void Choose(bool bYes)
 		{
 			Host->PlaySound(bYes ? EKartUISound::Accept : EKartUISound::Back);
-			TFunction<void()> Callback = bYes ? OnYes : nullptr;
+			TFunction<void()> Callback = bYes ? OnYes : OnNo;
 			Host->PopScreen();
 			if (Callback)
 			{
@@ -1362,6 +1370,7 @@ namespace
 
 		FText Title, Body, Yes, No;
 		TFunction<void()> OnYes;
+		TFunction<void()> OnNo;
 		FFocus Focus;
 	};
 }
@@ -1374,9 +1383,9 @@ namespace KartScreens
 	TSharedRef<FKartScreen> MakeRules(AKartFrontEnd* FrontEnd) { return MakeShared<FRulesScreen>(FrontEnd); }
 	TSharedRef<FKartScreen> MakeTracks(AKartFrontEnd* FrontEnd) { return MakeShared<FTracksScreen>(FrontEnd); }
 	TSharedRef<FKartScreen> MakeCredits() { return MakeShared<FCreditsScreen>(); }
-	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes)
+	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes, TFunction<void()> OnNo)
 	{
-		return MakeShared<FConfirmScreen>(Title, Body, Yes, No, MoveTemp(OnYes));
+		return MakeShared<FConfirmScreen>(Title, Body, Yes, No, MoveTemp(OnYes), MoveTemp(OnNo));
 	}
 }
 

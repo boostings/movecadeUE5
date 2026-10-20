@@ -5,7 +5,7 @@
 #include "GameFramework/GameUserSettings.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "UI/KartPlayerPrefs.h"
-#include "UI/KartRenderFeatures.h"
+#include "Render/KartGameUserSettings.h"
 #include "UI/KartWidgets.h"
 
 #define LOCTEXT_NAMESPACE "KartSettings"
@@ -20,9 +20,10 @@ namespace
 		return FSlateApplication::Get().GetCurrentTime();
 	}
 
-	UGameUserSettings* GameSettings()
+	/** Graphics changes are staged on the settings object and applied together (ApplySettings), or reset. */
+	UKartGameUserSettings* GameSettings()
 	{
-		return GEngine ? GEngine->GetGameUserSettings() : nullptr;
+		return UKartGameUserSettings::Get();
 	}
 
 	const float FrameCaps[] = { 30.f, 60.f, 120.f, 144.f, 0.f };
@@ -58,17 +59,17 @@ namespace
 	public:
 		explicit FSettingsScreen(int32 InTab) : Tab(FMath::Clamp(InTab, 0, 2))
 		{
+			FIntPoint Current(1920, 1080);
 			if (const UGameUserSettings* S = GameSettings())
 			{
-				PendingResolution = S->GetScreenResolution();
-				PendingMode = S->GetFullscreenMode();
+				Current = S->GetScreenResolution();
 			}
 			UKismetSystemLibrary::GetSupportedFullscreenResolutions(Resolutions);
 			if (Resolutions.Num() == 0)
 			{
 				Resolutions = { FIntPoint(1280, 720), FIntPoint(1600, 900), FIntPoint(1920, 1080), FIntPoint(2560, 1440), FIntPoint(3840, 2160) };
 			}
-			Resolutions.AddUnique(PendingResolution);
+			Resolutions.AddUnique(Current);
 			Resolutions.Sort([](const FIntPoint& A, const FIntPoint& B) { return A.X * A.Y < B.X * B.Y; });
 			ResetCursor();
 		}
@@ -120,8 +121,7 @@ namespace
 				}
 				return true;
 			case EKartMenuAction::Back:
-				Save();
-				return false; // the stack pops
+				return Leave();
 			default:
 				return false;
 			}
@@ -163,7 +163,7 @@ namespace
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
 			const float Dim = KartWidgets::Entrance(Frame, 0.f, 0.3f);
-			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.55f * Dim));
+			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.66f * Dim));
 			KartWidgets::Header(P, Frame, LOCTEXT("SettingsTitle", "Settings"), FText::GetEmpty(), Color::Grape);
 			PaintTabs(P, Frame);
 			const double Left = Frame.Size.X * 0.5 - 520.0 + KartWidgets::SlideX(Frame);
@@ -176,21 +176,23 @@ namespace
 
 			if (Tab == 0)
 			{
-				const UGameUserSettings* S = GameSettings();
-				IKartRenderFeatures& Render = IKartRenderFeatures::Get();
-				const FText Presets[] = { LOCTEXT("Low", "Low"), LOCTEXT("Medium", "Medium"), LOCTEXT("High", "High"), LOCTEXT("Epic", "Epic"), LOCTEXT("Cinematic", "Cinematic") };
-				const int32 PresetIndex = Render.GetPreset();
+				const UKartGameUserSettings* S = GameSettings();
+				const FText Presets[] = { LOCTEXT("Performance", "Performance"), LOCTEXT("Balanced", "Balanced"), LOCTEXT("QualityPreset", "Quality"), LOCTEXT("Ultra", "Ultra") };
+				const int32 PresetIndex = S ? static_cast<int32>(S->GetGraphicsPreset()) : 3;
 				const float Cap = S ? S->GetFrameRateLimit() : 0.f;
-				const bool bPending = S && (PendingResolution != S->GetScreenResolution() || PendingMode != S->GetFullscreenMode());
+				const bool bPending = S && S->IsDirty();
+				const bool bRayTracing = UKartGameUserSettings::IsRayTracingSupported();
+				const FIntPoint Res = S ? S->GetScreenResolution() : FIntPoint(1920, 1080);
+				const EWindowMode::Type Mode = S ? S->GetFullscreenMode() : EWindowMode::Windowed;
 				struct FRow { FText Label; FText Value; bool bEnabled; };
 				const FRow Rows[] = {
-					{ LOCTEXT("Quality", "Quality preset"), PresetIndex >= 0 && PresetIndex < 5 ? Presets[PresetIndex] : LOCTEXT("Custom", "Custom"), true },
-					{ LOCTEXT("Resolution", "Resolution"), FText::FromString(FString::Printf(TEXT("%d x %d"), PendingResolution.X, PendingResolution.Y)), PendingMode != EWindowMode::WindowedFullscreen },
-					{ LOCTEXT("DisplayMode", "Display mode"), ModeName(PendingMode), true },
+					{ LOCTEXT("Quality", "Graphics preset"), Presets[FMath::Clamp(PresetIndex, 0, 3)], true },
+					{ LOCTEXT("Resolution", "Resolution"), FText::FromString(FString::Printf(TEXT("%d x %d"), Res.X, Res.Y)), Mode != EWindowMode::WindowedFullscreen },
+					{ LOCTEXT("DisplayMode", "Display mode"), ModeName(Mode), true },
 					{ LOCTEXT("VSync", "V-sync"), OnOff(S && S->IsVSyncEnabled()), true },
 					{ LOCTEXT("FrameCap", "Frame rate cap"), Cap <= 0.f ? LOCTEXT("Unlimited", "Unlimited") : FText::Format(LOCTEXT("Fps", "{0} fps"), FMath::RoundToInt32(Cap)), true },
-					{ LOCTEXT("RayTracing", "Ray tracing"), Render.SupportsRayTracing() ? OnOff(Render.IsRayTracingEnabled()) : LOCTEXT("Unsupported", "Not supported"), Render.SupportsRayTracing() },
-					{ LOCTEXT("MotionBlur", "Motion blur"), OnOff(Render.IsMotionBlurEnabled()), true },
+					{ LOCTEXT("RayTracing", "Ray tracing"), bRayTracing ? OnOff(S && S->IsRayTracingEnabled()) : LOCTEXT("Unsupported", "Not supported"), bRayTracing },
+					{ LOCTEXT("MotionBlur", "Motion blur"), OnOff(S && S->IsMotionBlurEnabled()), true },
 				};
 				for (int32 Row = 0; Row < UE_ARRAY_COUNT(Rows); ++Row)
 				{
@@ -198,7 +200,7 @@ namespace
 				}
 				FItemState ApplyState = State(ApplyDisplay, Frame, bPending);
 				KartWidgets::Button(Body, FVector2D(Left + Shift, Top + ApplyDisplay * Step + 10.0), FVector2D(520.0, 80.0),
-					bPending ? LOCTEXT("ApplyDisplay", "Apply display changes") : LOCTEXT("DisplayApplied", "Display up to date"), ApplyState, Color::Mint, ApplyDisplay);
+					bPending ? LOCTEXT("ApplyChanges", "Apply changes") : LOCTEXT("Applied", "All changes applied"), ApplyState, Color::Mint, ApplyDisplay);
 			}
 			else if (Tab == 1)
 			{
@@ -299,22 +301,27 @@ namespace
 			{
 				return;
 			}
-			UGameUserSettings* S = GameSettings();
-			IKartRenderFeatures& Render = IKartRenderFeatures::Get();
+			UKartGameUserSettings* S = GameSettings();
+			if (!S)
+			{
+				Host->PlaySound(EKartUISound::Error);
+				return;
+			}
+			// Every graphics change is staged; "Apply changes" (or leaving and confirming) applies them together.
 			switch (Row)
 			{
 			case Preset:
-				Render.ApplyPreset(FKartMenuCursor::Cycle(FMath::Max(0, Render.GetPreset()), Dir, IKartRenderFeatures::NumPresets));
+				S->SetGraphicsPreset(static_cast<EKartGraphicsPreset>(FKartMenuCursor::Cycle(static_cast<int32>(S->GetGraphicsPreset()), Dir, 4)));
 				break;
 			case Resolution:
 			{
-				if (PendingMode == EWindowMode::WindowedFullscreen)
+				if (S->GetFullscreenMode() == EWindowMode::WindowedFullscreen)
 				{
-					Host->PlaySound(EKartUISound::Error);
+					Host->PlaySound(EKartUISound::Error); // borderless always uses the desktop resolution
 					return;
 				}
-				const int32 Index = FMath::Max(0, Resolutions.IndexOfByKey(PendingResolution));
-				PendingResolution = Resolutions[FKartMenuCursor::Cycle(Index, Dir, Resolutions.Num())];
+				const int32 Index = FMath::Max(0, Resolutions.IndexOfByKey(S->GetScreenResolution()));
+				S->SetScreenResolution(Resolutions[FKartMenuCursor::Cycle(Index, Dir, Resolutions.Num())]);
 				break;
 			}
 			case DisplayMode:
@@ -323,40 +330,39 @@ namespace
 				int32 Index = 0;
 				for (int32 i = 0; i < 3; ++i)
 				{
-					Index = Modes[i] == PendingMode ? i : Index;
+					Index = Modes[i] == S->GetFullscreenMode() ? i : Index;
 				}
-				PendingMode = Modes[FKartMenuCursor::Cycle(Index, Dir, 3)];
+				const EWindowMode::Type Mode = Modes[FKartMenuCursor::Cycle(Index, Dir, 3)];
+				S->SetFullscreenMode(Mode);
+				if (Mode == EWindowMode::WindowedFullscreen)
+				{
+					S->SetScreenResolution(S->GetDesktopResolution());
+				}
 				break;
 			}
 			case VSync:
-				if (S)
-				{
-					S->SetVSyncEnabled(!S->IsVSyncEnabled());
-					S->ApplyNonResolutionSettings();
-				}
+				S->SetVSyncEnabled(!S->IsVSyncEnabled());
 				break;
 			case FrameCap:
-				if (S)
+			{
+				int32 Index = 1;
+				for (int32 i = 0; i < UE_ARRAY_COUNT(FrameCaps); ++i)
 				{
-					int32 Index = 1;
-					for (int32 i = 0; i < UE_ARRAY_COUNT(FrameCaps); ++i)
-					{
-						Index = FMath::IsNearlyEqual(FrameCaps[i], S->GetFrameRateLimit()) ? i : Index;
-					}
-					S->SetFrameRateLimit(FrameCaps[FKartMenuCursor::Cycle(Index, Dir, UE_ARRAY_COUNT(FrameCaps))]);
-					S->ApplyNonResolutionSettings();
+					Index = FMath::IsNearlyEqual(FrameCaps[i], S->GetFrameRateLimit()) ? i : Index;
 				}
+				S->SetFrameRateLimit(FrameCaps[FKartMenuCursor::Cycle(Index, Dir, UE_ARRAY_COUNT(FrameCaps))]);
 				break;
+			}
 			case RayTracing:
-				if (!Render.SupportsRayTracing())
+				if (!UKartGameUserSettings::IsRayTracingSupported())
 				{
 					Host->PlaySound(EKartUISound::Error);
 					return;
 				}
-				Render.SetRayTracingEnabled(!Render.IsRayTracingEnabled());
+				S->SetRayTracingEnabled(!S->IsRayTracingEnabled());
 				break;
 			case MotionBlur:
-				Render.SetMotionBlurEnabled(!Render.IsMotionBlurEnabled());
+				S->SetMotionBlurEnabled(!S->IsMotionBlurEnabled());
 				break;
 			default:
 				return;
@@ -366,30 +372,46 @@ namespace
 
 		void Apply()
 		{
-			UGameUserSettings* S = GameSettings();
-			if (!S || (PendingResolution == S->GetScreenResolution() && PendingMode == S->GetFullscreenMode()))
+			UKartGameUserSettings* S = GameSettings();
+			if (!S || !S->IsDirty())
 			{
 				Host->PlaySound(EKartUISound::Error);
 				return;
 			}
-			S->SetFullscreenMode(PendingMode);
-			if (PendingMode == EWindowMode::WindowedFullscreen)
-			{
-				PendingResolution = S->GetDesktopResolution();
-			}
-			S->SetScreenResolution(PendingResolution);
-			S->ApplyResolutionSettings(false);
-			S->SaveSettings();
+			S->ApplySettings(false);
 			Host->PlaySound(EKartUISound::Accept);
 		}
 
-		void Save()
+		/** Back: with graphics changes still staged, ask whether to apply or discard them first. */
+		bool Leave()
 		{
-			if (UGameUserSettings* S = GameSettings())
-			{
-				S->SaveSettings();
-			}
 			GetMutableDefault<UKartPlayerPrefs>()->Save();
+			UKartGameUserSettings* S = GameSettings();
+			if (!S || !S->IsDirty())
+			{
+				return false; // the stack pops
+			}
+			IKartScreenHost* StackHost = Host;
+			Host->PlaySound(EKartUISound::Accept);
+			Host->PushScreen(KartScreens::MakeConfirm(LOCTEXT("ApplyTitle", "Apply your changes?"),
+				LOCTEXT("ApplyBody", "Some graphics settings haven't been applied yet."), LOCTEXT("ApplyYes", "Apply"), LOCTEXT("ApplyNo", "Discard"),
+				[StackHost]()
+				{
+					if (UKartGameUserSettings* Settings = UKartGameUserSettings::Get())
+					{
+						Settings->ApplySettings(false);
+					}
+					StackHost->PopScreen();
+				},
+				[StackHost]()
+				{
+					if (UKartGameUserSettings* Settings = UKartGameUserSettings::Get())
+					{
+						Settings->ResetToCurrentSettings();
+					}
+					StackHost->PopScreen();
+				}));
+			return true;
 		}
 
 		void PaintTabs(const FKartPainter& P, const FKartScreenFrame& Frame)
@@ -451,8 +473,8 @@ namespace
 				}
 				Y += RowH;
 			}
-			P.Text(LOCTEXT("ControlsNote", "Gamepads 2 to 4 drive players 2 to 4. Hold drift through a corner and let go for a boost."),
-				Font(EFont::Body, 20.f), FVector2D(Pos.X + Size.X * 0.5, Pos.Y + Size.Y - 36.0), Color::NavyDim, FVector2D(0.5, 0.5));
+			P.TextWrapped(LOCTEXT("ControlsNote", "Gamepads 2 to 4 drive players 2 to 4. Hold drift through a corner and let go for a boost."),
+				Font(EFont::Body, 20.f), FVector2D(Pos.X + Size.X * 0.5, Pos.Y + Size.Y - 60.0), Size.X - 80.0, Color::NavyDim, 0.5);
 		}
 
 		int32 Tab = 0;
@@ -464,8 +486,6 @@ namespace
 		int32 ChangeDir = 0;
 		double ChangeAt = -10.0;
 		TArray<FIntPoint> Resolutions;
-		FIntPoint PendingResolution = FIntPoint(1920, 1080);
-		EWindowMode::Type PendingMode = EWindowMode::Windowed;
 	};
 }
 

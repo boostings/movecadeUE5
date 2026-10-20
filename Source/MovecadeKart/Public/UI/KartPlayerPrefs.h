@@ -6,8 +6,8 @@
 #include "KartPlayerPrefs.generated.h"
 
 /**
- * The player's own settings that UGameUserSettings doesn't hold: volumes, the render features behind
- * IKartRenderFeatures' default implementation, and the last race setup. Saved to GameUserSettings.ini
+ * The player's own settings that UGameUserSettings doesn't hold: volumes and the last race setup.
+ * Saved to GameUserSettings.ini
  * ([/Script/MovecadeKart.KartPlayerPrefs]); read through GetDefault / GetMutableDefault.
  */
 UCLASS(Config = GameUserSettings, ConfigDoNotCheckDefaults)
@@ -26,13 +26,6 @@ public:
 	/** Race sounds and menu sounds. */
 	UPROPERTY(Config)
 	float SfxVolume = 1.f;
-
-	/** Used by FKartDefaultRenderFeatures only (UKartGameUserSettings keeps its own). */
-	UPROPERTY(Config)
-	bool bRayTracing = true;
-
-	UPROPERTY(Config)
-	bool bMotionBlur = false;
 
 	UPROPERTY(Config)
 	FKartRaceSetup LastRace;

@@ -260,11 +260,12 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 		const FVector2D Forward(-FMath::Sin(Yaw), -FMath::Cos(Yaw)); // three.js yaw 0 faces -Z
 		const FVector2D Right(-Forward.Y, Forward.X);
 		const double Spread = Count > 1 ? 2.0 * Count : 0.0;
-		const double Distance = 6.5 + Spread;
+		const double Distance = 9.0 + Spread;
 		const double Sway = FMath::Sin(Time * 0.25) * 0.35;
 		const FVector2D EyeXZ = Centre + (Forward * FMath::Cos(Sway) + Right * FMath::Sin(Sway)) * Distance;
-		const FVector Eye = Coords::ToUE(EyeXZ, 1.6 + Count * 0.25);
-		const FVector Target = Coords::ToUE(Centre, 0.1);
+		const FVector Eye = Coords::ToUE(EyeXZ, 2.4 + Count * 0.3);
+		// Aim below the karts so they sit in the top half, above the player cards.
+		const FVector Target = Coords::ToUE(Centre - Forward * 1.5, -0.9);
 		return LookAt(Eye, Target);
 	}
 	// Orbit: high above the whole circuit, turning slowly.

@@ -47,9 +47,9 @@ void FKartPainter::Box(const FVector2D& Pos, const FVector2D& Size, const FLinea
 		return;
 	}
 	const float R = FMath::Min(Radius, static_cast<float>(FMath::Min(Size.X, Size.Y) * 0.5));
-	// Brushes are copied into the draw element, so a stack brush is fine.
-	const FSlateRoundedBoxBrush Brush(Fade(Fill), R, Fade(Outline), OutlineWidth);
-	FSlateDrawElement::MakeBox(*Out, NextLayer(), RectGeometry(Geo, Pos, Size), &Brush, ESlateDrawEffect::None, FLinearColor::White);
+	// The element takes the fill from the tint and the outline from the brush (copied, so a stack brush is fine).
+	const FSlateRoundedBoxBrush Brush(FLinearColor::White, R, Fade(Outline), OutlineWidth);
+	FSlateDrawElement::MakeBox(*Out, NextLayer(), RectGeometry(Geo, Pos, Size), &Brush, ESlateDrawEffect::None, Fade(Fill));
 }
 
 void FKartPainter::Card(const FVector2D& Pos, const FVector2D& Size, const FLinearColor& Fill, float Radius, float ShadowDepth, const FLinearColor& Outline, float OutlineWidth) const
@@ -158,6 +158,45 @@ FVector2D FKartPainter::Text(const FString& String, const FSlateFontInfo& Font, 
 	Faded.OutlineSettings.OutlineColor = Fade(Font.OutlineSettings.OutlineColor);
 	FSlateDrawElement::MakeText(*Out, NextLayer(), RectGeometry(Geo, TopLeft, Size), String, Faded, ESlateDrawEffect::None, Fade(Color));
 	return Size;
+}
+
+TArray<FString> FKartPainter::WrapLines(const FString& String, const FSlateFontInfo& Font, double MaxWidth)
+{
+	TArray<FString> Words;
+	String.ParseIntoArray(Words, TEXT(" "));
+	TArray<FString> Lines;
+	FString Line;
+	for (const FString& Word : Words)
+	{
+		const FString Candidate = Line.IsEmpty() ? Word : Line + TEXT(" ") + Word;
+		if (!Line.IsEmpty() && Measure(Candidate, Font).X > MaxWidth)
+		{
+			Lines.Add(Line);
+			Line = Word;
+		}
+		else
+		{
+			Line = Candidate;
+		}
+	}
+	if (!Line.IsEmpty())
+	{
+		Lines.Add(Line);
+	}
+	return Lines;
+}
+
+FVector2D FKartPainter::TextWrapped(const FText& String, const FSlateFontInfo& Font, const FVector2D& Pos, double MaxWidth, const FLinearColor& Color,
+	double AlignX, float ShadowDepth) const
+{
+	const TArray<FString> Lines = WrapLines(String.ToString(), Font, MaxWidth);
+	const double LineH = Font.Size * 1.3;
+	double Widest = 0.0;
+	for (int32 i = 0; i < Lines.Num(); ++i)
+	{
+		Widest = FMath::Max(Widest, Text(Lines[i], Font, Pos + FVector2D(0.0, i * LineH), Color, FVector2D(AlignX, 0.0), ShadowDepth).X);
+	}
+	return FVector2D(Widest, Lines.Num() * LineH);
 }
 
 void FKartPainter::PushClip(const FVector2D& Pos, const FVector2D& Size) const

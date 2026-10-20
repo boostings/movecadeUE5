@@ -17,8 +17,8 @@ namespace KartScreens
 	TSharedRef<FKartScreen> MakeTracks(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeCredits();
 
-	/** A yes/no dialog over the current screen. No has focus first. */
-	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes);
+	/** A yes/no dialog over the current screen. No has focus first; Back is No. Each callback runs after the dialog closes. */
+	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes, TFunction<void()> OnNo = nullptr);
 
 	// Settings (KartSettingsScreen.cpp): 0 Graphics, 1 Audio, 2 Controls.
 	TSharedRef<FKartScreen> MakeSettings(int32 Tab = 0);

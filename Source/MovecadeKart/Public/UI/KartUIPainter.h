@@ -58,6 +58,10 @@ public:
 		return Text(String.ToString(), Font, Pos, Color, Align, ShadowDepth);
 	}
 	static FVector2D Measure(const FString& String, const FSlateFontInfo& Font);
+	/** Word-wraps String to MaxWidth from Pos (AlignX 0 left, 0.5 centred on Pos.X). Returns the block's size. */
+	FVector2D TextWrapped(const FText& String, const FSlateFontInfo& Font, const FVector2D& Pos, double MaxWidth, const FLinearColor& Color,
+		double AlignX = 0.0, float ShadowDepth = 0.f) const;
+	static TArray<FString> WrapLines(const FString& String, const FSlateFontInfo& Font, double MaxWidth);
 
 	/** Clips everything drawn until PopClip to a rectangle (axis-aligned in this painter's space). */
 	void PushClip(const FVector2D& Pos, const FVector2D& Size) const;

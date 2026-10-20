@@ -18,7 +18,6 @@
 #include "Sound/SoundWave.h"
 #include "UI/KartFrontEnd.h"
 #include "UI/KartPlayerPrefs.h"
-#include "UI/KartRenderFeatures.h"
 #include "UI/Widgets/SKartCurtain.h"
 #include "UnrealClient.h"
 #include "UObject/UObjectGlobals.h"
@@ -62,7 +61,6 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		FSlateApplication::Get().RegisterInputPreProcessor(Processor, 0);
 	}
 	MapLoadedHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UKartUISubsystem::HandleMapLoaded);
-	IKartRenderFeatures::Get().ApplySaved();
 
 	FString Shots;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartUiShots="), Shots, /*bShouldStopOnSeparator*/ false))

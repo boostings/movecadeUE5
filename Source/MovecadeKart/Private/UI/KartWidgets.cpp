@@ -47,6 +47,21 @@ namespace
 		}
 	}
 
+	/** A d-pad on a dark disc: a white plus whose lit arms are sunny. */
+	void DPad(const FKartPainter& P, const FVector2D& C, float R, bool bUp, bool bDown, bool bLeft, bool bRight)
+	{
+		P.Circle(C, R, Color::Night, Color::White, 2.f);
+		const double Arm = R * 0.42, Len = R * 0.66;
+		P.Box(C - FVector2D(Arm * 0.5, Len), FVector2D(Arm, Len * 2.0), Color::White, static_cast<float>(Arm * 0.25));
+		P.Box(C - FVector2D(Len, Arm * 0.5), FVector2D(Len * 2.0, Arm), Color::White, static_cast<float>(Arm * 0.25));
+		const double In = Arm * 0.18, Tip = Len - Arm * 0.62;
+		const FVector2D Cell(Arm - In * 2.0, Arm - In * 2.0);
+		if (bUp) P.Box(C + FVector2D(-Cell.X * 0.5, -Len + In), FVector2D(Cell.X, Tip), Color::SunDeep, 2.f);
+		if (bDown) P.Box(C + FVector2D(-Cell.X * 0.5, Len - In - Tip), FVector2D(Cell.X, Tip), Color::SunDeep, 2.f);
+		if (bLeft) P.Box(C + FVector2D(-Len + In, -Cell.Y * 0.5), FVector2D(Tip, Cell.Y), Color::SunDeep, 2.f);
+		if (bRight) P.Box(C + FVector2D(Len - In - Tip, -Cell.Y * 0.5), FVector2D(Tip, Cell.Y), Color::SunDeep, 2.f);
+	}
+
 	bool IsArrowAction(EKartMenuAction Action)
 	{
 		return FKartMenuInputProcessor::IsDirectional(Action);
@@ -154,15 +169,7 @@ namespace KartWidgets
 		const bool bUp = Key == EKeys::Gamepad_DPad_Up, bDown = Key == EKeys::Gamepad_DPad_Down;
 		const bool bLeftArm = Key == EKeys::Gamepad_DPad_Left, bRightArm = Key == EKeys::Gamepad_DPad_Right;
 		const bool bAll = !(bUp || bDown || bLeftArm || bRightArm);
-		const float Arm = R * 0.42f;
-		P.Box(C - FVector2D(Arm * 0.5, R * 0.95), FVector2D(Arm, R * 1.9), Color::Night, Arm * 0.3f, Color::White, 1.5f);
-		P.Box(C - FVector2D(R * 0.95, Arm * 0.5), FVector2D(R * 1.9, Arm), Color::Night, Arm * 0.3f, Color::White, 1.5f);
-		P.Box(C - FVector2D(Arm * 0.5 - 1.5, Arm * 0.5 - 1.5), FVector2D(Arm - 3.0, Arm - 3.0), Color::Night);
-		const FLinearColor Lit = Color::Sun;
-		if (bUp || bAll) P.Box(C + FVector2D(-Arm * 0.3, -R * 0.82), FVector2D(Arm * 0.6, R * 0.5), Lit, 2.f);
-		if (bDown || bAll) P.Box(C + FVector2D(-Arm * 0.3, R * 0.32), FVector2D(Arm * 0.6, R * 0.5), Lit, 2.f);
-		if (bLeftArm || bAll) P.Box(C + FVector2D(-R * 0.82, -Arm * 0.3), FVector2D(R * 0.5, Arm * 0.6), Lit, 2.f);
-		if (bRightArm || bAll) P.Box(C + FVector2D(R * 0.32, -Arm * 0.3), FVector2D(R * 0.5, Arm * 0.6), Lit, 2.f);
+		DPad(P, C, R, bUp || bAll, bDown || bAll, bLeftArm || bAll, bRightArm || bAll);
 		return Height;
 	}
 
@@ -213,16 +220,34 @@ namespace KartWidgets
 		const FSlateFontInfo LabelFont = Font(EFont::Button, 24.f, 2.f);
 		// Lay out right to left from the safe area's bottom-right corner, on a soft pill.
 		float Total = 0.f;
+		auto Width = [&](EKartMenuAction Action)
+		{
+			// "Change" hints show both directions: two key caps, or a d-pad lit left and right.
+			return Action == EKartMenuAction::Left && Frame.Device != EKartInputDevice::Gamepad ? GlyphWidth(Action, Frame.Device, H) * 2.f + 4.f : GlyphWidth(Action, Frame.Device, H);
+		};
 		for (const FKartHint& Hint : List)
 		{
-			Total += GlyphWidth(Hint.Action, Frame.Device, H) + 10.f + static_cast<float>(FKartPainter::Measure(Hint.Label.ToString(), LabelFont).X) + 30.f;
+			Total += Width(Hint.Action) + 10.f + static_cast<float>(FKartPainter::Measure(Hint.Label.ToString(), LabelFont).X) + 30.f;
 		}
 		const FVector2D Origin(Frame.SafeMax.X - Total, Frame.SafeMax.Y - H * 0.5);
 		P.Box(Origin - FVector2D(22.0, H * 0.5 + 10.0), FVector2D(Total + 30.0, H + 20.0), Color::WithAlpha(Color::Night, 0.55f), (H + 20.f) * 0.5f);
 		float X = Origin.X;
 		for (const FKartHint& Hint : List)
 		{
-			X += Glyph(P, Hint.Action, Frame.Device, FVector2D(X, Origin.Y), H) + 10.f;
+			if (Hint.Action == EKartMenuAction::Left && Frame.Device == EKartInputDevice::Gamepad)
+			{
+				DPad(P, FVector2D(X + H * 0.5, Origin.Y), H * 0.5f, false, false, true, true);
+				X += H + 10.f;
+			}
+			else if (Hint.Action == EKartMenuAction::Left)
+			{
+				X += Glyph(P, EKartMenuAction::Left, Frame.Device, FVector2D(X, Origin.Y), H) + 4.f;
+				X += Glyph(P, EKartMenuAction::Right, Frame.Device, FVector2D(X, Origin.Y), H) + 10.f;
+			}
+			else
+			{
+				X += Glyph(P, Hint.Action, Frame.Device, FVector2D(X, Origin.Y), H) + 10.f;
+			}
 			X += static_cast<float>(P.Text(Hint.Label, LabelFont, FVector2D(X, Origin.Y), Color::White, FVector2D(0.0, 0.5)).X) + 30.f;
 		}
 	}
