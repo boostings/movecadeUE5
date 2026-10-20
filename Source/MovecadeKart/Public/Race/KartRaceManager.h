@@ -212,6 +212,7 @@ private:
 	MovecadeKart::FKartInput RocketAutopilot(const FKartRacer& Racer) const;
 	void EndRace();
 	void UpdateCameras(float DeltaSeconds);
+	void UpdateOccluders();
 	void UseRaceViews();
 	void HandleHostKeys();
 

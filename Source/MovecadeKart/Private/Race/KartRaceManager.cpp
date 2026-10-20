@@ -466,6 +466,47 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 	}
 
 	UpdateCameras(DeltaSeconds);
+	UpdateOccluders();
+}
+
+void AKartRaceManager::UpdateOccluders()
+{
+	// A kart bunched between a viewport's chase camera and its own kart blocks the view (the web has the
+	// same problem). Hide such karts for that viewport only.
+	for (FKartRacer& Racer : Racers)
+	{
+		APlayerController* PC = Racer.Viewer;
+		if (!PC || !PC->PlayerCameraManager)
+		{
+			continue;
+		}
+		PC->HiddenActors.Reset();
+		if (PC->GetViewTarget() != Racer.Kart)
+		{
+			continue;
+		}
+		const FVector Eye = PC->PlayerCameraManager->GetCameraLocation();
+		const FVector Own = Racer.Kart->GetActorLocation();
+		const FVector Seg = Own - Eye;
+		const double SegLenSq = Seg.SizeSquared();
+		if (SegLenSq < 1.0)
+		{
+			continue;
+		}
+		for (FKartRacer& Other : Racers)
+		{
+			if (&Other == &Racer)
+			{
+				continue;
+			}
+			const FVector P = Other.Kart->GetActorLocation() + FVector(0.0, 0.0, 80.0);
+			const double T = FVector::DotProduct(P - Eye, Seg) / SegLenSq;
+			if (T > 0.0 && T < 0.92 && FVector::Dist(P, Eye + Seg * T) < 220.0)
+			{
+				PC->HiddenActors.Add(Other.Kart);
+			}
+		}
+	}
 }
 
 void AKartRaceManager::BeginRacing()
