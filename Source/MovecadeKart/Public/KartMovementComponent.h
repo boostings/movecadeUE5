@@ -29,7 +29,12 @@ public:
 	bool HasSim() const { return Track.IsValid(); }
 	const MovecadeKart::FTrack* GetTrack() const { return Track.Get(); }
 
-	void SetExternallyStepped(bool bExternal) { bExternallyStepped = bExternal; }
+	/** Race mode: the race manager steps and presents this kart, so the component doesn't tick at all. */
+	void SetExternallyStepped(bool bExternal)
+	{
+		bExternallyStepped = bExternal;
+		SetComponentTickEnabled(!bExternal);
+	}
 	/** Race mode: one fixed step. */
 	void StepOnce(const MovecadeKart::FKartInput& StepInput, const MovecadeKart::FKartRaceContext& Race);
 	/** Race mode: write the transform at Alpha between the previous and current step. */

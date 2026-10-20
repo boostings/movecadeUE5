@@ -70,7 +70,7 @@ namespace MovecadeKart
 			FVector2D Position = FVector2D::ZeroVector;
 		};
 		int32 SelfSeat = 0;
-		TArray<FOther> Others;
+		TArray<FOther, TInlineAllocator<8>> Others;
 		bool bKartContact = true;
 	};
 

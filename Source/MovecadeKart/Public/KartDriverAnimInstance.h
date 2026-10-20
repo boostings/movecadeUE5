@@ -56,6 +56,21 @@ struct FKartDriverAnimProxy : public FAnimInstanceProxy
 	virtual bool Evaluate(FPoseContext& Output) override;
 
 private:
+	/** Compact-pose indices of the joints the pose drives (INDEX_NONE if the rig lacks one). */
+	struct FDriverBones
+	{
+		int32 Torso = INDEX_NONE;
+		int32 Head = INDEX_NONE;
+		int32 Neck = INDEX_NONE;
+		int32 Arm[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
+		int32 Leg[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
+	};
+	/** Looks the joints up by name only when the bone container changes (LOD, mesh swap), not every evaluation. */
+	const FDriverBones& CacheBones(const FBoneContainer& Bones);
+
+	FDriverBones CachedBones;
+	uint16 CachedSerial = 0;
+	bool bBonesCached = false;
 	FKartDriverPoseInput Input;
 	/** The damped pose state (radians), so the body lags the wheel like mass. */
 	float TorsoRoll = 0.f;

@@ -630,13 +630,15 @@ void AKartRaceManager::StepRace()
 	UpdateStandings();
 
 	// Every kart sees the others where they were at the start of this step.
-	TArray<FKartRaceContext> Contexts;
+	TArray<FKartRaceContext>& Contexts = StepContexts;
+	Contexts.Reset();
 	for (const FKartRacer& Racer : Racers)
 	{
 		Contexts.Add(MakeContext(Racer));
 	}
 	const double ItemTime = GetItemTime();
-	TArray<FKartItemRacer> ItemRacers;
+	TArray<FKartItemRacer>& ItemRacers = StepItemRacers;
+	ItemRacers.Reset();
 	for (int32 i = 0; i < Racers.Num(); ++i)
 	{
 		FKartRacer& Racer = Racers[i];
@@ -663,7 +665,8 @@ void AKartRaceManager::StepRace()
 		ItemRacer.bUseItem = bUsePressed;
 		ItemRacer.bBot = Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal);
 	}
-	TArray<FKartItemEvent> ItemEvents;
+	TArray<FKartItemEvent>& ItemEvents = StepItemEvents;
+	ItemEvents.Reset();
 	Items.Step(ItemRacers, ItemTime, ItemEvents);
 	DispatchItemEvents(ItemEvents);
 	for (FKartRacer& Racer : Racers)
