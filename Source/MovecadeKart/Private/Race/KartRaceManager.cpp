@@ -345,7 +345,7 @@ void AKartRaceManager::SetPaused(bool bInPaused, const FString& Reason)
 void AKartRaceManager::HandleHostKeys()
 {
 	APlayerController* PC = GetWorld()->GetFirstPlayerController();
-	if (!PC)
+	if (!PC || bUiOwnsHostKeys)
 	{
 		return;
 	}

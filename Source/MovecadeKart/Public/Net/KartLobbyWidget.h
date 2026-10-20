@@ -5,6 +5,7 @@
 #include "Net/RoomTypes.h"
 #include "KartLobbyWidget.generated.h"
 
+class ACameraActor;
 class APlayerController;
 class UBorder;
 class UButton;
@@ -15,7 +16,7 @@ class URoomHostSubsystem;
 /**
  * The room lobby (web LobbyScreen.tsx, Docs/Port/04 §8.4): join code and QR, the four seats with
  * names and kart paint, the track picker, the start-blocked line / countdown, and a Start button.
- * Keys: Enter (or gamepad A) starts, Left/Right/Tab switch the track.
+ * Keys: Enter (or gamepad A) starts, Left/Right/Tab switch the track, Esc (or B) leaves the party for the menu.
  *
  * The widget tree is built in C++ when the class (or a Blueprint child with an empty tree, such as
  * /Game/UI/Lobby/WBP_Lobby) has none, so it works with no assets. It hides itself when a match
@@ -44,6 +45,11 @@ private:
 	void BuildTree();
 	void Refresh();
 	void SelectTrack(int32 Index);
+	/** The look: a slow orbit of the track behind the lobby. */
+	void ShowBackdrop(bool bShow);
+	void UpdateBackdrop(float DeltaSeconds);
+	/** Esc / B: close the room and return to the main menu. */
+	void LeaveParty();
 	URoomHostSubsystem* Room() const;
 
 	UFUNCTION()
@@ -84,6 +90,11 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTexture2D> ShownQr;
+
+	UPROPERTY()
+	TObjectPtr<ACameraActor> BackdropCamera;
+
+	double BackdropClock = 0.0;
 
 	float RefreshAccumulator = 0.f;
 	bool bBound = false;

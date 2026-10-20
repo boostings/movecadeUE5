@@ -14,6 +14,9 @@
 #include "Net/KartLobbyWidget.h"
 #include "Net/RoomHostSubsystem.h"
 #include "TrackBuilder.h"
+#include "UI/KartFrontEnd.h"
+#include "UI/KartSessionSettings.h"
+#include "UI/KartTrackCatalog.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartGameMode, Log, All);
 
@@ -62,8 +65,11 @@ void AKartGameMode::StartPlay()
 	Super::StartPlay();
 	SetupTestHooks();
 
-	const TCHAR* Cmd = FCommandLine::Get();
-	bRoomMode = FParse::Param(Cmd, TEXT("KartRoom")) || FParse::Param(Cmd, TEXT("KartLobby"));
+	// Menus, a local race or the phone room (UI/KartSessionSettings): the test flags skip the menus.
+	UKartSessionSettings* Session = UKartSessionSettings::Get(this);
+	const EKartBoot Boot = Session ? Session->DecideBoot(FCommandLine::Get())
+		: KartFrontEndFlags::DecideBoot(EKartSessionMode::None, true, FCommandLine::Get());
+	bRoomMode = Boot == EKartBoot::Room;
 	if (bRoomMode)
 	{
 		SetupRoom();
@@ -74,6 +80,11 @@ void AKartGameMode::StartPlay()
 	if (!Track.IsValid())
 	{
 		UE_LOG(LogKartGameMode, Error, TEXT("No track loaded; the race cannot start."));
+		return;
+	}
+	if (Boot == EKartBoot::FrontEnd)
+	{
+		AKartFrontEnd::Open(GetWorld(), Track);
 		return;
 	}
 	SetupLocalRace(Track);
@@ -103,44 +114,31 @@ TArray<APlayerController*> AKartGameMode::MakeViewers(int32 Karts, int32 LocalPl
 	const int32 Views = bSoloView ? FMath::Max(1, LocalPlayers) : Karts;
 	for (int32 i = 1; i < Views; ++i)
 	{
-		Viewers.Add(UGameplayStatics::CreatePlayer(this, i, true));
+		// Local players survive level travel (the room reloads the level), so reuse one that is already there.
+		APlayerController* Existing = UGameplayStatics::GetPlayerControllerFromID(this, i);
+		Viewers.Add(Existing ? Existing : UGameplayStatics::CreatePlayer(this, i, true));
 	}
 	return Viewers;
 }
 
 void AKartGameMode::SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 {
-	Track = WithLapOverride(Track);
-	const TCHAR* Cmd = FCommandLine::Get();
-	int32 Bots = DefaultBots;
-	int32 LocalPlayers = 1;
-	FParse::Value(Cmd, TEXT("KartBots="), Bots);
-	FParse::Value(Cmd, TEXT("KartLocalPlayers="), LocalPlayers);
-	LocalPlayers = FMath::Clamp(LocalPlayers, 1, Track->Grid.Num());
-	Bots = FMath::Clamp(Bots, 0, Track->Grid.Num() - LocalPlayers);
-	// -KartBotSkill=easy|normal|hard (normal is the web's lobby bot).
-	EKartBotSkill Skill = EKartBotSkill::Normal;
-	FString SkillName;
-	if (FParse::Value(Cmd, TEXT("KartBotSkill="), SkillName))
+	// The roster, laps and switches: the menu's setup when the race came from the menus, then the
+	// command-line flags on top (-KartBots, -KartLocalPlayers, -KartLaps, -KartBotSkill, -KartSoloView, ...).
+	const UKartSessionSettings* Session = UKartSessionSettings::Get(this);
+	const FKartRacePlan Plan = FKartRacePlan::Resolve(Session ? Session->GetMenuSetup() : nullptr, FCommandLine::Get(), Track->Grid.Num(), DefaultBots);
+	if (Plan.Laps > 0 && Plan.Laps != Track->Laps)
 	{
-		Skill = SkillName == TEXT("easy") ? EKartBotSkill::Easy : SkillName == TEXT("hard") ? EKartBotSkill::Hard : EKartBotSkill::Normal;
-	}
-
-	TArray<FKartSeatSpec> Seats;
-	for (int32 i = 0; i < LocalPlayers + Bots; ++i)
-	{
-		FKartSeatSpec& Seat = Seats.AddDefaulted_GetRef();
-		Seat.Kind = i < LocalPlayers ? EKartSeatKind::Local : EKartSeatKind::Bot;
-		Seat.Name = i < LocalPlayers ? FString::Printf(TEXT("Player %d"), i + 1) : BotNames[(i - LocalPlayers) % UE_ARRAY_COUNT(BotNames)];
-		Seat.Paint = SeatPaint[i % UE_ARRAY_COUNT(SeatPaint)];
-		Seat.BotSkill = Skill;
+		TSharedPtr<MovecadeKart::FTrack> WithLaps = MakeShared<MovecadeKart::FTrack>(*Track);
+		WithLaps->Laps = Plan.Laps;
+		Track = WithLaps;
 	}
 
 	RaceManager = GetWorld()->SpawnActor<AKartRaceManager>();
-	RaceManager->bAutoDriveLocal = FParse::Param(Cmd, TEXT("KartAutoDrive"));
-	RaceManager->bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
-	RaceManager->bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
-	RaceManager->Setup(Track, Seats, MakeViewers(Seats.Num(), LocalPlayers, FParse::Param(Cmd, TEXT("KartSoloView"))));
+	RaceManager->bAutoDriveLocal = Plan.bAutoDrive;
+	RaceManager->bSkipIntro = Plan.bSkipIntro;
+	RaceManager->bLegacyWalls = Plan.bLegacyWalls;
+	RaceManager->Setup(Track, Plan.Seats, MakeViewers(Plan.Seats.Num(), Plan.LocalPlayers, Plan.bSoloView));
 	bRaceBuilt = true;
 }
 
@@ -179,8 +177,8 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 	ATrackBuilder* Builder = GetTrackBuilder();
 	if (Builder && !MapId.IsEmpty() && Builder->TrackId != MapId)
 	{
-		// The other track lives in its own level. The room subsystem survives the travel.
-		const FString Level = MapId == TEXT("violet-loop") ? TEXT("/Game/Maps/L_VioletLoop") : TEXT("/Game/Maps/L_SunsetHarbor");
+		// The other track lives in its own level (UI/KartTrackCatalog). The room subsystem survives the travel.
+		const FString Level = FKartTrackCatalog::LevelFor(MapId);
 		if (FPackageName::DoesPackageExist(Level))
 		{
 			UGameplayStatics::OpenLevel(this, FName(*Level));
