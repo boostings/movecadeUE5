@@ -96,9 +96,56 @@ check('violet: trackside plan 34 kerb runs, 2 stands, 100 banners, 37 lamps',
   `${v.scenery.kerbRuns.length}/${count('grandstand')}/${count('banner_board')}/${count('lamp_post')}`);
 check('violet: 53 trees', count('tree_trunk') === 53 && count('tree_canopy') === 53);
 check('violet: GLB mount (155,-28,15) x0.08', JSON.stringify(v.meshes[0].transform) === JSON.stringify({ position: [155, -28, 15], scale: 0.08 }));
-const wallPts = v.collision.walls.reduce((a, w2) => a + w2.polyline.length, 0);
+const wallPts = v.collision.profileWalls.reduce((a, w2) => a + w2.polyline.length, 0);
 const wallSamples = v.samples.points.filter((p) => p.left.wall !== null).length + v.samples.points.filter((p) => p.right.wall !== null).length;
-check('violet: fallback walls cover every walled sample', wallPts === wallSamples, `${v.collision.walls.length} runs, ${wallPts} points`);
+check('violet: profile walls cover every walled sample', wallPts === wallSamples, `${v.collision.profileWalls.length} runs, ${wallPts} points`);
+
+// ---- Violet mesh walls and dirt (src/violetMesh.mjs; Docs/Port/01 §5, §7.2, §7.5)
+const roles = Object.fromEntries(v.collision.walls.map((w2) => [w2.role, w2.segments]));
+check('violet: GLB walls replace the profile fallback', v.collision.wallsAreFallback === false && v.collision.walls.length === 2 && roles.sweep && roles.probe);
+const segOk = (s) => s.length === 6 && s.every(Number.isFinite) && Math.hypot(s[2] - s[0], s[3] - s[1]) > 0 && Math.hypot(s[4], s[5]) > 0.71 && Math.hypot(s[4], s[5]) <= 1.0001;
+check('violet: wall segments well formed (|n.xz| > 0.71 since |n.y| < 0.7)', [...roles.sweep, ...roles.probe].every(segOk), `${roles.sweep.length} sweep, ${roles.probe.length} probe`);
+check('violet: 15k-30k segments per role', [roles.sweep, roles.probe].every((s) => s.length > 15000 && s.length < 30000));
+function segDist(px, pz, s) {
+  const dx = s[2] - s[0], dz = s[3] - s[1];
+  const u = Math.max(0, Math.min(1, ((px - s[0]) * dx + (pz - s[1]) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(px - s[0] - dx * u, pz - s[1] - dz * u);
+}
+const nearestWall = (segs, px, pz) => segs.reduce((m, s) => Math.min(m, segDist(px, pz, s)), Infinity);
+// The road must be clear: at every sample, the nearest sweep wall is beyond the narrower road edge.
+let worstClear = Infinity;
+for (const p of v.samples.points) worstClear = Math.min(worstClear, nearestWall(roles.sweep, p.x, p.z) - Math.min(p.left.edge, p.right.edge));
+check('violet: no sweep wall on the road (centre to wall >= road edge)', worstClear >= 0, `worst margin ${worstClear.toFixed(2)} m`);
+// The profile (baked by down-rays against the live GLB) puts a wall where the mesh walls are.
+let agree = 0, walled = 0;
+for (const p of v.samples.points) {
+  const n = { x: -p.tz, z: p.tx }; // side +1 (driver's right)
+  for (const [side, prof] of [[1, p.right], [-1, p.left]]) {
+    if (prof.wall === null) continue;
+    walled++;
+    if (nearestWall(roles.sweep, p.x + n.x * side * prof.wall, p.z + n.z * side * prof.wall) < 1.0) agree++;
+  }
+}
+check('violet: >= 95% of profile wall points lie on a GLB sweep wall (within 1 m)', agree / walled >= 0.95, `${agree}/${walled}`);
+const g = v.collision.dirtGrid;
+const dirtAt = (x, z) => {
+  const col = Math.floor((x - g.minX) / g.cellM), row = Math.floor((z - g.minZ) / g.cellM);
+  return g.runs.some(([r0, c0, c1]) => r0 === row && col >= c0 && col <= c1);
+};
+check('violet: dirt grid present, 0.25 m cells', g && g.cellM === 0.25 && g.runs.length > 1000);
+check('violet: centreline is never dirt', v.samples.points.every((p) => !dirtAt(p.x, p.z)));
+let verge = 0, vergeDirt = 0;
+for (const p of v.samples.points) {
+  const n = { x: -p.tz, z: p.tx };
+  for (const [side, prof] of [[1, p.right], [-1, p.left]]) {
+    if (prof.wall === null || prof.wall - prof.edge < 4) continue;
+    verge++;
+    const o = prof.edge + 2; // 2 m off the asphalt, still short of the wall
+    if (dirtAt(p.x + n.x * side * o, p.z + n.z * side * o)) vergeDirt++;
+  }
+}
+check('violet: the sand verge 2 m past the road edge is dirt (>= 90%)', vergeDirt / verge >= 0.9, `${vergeDirt}/${verge}`);
+check('violet: decoded GLB recorded for the UE import', v.meshes[0].transformBaked === true && v.meshes[0].ueAssets.length === 9);
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

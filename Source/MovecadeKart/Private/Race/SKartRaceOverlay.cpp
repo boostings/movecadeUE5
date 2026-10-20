@@ -101,7 +101,8 @@ int32 SKartRaceOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 	{
 		P.Box(FVector2D(Cx - 300.0, Size.Y * 0.4), FVector2D(600.0, 110.0), Ink);
 		P.Text(TEXT("PAUSED"), FVector2D(Cx, Size.Y * 0.4 + 14.0), 32, Accent, 0.5);
-		P.Text(TEXT("Waiting for a phone to reconnect..."), FVector2D(Cx, Size.Y * 0.4 + 64.0), 16, Soft, 0.5);
+		P.Text(Race->GetPauseReason() == TEXT("local") ? FString(TEXT("Esc / Back: resume   ·   R: restart   ·   Q: quit"))
+			: FString(TEXT("Waiting for a phone to reconnect...")), FVector2D(Cx, Size.Y * 0.4 + 64.0), 16, Soft, 0.5);
 		return LayerId + 3;
 	}
 

@@ -5,6 +5,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/StaticMesh.h"
@@ -184,12 +185,21 @@ void ATrackBuilder::Build()
 	Ground->ClearAllMeshSections();
 	SectionCount = 0;
 
+	// Imported scenery first: an imported ribbon set replaces the procedural one below.
+	ClearScenery();
+	const bool bRibbonsImported = BuildImportedMeshes();
+	BuildSea();
+	const bool bSeaImported = GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("TrackSea")).Num() > 0;
+	BuildPrefabInstances();
+	BuildSigns();
+	BuildMotion();
+
 	auto Right = [&T](int32 i) { const FVector2D Tg = T.CentreTangent[i % T.Centre.Num()]; return FVector2D(-Tg.Y, Tg.X); };
 	auto At = [&](int32 i, double Offset, double Y) { const int32 k = i % Rows; return Coords::ToUE(T.Centre[k] + Right(k) * Offset, Y + Rebase); };
 
 	// Ribbons: one section per ribbon, curbs split into their red and cream stripes (every 4 rows).
 	const TArray<TSharedPtr<FJsonValue>>* Ribbons = nullptr;
-	if (Json.IsValid() && Json->TryGetArrayField(TEXT("ribbons"), Ribbons))
+	if (!bRibbonsImported && Json.IsValid() && Json->TryGetArrayField(TEXT("ribbons"), Ribbons))
 	{
 		for (const TSharedPtr<FJsonValue>& Value : *Ribbons)
 		{
@@ -260,9 +270,9 @@ void ATrackBuilder::Build()
 			const TSharedPtr<FJsonObject> I = Value->AsObject();
 			FString Prefab, Tint;
 			I->TryGetStringField(TEXT("prefab"), Prefab);
-			if (Prefab != TEXT("sea_plane"))
+			if (Prefab != TEXT("sea_plane") || bSeaImported)
 			{
-				continue; // Prop prefabs arrive with export phase 1b.
+				continue; // Prefabs are instanced by BuildPrefabInstances; this is the graybox sea.
 			}
 			I->TryGetStringField(TEXT("tint"), Tint);
 			const TArray<TSharedPtr<FJsonValue>>* Scale = nullptr;
@@ -280,8 +290,9 @@ void ATrackBuilder::Build()
 		}
 	}
 
-	// Start/finish line across the road at the finish checkpoint, 1.5 m deep.
-	if (T.Checkpoints.Num() > 0)
+	// Start/finish line across the road at the finish checkpoint, 1.5 m deep (both tracks paint their own
+	// chequers, so only the graybox needs it).
+	if (SceneryCount == 0 && T.Checkpoints.Num() > 0)
 	{
 		const FVector2D F = T.Checkpoints[0].Position;
 		double HalfWidth = 14.0;
@@ -337,6 +348,34 @@ void ATrackBuilder::Build()
 	Atmosphere->SetVisibility(bAddLighting);
 	Fog->SetVisibility(bAddLighting);
 	Sun->SetWorldRotation((-Coords::DirToUE(T.SunDirection).GetSafeNormal()).Rotation());
+
+	// The web's linear fog starts at look.fog.near (260 m) and is full by far (2000 m); Docs/Port/03 §8 maps
+	// it to height fog that starts at near, thin enough that the scenery inside a lap stays clear.
+	const TSharedPtr<FJsonObject>* Look = nullptr;
+	if (Json.IsValid() && Json->TryGetObjectField(TEXT("look"), Look))
+	{
+		FString SunColor;
+		if ((*Look)->TryGetStringField(TEXT("sunColor"), SunColor))
+		{
+			Sun->SetLightColor(Hex(*SunColor.Replace(TEXT("#"), TEXT(""))));
+		}
+		const TSharedPtr<FJsonObject>* FogLook = nullptr;
+		if ((*Look)->TryGetObjectField(TEXT("fog"), FogLook))
+		{
+			Fog->SetStartDistance(static_cast<float>(JsonNum(*FogLook, TEXT("near"), 260.0) * 100.0));
+			Fog->SetFogDensity(0.004f);
+		}
+	}
+}
+
+void ATrackBuilder::BeginPlay()
+{
+	Super::BeginPlay();
+	if (GetTrack() && SceneryCount == 0 && GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("TrackScenery")).Num() == 0)
+	{
+		Build(); // A level saved before the assets were imported.
+	}
+	GatherMotion();
 }
 
 void ATrackBuilder::SetPreviewItemBoxesVisible(bool bVisible)
@@ -348,6 +387,7 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	const double Time = GetWorld()->GetTimeSeconds();
+	TickMotion(Time);
 
 	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t).
 	for (int32 i = 0; i < ItemBoxBase.Num(); ++i)

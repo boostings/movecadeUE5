@@ -8,6 +8,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "KartCoords.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
@@ -301,6 +302,19 @@ void AKartRaceManager::UseRaceViews()
 	}
 }
 
+void AKartRaceManager::SetPaused(bool bInPaused, const FString& Reason)
+{
+	bPaused = bInPaused;
+	PauseReason = bInPaused ? Reason : FString();
+	for (FKartRacer& Racer : Racers)
+	{
+		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		{
+			Audio->SetPaused(bInPaused);
+		}
+	}
+}
+
 void AKartRaceManager::HandleHostKeys()
 {
 	APlayerController* PC = GetWorld()->GetFirstPlayerController();
@@ -309,6 +323,35 @@ void AKartRaceManager::HandleHostKeys()
 		return;
 	}
 	const bool bConfirm = PC->WasInputKeyJustPressed(EKeys::Enter) || PC->WasInputKeyJustPressed(EKeys::Gamepad_Special_Right);
+	const bool bPauseKey = PC->WasInputKeyJustPressed(EKeys::Escape) || PC->WasInputKeyJustPressed(EKeys::P) || PC->WasInputKeyJustPressed(EKeys::Gamepad_Special_Left);
+
+	// Local pause menu (not in room mode, where the room owns pauses).
+	if (bPaused && PauseReason == TEXT("local"))
+	{
+		if (bPauseKey || bConfirm)
+		{
+			SetPaused(false);
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::R))
+		{
+			SetPaused(false);
+			RestartRace();
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Q))
+		{
+			UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);
+		}
+		return;
+	}
+	if (bPaused)
+	{
+		return;
+	}
+	if (bPauseKey && !OnRestartRequested && (Phase == EKartRacePhase::Countdown || Phase == EKartRacePhase::Racing))
+	{
+		SetPaused(true, TEXT("local"));
+		return;
+	}
 	if (!bConfirm)
 	{
 		return;
@@ -337,14 +380,14 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	HandleHostKeys();
 	if (bPaused)
 	{
-		// Everything freezes while the room waits for a phone (pauseLifecycle.ts).
+		// Everything freezes: the pause menu, or the room waiting for a phone (pauseLifecycle.ts).
 		return;
 	}
 	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0);
 	PhaseSeconds += Dt;
-	HandleHostKeys();
 
 	switch (Phase)
 	{

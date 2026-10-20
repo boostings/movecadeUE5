@@ -29,3 +29,5 @@ node_modules/
 *.log
 # Agent worktrees and local Claude state
 .claude/
+# Track exporter binaries (reproducible: cd Tools/track-export && npm run export)
+Tools/track-export/out/
