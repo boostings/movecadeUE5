@@ -29,7 +29,7 @@ namespace
 	/** Value flags, matched with their '='. */
 	const TCHAR* SkipValues[] = {
 		TEXT("KartShots="), TEXT("KartQuitAfter="), TEXT("KartBots="), TEXT("KartLocalPlayers="), TEXT("KartLaps="),
-		TEXT("KartVehicle="), TEXT("KartOutfit="), TEXT("KartCloseCam="), TEXT("KartPhoneSeat="), TEXT("KartBotSkill="),
+		TEXT("KartVehicle="), TEXT("KartOutfit="), TEXT("KartCloseCam="), TEXT("KartPhoneSeat="), TEXT("KartBotSkill="), TEXT("KartCapture="),
 	};
 }
 
