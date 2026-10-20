@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-19T21:24:04.239Z",
+  "exportedAt": "2026-10-20T01:11:48.823Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",
@@ -33283,10 +33283,16 @@
      "node": "ribbon_road",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_road",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#5c6a6b",
       "texture": "harbor_asphalt",
-      "roughness": 0.86
+      "roughness": 0.86,
+      "detail": "asphalt_track",
+      "tileM": 4.5,
+      "albedo": 0.6,
+      "normal": 0.55,
+      "rough": 0.6,
+      "desaturate": 0.35
      }
     },
     {
@@ -33311,30 +33317,45 @@
      "node": "ribbon_shoulder",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_shoulder",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#d5b58a",
       "texture": "harbor_cobble",
-      "roughness": 1
+      "roughness": 1,
+      "detail": "gravelly_sand",
+      "tileM": 3,
+      "albedo": 0.5,
+      "normal": 0.6,
+      "rough": 0.5
      }
     },
     {
      "node": "ribbon_leftBeach",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftBeach",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#e6cc9e",
       "texture": "harbor_sand",
-      "roughness": 1
+      "roughness": 1,
+      "detail": "gravelly_sand",
+      "tileM": 4,
+      "albedo": 0.5,
+      "normal": 0.6,
+      "rough": 0.4
      }
     },
     {
      "node": "ribbon_rightBeach",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightBeach",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#e6cc9e",
       "texture": "harbor_sand",
-      "roughness": 1
+      "roughness": 1,
+      "detail": "gravelly_sand",
+      "tileM": 4,
+      "albedo": 0.5,
+      "normal": 0.6,
+      "rough": 0.4
      }
     },
     {
@@ -33377,36 +33398,58 @@
      "node": "ribbon_leftCurb",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftCurb",
      "material": {
-      "shader": "vertexColor",
-      "roughness": 0.85
+      "shader": "surface",
+      "roughness": 0.7,
+      "detail": "painted_concrete",
+      "tileM": 2,
+      "albedo": 0.25,
+      "normal": 0.4,
+      "rough": 0.4
      }
     },
     {
      "node": "ribbon_rightCurb",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightCurb",
      "material": {
-      "shader": "vertexColor",
-      "roughness": 0.85
+      "shader": "surface",
+      "roughness": 0.7,
+      "detail": "painted_concrete",
+      "tileM": 2,
+      "albedo": 0.25,
+      "normal": 0.4,
+      "rough": 0.4
      }
     },
     {
      "node": "ribbon_leftWall",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_leftWall",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#8fb0ad",
       "texture": "harbor_stone",
-      "roughness": 0.8
+      "roughness": 0.8,
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.45,
+      "normal": 0.6,
+      "rough": 0.5
      }
     },
     {
      "node": "ribbon_rightWall",
      "ueAsset": "/Game/Tracks/SunsetHarbor/harbor_ribbons/StaticMeshes/ribbon_rightWall",
      "material": {
-      "shader": "textured",
+      "shader": "surface",
       "color": "#8fb0ad",
       "texture": "harbor_stone",
-      "roughness": 0.8
+      "roughness": 0.8,
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 2.4,
+      "albedo": 0.45,
+      "normal": 0.6,
+      "rough": 0.5
      }
     },
     {
@@ -34225,8 +34268,144 @@
    "srgb": true,
    "width": 1536,
    "height": 192
+  },
+  {
+   "name": "mc_billboard_0",
+   "file": "mc_billboard_0.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_0",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_billboard_1",
+   "file": "mc_billboard_1.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_1",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_billboard_2",
+   "file": "mc_billboard_2.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_2",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_billboard_3",
+   "file": "mc_billboard_3.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_3",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_column_0",
+   "file": "mc_column_0.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_column_0",
+   "srgb": true,
+   "width": 1024,
+   "height": 512
+  },
+  {
+   "name": "mc_column_1",
+   "file": "mc_column_1.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_column_1",
+   "srgb": true,
+   "width": 1024,
+   "height": 512
+  },
+  {
+   "name": "mc_arch_0",
+   "file": "mc_arch_0.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_arch_0",
+   "srgb": true,
+   "width": 2048,
+   "height": 192
+  },
+  {
+   "name": "mc_arch_1",
+   "file": "mc_arch_1.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_arch_1",
+   "srgb": true,
+   "width": 2048,
+   "height": 192
+  },
+  {
+   "name": "mc_boost_pad",
+   "file": "mc_boost_pad.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_boost_pad",
+   "srgb": true,
+   "width": 256,
+   "height": 256
   }
  ],
+ "detailSurfaces": {
+  "asphalt_track": {
+   "set": "asphalt_track",
+   "color": "/Game/Tracks/Shared/Surfaces/T_asphalt_track_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_asphalt_track_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_asphalt_track_rough",
+   "mean": [0.017,0.0137,0.0126],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/asphalt_track (movecade-v2 app/public/textures/surfaces/asphalt_track, LEDGER.json)"
+  },
+  "painted_concrete": {
+   "set": "painted_concrete",
+   "color": "/Game/Tracks/Shared/Surfaces/T_painted_concrete_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_painted_concrete_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_painted_concrete_rough",
+   "mean": [0.08,0.156,0.0881],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/painted_concrete (movecade-v2 app/public/textures/surfaces/painted_concrete, LEDGER.json)"
+  },
+  "leafy_grass": {
+   "set": "leafy_grass",
+   "color": "/Game/Tracks/Shared/Surfaces/T_leafy_grass_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_leafy_grass_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_leafy_grass_rough",
+   "mean": [0.3176,0.2342,0.1045],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/leafy_grass (movecade-v2 app/public/textures/surfaces/leafy_grass, LEDGER.json)"
+  },
+  "gravelly_sand": {
+   "set": "gravelly_sand",
+   "color": "/Game/Tracks/Shared/Surfaces/T_gravelly_sand_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_gravelly_sand_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_gravelly_sand_rough",
+   "mean": [0.2892,0.1605,0.0743],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/gravelly_sand (movecade-v2 app/public/textures/surfaces/gravelly_sand, LEDGER.json)"
+  },
+  "rock_face": {
+   "set": "rock_face",
+   "color": "/Game/Tracks/Shared/Surfaces/T_rock_face_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_rock_face_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_rock_face_rough",
+   "mean": [0.1206,0.0616,0.0315],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/rock_face (movecade-v2 app/public/textures/surfaces/rock_face, LEDGER.json)"
+  },
+  "dark_wooden_planks": {
+   "set": "dark_wooden_planks",
+   "color": "/Game/Tracks/Shared/Surfaces/T_dark_wooden_planks_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_dark_wooden_planks_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_dark_wooden_planks_rough",
+   "mean": [0.0877,0.0697,0.05],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/dark_wooden_planks (movecade-v2 app/public/textures/surfaces/dark_wooden_planks, LEDGER.json)"
+  }
+ },
+ "boostPadLook": {
+  "texture": "mc_boost_pad",
+  "emissive": 2.2,
+  "pulse": 0.6,
+  "pulseRadPerS": 6,
+  "scrollPerS": 1.6,
+  "rim": "#ffcc00"
+ },
  "exportNotes": [
   "Scenery binaries (ribbons with their UVs and tones, ~35 prop colour batches incl. the coral tunnel, the HarborMotion parts, canvas textures) are in Tools/track-export/out/harbor; meshes[].parts and scenery.motionParts give each UE asset and its material.",
   "Positions authored in spline t (sectors, items, pads) are not arc length; use the exported xyz or the spline input key t*29."

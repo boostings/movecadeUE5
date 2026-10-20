@@ -30,7 +30,9 @@ import maps (x, y, z) to UE (x, z, y), so ATrackBuilder puts every imported mesh
 
 | File | From | Used as |
 |---|---|---|
-| `violet/violet_loop.glb` | `public/models/violet-loop.glb`, Draco + WebP decoded, mount `[155,-28,15] x0.08` and the +1.605 m rebase baked in, Object_22 dropped, the 53 voxel trees cut from Object_18 | the circuit (Nanite), with its own palette materials |
+| `violet/violet_loop.glb` | `public/models/violet-loop.glb`, Draco + WebP decoded, mount `[155,-28,15] x0.08` and the +1.605 m rebase baked in, Object_22 dropped, the 53 voxel trees cut from Object_18; IP cleanup: warp pipes (Object_12), brick blocks (Object_47) and clouds cut, barrier studs flattened and the barrier palette recoloured (`material_8_recoloured`) | the circuit (Nanite), with its own palette materials |
+| `shared/movecade_props.glb`, `shared/textures/mc_*.png` | `src/props.ts` (original) | Movecade props and their branded faces; the props that replace Violet's motifs (`scenery.instances[].replaces`) |
+| `shared/surfaces/T_<set>_{color,normal,rough}.png` | movecade-v2 `public/textures/surfaces` (Poly Haven CC0), normals flipped to DirectX | world-space detail on `M_TrackSurface*` (`detailSurfaces` in the JSON) |
 | `violet/violet_kerbs.glb` | `kerbGeometry(samples, plan.kerbs)` | world-space kerbs |
 | `shared/violet_prefabs.glb` | `tracksideGeometry.ts`, `violetTrees.ts`, plus a 1 m sign plane | instanced grandstands, lamps, banners, trees; signs and the sea |
 | `harbor/harbor_ribbons.glb` | `harborRibbon()` for the 16 ribbons | replaces the procedural graybox ribbons |

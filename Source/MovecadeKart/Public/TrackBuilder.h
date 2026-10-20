@@ -11,6 +11,7 @@ class UInstancedStaticMeshComponent;
 class UMaterialInterface;
 class UProceduralMeshComponent;
 class UMaterialInstanceDynamic;
+class UPostProcessComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 class UTexture;
@@ -24,8 +25,13 @@ class USkyLightComponent;
  * - scenery.instances as instanced prefabs (grandstands, lamps, banners, trees), scenery.signs,
  *   and Harbor's animated actors (scenery.animated, HarborMotion.tsx), moved in Tick;
  * - a graybox of anything not imported (the Harbor ribbons as procedural sections, start line),
- *   the sea, boost pads and item boxes, plus a basic sky and sun from the track's look.
+ *   the sea, boost pads (emissive chevrons, BoostPads.jsx) and item boxes;
+ * - the track's look (JSON `look`): sun, sky light, sky atmosphere, height fog and an unbound post
+ *   process volume with the grade (exposure, contrast, saturation, lift/gain, bloom, vignette) and Lumen.
  * Built in the editor too (OnConstruction). Run Tools/ue/import_track_assets.py after an export.
+ *
+ * -KartTrack=<id> on the command line swaps the track at BeginPlay (any level with a builder, or none:
+ * AKartGameMode spawns one), so local play can pick a track that has no level of its own.
  */
 UCLASS()
 class MOVECADEKART_API ATrackBuilder : public AActor
@@ -64,6 +70,9 @@ public:
 private:
 	bool Load();
 	void Build();
+	/** Lights, sky, fog and post from the JSON look. Also runs at BeginPlay, so a look change needs no level rebuild. */
+	void ApplyLook();
+	void BuildBoostPads();
 	void AddSection(const FString& Name, const FLinearColor& Color, TFunctionRef<void(TArray<FVector>&, TArray<int32>&, TArray<FVector>&)> Emit);
 
 	// Imported scenery (TrackScenery.cpp).
@@ -116,6 +125,13 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Lighting")
 	TObjectPtr<UExponentialHeightFogComponent> Fog;
+
+	UPROPERTY(VisibleAnywhere, Category = "Lighting")
+	TObjectPtr<UPostProcessComponent> PostProcess;
+
+	/** The web's gradient sky dome (M_TrackSky), 10 km out; the real-time sky light captures it. */
+	UPROPERTY(VisibleAnywhere, Category = "Lighting")
+	TObjectPtr<UStaticMeshComponent> SkySphere;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BaseMaterial;

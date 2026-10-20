@@ -6,6 +6,9 @@
 //    and the +1.605 m rebase baked into the vertices, node and mesh names kept (Object_10 ...).
 //    Object_22 (never rendered by violet-loop.jsx) is left out, and the 53 voxel trees are cut
 //    out of Object_18 (the web discards them in the shader and draws soft instanced trees).
+//    IP cleanup (visual only): the warp pipes and brick blocks are left out too, the voxel clouds are
+//    cut from Object_18, and the barrier blocks lose their studs and get a violet/cream palette.
+//    The groups cut are returned as `motifs` so export.ts can stand original props in their place.
 //  - The data for the track JSON: wall segments for the sweep and for the probe rays, and a
 //    dirt grid for the terrain ray. All in source units (three.js world, no rebase).
 import { Document, NodeIO } from '@gltf-transform/core';
@@ -32,6 +35,27 @@ const RENDERED = {
 const DIRT_KEYWORDS = ['dirt', 'sand', 'grass', 'offroad', 'mud', 'gravel'];
 /** trackSurfaces.ts:71-73 VIOLET_TREE_CELLS (column, row of the 8x8 palette, raw UVs), cut from material_12. */
 const TREE_CELLS = [[1, 6], [1, 3], [1, 4], [0, 4], [0, 5], [0, 6], [1, 1]];
+
+// ---- IP cleanup (Docs/Port/00-PLAN.md open risks: the old "mario-circuit" test model's motifs) -------
+// Visual only: every triangle still goes through the collision analysis above the output step, so
+// collision.walls and collision.dirtGrid are byte-identical with or without the cleanup.
+/** Whole nodes cut from the visual mesh: Object_12 is six green warp pipes (body, lip, black opening),
+ *  Object_47 the brick blocks (stair stacks on the perimeter, floating rows at 13.7 m, the gantry feet). */
+const MOTIF_NODES = { Object_12: 'pipe', Object_47: 'bricks' };
+/** material_12 palette cell (column, row) of the ten puffy voxel clouds over the hills. */
+const CLOUD_CELLS = [[6, 6]];
+/**
+ * Object_13's barrier blocks: four-colour studded cubes (a pyramid stud on every face). The studs are
+ * flattened (each apex moved onto its face) and the palette recoloured to Movecade's violet and cream,
+ * so the walls read as painted, bevelled concrete blocks. Map: palette hue band -> new colour.
+ */
+const BARRIER_RECOLOUR = [
+  { hue: [30, 75], to: [0xf1, 0xec, 0xe2] }, // yellow -> cream
+  { hue: [75, 170], to: [0x5b, 0x3f, 0xc4] }, // green -> violet
+  { hue: [200, 300], to: [0x6d, 0x4b, 0xd8] }, // blue -> Movecade violet
+  { hue: [300, 361], to: [0xf6, 0xf2, 0xea] }, // red/pink -> white
+  { hue: [0, 15], to: [0xf6, 0xf2, 0xea] },
+];
 
 // The web's collision constants (meshBoundary.ts, MultiplayerKart.tsx).
 const WALL_NORMAL_Y = 0.7;
@@ -160,9 +184,140 @@ class SegmentSet {
   }
 }
 
-async function webpToPng(texture) {
-  const png = await sharp(Buffer.from(texture.getImage())).png().toBuffer();
-  return new Uint8Array(png);
+async function webpToPng(texture, recolour) {
+  if (!recolour) return new Uint8Array(await sharp(Buffer.from(texture.getImage())).png().toBuffer());
+  const { data, info } = await sharp(Buffer.from(texture.getImage())).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+  for (let o = 0; o < data.length; o += 4) {
+    const [r, g, b] = [data[o], data[o + 1], data[o + 2]];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const v = max / 255, s = max ? (max - min) / max : 0;
+    if (v < 0.35 || s < 0.3) continue; // dark trims and greys stay
+    const d = max - min;
+    let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+    const band = recolour.find((m) => h >= m.hue[0] && h < m.hue[1]);
+    if (!band) continue;
+    const k = Math.min(1.04, Math.max(0.8, v / 0.82));
+    for (let c = 0; c < 3; c++) data[o + c] = Math.min(255, Math.round(band.to[c] * k));
+  }
+  return new Uint8Array(await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer());
+}
+
+/** Union-find over position-welded vertices: the connected pieces of a triangle list. */
+function components(world, idx) {
+  const vcount = world.length / 3;
+  const key = new Map();
+  const weld = new Int32Array(vcount);
+  for (let i = 0; i < vcount; i++) {
+    const k = `${Math.round(world[i * 3] * 1000)},${Math.round(world[i * 3 + 1] * 1000)},${Math.round(world[i * 3 + 2] * 1000)}`;
+    if (!key.has(k)) key.set(k, i);
+    weld[i] = key.get(k);
+  }
+  const parent = Int32Array.from({ length: vcount }, (_, i) => i);
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  for (let t = 0; t < idx.length; t += 3) {
+    for (const k of [1, 2]) { const a = find(weld[idx[t]]), b = find(weld[idx[t + k]]); if (a !== b) parent[a] = b; }
+  }
+  const out = new Map();
+  for (let t = 0; t < idx.length; t += 3) {
+    const root = find(weld[idx[t]]);
+    let c = out.get(root);
+    if (!c) out.set(root, (c = { tris: 0, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }));
+    c.tris++;
+    for (let k = 0; k < 3; k++) for (let a = 0; a < 3; a++) {
+      const p = world[idx[t + k] * 3 + a];
+      c.min[a] = Math.min(c.min[a], p); c.max[a] = Math.max(c.max[a], p);
+    }
+  }
+  return { weld, list: [...out.values()] };
+}
+
+/** Joins pieces whose boxes touch (a brick stair is several stacked pieces). */
+function clusterBoxes(list, gap = 0.4) {
+  const groups = list.map((c) => ({ min: [...c.min], max: [...c.max], tris: c.tris }));
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < groups.length && !merged; i++) {
+      for (let j = i + 1; j < groups.length && !merged; j++) {
+        const a = groups[i], b = groups[j];
+        if ([0, 1, 2].every((k) => a.min[k] <= b.max[k] + gap && b.min[k] <= a.max[k] + gap)) {
+          for (let k = 0; k < 3; k++) { a.min[k] = Math.min(a.min[k], b.min[k]); a.max[k] = Math.max(a.max[k], b.max[k]); }
+          a.tris += b.tris;
+          groups.splice(j, 1);
+          merged = true;
+        }
+      }
+    }
+  }
+  return groups;
+}
+
+/**
+ * Flattens the pyramid studs of the barrier blocks: an apex is a vertex whose welded 1-ring is four
+ * coplanar vertices it stands off from; it moves to their centroid, leaving a flat bevelled face.
+ * Returns how many apexes moved. `pos` is changed in place.
+ */
+function flattenStuds(pos, idx) {
+  const vcount = pos.length / 3;
+  const key = new Map();
+  const weld = new Int32Array(vcount);
+  for (let i = 0; i < vcount; i++) {
+    const k = `${Math.round(pos[i * 3] * 1000)},${Math.round(pos[i * 3 + 1] * 1000)},${Math.round(pos[i * 3 + 2] * 1000)}`;
+    if (!key.has(k)) key.set(k, i);
+    weld[i] = key.get(k);
+  }
+  const ring = new Map();
+  const link = (a, b) => { if (!ring.has(a)) ring.set(a, new Set()); ring.get(a).add(b); };
+  for (let t = 0; t < idx.length; t += 3) {
+    const v = [weld[idx[t]], weld[idx[t + 1]], weld[idx[t + 2]]];
+    for (let k = 0; k < 3; k++) { link(v[k], v[(k + 1) % 3]); link(v[k], v[(k + 2) % 3]); }
+  }
+  const P = (i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]];
+  const moveTo = new Map();
+  for (const [v, set] of ring) {
+    if (set.size !== 4) continue;
+    const q = [...set].map(P);
+    const c = [0, 1, 2].map((a) => (q[0][a] + q[1][a] + q[2][a] + q[3][a]) / 4);
+    // Plane of the ring from two diagonals; all four must lie on it.
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let n = cr(sub(q[2], q[0]), sub(q[3], q[1]));
+    let len = Math.hypot(...n);
+    if (len < 1e-6) n = cr(sub(q[1], q[0]), sub(q[2], q[0])), len = Math.hypot(...n);
+    if (len < 1e-6) continue;
+    n = n.map((x) => x / len);
+    const dist = (p) => (p[0] - c[0]) * n[0] + (p[1] - c[1]) * n[1] + (p[2] - c[2]) * n[2];
+    if (q.some((p) => Math.abs(dist(p)) > 0.02)) continue;
+    const p = P(v);
+    const off = dist(p);
+    if (Math.abs(off) < 0.04 || Math.abs(off) > 0.8) continue;
+    // The apex sits over the ring's centre.
+    const lateral = Math.hypot(...[0, 1, 2].map((a) => p[a] - off * n[a] - c[a]));
+    if (lateral > 0.1) continue;
+    moveTo.set(v, c);
+  }
+  for (let i = 0; i < vcount; i++) {
+    const c = moveTo.get(weld[i]);
+    if (c) { pos[i * 3] = c[0]; pos[i * 3 + 1] = c[1]; pos[i * 3 + 2] = c[2]; }
+  }
+  return moveTo.size;
+}
+
+/** Per-vertex normals from the (unwelded) index: flat-shaded faces keep their own normals. */
+function vertexNormals(pos, idx) {
+  const n = new Float32Array(pos.length);
+  for (let t = 0; t < idx.length; t += 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
+    const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
+    const vx = pos[c * 3] - pos[a * 3], vy = pos[c * 3 + 1] - pos[a * 3 + 1], vz = pos[c * 3 + 2] - pos[a * 3 + 2];
+    const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+    for (const v of [a, b, c]) { n[v * 3] += fx; n[v * 3 + 1] += fy; n[v * 3 + 2] += fz; }
+  }
+  for (let i = 0; i < n.length; i += 3) {
+    const l = Math.hypot(n[i], n[i + 1], n[i + 2]) || 1;
+    n[i] /= l; n[i + 1] /= l; n[i + 2] /= l;
+  }
+  return n;
 }
 
 /**
@@ -189,6 +344,8 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
   const sweep = new SegmentSet();
   const probe = new SegmentSet();
   const stats = {};
+  /** Motif groups cut from the visual mesh, in three.js world metres (no rebase). */
+  const motifs = [];
 
   // ---- Output document.
   const out = new Document();
@@ -203,8 +360,11 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
       .setMetallicFactor(m.getMetallicFactor())
       .setEmissiveFactor(m.getEmissiveFactor())
       .setDoubleSided(m.getDoubleSided());
-    const copyTex = async (t, name) => t && out.createTexture(`${m.getName()}_${name}`).setMimeType('image/png').setImage(await webpToPng(t));
-    const base = await copyTex(m.getBaseColorTexture(), 'basecolor');
+    const copyTex = async (t, name, recolour) => t && out.createTexture(`${m.getName()}_${name}`).setMimeType('image/png').setImage(await webpToPng(t, recolour));
+    // material_8 is only Object_13's barrier blocks (and their gantry frame). The recoloured palette gets its
+    // own name: a UE reimport keeps an existing texture asset's pixels.
+    const recolour = m.getName() === 'material_8';
+    const base = await copyTex(m.getBaseColorTexture(), recolour ? 'recoloured' : 'basecolor', recolour ? BARRIER_RECOLOUR : undefined);
     if (base) mat.setBaseColorTexture(base);
     const emissive = await copyTex(m.getEmissiveTexture(), 'emissive');
     if (emissive) mat.setEmissiveTexture(emissive);
@@ -274,26 +434,42 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
       }
     }
 
+    // ---- IP cleanup, visual only (the analysis above already saw every triangle).
+    if (MOTIF_NODES[name]) {
+      const kind = MOTIF_NODES[name];
+      for (const g of clusterBoxes(components(world, idx).list)) motifs.push({ kind, node: name, ...g });
+      st.motifTrisCut = idx.length / 3;
+      continue; // the whole node is a motif: nothing of it is drawn
+    }
+
     // ---- Output mesh: rebased world positions, unchanged normals (uniform scale).
     let keep = idx;
     if (name === 'Object_18' && uv) {
       const cells = TREE_CELLS.map(([col, row]) => [col / 8, row / 8, (col + 1) / 8, (row + 1) / 8]);
+      const clouds = CLOUD_CELLS.map(([col, row]) => [col / 8, row / 8, (col + 1) / 8, (row + 1) / 8]);
       const kept = [];
+      st.cloudTrisCut = 0;
       for (let t = 0; t < idx.length; t += 3) {
         const u = (uv[idx[t] * 2] + uv[idx[t + 1] * 2] + uv[idx[t + 2] * 2]) / 3;
         const v = (uv[idx[t] * 2 + 1] + uv[idx[t + 1] * 2 + 1] + uv[idx[t + 2] * 2 + 1]) / 3;
         if (cells.some(([u0, v0, u1, v1]) => u > u0 && u < u1 && v > v0 && v < v1)) { st.treeTrisCut++; continue; }
+        if (clouds.some(([u0, v0, u1, v1]) => u > u0 && u < u1 && v > v0 && v < v1)) { st.cloudTrisCut++; continue; }
         kept.push(idx[t], idx[t + 1], idx[t + 2]);
       }
       keep = Uint32Array.from(kept);
     }
     const rebased = Float32Array.from(world);
     for (let i = 0; i < vcount; i++) rebased[i * 3 + 1] += rebaseY;
+    let normals = nrm ? Float32Array.from(nrm) : null;
+    if (name === 'Object_13') {
+      st.studsFlattened = flattenStuds(rebased, idx);
+      normals = vertexNormals(rebased, idx);
+    }
     const outPrim = out.createPrimitive()
       .setAttribute('POSITION', out.createAccessor().setType('VEC3').setArray(rebased).setBuffer(buffer))
       .setIndices(out.createAccessor().setType('SCALAR').setArray(Uint32Array.from(keep)).setBuffer(buffer))
       .setMaterial(await material(prim.getMaterial()));
-    if (nrm) outPrim.setAttribute('NORMAL', out.createAccessor().setType('VEC3').setArray(Float32Array.from(nrm)).setBuffer(buffer));
+    if (normals) outPrim.setAttribute('NORMAL', out.createAccessor().setType('VEC3').setArray(normals).setBuffer(buffer));
     if (uv) outPrim.setAttribute('TEXCOORD_0', out.createAccessor().setType('VEC2').setArray(Float32Array.from(uv)).setBuffer(buffer));
     if (uv1) outPrim.setAttribute('TEXCOORD_1', out.createAccessor().setType('VEC2').setArray(Float32Array.from(uv1)).setBuffer(buffer));
     const mesh = out.createMesh(name).addPrimitive(outPrim);
@@ -320,6 +496,7 @@ export async function processVioletMesh({ glbPath, outDir, samples, rebaseY }) {
   return {
     glb: glbOut,
     stats,
+    motifs: motifs.map((m) => ({ kind: m.kind, node: m.node, tris: m.tris, min: m.min.map(r3), max: m.max.map(r3) })),
     walls: { sweep: sweep.merged(), probe: probe.merged(), sweepPieces: sweep.count, probePieces: probe.count },
     dirtGrid: { cellM: DIRT_CELL_M, minX, minZ, cols, rows, dirtCells, runs },
   };

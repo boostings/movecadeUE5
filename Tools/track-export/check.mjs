@@ -145,7 +145,25 @@ for (const p of v.samples.points) {
   }
 }
 check('violet: the sand verge 2 m past the road edge is dirt (>= 90%)', vergeDirt / verge >= 0.9, `${vergeDirt}/${verge}`);
-check('violet: decoded GLB recorded for the UE import', v.meshes[0].transformBaked === true && v.meshes[0].ueAssets.length === 9);
+check('violet: decoded GLB recorded for the UE import (7 visual nodes)', v.meshes[0].transformBaked === true && v.meshes[0].ueAssets.length === 7);
+
+// ---- Violet IP cleanup (src/violetMesh.mjs): visual only, every cut motif replaced by an original prop
+const ip = v.meshes[0].ipCleanup;
+check('violet: warp pipes and brick blocks cut from the visual mesh', ip && ip.cutNodes.join() === 'Object_12,Object_47' && !v.meshes[0].ueAssets.some((a) => /Object_(12|47)$/.test(a)));
+check('violet: cut nodes still collide (meshColliders keep all 9 nodes)', v.collision.meshColliders.length === 9);
+const pipes = ip.motifs.filter((m) => m.kind === 'pipe'), bricks = ip.motifs.filter((m) => m.kind === 'bricks');
+check('violet: 6 pipes, 19 brick groups found', pipes.length === 6 && bricks.length === 19, `${pipes.length} / ${bricks.length}`);
+const replaced = new Set(v.scenery.instances.filter((s) => s.replaces).map((s) => s.replaces.split(' ').slice(1).join(' ')));
+check('violet: every motif has a replacement prop', ip.motifs.every((m, i) => replaced.has(`${m.kind} ${i}`)), `${replaced.size}/${ip.motifs.length}`);
+// A motif that reaches the kart's sweep band keeps its wall; its prop must cover the same footprint.
+const sweepBand = (m) => m.min[1] < 1.15 + v.track.groundY + 1.605 && m.max[1] > -1.15;
+const covered = ip.motifs.filter(sweepBand).every((m, i) => {
+  const props = v.scenery.instances.filter((s) => s.replaces && s.replaces.endsWith(`${m.kind} ${ip.motifs.indexOf(m)}`));
+  return props.length > 0 && props.every((s) => Math.abs(s.x - (m.min[0] + m.max[0]) / 2) < 6 && Math.abs(s.z - (m.min[2] + m.max[2]) / 2) < 6);
+});
+check('violet: props stand where the colliding motifs were', covered);
+check('violet: shared props and CC0 surfaces referenced', ['ad_column_body', 'billboard_face', 'rock_formation', 'plinth', 'boost_pad'].every((p) => v.scenery.prefabs[p])
+  && ['asphalt_track', 'painted_concrete', 'leafy_grass', 'gravelly_sand'].every((s) => v.detailSurfaces[s]?.mean?.length === 3));
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

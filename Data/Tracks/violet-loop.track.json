@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-19T21:24:05.399Z",
+  "exportedAt": "2026-10-20T01:11:50.368Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",
@@ -70196,15 +70196,289 @@
    "ueAssets": [
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_10",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_11",
-    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_12",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_13",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_18",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_24",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_25",
-    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_27",
-    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_47"
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_27"
    ],
-   "withoutVoxelTrees": true
+   "parts": [
+    {
+     "node": "Object_10",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_10",
+     "material": {
+      "shader": "surface",
+      "textureAsset": "/Game/Tracks/VioletLoop/violet_loop/Textures/material_5_basecolor",
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 2.6,
+      "albedo": 0.3,
+      "normal": 0.5,
+      "rough": 0.5,
+      "roughness": 0.6
+     }
+    },
+    {
+     "node": "Object_11",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_11",
+     "material": {
+      "shader": "surface",
+      "textureAsset": "/Game/Tracks/VioletLoop/violet_loop/Textures/material_6_basecolor",
+      "detail": "gravelly_sand",
+      "tileM": 3.5,
+      "albedo": 0.55,
+      "normal": 0.7,
+      "rough": 0.5,
+      "roughness": 0.95,
+      "baseDesaturate": 0.3
+     }
+    },
+    {
+     "node": "Object_13",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_13",
+     "material": {
+      "shader": "surface",
+      "textureAsset": "/Game/Tracks/VioletLoop/violet_loop/Textures/material_8_recoloured",
+      "detail": "painted_concrete",
+      "triplanar": true,
+      "tileM": 2.6,
+      "albedo": 0.42,
+      "normal": 0.6,
+      "rough": 0.55,
+      "roughness": 0.7
+     }
+    },
+    {
+     "node": "Object_18",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_18",
+     "material": {
+      "shader": "surface",
+      "textureAsset": "/Game/Tracks/VioletLoop/violet_loop/Textures/material_12_basecolor",
+      "detail": "leafy_grass",
+      "tileM": 4,
+      "albedo": 0.55,
+      "normal": 0.6,
+      "rough": 0.4,
+      "roughness": 0.9
+     }
+    },
+    {
+     "node": "Object_24",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_24",
+     "material": {
+      "shader": "surface",
+      "textureAsset": "/Game/Tracks/VioletLoop/violet_loop/Textures/material_18_basecolor",
+      "detail": "asphalt_track",
+      "tileM": 4.5,
+      "albedo": 0.75,
+      "normal": 0.55,
+      "rough": 0.7,
+      "roughness": 0.82,
+      "desaturate": 0.75
+     }
+    },
+    {
+     "node": "Object_25",
+     "ueAsset": "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_25",
+     "material": {
+      "shader": "surface",
+      "textureAsset": "/Game/Tracks/VioletLoop/violet_loop/Textures/material_19_basecolor",
+      "detail": "asphalt_track",
+      "tileM": 4.5,
+      "albedo": 0.28,
+      "normal": 0.4,
+      "rough": 0.5,
+      "roughness": 0.6
+     }
+    }
+   ],
+   "withoutVoxelTrees": true,
+   "ipCleanup": {
+    "cutNodes": [
+     "Object_12",
+     "Object_47"
+    ],
+    "cutClouds": true,
+    "barrierStudsFlattened": true,
+    "barrierRecolour": "violet / cream",
+    "motifs": [
+     {
+      "kind": "pipe",
+      "node": "Object_12",
+      "tris": 866,
+      "min": [-37.434,-4.076,-172.478],
+      "max": [-31.133,8.525,-166.2]
+     },
+     {
+      "kind": "pipe",
+      "node": "Object_12",
+      "tris": 866,
+      "min": [154.345,-2.466,-170.121],
+      "max": [160.646,10.135,-163.867]
+     },
+     {
+      "kind": "pipe",
+      "node": "Object_12",
+      "tris": 866,
+      "min": [337.535,-4.076,-172.875],
+      "max": [343.836,8.525,-166.597]
+     },
+     {
+      "kind": "pipe",
+      "node": "Object_12",
+      "tris": 866,
+      "min": [-37.41,-4.076,70.617],
+      "max": [-31.133,8.525,76.918]
+     },
+     {
+      "kind": "pipe",
+      "node": "Object_12",
+      "tris": 866,
+      "min": [-37.41,-4.076,157.032],
+      "max": [-31.133,8.525,163.333]
+     },
+     {
+      "kind": "pipe",
+      "node": "Object_12",
+      "tris": 866,
+      "min": [338.585,-4.076,49.124],
+      "max": [344.886,8.525,55.378]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 5272,
+      "min": [-17.603,-1.374,-32.882],
+      "max": [-14.528,1.679,-29.829]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 5272,
+      "min": [16.729,-1.374,-32.882],
+      "max": [19.781,1.679,-29.829]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 3784,
+      "min": [64.188,-1.695,-169.452],
+      "max": [76.787,13.429,-166.125]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 9288,
+      "min": [-34.264,-10.897,-111.184],
+      "max": [-30.982,10.399,-92.435]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 6880,
+      "min": [-34.264,-1.58,-34.328],
+      "max": [-30.982,13.658,-15.555]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 5184,
+      "min": [337.971,-1.672,-92.389],
+      "max": [341.345,13.314,-76.806]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 4816,
+      "min": [338.132,-1.58,12.007],
+      "max": [341.414,13.727,24.675]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 7064,
+      "min": [-21.826,12.121,-169.36],
+      "max": [-6.587,15.15,-166.308]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 2632,
+      "min": [5.782,12.144,-169.36],
+      "max": [8.812,15.15,-166.308]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 4312,
+      "min": [15.031,12.121,-169.337],
+      "max": [24.187,15.15,-166.308]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 11888,
+      "min": [92.14,12.121,-169.36],
+      "max": [119.587,15.173,-166.285]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 6068,
+      "min": [-34.562,12.121,98.686],
+      "max": [-31.51,15.15,110.872]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 11496,
+      "min": [-34.562,12.121,123.356],
+      "max": [-31.51,15.15,147.774]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 7124,
+      "min": [338.27,12.121,-156.83],
+      "max": [341.322,15.15,-141.592]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 2704,
+      "min": [338.27,12.144,-129.176],
+      "max": [341.322,15.15,-126.124]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 4312,
+      "min": [338.27,12.121,-120.157],
+      "max": [341.299,15.15,-111.001]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 6952,
+      "min": [338.27,12.121,64.836],
+      "max": [341.322,15.15,80.074]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 2612,
+      "min": [338.27,12.144,92.512],
+      "max": [341.322,15.15,95.542]
+     },
+     {
+      "kind": "bricks",
+      "node": "Object_47",
+      "tris": 4312,
+      "min": [338.27,12.121,101.509],
+      "max": [341.299,15.15,110.665]
+     }
+    ]
+   }
   },
   {
    "file": "violet_kerbs.glb",
@@ -72690,6 +72964,444 @@
     "yaw": 3.041837,
     "scale": [40.44,76.336,40.44],
     "tint": "#5c9f45"
+   },
+   {
+    "prefab": "ad_column_trim",
+    "x": -34.2835,
+    "y": -1.805,
+    "z": -169.339,
+    "yaw": 0.830129,
+    "replaces": "Object_12 pipe 0"
+   },
+   {
+    "prefab": "ad_column_body",
+    "x": -34.2835,
+    "y": -1.805,
+    "z": -169.339,
+    "yaw": 0.830129,
+    "replaces": "Object_12 pipe 0",
+    "variant": 0
+   },
+   {
+    "prefab": "ad_column_trim",
+    "x": 157.4955,
+    "y": -1.805,
+    "z": -166.994,
+    "yaw": 0.929671,
+    "replaces": "Object_12 pipe 1"
+   },
+   {
+    "prefab": "ad_column_body",
+    "x": 157.4955,
+    "y": -1.805,
+    "z": -166.994,
+    "yaw": 0.929671,
+    "replaces": "Object_12 pipe 1",
+    "variant": 1
+   },
+   {
+    "prefab": "ad_column_trim",
+    "x": 340.6855,
+    "y": -1.805,
+    "z": -169.736,
+    "yaw": -0.8584,
+    "replaces": "Object_12 pipe 2"
+   },
+   {
+    "prefab": "ad_column_body",
+    "x": 340.6855,
+    "y": -1.805,
+    "z": -169.736,
+    "yaw": -0.8584,
+    "replaces": "Object_12 pipe 2",
+    "variant": 0
+   },
+   {
+    "prefab": "ad_column_trim",
+    "x": -34.2715,
+    "y": -1.805,
+    "z": 73.7675,
+    "yaw": 1.666452,
+    "replaces": "Object_12 pipe 3"
+   },
+   {
+    "prefab": "ad_column_body",
+    "x": -34.2715,
+    "y": -1.805,
+    "z": 73.7675,
+    "yaw": 1.666452,
+    "replaces": "Object_12 pipe 3",
+    "variant": 1
+   },
+   {
+    "prefab": "ad_column_trim",
+    "x": -34.2715,
+    "y": -1.805,
+    "z": 160.1825,
+    "yaw": 2.286255,
+    "replaces": "Object_12 pipe 4"
+   },
+   {
+    "prefab": "ad_column_body",
+    "x": -34.2715,
+    "y": -1.805,
+    "z": 160.1825,
+    "yaw": 2.286255,
+    "replaces": "Object_12 pipe 4",
+    "variant": 0
+   },
+   {
+    "prefab": "ad_column_trim",
+    "x": 341.7355,
+    "y": -1.805,
+    "z": 52.251,
+    "yaw": -1.220976,
+    "replaces": "Object_12 pipe 5"
+   },
+   {
+    "prefab": "ad_column_body",
+    "x": 341.7355,
+    "y": -1.805,
+    "z": 52.251,
+    "yaw": -1.220976,
+    "replaces": "Object_12 pipe 5",
+    "variant": 1
+   },
+   {
+    "prefab": "plinth",
+    "x": -16.0655,
+    "y": -1.374,
+    "z": -31.3555,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 6",
+    "scale": [3.075,3.053,3.053]
+   },
+   {
+    "prefab": "plinth",
+    "x": 18.255,
+    "y": -1.374,
+    "z": -31.3555,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 7",
+    "scale": [3.052,3.053,3.053]
+   },
+   {
+    "prefab": "rock_formation",
+    "x": 70.8763,
+    "y": -2.205,
+    "z": -169.3146,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 8",
+    "scale": [15.7488,13.5306,5]
+   },
+   {
+    "prefab": "rock_formation",
+    "x": -34.8854,
+    "y": -2.205,
+    "z": -102.4212,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 9",
+    "scale": [5,10.8036,23.4362]
+   },
+   {
+    "prefab": "rock_formation",
+    "x": -34.9696,
+    "y": -2.205,
+    "z": -24.9381,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 10",
+    "scale": [5,13.7367,23.4663]
+   },
+   {
+    "prefab": "rock_formation",
+    "x": 341.6059,
+    "y": -2.205,
+    "z": -84.6022,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 11",
+    "scale": [5,13.4271,19.4787]
+   },
+   {
+    "prefab": "rock_formation",
+    "x": 341.0455,
+    "y": -2.205,
+    "z": 17.3985,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 12",
+    "scale": [5,13.7988,15.835]
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": -14.2065,
+    "y": -1.605,
+    "z": -167.834,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 13"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": -14.2065,
+    "y": -1.605,
+    "z": -167.834,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 13",
+    "variant": 0
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 7.297,
+    "y": -1.605,
+    "z": -167.834,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 14"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 7.297,
+    "y": -1.605,
+    "z": -167.834,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 14",
+    "variant": 1
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 19.609,
+    "y": -1.605,
+    "z": -167.8225,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 15"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 19.609,
+    "y": -1.605,
+    "z": -167.8225,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 15",
+    "variant": 2
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 99.3635,
+    "y": -1.605,
+    "z": -167.8225,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 16"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 99.3635,
+    "y": -1.605,
+    "z": -167.8225,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 16",
+    "variant": 3
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 112.3635,
+    "y": -1.605,
+    "z": -167.8225,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 16"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 112.3635,
+    "y": -1.605,
+    "z": -167.8225,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 16",
+    "variant": 0
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": -33.036,
+    "y": -1.605,
+    "z": 104.779,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 17"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": -33.036,
+    "y": -1.605,
+    "z": 104.779,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 17",
+    "variant": 1
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": -33.036,
+    "y": -1.605,
+    "z": 129.065,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 18"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": -33.036,
+    "y": -1.605,
+    "z": 129.065,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 18",
+    "variant": 2
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": -33.036,
+    "y": -1.605,
+    "z": 142.065,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 18"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": -33.036,
+    "y": -1.605,
+    "z": 142.065,
+    "yaw": 1.570796,
+    "replaces": "Object_47 bricks 18",
+    "variant": 3
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 339.796,
+    "y": -1.605,
+    "z": -149.211,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 19"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 339.796,
+    "y": -1.605,
+    "z": -149.211,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 19",
+    "variant": 0
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 339.796,
+    "y": -1.605,
+    "z": -127.65,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 20"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 339.796,
+    "y": -1.605,
+    "z": -127.65,
+    "yaw": 0,
+    "replaces": "Object_47 bricks 20",
+    "variant": 1
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 339.7845,
+    "y": -1.605,
+    "z": -115.579,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 21"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 339.7845,
+    "y": -1.605,
+    "z": -115.579,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 21",
+    "variant": 2
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 339.796,
+    "y": -1.605,
+    "z": 72.455,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 22"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 339.796,
+    "y": -1.605,
+    "z": 72.455,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 22",
+    "variant": 3
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 339.796,
+    "y": -1.605,
+    "z": 94.027,
+    "yaw": 3.141593,
+    "replaces": "Object_47 bricks 23"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 339.796,
+    "y": -1.605,
+    "z": 94.027,
+    "yaw": 3.141593,
+    "replaces": "Object_47 bricks 23",
+    "variant": 0
+   },
+   {
+    "prefab": "billboard_frame",
+    "x": 339.7845,
+    "y": -1.605,
+    "z": 106.087,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 24"
+   },
+   {
+    "prefab": "billboard_face",
+    "x": 339.7845,
+    "y": -1.605,
+    "z": 106.087,
+    "yaw": -1.570796,
+    "replaces": "Object_47 bricks 24",
+    "variant": 1
+   },
+   {
+    "prefab": "flag_violet",
+    "x": 157.74,
+    "y": 18.6,
+    "z": 13.8,
+    "yaw": 0
+   },
+   {
+    "prefab": "flag_pink",
+    "x": 169.23,
+    "y": 18.6,
+    "z": 13.8,
+    "yaw": 0
+   },
+   {
+    "prefab": "flag_cyan",
+    "x": 180.72,
+    "y": 18.6,
+    "z": 13.8,
+    "yaw": 0
+   },
+   {
+    "prefab": "flag_violet",
+    "x": -15.77,
+    "y": 20.3,
+    "z": -31.27,
+    "yaw": 0
+   },
+   {
+    "prefab": "flag_pink",
+    "x": 18.49,
+    "y": 20.3,
+    "z": -31.27,
+    "yaw": 0
    }
   ],
   "kerbRuns": [
@@ -72924,6 +73636,137 @@
     "material": {
      "shader": "unlitTexture"
     }
+   },
+   "ad_column_trim": {
+    "node": "ad_column_trim",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_trim",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "ad_column_body": {
+    "node": "ad_column_body",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_body",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.6,
+     "texture": "mc_column_{variant}",
+     "emissive": 0.15
+    }
+   },
+   "billboard_frame": {
+    "node": "billboard_frame",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.6
+    }
+   },
+   "billboard_face": {
+    "node": "billboard_face",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_face",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.5,
+     "texture": "mc_billboard_{variant}",
+     "emissive": 0.25
+    }
+   },
+   "arch_frame": {
+    "node": "arch_frame",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "arch_banner": {
+    "node": "arch_banner",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_banner",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.5,
+     "texture": "mc_arch_{variant}",
+     "emissive": 0.35
+    }
+   },
+   "rock_formation": {
+    "node": "rock_formation",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/rock_formation",
+    "material": {
+     "shader": "surface",
+     "detail": "rock_face",
+     "triplanar": true,
+     "tileM": 5,
+     "albedo": 0.6,
+     "normal": 1,
+     "rough": 0.5,
+     "roughness": 0.9
+    }
+   },
+   "plinth": {
+    "node": "plinth",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/plinth",
+    "material": {
+     "shader": "surface",
+     "detail": "painted_concrete",
+     "triplanar": true,
+     "tileM": 2.6,
+     "albedo": 0.4,
+     "normal": 0.6,
+     "rough": 0.5,
+     "roughness": 0.75
+    }
+   },
+   "flag_violet": {
+    "node": "flag_violet",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_violet",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "flag_pink": {
+    "node": "flag_pink",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_pink",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "flag_cyan": {
+    "node": "flag_cyan",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_cyan",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "tyre_stack": {
+    "node": "tyre_stack",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/tyre_stack",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.85
+    }
+   },
+   "palm": {
+    "node": "palm",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/palm",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.85
+    }
+   },
+   "boost_pad": {
+    "node": "boost_pad",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/boost_pad",
+    "material": {
+     "shader": "boostPad",
+     "texture": "mc_boost_pad",
+     "roughness": 0.35
+    }
    }
   },
   "animated": [],
@@ -72978,8 +73821,144 @@
    "srgb": true,
    "width": 1920,
    "height": 320
+  },
+  {
+   "name": "mc_billboard_0",
+   "file": "mc_billboard_0.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_0",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_billboard_1",
+   "file": "mc_billboard_1.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_1",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_billboard_2",
+   "file": "mc_billboard_2.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_2",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_billboard_3",
+   "file": "mc_billboard_3.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_billboard_3",
+   "srgb": true,
+   "width": 1536,
+   "height": 512
+  },
+  {
+   "name": "mc_column_0",
+   "file": "mc_column_0.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_column_0",
+   "srgb": true,
+   "width": 1024,
+   "height": 512
+  },
+  {
+   "name": "mc_column_1",
+   "file": "mc_column_1.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_column_1",
+   "srgb": true,
+   "width": 1024,
+   "height": 512
+  },
+  {
+   "name": "mc_arch_0",
+   "file": "mc_arch_0.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_arch_0",
+   "srgb": true,
+   "width": 2048,
+   "height": 192
+  },
+  {
+   "name": "mc_arch_1",
+   "file": "mc_arch_1.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_arch_1",
+   "srgb": true,
+   "width": 2048,
+   "height": 192
+  },
+  {
+   "name": "mc_boost_pad",
+   "file": "mc_boost_pad.png",
+   "ueAsset": "/Game/Tracks/Shared/Textures/mc_boost_pad",
+   "srgb": true,
+   "width": 256,
+   "height": 256
   }
  ],
+ "detailSurfaces": {
+  "asphalt_track": {
+   "set": "asphalt_track",
+   "color": "/Game/Tracks/Shared/Surfaces/T_asphalt_track_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_asphalt_track_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_asphalt_track_rough",
+   "mean": [0.017,0.0137,0.0126],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/asphalt_track (movecade-v2 app/public/textures/surfaces/asphalt_track, LEDGER.json)"
+  },
+  "painted_concrete": {
+   "set": "painted_concrete",
+   "color": "/Game/Tracks/Shared/Surfaces/T_painted_concrete_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_painted_concrete_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_painted_concrete_rough",
+   "mean": [0.08,0.156,0.0881],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/painted_concrete (movecade-v2 app/public/textures/surfaces/painted_concrete, LEDGER.json)"
+  },
+  "leafy_grass": {
+   "set": "leafy_grass",
+   "color": "/Game/Tracks/Shared/Surfaces/T_leafy_grass_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_leafy_grass_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_leafy_grass_rough",
+   "mean": [0.3176,0.2342,0.1045],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/leafy_grass (movecade-v2 app/public/textures/surfaces/leafy_grass, LEDGER.json)"
+  },
+  "gravelly_sand": {
+   "set": "gravelly_sand",
+   "color": "/Game/Tracks/Shared/Surfaces/T_gravelly_sand_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_gravelly_sand_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_gravelly_sand_rough",
+   "mean": [0.2892,0.1605,0.0743],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/gravelly_sand (movecade-v2 app/public/textures/surfaces/gravelly_sand, LEDGER.json)"
+  },
+  "rock_face": {
+   "set": "rock_face",
+   "color": "/Game/Tracks/Shared/Surfaces/T_rock_face_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_rock_face_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_rock_face_rough",
+   "mean": [0.1206,0.0616,0.0315],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/rock_face (movecade-v2 app/public/textures/surfaces/rock_face, LEDGER.json)"
+  },
+  "dark_wooden_planks": {
+   "set": "dark_wooden_planks",
+   "color": "/Game/Tracks/Shared/Surfaces/T_dark_wooden_planks_color",
+   "normal": "/Game/Tracks/Shared/Surfaces/T_dark_wooden_planks_normal",
+   "rough": "/Game/Tracks/Shared/Surfaces/T_dark_wooden_planks_rough",
+   "mean": [0.0877,0.0697,0.05],
+   "licence": "CC0-1.0",
+   "source": "https://polyhaven.com/a/dark_wooden_planks (movecade-v2 app/public/textures/surfaces/dark_wooden_planks, LEDGER.json)"
+  }
+ },
+ "boostPadLook": {
+  "texture": "mc_boost_pad",
+  "emissive": 2.2,
+  "pulse": 0.6,
+  "pulseRadPerS": 6,
+  "scrollPerS": 1.6,
+  "rim": "#ffcc00"
+ },
  "exportNotes": [
   "collision.walls holds the GLB wall faces as the web sweep (role \"sweep\") and probe rays (role \"probe\") meet them (collision.wallRules); collision.dirtGrid marks where the first floor hit under the kart is Object_11 \"ground dirt\". collision.profileWalls is the older profile trace, for reference.",
   "Licence of violet-loop.glb is unverified (Docs/Port/00-PLAN.md, open risks)."

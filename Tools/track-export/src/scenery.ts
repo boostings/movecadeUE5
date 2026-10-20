@@ -31,7 +31,20 @@ type V3 = [number, number, number];
 
 /** Material hints for ATrackBuilder (Content/Tracks/Shared/Materials masters). */
 export interface MaterialHint {
-  shader: 'vertexColor' | 'textured' | 'unlitTexture' | 'translucent' | 'additive';
+  /** surface: M_TrackSurface, Map (UV0) x Color x vertex colour x world-space CC0 detail (props.ts SURFACE_SETS). */
+  shader: 'vertexColor' | 'textured' | 'unlitTexture' | 'translucent' | 'additive' | 'surface' | 'boostPad';
+  /** surface: the CC0 set (top-level detailSurfaces[] key), its tile in metres, strengths, and triplanar (walls, props) vs top-down. */
+  detail?: string;
+  triplanar?: boolean;
+  albedo?: number;
+  normal?: number;
+  rough?: number;
+  /** surface: desaturates the detail colour (0..1) before it multiplies the base. */
+  desaturate?: number;
+  /** surface: desaturates the base (palette or canvas) colour. */
+  baseDesaturate?: number;
+  /** A texture asset for Map given by its /Game path (an imported GLB palette) instead of a textures[] name. */
+  textureAsset?: string;
   color?: string;
   roughness?: number;
   metalness?: number;
@@ -52,7 +65,7 @@ const ue = (dir: string, file: string, node: string) => `${dir}/${path.basename(
 
 // ---- GLB writer ---------------------------------------------------------------------------------
 
-class GlbFile {
+export class GlbFile {
   doc = new Document();
   buffer = this.doc.createBuffer();
   scene = this.doc.createScene();
@@ -98,7 +111,7 @@ class GlbFile {
 }
 
 /** Vertex colours from each mesh's material colour, every mesh baked into `root`'s frame and merged. */
-function bake(root: THREE.Object3D): THREE.BufferGeometry {
+export function bake(root: THREE.Object3D): THREE.BufferGeometry {
   root.updateMatrixWorld(true);
   const inverse = root.matrixWorld.clone().invert();
   const parts: THREE.BufferGeometry[] = [];
@@ -120,14 +133,14 @@ function bake(root: THREE.Object3D): THREE.BufferGeometry {
   return merged;
 }
 
-const mat = (color: string) => new THREE.MeshBasicMaterial({ color });
-function mesh(geometry: THREE.BufferGeometry, color: string, position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
+export const mat = (color: string) => new THREE.MeshBasicMaterial({ color });
+export function mesh(geometry: THREE.BufferGeometry, color: string, position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
   const m = new THREE.Mesh(geometry, mat(color));
   m.position.set(...position);
   m.rotation.set(...rotation);
   return m;
 }
-function group(children: THREE.Object3D[], position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
+export function group(children: THREE.Object3D[], position: V3 = [0, 0, 0], rotation: V3 = [0, 0, 0]) {
   const g = new THREE.Group();
   g.position.set(...position);
   g.rotation.set(...rotation);
@@ -142,14 +155,14 @@ const sphere = (...a: ConstructorParameters<typeof THREE.SphereGeometry>) => new
 
 export interface TextureEntry { name: string; file: string; ueAsset: string; srgb: true; tileM?: number; width: number; height: number }
 
-function savePng(outDir: string, ueDir: string, name: string, canvas: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number }, tileM?: number): TextureEntry {
+export function savePng(outDir: string, ueDir: string, name: string, canvas: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number }, tileM?: number): TextureEntry {
   mkdirSync(outDir, { recursive: true });
   const file = `${name}.png`;
   writeFileSync(path.join(outDir, file), canvas.toBuffer('image/png'));
   return { name, file, ueAsset: `${ueDir}/Textures/${name}`, srgb: true, width: canvas.width, height: canvas.height, ...(tileM ? { tileM } : {}) };
 }
 // The stubbed canvasTexture keeps the @napi-rs canvas as `image`.
-type StubTexture = { image: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number } };
+export type StubTexture = { image: { toBuffer(mime: 'image/png'): Buffer; width: number; height: number } };
 
 // ---- Violet ------------------------------------------------------------------------------------
 
@@ -234,11 +247,12 @@ export interface HarborRibbonSpec { name: string; inner: number; outer: number; 
 /** The Harbor ribbon materials (HarborTrack.tsx:890-946); textures tile on 8 m (harborRibbon UVs are metres / 8). */
 function ribbonMaterial(material: string): MaterialHint {
   switch (material) {
-    case 'asphalt': return { shader: 'textured', color: '#5c6a6b', texture: 'harbor_asphalt', roughness: 0.86 };
-    case 'dirtShoulder': return { shader: 'textured', color: '#d5b58a', texture: 'harbor_cobble', roughness: 1 };
-    case 'barrier': return { shader: 'textured', color: '#8fb0ad', texture: 'harbor_stone', roughness: 0.8 };
-    case 'sand': return { shader: 'textured', color: '#e6cc9e', texture: 'harbor_sand', roughness: 1 };
-    case 'curb': return { shader: 'vertexColor', roughness: 0.85 };
+    // The canvas texture on UV0 plus the CC0 detail the web layers on top (HarborTrack.tsx:884-905).
+    case 'asphalt': return { shader: 'surface', color: '#5c6a6b', texture: 'harbor_asphalt', roughness: 0.86, detail: 'asphalt_track', tileM: 4.5, albedo: 0.6, normal: 0.55, rough: 0.6, desaturate: 0.35 };
+    case 'dirtShoulder': return { shader: 'surface', color: '#d5b58a', texture: 'harbor_cobble', roughness: 1, detail: 'gravelly_sand', tileM: 3, albedo: 0.5, normal: 0.6, rough: 0.5 };
+    case 'barrier': return { shader: 'surface', color: '#8fb0ad', texture: 'harbor_stone', roughness: 0.8, detail: 'painted_concrete', triplanar: true, tileM: 2.4, albedo: 0.45, normal: 0.6, rough: 0.5 };
+    case 'sand': return { shader: 'surface', color: '#e6cc9e', texture: 'harbor_sand', roughness: 1, detail: 'gravelly_sand', tileM: 4, albedo: 0.5, normal: 0.6, rough: 0.4 };
+    case 'curb': return { shader: 'surface', roughness: 0.7, detail: 'painted_concrete', tileM: 2, albedo: 0.25, normal: 0.4, rough: 0.4 };
     case 'edgeLine': return { shader: 'vertexColor', color: '#fff0cc', roughness: 0.9 };
     case 'wallCap': return { shader: 'vertexColor', color: '#fff0cc', roughness: 0.8 };
     case 'surf': return { shader: 'translucent', color: '#f4f7ec', opacity: 0.85 };

@@ -25,6 +25,9 @@ namespace
 			{ TEXT("unlitTexture"), TEXT("M_TrackUnlitTexture") },
 			{ TEXT("translucent"), TEXT("M_TrackTranslucent") },
 			{ TEXT("additive"), TEXT("M_TrackAdditive") },
+			{ TEXT("surface"), TEXT("M_TrackSurface") },
+			{ TEXT("surfaceWall"), TEXT("M_TrackSurfaceWall") },
+			{ TEXT("boostPad"), TEXT("M_TrackBoostPad") },
 		};
 		const FString* Name = Paths.Find(Shader);
 		const FString Asset = Name ? *Name : TEXT("M_TrackVertexColor");
@@ -178,14 +181,23 @@ UTexture* ATrackBuilder::TextureNamed(const FString& Name)
 
 UMaterialInterface* ATrackBuilder::MaterialFor(const TSharedPtr<FJsonObject>& Hint, const FString& TintOverride, int32 Variant)
 {
-	const FString Shader = Str(Hint, TEXT("shader"));
+	FString Shader = Str(Hint, TEXT("shader"));
+	bool bTriplanar = false;
+	if (Hint.IsValid() && Hint->TryGetBoolField(TEXT("triplanar"), bTriplanar) && bTriplanar && Shader == TEXT("surface"))
+	{
+		Shader = TEXT("surfaceWall");
+	}
 	const FString Color = TintOverride.IsEmpty() ? Str(Hint, TEXT("color")) : TintOverride;
 	FString Texture = Str(Hint, TEXT("texture")).Replace(TEXT("{variant}"), *FString::FromInt(Variant));
+	const FString TextureAsset = Str(Hint, TEXT("textureAsset"));
+	const FString Detail = Str(Hint, TEXT("detail"));
 	const double Roughness = Num(Hint, TEXT("roughness"), 0.8);
 	const double Metallic = Num(Hint, TEXT("metalness"), 0.0);
 	const double Emissive = Num(Hint, TEXT("emissive"), 0.0);
 	const double Opacity = Num(Hint, TEXT("opacity"), 1.0);
-	const FString Key = FString::Printf(TEXT("%s|%s|%s|%.3f|%.3f|%.3f|%.3f"), *Shader, *Color, *Texture, Roughness, Metallic, Emissive, Opacity);
+	const FString Key = FString::Printf(TEXT("%s|%s|%s|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f"), *Shader, *Color, *Texture, *TextureAsset, *Detail,
+		Roughness, Metallic, Emissive, Opacity, Num(Hint, TEXT("tileM")), Num(Hint, TEXT("albedo")), Num(Hint, TEXT("normal")), Num(Hint, TEXT("rough")),
+		Num(Hint, TEXT("desaturate")), Num(Hint, TEXT("pulse"))) + FString::Printf(TEXT("|%.3f"), Num(Hint, TEXT("baseDesaturate")));
 	if (TObjectPtr<UMaterialInterface>* Found = MaterialCache.Find(Key))
 	{
 		return *Found;
@@ -201,15 +213,76 @@ UMaterialInterface* ATrackBuilder::MaterialFor(const TSharedPtr<FJsonObject>& Hi
 	MID->SetScalarParameterValue(TEXT("Metallic"), Metallic);
 	MID->SetScalarParameterValue(TEXT("Emissive"), Emissive);
 	MID->SetScalarParameterValue(TEXT("Opacity"), Opacity);
-	if (!Texture.IsEmpty())
+	UTexture* Map = !TextureAsset.IsEmpty() ? LoadAsset<UTexture>(TextureAsset) : (!Texture.IsEmpty() ? TextureNamed(Texture) : nullptr);
+	if (Map)
 	{
-		if (UTexture* Map = TextureNamed(Texture))
+		MID->SetTextureParameterValue(TEXT("Map"), Map);
+	}
+	// World-space CC0 detail (M_TrackSurface*): the set's maps and linear mean from detailSurfaces[].
+	const TSharedPtr<FJsonObject> Set = Obj(Obj(Json, TEXT("detailSurfaces")), *Detail);
+	if (Set.IsValid())
+	{
+		for (const TCHAR* const Kind : { TEXT("color"), TEXT("normal"), TEXT("rough") })
 		{
-			MID->SetTextureParameterValue(TEXT("Map"), Map);
+			if (UTexture* T = LoadAsset<UTexture>(Str(Set, Kind)))
+			{
+				MID->SetTextureParameterValue(*(FString(TEXT("Detail")) + (FString(Kind) == TEXT("color") ? TEXT("Color") : FString(Kind) == TEXT("normal") ? TEXT("Normal") : TEXT("Rough"))), T);
+			}
 		}
+		const FVector Mean = Vec3(Arr(Set, TEXT("mean")));
+		MID->SetVectorParameterValue(TEXT("DetailMean"), FLinearColor(Mean.X, Mean.Y, Mean.Z, 1.0));
+		MID->SetScalarParameterValue(TEXT("DetailTileM"), Num(Hint, TEXT("tileM"), 4.0));
+		MID->SetScalarParameterValue(TEXT("DetailAlbedo"), Num(Hint, TEXT("albedo"), 0.5));
+		MID->SetScalarParameterValue(TEXT("DetailNormal"), Num(Hint, TEXT("normal"), 0.5));
+		MID->SetScalarParameterValue(TEXT("DetailRough"), Num(Hint, TEXT("rough"), 0.5));
+		MID->SetScalarParameterValue(TEXT("Desaturate"), Num(Hint, TEXT("desaturate"), 0.0));
+		MID->SetScalarParameterValue(TEXT("BaseDesaturate"), Num(Hint, TEXT("baseDesaturate"), 0.0));
+	}
+	if (Shader == TEXT("boostPad"))
+	{
+		// boostPadLook: chevrons scroll forward (texture up) and pulse.
+		MID->SetScalarParameterValue(TEXT("PanV"), -Num(Hint, TEXT("scrollPerS"), 1.6));
+		MID->SetScalarParameterValue(TEXT("Pulse"), Num(Hint, TEXT("pulse"), 0.5));
+		MID->SetScalarParameterValue(TEXT("PulseRate"), Num(Hint, TEXT("pulseRadPerS"), 6.0));
 	}
 	MaterialCache.Add(Key, MID);
 	return MID;
+}
+
+void ATrackBuilder::BuildBoostPads()
+{
+	using namespace MovecadeKart;
+	const FTrack& T = *Track;
+	BoostPads->ClearInstances();
+	BoostPads->SetCastShadow(false);
+	// The props prefab: a 1 m plane on the ground whose texture's up is the pad's forward (local -Z).
+	const TSharedPtr<FJsonObject> Def = Obj(Obj(Obj(Json, TEXT("scenery")), TEXT("prefabs")), TEXT("boost_pad"));
+	UStaticMesh* Mesh = Def.IsValid() ? LoadAsset<UStaticMesh>(Str(Def, TEXT("ueAsset"))) : nullptr;
+	if (Mesh)
+	{
+		BoostPads->SetStaticMesh(Mesh);
+		TSharedPtr<FJsonObject> Hint = MakeShared<FJsonObject>(*Obj(Def, TEXT("material")));
+		if (const TSharedPtr<FJsonObject> Look = Obj(Json, TEXT("boostPadLook")))
+		{
+			for (const auto& Field : Look->Values)
+			{
+				Hint->SetField(Field.Key, Field.Value);
+			}
+		}
+		BoostPads->SetMaterial(0, MaterialFor(Hint));
+		for (const FBoostPad& Pad : T.BoostPads)
+		{
+			const FTransform Local = Three(FVector(Pad.Position.X, T.GroundY + 0.045, Pad.Position.Y), Euler(0.0, Pad.Yaw, 0.0), FVector(Pad.Width, 1.0, Pad.Length));
+			BoostPads->AddInstance(ToUETransform(Local, T.SuggestedRebaseY), true);
+		}
+		return;
+	}
+	// Graybox: the engine Plane (1 m square in UE X/Y); X runs along the pad (length), Y across (width).
+	for (const FBoostPad& Pad : T.BoostPads)
+	{
+		BoostPads->AddInstance(FTransform(FRotator(0.0, Coords::YawToUE(Pad.Yaw), 0.0),
+			Coords::ToUE(Pad.Position, 0.04 + T.SuggestedRebaseY), FVector(Pad.Length, Pad.Width, 1.0)), true);
+	}
 }
 
 bool ATrackBuilder::BuildImportedMeshes()
