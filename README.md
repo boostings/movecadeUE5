@@ -15,6 +15,7 @@ Open `MyProject.uproject` and press **Play**. The editor opens on Sunset Harbor;
 | Hop / drift (hold) | Space | RB / LB |
 | Use item | E / Left Shift | X / Y |
 | Skip intro, race again | Enter | Start |
+| Pause (resume, R restart, Q quit) | Esc or P | Back |
 
 Hold drift through a corner and let go for a mini-turbo (longer holds give super and ultra boosts). Hold gas
 just before GO for a rocket start.
