@@ -79,8 +79,8 @@ struct MOVECADEKART_API FKartRacePlan
 	int32 LocalPlayers = 1;
 	/** 0 keeps the track's own lap count. */
 	int32 Laps = 0;
-	/** 0 Easy, 1 Normal, 2 Hard, for every bot seat (EKartBotSkill order; -KartBotSkill=easy|normal|hard overrides). */
-	int32 BotSkill = 1;
+	/** Every bot seat's skill (-KartBotSkill=easy|normal|hard overrides the menu). Already applied to Seats. */
+	EKartBotSkill BotSkill = EKartBotSkill::Normal;
 	bool bSoloView = false;
 	bool bAutoDrive = false;
 	bool bSkipIntro = false;

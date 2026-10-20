@@ -59,6 +59,10 @@ public:
 	}
 	static FVector2D Measure(const FString& String, const FSlateFontInfo& Font);
 
+	/** Clips everything drawn until PopClip to a rectangle (axis-aligned in this painter's space). */
+	void PushClip(const FVector2D& Pos, const FVector2D& Size) const;
+	void PopClip() const;
+
 	/** Registers a clickable region for mouse hover and clicks. */
 	void Hit(int32 Id, const FVector2D& Pos, const FVector2D& Size) const;
 

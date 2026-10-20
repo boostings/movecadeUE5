@@ -24,7 +24,7 @@ namespace
 	/** Switches that imply "race now" (test hooks and race options). */
 	const TCHAR* SkipSwitches[] = {
 		TEXT("KartNoFrontEnd"), TEXT("KartAutoDrive"), TEXT("KartSkipIntro"), TEXT("KartSoloView"), TEXT("KartLegacyWalls"),
-		TEXT("KartRoom"), TEXT("KartLobby"), TEXT("KartDebugGrip"),
+		TEXT("KartRoom"), TEXT("KartLobby"), TEXT("KartDebugGrip"), TEXT("KartWebFeel"),
 	};
 	/** Value flags, matched with their '='. */
 	const TCHAR* SkipValues[] = {
@@ -76,12 +76,13 @@ FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHA
 	Plan.bAutoDrive = FParse::Param(Cmd, TEXT("KartAutoDrive"));
 	Plan.bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
 	Plan.bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
-	Plan.BotSkill = MenuSetup ? FMath::Clamp(MenuSetup->BotSkill, 0, 2) : 1;
-	FString Skill;
-	if (FParse::Value(Cmd, TEXT("KartBotSkill="), Skill))
+	int32 Skill = MenuSetup ? FMath::Clamp(MenuSetup->BotSkill, 0, 2) : 1;
+	FString SkillName;
+	if (FParse::Value(Cmd, TEXT("KartBotSkill="), SkillName))
 	{
-		Plan.BotSkill = Skill.Equals(TEXT("easy"), ESearchCase::IgnoreCase) ? 0 : Skill.Equals(TEXT("hard"), ESearchCase::IgnoreCase) ? 2 : 1;
+		Skill = SkillName.Equals(TEXT("easy"), ESearchCase::IgnoreCase) ? 0 : SkillName.Equals(TEXT("hard"), ESearchCase::IgnoreCase) ? 2 : 1;
 	}
+	Plan.BotSkill = Skill == 0 ? EKartBotSkill::Easy : Skill == 2 ? EKartBotSkill::Hard : EKartBotSkill::Normal;
 
 	if (!MenuSetup)
 	{
@@ -92,6 +93,7 @@ FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHA
 			Seat.Kind = i < Plan.LocalPlayers ? EKartSeatKind::Local : EKartSeatKind::Bot;
 			Seat.Name = i < Plan.LocalPlayers ? FString::Printf(TEXT("Player %d"), i + 1) : BotNames[(i - Plan.LocalPlayers) % UE_ARRAY_COUNT(BotNames)];
 			Seat.Paint = SeatPaint[i % UE_ARRAY_COUNT(SeatPaint)];
+			Seat.BotSkill = Plan.BotSkill;
 		}
 		return Plan;
 	}
@@ -143,6 +145,7 @@ FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHA
 		Seat.Look.Paint = Seat.Paint;
 		Seat.Look.Name = Seat.Name;
 		Seat.bHasLook = true;
+		Seat.BotSkill = Plan.BotSkill;
 	}
 	return Plan;
 }

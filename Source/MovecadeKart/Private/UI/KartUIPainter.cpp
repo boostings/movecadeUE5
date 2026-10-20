@@ -160,6 +160,16 @@ FVector2D FKartPainter::Text(const FString& String, const FSlateFontInfo& Font, 
 	return Size;
 }
 
+void FKartPainter::PushClip(const FVector2D& Pos, const FVector2D& Size) const
+{
+	Out->PushClip(FSlateClippingZone(Geo.MakeChild(FVector2f(Size), FSlateLayoutTransform(FVector2f(Pos)))));
+}
+
+void FKartPainter::PopClip() const
+{
+	Out->PopClip();
+}
+
 void FKartPainter::Hit(int32 Id, const FVector2D& Pos, const FVector2D& Size) const
 {
 	if (Hits && !bTransformed && Opacity > 0.5f)

@@ -206,6 +206,8 @@ public:
 	bool bKartContact = true;
 	/** B11: -KartLegacyWalls keeps the web's sticky walls. */
 	bool bLegacyWalls = false;
+	/** Set by the race UI (SKartRaceOverlay) while it handles pause, skip-intro and results input itself. */
+	bool bUiOwnsHostKeys = false;
 
 	virtual void Tick(float DeltaSeconds) override;
 

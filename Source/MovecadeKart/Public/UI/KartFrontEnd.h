@@ -83,4 +83,5 @@ private:
 	double Clock = 0.0;
 	bool bStarting = false;
 	bool bTourRaceStarted = false;
+	double TourShownAt = 0.0;
 };
