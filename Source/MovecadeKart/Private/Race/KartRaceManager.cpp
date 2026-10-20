@@ -566,8 +566,21 @@ FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
 	const double Now = RaceSteps / 60.0;
 	if (Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal))
 	{
-		// Finished karts cruise on the bot's line so they keep clear of the racers.
-		return Racer.Bot.Update(S, Track->Waypoints, bRacing, Now);
+		// Finished karts cruise on the bot's line so they keep clear of the racers. Empty-handed racers may
+		// detour through an item box they can collect.
+		TArray<FVector2D, TInlineAllocator<16>> Boxes;
+		const FKartItemSlot& Slot = Items.Slots()[Racer.Seat];
+		if (!Racer.bFinished && Slot.Held == EKartItem::None && !Slot.bRolling)
+		{
+			for (const FKartItemBox& Box : Items.Boxes())
+			{
+				if (Box.CollectedAt.IsValidIndex(Racer.Seat) && Box.CollectedAt[Racer.Seat] < 0.0)
+				{
+					Boxes.Add(Box.Pos);
+				}
+			}
+		}
+		return Racer.Bot.Update(S, Track->Waypoints, bRacing, Now, Boxes);
 	}
 	if (Racer.Kind == EKartSeatKind::Local)
 	{

@@ -49,12 +49,40 @@ namespace MovecadeKart
 		{
 			return 0.0;
 		}
-		const FVector2D Target = LookAhead(Position, Yaw, Path, LookAheadDistance);
+		return TurnDemandTo(Position, Yaw, LookAhead(Position, Yaw, Path, LookAheadDistance), Gain);
+	}
+
+	double FKartBotDriver::TurnDemandTo(const FVector2D& Position, double Yaw, const FVector2D& Target, double Gain)
+	{
 		double Error = FMath::Atan2(-(Target.X - Position.X), -(Target.Y - Position.Y)) - Yaw;
 		while (Error > UE_DOUBLE_PI) Error -= UE_DOUBLE_TWO_PI;
 		while (Error < -UE_DOUBLE_PI) Error += UE_DOUBLE_TWO_PI;
 		const double Limit = 1.0 + DriftTurn;
 		return FMath::Clamp(Error * Gain, -Limit, Limit);
+	}
+
+	bool FKartBotDriver::PickBox(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, TConstArrayView<FVector2D> Boxes, FVector2D& OutBox)
+	{
+		const FVector2D Facing(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
+		double BestOffset = 7.0;
+		bool bFound = false;
+		for (const FVector2D& Box : Boxes)
+		{
+			const double Ahead = FVector2D::DotProduct(Box - Position, Facing);
+			if (Ahead < 4.0 || Ahead > 28.0 || Path.Num() < 2)
+			{
+				continue;
+			}
+			// How far the box sits from where the racing line will be at that distance.
+			const double Offset = FVector2D::Distance(Box, LookAhead(Position, Yaw, Path, Ahead));
+			if (Offset < BestOffset)
+			{
+				BestOffset = Offset;
+				OutBox = Box;
+				bFound = true;
+			}
+		}
+		return bFound;
 	}
 
 	void FKartBotDriver::Wheel(double Demand, int32 HeldDrift, double& OutSteering, int32& OutDrift, double DriftEnter)
@@ -71,7 +99,7 @@ namespace MovecadeKart
 		OutDrift = Holding;
 	}
 
-	FKartInput FKartBotDriver::Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now)
+	FKartInput FKartBotDriver::Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now, TConstArrayView<FVector2D> Boxes)
 	{
 		const int64 Step = FMath::RoundToInt64(Now / FKartSim::StepSeconds);
 		if (Step < NextTickStep)
@@ -86,7 +114,10 @@ namespace MovecadeKart
 		bool bGas = bRacing;
 		if (bRacing)
 		{
-			const double Demand = TurnDemand(State.Pos, State.Yaw, Path, Tuning.LookAheadDistance, Tuning.Gain);
+			FVector2D Box;
+			const double Demand = Tuning.bSeekItems && PickBox(State.Pos, State.Yaw, Path, Boxes, Box)
+				? TurnDemandTo(State.Pos, State.Yaw, Box, Tuning.Gain)
+				: TurnDemand(State.Pos, State.Yaw, Path, Tuning.LookAheadDistance, Tuning.Gain);
 			Wheel(Demand, Drift, WheelSteering, WheelDrift, Tuning.DriftEnter);
 			// A cautious bot lifts in the tight bends, unless it's drifting (a drift needs the gas).
 			const bool bLift = Tuning.LiftDemand > 0.0 && WheelDrift == 0 && FMath::Abs(Demand) > Tuning.LiftDemand && FMath::Abs(State.Speed) > 22.0;

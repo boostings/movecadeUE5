@@ -20,10 +20,13 @@ namespace MovecadeKart
 		double LiftDemand = 0.0;
 		/** At speed, coast one decision tick in every this many (0 = never): an easy bot doesn't keep its foot down. */
 		int32 CoastEvery = 0;
+		/** Steer through an item box near the line when empty-handed. The web's bot didn't, so on Violet Loop,
+		 *  whose box row sits beside its racing line, bots never had items. */
+		bool bSeekItems = true;
 
-		static FKartBotTuning Easy() { return { 0.2, 30.0, 4.0, 2.2, 1.1, 6 }; }
+		static FKartBotTuning Easy() { return { 0.2, 30.0, 4.0, 2.2, 1.1, 6, false }; }
 		static FKartBotTuning Normal() { return {}; }
-		static FKartBotTuning Hard() { return { 0.05, 26.0, 5.5, 1.2, 0.0, 0 }; }
+		static FKartBotTuning Hard() { return { 0.05, 26.0, 5.5, 1.2, 0.0, 0, true }; }
 	};
 
 	/**
@@ -39,8 +42,8 @@ namespace MovecadeKart
 		static constexpr double DriftExit = 0.9;
 		static constexpr double RefreshSeconds = 1.0;
 
-		/** The input the bot holds at time Now (seconds). */
-		FKartInput Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now);
+		/** The input the bot holds at time Now (seconds). Boxes: the item boxes this kart could collect right now. */
+		FKartInput Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now, TConstArrayView<FVector2D> Boxes = {});
 		/** Back to the grid state; the tuning stays. */
 		void Reset() { const FKartBotTuning Keep = Tuning; *this = FKartBotDriver(); Tuning = Keep; }
 
@@ -50,6 +53,10 @@ namespace MovecadeKart
 		static FVector2D LookAhead(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double Distance);
 		/** Steering units needed to hold the line: +-1 is full lock; up to +-2.4 needs a drift. */
 		static double TurnDemand(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double LookAheadDistance = 24.0, double Gain = 5.0);
+		/** Steering units to point at Target. */
+		static double TurnDemandTo(const FVector2D& Position, double Yaw, const FVector2D& Target, double Gain = 5.0);
+		/** The box worth a detour: 4-28 m ahead and within 7 m of the racing line there. False if none. */
+		static bool PickBox(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, TConstArrayView<FVector2D> Boxes, FVector2D& OutBox);
 		/** kartWheel: the wheel and drift side (-1, 0, 1) for a demand, given the drift held. */
 		static void Wheel(double Demand, int32 HeldDrift, double& OutSteering, int32& OutDrift, double DriftEnter = 1.4);
 
