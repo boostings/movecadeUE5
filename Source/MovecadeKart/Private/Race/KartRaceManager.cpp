@@ -115,7 +115,16 @@ void AKartRaceManager::EndPlay(const EEndPlayReason::Type Reason)
 
 void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKartSeatSpec>& Seats, const TArray<APlayerController*>& Viewers)
 {
+	check(InTrack.IsValid());
 	Track = InTrack;
+	// Setup may run again (a new room race): the previous karts go with the old racers.
+	for (FKartRacer& Old : Racers)
+	{
+		if (Old.Kart)
+		{
+			Old.Kart->Destroy();
+		}
+	}
 	Racers.Reset();
 	const int32 Count = FMath::Min(Seats.Num(), Track->Grid.Num());
 	for (int32 Seat = 0; Seat < Count; ++Seat)
@@ -125,6 +134,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		AKartPawn* Kart = GetWorld()->SpawnActor<AKartPawn>(AKartPawn::StaticClass(),
 			FTransform(FRotator(0.0, Coords::YawToUE(Slot.Yaw), 0.0), Coords::ToUE(Slot.Position)), Params);
+		if (!ensureMsgf(Kart, TEXT("Kart for seat %d failed to spawn"), Seat))
+		{
+			break; // seats stay contiguous: racer i is seat i everywhere
+		}
 		FKartLook Look = Seats[Seat].bHasLook ? Seats[Seat].Look : FKartLook::MakeVaried(Seat);
 		Look.Paint = Seats[Seat].Paint;
 		Look.Name = Seats[Seat].Name;
@@ -148,6 +161,8 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		Racer.Viewer = Viewers.IsValidIndex(Seat) ? Viewers[Seat] : nullptr;
 		if (Racer.Viewer)
 		{
+			// Read this frame's local input, not last frame's: the controllers tick first.
+			AddTickPrerequisiteActor(Racer.Viewer);
 			Racer.Viewer->Possess(Kart);
 		}
 		Kart->SetSplitScreenCamera(Count > 1 && Viewers.Num() > 1);
@@ -489,7 +504,11 @@ void AKartRaceManager::UpdateOccluders()
 		{
 			continue;
 		}
-		PC->HiddenActors.Reset();
+		// Only un-hide the karts this function hid, so other systems can hide actors too.
+		for (FKartRacer& Other : Racers)
+		{
+			PC->HiddenActors.Remove(Other.Kart);
+		}
 		if (PC->GetViewTarget() != Racer.Kart)
 		{
 			continue;

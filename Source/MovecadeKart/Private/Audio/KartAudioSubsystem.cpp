@@ -48,17 +48,19 @@ USoundWave* UKartAudioSubsystem::GetSound(const FCueDef& Cue)
 	{
 		return *Found;
 	}
+	if (MissingReported.Contains(Id))
+	{
+		return nullptr; // looked for once already: don't hit the asset registry every tick
+	}
 	const FString Path = FString::Printf(TEXT("/Game/Audio/Kart/%s.%s"), Cue.Asset, Cue.Asset);
-	USoundWave* Wave = LoadObject<USoundWave>(nullptr, *Path);
-	if (!Wave && !MissingReported.Contains(Id))
+	USoundWave* Wave = LoadObject<USoundWave>(nullptr, *Path, nullptr, LOAD_NoWarn | LOAD_Quiet);
+	if (!Wave)
 	{
 		MissingReported.Add(Id);
 		UE_LOG(LogKartAudio, Error, TEXT("KartAudio: missing SoundWave %s for cue %s"), *Path, Cue.Id);
+		return nullptr;
 	}
-	if (Wave)
-	{
-		Sounds.Add(Id, Wave);
-	}
+	Sounds.Add(Id, Wave);
 	return Wave;
 }
 

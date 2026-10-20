@@ -82,7 +82,8 @@ namespace MovecadeKart::Audio
 			{
 				double Distance = 0.0;
 				FVector2D Normal;
-				return Track.Walls.Raycast(S.Pos, Normalize(Dir), Far, Distance, Normal) ? Distance : 999.0;
+				// The same wall set the sim probes (Violet has separate probe walls).
+				return Track.RayWalls().Raycast(S.Pos, Normalize(Dir), Far, Distance, Normal) ? Distance : 999.0;
 			};
 			const double DForward = Ray(MoveDir, BarrierCollisionDistance);
 			const FVector2D LeftProbe = Normalize(FVector2D(-MoveDir.Y, MoveDir.X));

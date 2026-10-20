@@ -372,7 +372,7 @@ void URoomHostSubsystem::HandleText(const FString& Text)
 	}
 	else if (Type == TEXT("signed-scores"))
 	{
-		UE_LOG(LogRoomHost, Display, TEXT("signed-scores for match %d: %s"), Room.MatchNumber, *Text.Left(600));
+		UE_LOG(LogRoomHost, Display, TEXT("signed-scores for match %d (%d bytes)"), Room.MatchNumber, Text.Len());
 		OnSignedScores.Broadcast(Text);
 		// The web host never acks (bug B9), so the outbox redelivers up to 4 times. Ack every delivery.
 		AckedMatchNumber = Room.MatchNumber;
@@ -527,7 +527,7 @@ void URoomHostSubsystem::OnStateApplied(const FMcRoomState& Previous)
 			AdvancedMatchNumber = Room.MatchNumber;
 			Send(Msg::AdvanceTurnSimultaneous(), TEXT("advance-turn"));
 		}
-		for (int32 i = 0; i < 4; ++i)
+		for (int32 i = 0; i < MaxPlayers; ++i)
 		{
 			ResetSeatInput(i);
 		}
@@ -555,7 +555,7 @@ void URoomHostSubsystem::OnStateApplied(const FMcRoomState& Previous)
 	{
 		UE_LOG(LogRoomHost, Display, TEXT("Back in the lobby (match %d next)"), Room.MatchNumber);
 		bStartSent = false;
-		for (int32 i = 0; i < 4; ++i)
+		for (int32 i = 0; i < MaxPlayers; ++i)
 		{
 			ResetSeatInput(i);
 		}
@@ -605,6 +605,13 @@ void URoomHostSubsystem::HandleSensorFrame(const uint8* Data, int32 Size)
 		return;
 	}
 	FSeatInput& In = Inputs[Frame.PlayerIndex];
+	// The relay doesn't guarantee order: drop a frame older than the last one (sequence numbers wrap at 256).
+	// After a gap, accept anything, in case the phone restarted its counter.
+	const uint8 Behind = static_cast<uint8>(In.LastSequence - Frame.Sequence);
+	if (In.SensorFrames > 0 && Behind > 0 && Behind < 128 && Now() - In.LastSensorTime < SensorStaleSeconds)
+	{
+		return;
+	}
 	In.Steering = SteeringFromGamma(Frame.Gamma, SteeringSensitivity);
 	In.LastSequence = Frame.Sequence;
 	In.LastSensorTime = Now();
@@ -612,7 +619,7 @@ void URoomHostSubsystem::HandleSensorFrame(const uint8* Data, int32 Size)
 	if (In.LastSensorTime - In.LastLogTime >= 1.0)
 	{
 		In.LastLogTime = In.LastSensorTime;
-		UE_LOG(LogRoomHost, Display, TEXT("Sensor %s: seq=%u gamma=%.2f -> steering %+.3f (%d frames, %d bytes, orientation %u)"),
+		UE_LOG(LogRoomHost, Verbose, TEXT("Sensor %s: seq=%u gamma=%.2f -> steering %+.3f (%d frames, %d bytes, orientation %u)"),
 			*Describe(*Seat), Frame.Sequence, Frame.Gamma, In.Steering, In.SensorFrames, Size, Frame.ScreenOrientation);
 	}
 }
@@ -643,7 +650,7 @@ void URoomHostSubsystem::HandleKartInput(const FString& FromPlayerId, const FJso
 	}
 	if (Event.Accelerating || Event.Reversing || Event.Drifting || Event.bUseItem)
 	{
-		UE_LOG(LogRoomHost, Display, TEXT("kart-input %s: gas=%d brake=%d drift=%d%s"), *Describe(*Seat),
+		UE_LOG(LogRoomHost, Verbose, TEXT("kart-input %s: gas=%d brake=%d drift=%d%s"), *Describe(*Seat),
 			In.bAccelerating ? 1 : 0, In.bReversing ? 1 : 0, In.bDrifting ? 1 : 0,
 			Event.bUseItem ? (bItemAccepted ? TEXT(" ITEM") : TEXT(" ITEM (debounced)")) : TEXT(""));
 	}
@@ -653,6 +660,7 @@ void URoomHostSubsystem::HandleKartInput(const FString& FromPlayerId, const FJso
 
 bool URoomHostSubsystem::GetSeatInput(int32 Seat, MovecadeKart::FKartInput& Out) const
 {
+	static_assert(SeatCount == MaxPlayers, "one input slot per seat");
 	if (Seat < 0 || Seat >= MaxPlayers)
 	{
 		return false;
@@ -664,7 +672,10 @@ bool URoomHostSubsystem::GetSeatInput(int32 Seat, MovecadeKart::FKartInput& Out)
 	}
 	const FSeatInput& In = Inputs[Seat];
 	Out = MovecadeKart::FKartInput();
-	Out.SteeringX = In.Steering;
+	// Tilt steering goes neutral when the frames stop (the phone locked or lost focus), rather than holding the
+	// last lean forever. Button steering (kart-input) has no frames and isn't affected.
+	const bool bTiltStale = In.SensorFrames > 0 && Now() - In.LastSensorTime > SensorStaleSeconds;
+	Out.SteeringX = bTiltStale ? 0.0 : In.Steering;
 	Out.bForward = In.bAccelerating;
 	Out.bBackward = In.bReversing;
 	Out.bJump = In.bDrifting;
@@ -1166,7 +1177,13 @@ void URoomHostSubsystem::LoadSaved()
 void URoomHostSubsystem::Save()
 {
 	LastSaveTime = Now();
-	const FString Json = FString::Printf(TEXT("{\n  \"identity\": \"%s\",\n  \"code\": \"%s\",\n  \"hostToken\": \"%s\",\n  \"savedAt\": %lld\n}\n"),
-		*Identity, *Code, *HostToken, UnixMs());
+	// Written with the JSON writer: the host token comes from the server and may hold any character.
+	const TSharedRef<FJsonObject> Saved = MakeShared<FJsonObject>();
+	Saved->SetStringField(TEXT("identity"), Identity);
+	Saved->SetStringField(TEXT("code"), Code);
+	Saved->SetStringField(TEXT("hostToken"), HostToken);
+	Saved->SetNumberField(TEXT("savedAt"), static_cast<double>(UnixMs()));
+	FString Json;
+	FJsonSerializer::Serialize(Saved, TJsonWriterFactory<>::Create(&Json));
 	FFileHelper::SaveStringToFile(Json, *SavePath());
 }

@@ -229,9 +229,11 @@ private:
 		bool bDrifting = false;
 		bool bItemPending = false;
 		double LastItemTime = -1000.0;
+		/** When the last tilt frame arrived: steering from tilt goes neutral once frames stop (a locked phone). */
 		double LastSensorTime = -1000.0;
 		double LastLogTime = -1000.0;
 		int32 SensorFrames = 0;
+		/** The last tilt frame's sequence number, to drop frames that arrive out of order. */
 		uint8 LastSequence = 0;
 		double LastHapticTime = -1000.0;
 	};
@@ -289,7 +291,9 @@ private:
 	int64 HighestStateVersion = -1;
 
 	FMcRoomState Room;
-	FSeatInput Inputs[4];
+	/** One per seat; equal to MovecadeKart::Net::MaxPlayers (checked in the .cpp). */
+	static constexpr int32 SeatCount = 4;
+	FSeatInput Inputs[SeatCount];
 	TArray<uint8> BinaryAccumulator;
 	TArray<FQueued> Outbox;
 

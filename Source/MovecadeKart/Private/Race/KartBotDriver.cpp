@@ -73,11 +73,12 @@ namespace MovecadeKart
 
 	FKartInput FKartBotDriver::Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now)
 	{
-		if (Now < NextTick)
+		const int64 Step = FMath::RoundToInt64(Now / FKartSim::StepSeconds);
+		if (Step < NextTickStep)
 		{
 			return Held;
 		}
-		NextTick = Now + Tuning.TickSeconds;
+		NextTickStep = Step + FMath::Max<int64>(1, FMath::RoundToInt64(Tuning.TickSeconds / FKartSim::StepSeconds));
 		++Ticks;
 
 		double WheelSteering = 0.0;
@@ -92,12 +93,12 @@ namespace MovecadeKart
 			const bool bCoast = Tuning.CoastEvery > 0 && WheelDrift == 0 && Ticks % Tuning.CoastEvery == 0 && FMath::Abs(State.Speed) > 28.0;
 			bGas = !bLift && !bCoast;
 		}
-		if (bGas != bAccelerating || WheelDrift != Drift || FMath::Abs(WheelSteering - Steering) > 0.04 || Now - SentAt >= RefreshSeconds)
+		if (bGas != bAccelerating || WheelDrift != Drift || FMath::Abs(WheelSteering - Steering) > 0.04 || Step - SentAtStep >= FMath::RoundToInt64(RefreshSeconds / FKartSim::StepSeconds))
 		{
 			Steering = WheelSteering;
 			Drift = WheelDrift;
 			bAccelerating = bGas;
-			SentAt = Now;
+			SentAtStep = Step;
 			// kart-input {isAccelerating, isDrifting, steeringInput} (legacyBridge.ts syncKartInput).
 			Held = FKartInput();
 			Held.bForward = bAccelerating;

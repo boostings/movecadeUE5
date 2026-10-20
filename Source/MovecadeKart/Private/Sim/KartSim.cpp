@@ -663,7 +663,7 @@ namespace MovecadeKart
 
 		// Sequential push-outs can move the kart up to a radius per segment, so query a wider box.
 		const double Margin = Radius * 4.0;
-		TArray<int32> Candidates;
+		FWallSet::FCandidates Candidates;
 		for (int32 i = 0; i < Steps; ++i)
 		{
 			const FVector2D Old = P;

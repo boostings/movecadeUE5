@@ -54,8 +54,9 @@ namespace MovecadeKart
 		static void Wheel(double Demand, int32 HeldDrift, double& OutSteering, int32& OutDrift, double DriftEnter = 1.4);
 
 	private:
-		double NextTick = 0.0;
-		double SentAt = -1.0e9;
+		/** Decisions run on whole sim steps (Now * 60), so a 100 ms cadence is exactly 6 steps every time. */
+		int64 NextTickStep = 0;
+		int64 SentAtStep = -1000000;
 		double Steering = 0.0;
 		int32 Drift = 0;
 		int32 Ticks = 0;
