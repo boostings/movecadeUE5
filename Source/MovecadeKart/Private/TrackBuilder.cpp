@@ -1,6 +1,8 @@
 #include "TrackBuilder.h"
 
+#include "Camera/CameraActor.h"
 #include "Components/DirectionalLightComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PostProcessComponent.h"
@@ -213,6 +215,7 @@ void ATrackBuilder::Build()
 	const bool bSeaImported = GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("TrackSea")).Num() > 0;
 	BuildPrefabInstances();
 	BuildSigns();
+	BuildLights();
 	BuildMotion();
 
 	auto Right = [&T](int32 i) { const FVector2D Tg = T.CentreTangent[i % T.Centre.Num()]; return FVector2D(-Tg.Y, Tg.X); };
@@ -471,6 +474,7 @@ void ATrackBuilder::ApplyLook()
 		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.6 * JsonNum(SkyLook, TEXT("sunSize"), 0.03)));
 		Sky->SetScalarParameterValue(TEXT("SunGlow"), JsonNum(SkyLook, TEXT("sunGlow"), 0.8) * 0.6);
 		Sky->SetScalarParameterValue(TEXT("Brightness"), Brightness);
+		Sky->SetScalarParameterValue(TEXT("GlowPower"), Tune(TEXT("glowPower"), 24.0));
 		SkySphere->SetMaterial(0, Sky);
 	}
 	Fog->SetFogCutoffDistance(900000.f); // the dome at 10 km stays unfogged
@@ -561,6 +565,17 @@ void ATrackBuilder::BeginPlay()
 		ApplyLook(); // the look as the code has it now, even on a level saved earlier
 	}
 	GatherMotion();
+
+	// Test hook: -KartTrackCam=x,y,z,lookX,lookY,lookZ holds the first viewport on a fixed camera.
+	FString CamText;
+	TArray<FString> Bits;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KartTrackCam="), CamText, /*bShouldStopOnSeparator*/ false) && CamText.ParseIntoArray(Bits, TEXT(",")) == 6 && Track.IsValid())
+	{
+		const double Rebase = Track->SuggestedRebaseY;
+		const FVector From = MovecadeKart::Coords::ToUE(FVector(FCString::Atod(*Bits[0]), FCString::Atod(*Bits[1]) + Rebase, FCString::Atod(*Bits[2])));
+		const FVector To = MovecadeKart::Coords::ToUE(FVector(FCString::Atod(*Bits[3]), FCString::Atod(*Bits[4]) + Rebase, FCString::Atod(*Bits[5])));
+		DebugCamera = GetWorld()->SpawnActor<ACameraActor>(From, (To - From).Rotation());
+	}
 }
 
 void ATrackBuilder::SetPreviewItemBoxesVisible(bool bVisible)
@@ -573,6 +588,14 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	const double Time = GetWorld()->GetTimeSeconds();
 	TickMotion(Time);
+	if (AActor* Cam = DebugCamera.Get())
+	{
+		APlayerController* PC = GetWorld()->GetFirstPlayerController();
+		if (PC && PC->GetViewTarget() != Cam)
+		{
+			PC->SetViewTarget(Cam);
+		}
+	}
 
 	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t).
 	for (int32 i = 0; i < ItemBoxBase.Num(); ++i)

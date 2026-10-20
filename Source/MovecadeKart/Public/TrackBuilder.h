@@ -81,6 +81,8 @@ private:
 	bool BuildImportedMeshes();
 	void BuildPrefabInstances();
 	void BuildSigns();
+	/** scenery.lights: unshadowed point lights (street lamps, arch uplights) for the night track. */
+	void BuildLights();
 	void BuildSea();
 	void BuildMotion();
 	void GatherMotion();
@@ -104,6 +106,9 @@ private:
 	};
 	TArray<FMotionPart> Motion;
 	int32 SceneryCount = 0;
+
+	/** -KartTrackCam=x,y,z,lookX,lookY,lookZ (three.js metres): a fixed view for look checks in screenshots. */
+	TWeakObjectPtr<AActor> DebugCamera;
 
 	UPROPERTY(VisibleAnywhere, Category = "Track")
 	TObjectPtr<UProceduralMeshComponent> Ground;

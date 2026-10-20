@@ -8,6 +8,7 @@ The level holds one ATrackBuilder (which builds the graybox and lighting from Da
 and uses AKartGameMode, so Play drops a kart on the grid.
 """
 import os
+import stat
 import sys
 
 import unreal
@@ -19,7 +20,16 @@ quit_after = "--quit" in sys.argv or os.environ.get("KART_QUIT") == "1"
 map_path = f"/Game/Maps/{map_name}"
 
 
+def make_writable():
+    """Git LFS checks lockable .umap files out read-only, and a save to one fails without an error."""
+    content = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_content_dir())
+    path = os.path.join(content, "Maps", f"{map_name}.umap")
+    if os.path.exists(path):
+        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+
+
 def make_map():
+    make_writable()
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 

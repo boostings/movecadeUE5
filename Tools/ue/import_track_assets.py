@@ -17,6 +17,7 @@ Optional env:  KART_IMPORT=violet,harbor,neon,shared (default all), KART_MATERIA
 - STALE: assets an older export made that the current one no longer has (the Violet IP cleanup) are deleted.
 """
 import os
+import stat
 
 import unreal
 
@@ -435,8 +436,17 @@ def remove_stale():
             log(f"deleted stale {path}")
 
 
+def make_writable():
+    """Git LFS checks lockable .uasset files out read-only, and a save to one fails without an error."""
+    root = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_content_dir()), "Tracks")
+    for folder, _, files in os.walk(root):
+        for name in files:
+            os.chmod(os.path.join(folder, name), stat.S_IREAD | stat.S_IWRITE)
+
+
 def main():
     groups = set((os.environ.get("KART_IMPORT") or "violet,harbor,neon,shared").split(","))
+    make_writable()
     import_surfaces()
     make_materials()
     if os.environ.get("KART_MATERIALS_ONLY") == "1":

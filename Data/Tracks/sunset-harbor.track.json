@@ -4,7 +4,7 @@
  "source": {
   "repo": "movecade-v2",
   "commit": "58bf0476a4c8b09b7525665524a61b48cefd069c",
-  "exportedAt": "2026-10-20T01:11:48.823Z",
+  "exportedAt": "2026-10-20T01:40:01.792Z",
   "files": [
    "app/src/games/kart/tracks/catalog.ts",
    "app/src/games/kart/tracks/harbor.ts",
@@ -34088,6 +34088,139 @@
    "roughness": 0.34,
    "metalness": 0.15,
    "scroll": [0.012,0.006]
+  },
+  "prefabs": {
+   "ad_column_trim": {
+    "node": "ad_column_trim",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_trim",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "ad_column_body": {
+    "node": "ad_column_body",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/ad_column_body",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.6,
+     "texture": "mc_column_{variant}",
+     "emissive": 0.15
+    }
+   },
+   "billboard_frame": {
+    "node": "billboard_frame",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.6
+    }
+   },
+   "billboard_face": {
+    "node": "billboard_face",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/billboard_face",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.5,
+     "texture": "mc_billboard_{variant}",
+     "emissive": 0.25
+    }
+   },
+   "arch_frame": {
+    "node": "arch_frame",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_frame",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.55
+    }
+   },
+   "arch_banner": {
+    "node": "arch_banner",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/arch_banner",
+    "material": {
+     "shader": "textured",
+     "roughness": 0.5,
+     "texture": "mc_arch_{variant}",
+     "emissive": 0.35
+    }
+   },
+   "rock_formation": {
+    "node": "rock_formation",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/rock_formation",
+    "material": {
+     "shader": "surface",
+     "detail": "rock_face",
+     "triplanar": true,
+     "tileM": 5,
+     "albedo": 0.6,
+     "normal": 1,
+     "rough": 0.5,
+     "roughness": 0.9
+    }
+   },
+   "plinth": {
+    "node": "plinth",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/plinth",
+    "material": {
+     "shader": "surface",
+     "detail": "painted_concrete",
+     "triplanar": true,
+     "tileM": 2.6,
+     "albedo": 0.4,
+     "normal": 0.6,
+     "rough": 0.5,
+     "roughness": 0.75
+    }
+   },
+   "flag_violet": {
+    "node": "flag_violet",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_violet",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "flag_pink": {
+    "node": "flag_pink",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_pink",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "flag_cyan": {
+    "node": "flag_cyan",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/flag_cyan",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.9
+    }
+   },
+   "tyre_stack": {
+    "node": "tyre_stack",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/tyre_stack",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.85
+    }
+   },
+   "palm": {
+    "node": "palm",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/palm",
+    "material": {
+     "shader": "vertexColor",
+     "roughness": 0.85
+    }
+   },
+   "boost_pad": {
+    "node": "boost_pad",
+    "ueAsset": "/Game/Tracks/Shared/movecade_props/StaticMeshes/boost_pad",
+    "material": {
+     "shader": "boostPad",
+     "texture": "mc_boost_pad",
+     "roughness": 0.35
+    }
+   }
   },
   "animated": [
    {

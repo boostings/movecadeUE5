@@ -3,6 +3,7 @@
 #include "TrackBuilder.h"
 
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
@@ -241,7 +242,7 @@ UMaterialInterface* ATrackBuilder::MaterialFor(const TSharedPtr<FJsonObject>& Hi
 	if (Shader == TEXT("boostPad"))
 	{
 		// boostPadLook: chevrons scroll forward (texture up) and pulse.
-		MID->SetScalarParameterValue(TEXT("PanV"), -Num(Hint, TEXT("scrollPerS"), 1.6));
+		MID->SetScalarParameterValue(TEXT("PanV"), Num(Hint, TEXT("scrollPerS"), 1.6)); // + moves the art toward v = 0, the image top = forward
 		MID->SetScalarParameterValue(TEXT("Pulse"), Num(Hint, TEXT("pulse"), 0.5));
 		MID->SetScalarParameterValue(TEXT("PulseRate"), Num(Hint, TEXT("pulseRadPerS"), 6.0));
 	}
@@ -404,6 +405,31 @@ void ATrackBuilder::BuildSigns()
 		// The plane faces +Z, like the web's planeGeometry; size is width x height in metres.
 		const FTransform Local = Three(Vec3(Arr(Sign, TEXT("position"))), Euler(0.0, Num(Sign, TEXT("yaw")), 0.0), FVector(Size[0]->AsNumber(), Size[1]->AsNumber(), 1.0));
 		AddMeshComponent(Str(Sign, TEXT("name")), Plane, ToUETransform(Local, Track->SuggestedRebaseY), MaterialFor(Hint));
+	}
+}
+
+void ATrackBuilder::BuildLights()
+{
+	const double Rebase = Track->SuggestedRebaseY;
+	for (const TSharedPtr<FJsonValue>& V : Arr(Obj(Json, TEXT("scenery")), TEXT("lights")))
+	{
+		const TSharedPtr<FJsonObject> L = V->AsObject();
+		UPointLightComponent* Light = NewObject<UPointLightComponent>(this, MakeUniqueObjectName(this, UPointLightComponent::StaticClass(), TEXT("TrackLight")));
+		Light->SetupAttachment(RootComponent);
+		Light->SetMobility(EComponentMobility::Movable);
+		Light->SetRelativeLocation(MovecadeKart::Coords::ToUE(FVector(Num(L, TEXT("x")), Num(L, TEXT("y")) + Rebase, Num(L, TEXT("z")))));
+		Light->SetIntensityUnits(ELightUnits::Candelas);
+		Light->SetIntensity(static_cast<float>(Num(L, TEXT("candela"), 500.0)));
+		Light->SetLightColor(HexColor(Str(L, TEXT("color"))));
+		Light->SetAttenuationRadius(static_cast<float>(Num(L, TEXT("radius"), 25.0) * 100.0));
+		Light->SetSourceRadius(20.f);
+		// Many small lights across four split-screen views: no shadows, no volumetric scattering.
+		Light->SetCastShadows(false);
+		Light->SetVolumetricScatteringIntensity(0.f);
+		Light->ComponentTags.Add(SceneryTag);
+		AddInstanceComponent(Light);
+		Light->RegisterComponent();
+		++SceneryCount;
 	}
 }
 

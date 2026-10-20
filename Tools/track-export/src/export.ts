@@ -37,7 +37,7 @@ type XZ = [number, number];
 // ---- Copied constants (modules Node can't import) -------------------------------------------------
 
 /** legacy/Experience/kart/engine/store.ts:328-345 (TRACK_CHECKPOINTS, CHECKPOINT_RADIUS, getStartingCheckpointIndex). */
-const CHECKPOINT_ORDER = [
+export const CHECKPOINT_ORDER = [
   ['finish', 'START_LINE'],
   ['turn_1', 'TURN_1_APEX'],
   ['outer_curve', 'OUTER_CURVE_APEX'],
@@ -48,11 +48,11 @@ const CHECKPOINT_ORDER = [
   ['s_curve', 'S_CURVE'],
   ['final_curve', 'FINAL_CURVE'],
 ] as const;
-const CHECKPOINT_RADIUS = 24;
-const START_CHECKPOINT_INDEX = 1;
+export const CHECKPOINT_RADIUS = 24;
+export const START_CHECKPOINT_INDEX = 1;
 
 /** legacy store.ts:444-458 (RACE_CONFIG). */
-const RACE_RULES = {
+export const RACE_RULES = {
   laps: 3,
   countdownSeconds: 5,
   countdownDurationMs: 6000,
@@ -63,21 +63,21 @@ const RACE_RULES = {
 };
 
 /** legacy MultiplayerPowerups.tsx:27-40, :95, :102, :152, :159-164. */
-const ITEM_BOX_CONFIG = { size: 2, collectRadius: 2.5, respawnS: 15, spinRadPerS: 1.5, bobAmp: 0.1, bobRadPerS: 2.5, perPlayer: true };
+export const ITEM_BOX_CONFIG = { size: 2, collectRadius: 2.5, respawnS: 15, spinRadPerS: 1.5, bobAmp: 0.1, bobRadPerS: 2.5, perPlayer: true };
 /** legacy BoostPads.jsx:19-22. */
-const BOOST_CONFIG = { durationS: 1.5, multiplier: 1.8, cooldownS: 2, triggerPaddingM: 1.5 };
+export const BOOST_CONFIG = { durationS: 1.5, multiplier: 1.8, cooldownS: 2, triggerPaddingM: 1.5 };
 /** The boost pad's look (BoostPads.jsx:40-180 as an emissive material): props.ts mc_boost_pad, scrolled
  *  forward and pulsed (emissive 0.35+ on the web; brighter here so it blooms), with a yellow rim. */
-const BOOST_PAD_LOOK = { texture: 'mc_boost_pad', emissive: 2.2, pulse: 0.6, pulseRadPerS: 6, scrollPerS: 1.6, rim: '#ffcc00' };
+export const BOOST_PAD_LOOK = { texture: 'mc_boost_pad', emissive: 2.2, pulse: 0.6, pulseRadPerS: 6, scrollPerS: 1.6, rim: '#ffcc00' };
 /** legacy trackRecovery.ts:3-74. */
-const RECOVERY = { maxDistanceM: 64, skipWaypoints: 3 };
+export const RECOVERY = { maxDistanceM: 64, skipWaypoints: 3 };
 /** legacy MultiplayerKart.tsx:131-132, :1109-1110. */
-const SURFACES = {
+export const SURFACES = {
   asphalt: { speedMultiplier: 1 },
   dirt: { speedMultiplier: 0.75, meshKeywords: ['dirt', 'sand', 'grass', 'offroad', 'mud', 'gravel'] },
 };
 /** meshBoundary.ts:27-36 and harborBoundary.ts (shared sweep). */
-const SWEEP = { kartRadiusM: HARBOR_KART_RADIUS, substepM: 0.65, wallNormalY: 0.7 };
+export const SWEEP = { kartRadiusM: HARBOR_KART_RADIUS, substepM: 0.65, wallNormalY: 0.7 };
 
 /** kart/tracks/HarborTrack.tsx:843-861 (ribbons), :917-926 (mesh names), :957-960 (sea). */
 const HARBOR_RIBBONS = [
@@ -136,15 +136,15 @@ const SOURCE_FILES = [
 
 // ---- Helpers ----------------------------------------------------------------------------------------
 
-const r = (n: number, d = 4) => {
+export const r = (n: number, d = 4) => {
   const f = 10 ** d;
   const v = Math.round(n * f) / f;
   return Object.is(v, -0) ? 0 : v;
 };
-const rr = (a: readonly number[], d = 4) => a.map((n) => r(n, d));
+export const rr = (a: readonly number[], d = 4) => a.map((n) => r(n, d));
 const threeYaw = (tx: number, tz: number) => Math.atan2(-tx, -tz);
 
-function closedLength(pts: readonly { x: number; z: number }[]) {
+export function closedLength(pts: readonly { x: number; z: number }[]) {
   let s = 0;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]!;
@@ -154,7 +154,7 @@ function closedLength(pts: readonly { x: number; z: number }[]) {
   return s;
 }
 
-function sideOut(p: SideProfile & { curbIn?: number; curbOut?: number; shoulder?: number }) {
+export function sideOut(p: SideProfile & { curbIn?: number; curbOut?: number; shoulder?: number }) {
   const o: Record<string, number | null> = {
     edge: r(p.edge),
     wall: p.wall === null ? null : r(p.wall),
@@ -321,6 +321,8 @@ async function exportHarbor(commit: string, assetsDir?: string, movecadeRoot?: s
       ],
       ...(art ? { motionParts: art.motionParts, sea: art.sea } : {}),
       animated: art?.animated ?? [],
+      // The shared Movecade props (the boost pad uses props.boost_pad).
+      ...(props ? { prefabs: props.prefabs } : {}),
       signs: art?.signs ?? [],
     },
     textures: [...(art?.textures ?? []), ...(props?.textures ?? [])],
@@ -601,7 +603,7 @@ function dirtGrid(mesh: VioletMeshData) {
 }
 
 /** Pretty JSON with every leaf array of numbers on one line (points, segments, runs). */
-function stringify(data: unknown) {
+export function stringify(data: unknown) {
   return JSON.stringify(data, null, 1).replace(/\[\s*(?:-?[\d.eE+-]+|null)(?:\s*,\s*(?:-?[\d.eE+-]+|null))*\s*\]/g, (m) => m.replace(/\s+/g, ''));
 }
 
