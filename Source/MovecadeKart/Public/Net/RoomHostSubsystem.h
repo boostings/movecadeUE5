@@ -23,13 +23,16 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMcSignedScores, const FString&, Sig
 /**
  * Makes this game the Movecade room host (Docs/Port/04 §1-§7, Docs/Port/WORKSTREAMS.md "Room host API").
  *
- * It holds one WebSocket to a PartyKit room server (local only: `npm run dev:party`), mints the room
- * code, says hello as `role:'host'`, and keeps the room state, the seats and every phone's input.
+ * It holds one WebSocket to the Movecade room server, mints the room code, says hello as `role:'host'`, and
+ * keeps the room state, the seats and every phone's input. By default that is production
+ * (party.movecade.com), so phones join with the existing controller: movecade.com/join or the Movecade app.
+ * Production admits this host by its Origin (Docs/Port/server); -RoomLocal uses `npm run dev:party` instead.
  * Phones join by scanning the QR (JoinUrl). Their 30 Hz sensor frames and `kart-input` events become a
  * per-seat MovecadeKart::FKartInput that the race layer reads with GetSeatInput().
  *
  * Settings come from [/Script/MovecadeKart.RoomHostSubsystem] in DefaultGame.ini, then the command
- * line: -RoomServer=127.0.0.1:1999 -RoomSecure -RoomJoinBase=http://localhost:5173 -RoomOrigin=...
+ * line: -RoomLocal (127.0.0.1:1999 and http://localhost:5173), -RoomServer=host[:port] -RoomSecure/-RoomInsecure
+ * (a local server defaults to plain ws, anything else to wss) -RoomJoinBase=<url> -RoomOrigin=...
  * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomAutoStart[=Seconds] -RoomShots=6,20 (UI screenshots)
  * -RoomSelfTest (plays the race layer's part after each start: phases, haptics, live scores, results, restart).
  * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -Room.
@@ -44,18 +47,21 @@ class MOVECADEKART_API URoomHostSubsystem : public UGameInstanceSubsystem, publi
 public:
 	// Settings
 	/**
-	 * Party host and port. Local dev only: never point this at staging or production. 127.0.0.1 rather
-	 * than localhost: UE's libwebsockets tries ::1 for "localhost" and `partykit dev` listens on IPv4 only.
+	 * Party host and port: production by default. For a local server use 127.0.0.1 rather than localhost:
+	 * UE's libwebsockets tries ::1 for "localhost" and `partykit dev` listens on IPv4 only.
 	 */
 	UPROPERTY(Config)
-	FString PartyHost = TEXT("127.0.0.1:1999");
+	FString PartyHost = TEXT("party.movecade.com");
 
 	UPROPERTY(Config)
-	bool bSecure = false;
+	bool bSecure = true;
 
-	/** The web app phones open (its VITE_PARTY_HOST must be the same party server). `npm run dev` serves it on 5173. */
+	/** The web app phones open; it must talk to the same party server. Production: movecade.com. */
 	UPROPERTY(Config)
-	FString JoinBaseUrl = TEXT("http://localhost:5173");
+	FString JoinBaseUrl = TEXT("https://movecade.com");
+
+	/** True for a room server on this machine (`npm run dev:party`), which speaks plain ws. */
+	static bool IsLocalPartyHost(const FString& Host);
 
 	/**
 	 * Extra Origin upgrade header. Leave it empty on Windows: UE's libwebsockets backend already sends

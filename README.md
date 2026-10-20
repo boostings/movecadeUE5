@@ -30,15 +30,24 @@ Set `Kart.FrontEnd 0` (console variable) to have Play go straight into a race.
 Hold drift through a corner and let go for a mini-turbo (longer holds give super and ultra boosts). Hold gas
 just before GO for a rocket start.
 
-### Phones as controllers (room mode)
+### Phones as controllers (Party Mode)
 
-1. Start the local room server: `.\Tools\net-sim\run-party.ps1` (it clones movecade-v2 into `Tools/.cache` the
-   first time; nothing in your checkout changes, and nothing is deployed).
-2. Run the movecade web app so phones can open the join link: `npm run dev` in movecade-v2 (port 5173).
-3. Pick **Party Mode** in the main menu (or launch with `-KartRoom`). The lobby shows a QR code and a room code. Phones join, ready up, and
-   the race starts; each phone steers its kart by tilting. "Race again" sends everyone back to the lobby.
+Pick **Party Mode** in the main menu (or launch with `-KartRoom`). The game hosts a room on the Movecade room server
+(`party.movecade.com`), and phones join with the existing Movecade controller: scan the QR (it opens
+`movecade.com/join/<CODE>`), or scan it from the Movecade app. Players pick a name and look, ready up, and the race
+starts. Each phone steers its kart by tilting, or with touch steering. "Race again" sends everyone back to the lobby.
 
-No phone handy? `.\Tools\net-sim\e2e.ps1` runs a simulated phone against bots.
+The production server must admit the Unreal host first: a one-file server change, with its reasons, tests and
+deploy steps in [Docs/Port/server](Docs/Port/server/README.md). Until it is deployed, the lobby says the server
+doesn't accept this game as a host yet.
+
+**Local server instead** (`-RoomLocal`, nothing deployed):
+1. Start the room server: `.\Tools\net-sim\run-party.ps1`. It clones movecade-v2 into `Tools/.cache` the first
+   time; your checkout is never touched.
+2. Serve the controller from that clone: `npx vite --port 5173` in `Tools/.cache/movecade`.
+3. Launch the game with `-KartRoom -RoomLocal`.
+
+No phone handy? `.\Tools\net-sim\e2e.ps1` races a simulated phone against bots on the local server.
 
 ## Command line (game or `-game` runs)
 
@@ -51,7 +60,7 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` runs a simulated phone against bots.
 | `-KartSoloView` | Only your kart on screen (default: one view per kart, like the TV host) |
 | `-KartLaps=N` | Shorter races |
 | `-KartSkipIntro` | Straight to the countdown |
-| `-KartRoom` | Phones join through the lobby |
+| `-KartRoom` | Phones join through the lobby (production room server; add `-RoomLocal` for `npm run dev:party` on this PC) |
 | `-KartLegacyWalls` | The web build's sticky walls (B11), for comparison |
 | `-KartAutoDrive`, `-KartShots=4,10`, `-KartQuitAfter=30` | Automated checks: self-driving, screenshots, quit |
 | `-KartNoFrontEnd` | Skip the menus and race at once (any flag above does the same) |

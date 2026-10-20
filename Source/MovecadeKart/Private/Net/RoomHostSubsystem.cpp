@@ -60,11 +60,27 @@ void URoomHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	FModuleManager::LoadModuleChecked<FWebSocketsModule>(TEXT("WebSockets"));
 
 	const TCHAR* Cmd = FCommandLine::Get();
-	FParse::Value(Cmd, TEXT("RoomServer="), PartyHost);
-	FParse::Value(Cmd, TEXT("RoomJoinBase="), JoinBaseUrl);
+	// -RoomLocal: `npm run dev:party` and `npm run dev` on this machine instead of production.
+	if (FParse::Param(Cmd, TEXT("RoomLocal")))
+	{
+		PartyHost = TEXT("127.0.0.1:1999");
+		JoinBaseUrl = TEXT("http://localhost:5173");
+	}
+	const bool bServerGiven = FParse::Value(Cmd, TEXT("RoomServer="), PartyHost);
+	const bool bJoinBaseGiven = FParse::Value(Cmd, TEXT("RoomJoinBase="), JoinBaseUrl);
 	FParse::Value(Cmd, TEXT("RoomOrigin="), Origin);
 	FParse::Value(Cmd, TEXT("RoomMap="), PendingMapId);
-	bSecure = bSecure || FParse::Param(Cmd, TEXT("RoomSecure"));
+	// A server on this machine speaks plain ws and is joined from the local web app; anything else is TLS.
+	if (IsLocalPartyHost(PartyHost))
+	{
+		bSecure = false;
+		if (bServerGiven && !bJoinBaseGiven && !IsLocalPartyHost(FString(JoinBaseUrl).Replace(TEXT("http://"), TEXT("")).Replace(TEXT("https://"), TEXT(""))))
+		{
+			JoinBaseUrl = TEXT("http://localhost:5173");
+		}
+	}
+	bSecure = (bSecure || FParse::Param(Cmd, TEXT("RoomSecure"))) && !FParse::Param(Cmd, TEXT("RoomInsecure"));
+	UE_LOG(LogRoomHost, Display, TEXT("Room server %s://%s, phones join at %s"), bSecure ? TEXT("wss") : TEXT("ws"), *PartyHost, *JoinBaseUrl);
 	// -RoomAutoStart[=Seconds]: start (solo too) once every seat has been ready for that long.
 	bAutoStart = FParse::Param(Cmd, TEXT("RoomAutoStart")) || FParse::Value(Cmd, TEXT("RoomAutoStart="), AutoStartDelay);
 	bSelfTest = FParse::Param(Cmd, TEXT("RoomSelfTest"));
@@ -434,9 +450,17 @@ void URoomHostSubsystem::HandleError(const FJsonObject& Message)
 	UE_LOG(LogRoomHost, Warning, TEXT("Server error %s%s"), *LastError, bFatal ? TEXT(" (fatal)") : TEXT(""));
 	if (ErrorCode == TEXT("UNAUTHORIZED_ORIGIN"))
 	{
-		UE_LOG(LogRoomHost, Error, TEXT("The room server refused this host's Origin. UE's libwebsockets sends 'Origin: http://<party host name>' "
-			"(http://127.0.0.1 for -RoomServer=127.0.0.1:1999). Run the local server with --var EXTRA_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1 "
-			"(Tools/net-sim/run-party.ps1 does)."));
+		if (IsLocalPartyHost(PartyHost))
+		{
+			UE_LOG(LogRoomHost, Error, TEXT("The room server refused this host's Origin. UE's libwebsockets sends 'Origin: http://<party host name>' "
+				"(http://127.0.0.1 for -RoomServer=127.0.0.1:1999). Run the local server with --var EXTRA_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1 "
+				"(Tools/net-sim/run-party.ps1 does)."));
+		}
+		else
+		{
+			UE_LOG(LogRoomHost, Error, TEXT("%s refused this host's Origin (http://%s): the server does not admit the Unreal host yet. "
+				"Deploy Docs/Port/server/0001-*.patch to it, or run with -RoomLocal."), *PartyHost, *PartyHost.Left(PartyHost.Find(TEXT(":")) == INDEX_NONE ? PartyHost.Len() : PartyHost.Find(TEXT(":"))));
+		}
 	}
 	if (ErrorCode == TEXT("PLAYERS_NOT_READY") || ErrorCode == TEXT("NO_ACTIVE_PLAYERS") || ErrorCode == TEXT("INVALID_STATE_TRANSITION") || ErrorCode == TEXT("ENTITLEMENT_REQUIRED"))
 	{
@@ -1133,9 +1157,23 @@ void URoomHostSubsystem::RunSelfTest(double T)
 	}
 }
 
+bool URoomHostSubsystem::IsLocalPartyHost(const FString& Host)
+{
+	return Host.StartsWith(TEXT("127.")) || Host.StartsWith(TEXT("localhost")) || Host.StartsWith(TEXT("0.0.0.0")) || Host.StartsWith(TEXT("[::1]"));
+}
+
 FString URoomHostSubsystem::SavePath() const
 {
-	return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("RoomHost"), TEXT("host.json"));
+	// One saved room per server: a code reclaimed on the local server means nothing to production.
+	FString Server = PartyHost;
+	for (TCHAR& C : Server)
+	{
+		if (!FChar::IsAlnum(C) && C != TEXT('.'))
+		{
+			C = TEXT('_');
+		}
+	}
+	return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("RoomHost"), FString::Printf(TEXT("host-%s.json"), *Server));
 }
 
 void URoomHostSubsystem::LoadSaved()

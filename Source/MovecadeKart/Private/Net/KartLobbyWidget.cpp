@@ -482,7 +482,13 @@ void UKartLobbyWidget::Refresh()
 	case EMcConnection::Connecting: Connection = TEXT("Connecting to the room server..."); break;
 	case EMcConnection::Reconnecting: Connection = TEXT("Reconnecting... everyone keeps their spot."); ConnectionColor = Color::SunDeep; break;
 	case EMcConnection::Open: Connection = Subsystem->IsHost() ? TEXT("Room open. Phones join from the QR code.") : TEXT("Another screen is hosting this room."); break;
-	case EMcConnection::Failed: Connection = TEXT("Room server error: ") + Subsystem->GetLastError(); ConnectionColor = Color::Hot; break;
+	case EMcConnection::Failed:
+		// The one refusal a player can't fix from here: the server hasn't admitted this host yet.
+		Connection = Subsystem->GetLastError().StartsWith(TEXT("UNAUTHORIZED_ORIGIN"))
+			? FString::Printf(TEXT("%s doesn't accept this game as a host yet (it needs the server update in Docs/Port/server)."), *Subsystem->PartyHost)
+			: TEXT("Room server error: ") + Subsystem->GetLastError();
+		ConnectionColor = Color::Hot;
+		break;
 	}
 	ConnectionText->SetText(FText::FromString(Connection));
 	ConnectionText->SetColorAndOpacity(FSlateColor(ConnectionColor));

@@ -1,0 +1,160 @@
+From 5d428f62f0a3171a74e64b43ec37c34dca1be860 Mon Sep 17 00:00:00 2001
+From: unrent <jimmyschade@gmail.com>
+Date: Tue, 20 Oct 2026 09:11:20 -0500
+Subject: [PATCH] partykit: let the Unreal kart host host rooms in production
+
+The Unreal Engine kart host connects with Unreal's libwebsockets client, which on Windows always
+sends Origin: http://<server host>, so against production it presents http://party.movecade.com
+and was refused as an unlisted, non-https origin.
+
+Admit exactly that origin (NATIVE_HOST_ORIGINS) in production and exempt it, by value, from the
+https-only check. No browser page can present it, and a non-browser client could already send any
+Origin, so nothing new opens to websites; every other plain-http origin is still refused.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ partykit/src/config.test.ts        | 24 ++++++++++++++++++++++++
+ partykit/src/config.ts             | 14 ++++++++++++++
+ partykit/src/server.config.test.ts | 26 +++++++++++++++++++++++++-
+ partykit/src/server.ts             |  4 +++-
+ 4 files changed, 66 insertions(+), 2 deletions(-)
+
+diff --git a/partykit/src/config.test.ts b/partykit/src/config.test.ts
+index 84dbfd1f..6c3b1314 100644
+--- a/partykit/src/config.test.ts
++++ b/partykit/src/config.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, expect, it } from 'vitest';
+ import {
+   DEV_SCORE_SIGNING_SECRET,
++  NATIVE_HOST_ORIGINS,
+   resolveDeploymentMode,
+   validateDeploymentConfig,
+ } from './config.js';
+@@ -78,6 +79,29 @@ describe('validateDeploymentConfig', () => {
+     expect(report.problems).toHaveLength(2);
+   });
+ 
++  it('accepts the native Unreal host origin in production, and only that plain-http origin', () => {
++    expect(NATIVE_HOST_ORIGINS).toEqual(['http://party.movecade.com']);
++    const accepted = validateDeploymentConfig({
++      mode: 'production',
++      scoreSigningSecret: GOOD_SECRET,
++      allowedOrigins: [...PROD_ORIGINS, ...NATIVE_HOST_ORIGINS],
++      monetizationEnabled: false,
++      entitlementKeyCount: 1,
++      entitlementIssuer: GOOD_ISSUER,
++    });
++    expect(accepted).toEqual({ mode: 'production', valid: true, problems: [] });
++
++    const refused = validateDeploymentConfig({
++      mode: 'production',
++      scoreSigningSecret: GOOD_SECRET,
++      allowedOrigins: [...PROD_ORIGINS, ...NATIVE_HOST_ORIGINS, 'http://party.example.com'],
++      monetizationEnabled: false,
++      entitlementKeyCount: 1,
++      entitlementIssuer: GOOD_ISSUER,
++    });
++    expect(refused.problems).toEqual(['allowed origin is not https: http://party.example.com']);
++  });
++
+   it('refuses monetization without entitlement keys or an issuer', () => {
+     const report = validateDeploymentConfig({
+       mode: 'production',
+diff --git a/partykit/src/config.ts b/partykit/src/config.ts
+index bdcf69d0..7c950963 100644
+--- a/partykit/src/config.ts
++++ b/partykit/src/config.ts
+@@ -18,6 +18,19 @@ export const DEV_SCORE_SIGNING_SECRET = 'local-dev-not-a-secret';
+ /** Shorter than this and an HMAC secret is a password, not a key. */
+ export const MIN_SCORE_SIGNING_SECRET_LENGTH = 24;
+ 
++/**
++ * Origins of native (non-browser) hosts that production lets host a room.
++ *
++ * The Unreal Engine kart host connects with Unreal's libwebsockets client, which on Windows always sends
++ * `Origin: http://<server host name>` and offers no way to change it (a second Origin header makes the
++ * request carry both). Against production that is exactly `http://party.movecade.com`.
++ *
++ * Admitting it opens nothing to websites: no browser page can present this origin, because nothing
++ * serves pages there, and a non-browser client could already send any Origin it liked. It is listed by
++ * value, so the https-only rule below still refuses every other plain-http origin.
++ */
++export const NATIVE_HOST_ORIGINS: readonly string[] = ['http://party.movecade.com'];
++
+ export interface DeploymentConfigInput {
+   mode: DeploymentMode;
+   scoreSigningSecret: string;
+@@ -76,6 +89,7 @@ export function validateDeploymentConfig(input: DeploymentConfigInput): Deployme
+ 
+     if (input.allowedOrigins.length === 0) problems.push('no allowed origins are configured');
+     for (const origin of input.allowedOrigins) {
++      if (NATIVE_HOST_ORIGINS.includes(origin)) continue;
+       if (!origin.startsWith('https://')) problems.push(`allowed origin is not https: ${origin}`);
+       else if (looksLocal(origin)) problems.push(`allowed origin points at a local host: ${origin}`);
+     }
+diff --git a/partykit/src/server.config.test.ts b/partykit/src/server.config.test.ts
+index 12da4001..34f97b44 100644
+--- a/partykit/src/server.config.test.ts
++++ b/partykit/src/server.config.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from 'vitest';
+-import { isRecord, isString, sanitizeJsonValue, type JsonObject, type JsonValue } from '@v2/protocol';
++import { CloseCode, isRecord, isString, sanitizeJsonValue, type JsonObject, type JsonValue } from '@v2/protocol';
+ 
+ /** The readiness body is a flat object with a `reasons` array of strings. */
+ const READINESS_MAX_DEPTH = 3;
+@@ -141,6 +141,30 @@ describe('connection refusal on invalid production configuration', () => {
+   });
+ });
+ 
++describe('native host origin', () => {
++  function withOrigin(origin: string): PartyConnectionContext {
++    return { request: { headers: { get: (name: string) => (name.toLowerCase() === 'origin' ? origin : null) } } };
++  }
++
++  /** A production server whose room can find this connection, so a refusal actually reaches it. */
++  function connectWithOrigin(origin: string): Promise<ConnectionStub> {
++    const connection = makeConnection();
++    const room = { ...makeRoom(PRODUCTION), getConnection: (id: string) => (id === connection.id ? connection : undefined) };
++    return new MovecadeV2Server(room).onConnect(connection, withOrigin(origin)).then(() => connection);
++  }
++
++  it("lets the Unreal host's libwebsockets origin connect in production", async () => {
++    const connection = await connectWithOrigin('http://party.movecade.com');
++    expect(connection.closed).toHaveLength(0);
++  });
++
++  it('still refuses any other plain-http origin in production', async () => {
++    const connection = await connectWithOrigin('http://party.example.com');
++    expect(connection.closed).toHaveLength(1);
++    expect(connection.closed[0]?.code).toBe(CloseCode.Unauthorized);
++  });
++});
++
+ describe('closing handshake', () => {
+   it('echoes a close so a leaving client stops waiting in CLOSING', () => {
+     const server = makeServer(PRODUCTION);
+diff --git a/partykit/src/server.ts b/partykit/src/server.ts
+index 8ef7b47d..724c8e4c 100644
+--- a/partykit/src/server.ts
++++ b/partykit/src/server.ts
+@@ -1,5 +1,5 @@
+ import { CloseCode, ErrorCode, PROTOCOL_VERSION, isRecord, isString, type EntitlementJwk, type JsonObject, type JsonValue } from '@v2/protocol';
+-import { resolveDeploymentMode, validateDeploymentConfig, type DeploymentConfigReport } from './config.js';
++import { NATIVE_HOST_ORIGINS, resolveDeploymentMode, validateDeploymentConfig, type DeploymentConfigReport } from './config.js';
+ import { RoomEngine } from './engine.js';
+ import { nodeCrypto } from './nodeCrypto.js';
+ import { SystemScheduler, type ConnectionContext, type RoomIo, type RoomStorage } from './ports.js';
+@@ -144,6 +144,8 @@ export default class MovecadeV2Server {
+     // a Vercel preview origin on staging, a local build under test in dev.
+     const allowedOrigins = [
+       ...(isProduction ? DEFAULT_ALLOWED_ORIGINS : [...DEFAULT_ALLOWED_ORIGINS, ...DEV_ALLOWED_ORIGINS]),
++      // The Unreal kart host, wherever production runs (see NATIVE_HOST_ORIGINS).
++      ...(isProduction ? NATIVE_HOST_ORIGINS : []),
+       ...parseOrigins(readEnv('EXTRA_ALLOWED_ORIGINS', roomEnv)),
+     ];
+     const scoreSigningSecret = readEnv('SCORE_SIGNING_SECRET', roomEnv);
+-- 
+2.47.1.windows.2
+
