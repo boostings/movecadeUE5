@@ -385,7 +385,7 @@ namespace KartWidgets
 		const FKartPainter* B = nullptr;
 		FKartPainter Storage = P;
 		RowBack(P, Pos, Size, Label, State, B, Storage);
-		const double Right = Pos.X + Size.X - 110.0;
+		const double Right = Pos.X + Size.X - 136.0;
 		const double Width = FMath::Min(380.0, Size.X * 0.46) - 90.0;
 		const double Left = Right - Width;
 		const double Gap = 6.0;
