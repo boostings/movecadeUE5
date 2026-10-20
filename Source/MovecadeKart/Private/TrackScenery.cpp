@@ -6,10 +6,13 @@
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture.h"
 #include "KartCoords.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "MaterialShared.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTrackScenery, Log, All);
 
@@ -29,6 +32,10 @@ namespace
 			{ TEXT("surface"), TEXT("M_TrackSurface") },
 			{ TEXT("surfaceWall"), TEXT("M_TrackSurfaceWall") },
 			{ TEXT("boostPad"), TEXT("M_TrackBoostPad") },
+			{ TEXT("foliage"), TEXT("M_TrackFoliage") },
+			{ TEXT("crystal"), TEXT("M_TrackCrystal") },
+			{ TEXT("glass"), TEXT("M_TrackGlass") },
+			{ TEXT("water"), TEXT("M_TrackWater") },
 		};
 		const FString* Name = Paths.Find(Shader);
 		const FString Asset = Name ? *Name : TEXT("M_TrackVertexColor");
@@ -126,6 +133,16 @@ namespace
 	{
 		return FTransform(Rotation, Position, Scale);
 	}
+
+	/** Nanite draws opaque and masked materials only: a translucent part (glass, spray, beams) renders
+	 *  through its fallback mesh instead. */
+	void MatchNaniteToMaterial(UStaticMeshComponent* Component, const UMaterialInterface* Material)
+	{
+		if (Material && IsTranslucentBlendMode(Material->GetBlendMode()))
+		{
+			Component->SetForceDisableNanite(true);
+		}
+	}
 }
 
 void ATrackBuilder::ClearScenery()
@@ -160,6 +177,7 @@ UStaticMeshComponent* ATrackBuilder::AddMeshComponent(const FString& Name, UStat
 		{
 			Component->SetMaterial(i, Material);
 		}
+		MatchNaniteToMaterial(Component, Material);
 	}
 	AddInstanceComponent(Component);
 	Component->RegisterComponent();
@@ -196,9 +214,17 @@ UMaterialInterface* ATrackBuilder::MaterialFor(const TSharedPtr<FJsonObject>& Hi
 	const double Metallic = Num(Hint, TEXT("metalness"), 0.0);
 	const double Emissive = Num(Hint, TEXT("emissive"), 0.0);
 	const double Opacity = Num(Hint, TEXT("opacity"), 1.0);
+	// Free-form master parameters (hint.params): numbers, "#rrggbb" colours, [r, g, b] vectors, texture names.
+	const TSharedPtr<FJsonObject> Params = Obj(Hint, TEXT("params"));
+	FString ParamsKey;
+	if (Params.IsValid())
+	{
+		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ParamsKey);
+		FJsonSerializer::Serialize(Params.ToSharedRef(), Writer);
+	}
 	const FString Key = FString::Printf(TEXT("%s|%s|%s|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f"), *Shader, *Color, *Texture, *TextureAsset, *Detail,
 		Roughness, Metallic, Emissive, Opacity, Num(Hint, TEXT("tileM")), Num(Hint, TEXT("albedo")), Num(Hint, TEXT("normal")), Num(Hint, TEXT("rough")),
-		Num(Hint, TEXT("desaturate")), Num(Hint, TEXT("pulse"))) + FString::Printf(TEXT("|%.3f"), Num(Hint, TEXT("baseDesaturate")));
+		Num(Hint, TEXT("desaturate")), Num(Hint, TEXT("pulse"))) + FString::Printf(TEXT("|%.3f|"), Num(Hint, TEXT("baseDesaturate"))) + ParamsKey;
 	if (TObjectPtr<UMaterialInterface>* Found = MaterialCache.Find(Key))
 	{
 		return *Found;
@@ -238,6 +264,34 @@ UMaterialInterface* ATrackBuilder::MaterialFor(const TSharedPtr<FJsonObject>& Hi
 		MID->SetScalarParameterValue(TEXT("DetailRough"), Num(Hint, TEXT("rough"), 0.5));
 		MID->SetScalarParameterValue(TEXT("Desaturate"), Num(Hint, TEXT("desaturate"), 0.0));
 		MID->SetScalarParameterValue(TEXT("BaseDesaturate"), Num(Hint, TEXT("baseDesaturate"), 0.0));
+	}
+	if (Params.IsValid())
+	{
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& P : Params->Values)
+		{
+			const FName Name(*P.Key);
+			FString Text;
+			const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+			if (P.Value->Type == EJson::Number)
+			{
+				MID->SetScalarParameterValue(Name, P.Value->AsNumber());
+			}
+			else if (P.Value->TryGetArray(Values) && Values->Num() >= 3)
+			{
+				MID->SetVectorParameterValue(Name, FLinearColor((*Values)[0]->AsNumber(), (*Values)[1]->AsNumber(), (*Values)[2]->AsNumber(), Values->Num() > 3 ? (*Values)[3]->AsNumber() : 1.0));
+			}
+			else if (P.Value->TryGetString(Text))
+			{
+				if (Text.StartsWith(TEXT("#")))
+				{
+					MID->SetVectorParameterValue(Name, HexColor(Text));
+				}
+				else if (UTexture* T = TextureNamed(Text))
+				{
+					MID->SetTextureParameterValue(Name, T);
+				}
+			}
+		}
 	}
 	if (Shader == TEXT("boostPad"))
 	{
@@ -363,9 +417,17 @@ void ATrackBuilder::BuildPrefabInstances()
 			Group->SetupAttachment(RootComponent);
 			Group->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Group->ComponentTags.Add(SceneryTag);
+			// Sky dressing (balloons, pennants high on masts) would throw detached shadows far across the road
+			// under a low sun; such prefabs opt out with "castShadow": false.
+			bool bCastShadow = true;
+			if (Def->TryGetBoolField(TEXT("castShadow"), bCastShadow) && !bCastShadow)
+			{
+				Group->SetCastShadow(false);
+			}
 			if (UMaterialInterface* Material = MaterialFor(Obj(Def, TEXT("material")), Tint, Variant))
 			{
 				Group->SetMaterial(0, Material);
+				MatchNaniteToMaterial(Group, Material);
 			}
 			AddInstanceComponent(Group);
 			Group->RegisterComponent();
@@ -448,6 +510,15 @@ void ATrackBuilder::BuildSea()
 		const TSharedPtr<FJsonObject> I = V->AsObject();
 		if (Str(I, TEXT("prefab")) != TEXT("sea_plane"))
 		{
+			continue;
+		}
+		// sea.material (single layer water) when the export gives one; else the web's scrolling texture.
+		if (const TSharedPtr<FJsonObject> Water = Obj(Sea, TEXT("material")))
+		{
+			const FVector Size = Vec3(Arr(I, TEXT("scale")));
+			const FTransform Local = Three(FVector(Num(I, TEXT("x")), Num(I, TEXT("y")), Num(I, TEXT("z"))), Euler(-UE_DOUBLE_HALF_PI, 0.0, 0.0), FVector(Size.X, Size.Z, 1.0));
+			UStaticMeshComponent* Surface = AddMeshComponent(TEXT("Sea"), Plane, ToUETransform(Local, Track->SuggestedRebaseY), MaterialFor(Water), TEXT("TrackSea"));
+			Surface->SetCastShadow(false);
 			continue;
 		}
 		TSharedPtr<FJsonObject> Hint = MakeShared<FJsonObject>();

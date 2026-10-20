@@ -404,18 +404,17 @@ void ATrackBuilder::ApplyLook()
 	{
 		return;
 	}
-	// kartLook.ts's record (Docs/Port/03 §5.7). The scene is lit in three.js units: with manual exposure at
-	// EV 0, a sun of `sunIntensity` lux on a white Lambert surface gives the web's 1/pi-scaled radiance, so
-	// colours land where the web's neutral tone mapping puts them. Ambient comes from the real-time sky
-	// light (hemisphere + fill), scaled up because Lumen's sky occlusion darkens it.
+	// kartLook.ts's record (Docs/Port/03 §5.7) is the base. The scene is lit in three.js units: with manual
+	// exposure at EV 0, a sun of `sunIntensity` lux on a white Lambert surface gives the web's 1/pi-scaled
+	// radiance. look.ue holds the UE art direction per track (sun, sky, clouds, fog, exposure), which wins
+	// over the web record; -KartLookUE="key=value,..." overrides its numbers for quick look passes.
 	const TSharedPtr<FJsonObject> Look = JsonObj(Json, TEXT("look"));
 	const TSharedPtr<FJsonObject> Mood = JsonObj(Look, TEXT("mood"));
 	const TSharedPtr<FJsonObject> Grade = JsonObj(Look, TEXT("grade"));
-	const TSharedPtr<FJsonObject> Bloom = JsonObj(Look, TEXT("bloom"));
 	const TSharedPtr<FJsonObject> FogLook = JsonObj(Look, TEXT("fog"));
 	const TSharedPtr<FJsonObject> Hemi = JsonObj(Look, TEXT("hemisphere"));
 	const TSharedPtr<FJsonObject> Fill = JsonObj(Look, TEXT("fill"));
-	// UE-only tuning: look.ue in the JSON, overridden by -KartLookUE="key=value,..." for quick look passes.
+	const TSharedPtr<FJsonObject> SkyLook = JsonObj(Mood, TEXT("sky"));
 	const TSharedPtr<FJsonObject> UELook = JsonObj(Look, TEXT("ue"));
 	TMap<FString, double> Overrides;
 	FString OverrideText;
@@ -437,101 +436,93 @@ void ATrackBuilder::ApplyLook()
 		const double* Override = Overrides.Find(Key);
 		return Override ? *Override : JsonNum(UELook, Key, Default);
 	};
+	auto TuneColor = [&UELook](const TCHAR* Key, const FLinearColor& Default)
+	{
+		FString Hex;
+		return UELook.IsValid() && UELook->TryGetStringField(Key, Hex) ? JsonColor(UELook, Key, TEXT("ffffff")) : Default;
+	};
 
 	// Sun: direction toward the sun in three.js axes.
-	const FVector SunDir = JsonVec(Look, TEXT("sunDirection"), Track.IsValid() ? Track->SunDirection : FVector(0.5, 0.6, 0.6));
+	const FVector WebSunDir = JsonVec(Look, TEXT("sunDirection"), Track.IsValid() ? Track->SunDirection : FVector(0.5, 0.6, 0.6));
+	const FVector SunDir = JsonVec(UELook, TEXT("sunDirection"), WebSunDir);
+	const FLinearColor SunColor = TuneColor(TEXT("sunColor"), JsonColor(Look, TEXT("sunColor"), TEXT("ffffff")));
 	Sun->SetWorldRotation((-Coords::DirToUE(SunDir).GetSafeNormal()).Rotation());
-	Sun->SetLightColor(JsonColor(Look, TEXT("sunColor"), TEXT("ffffff")));
+	Sun->SetLightColor(SunColor);
 	Sun->SetIntensity(static_cast<float>(JsonNum(Look, TEXT("sunIntensity"), 3.0) * Tune(TEXT("sunScale"), 1.0)));
-	Sun->SetAtmosphereSunLight(true);
 	Sun->SetCastShadows(true);
 	Sun->SetDynamicShadowDistanceMovableLight(20000.f);
 
-	// Sky light: real-time capture of the atmosphere, tinted toward the hemisphere sky colour.
+	// Sky light: real-time capture of the dome below, tinted toward the hemisphere sky colour.
 	const double Ambient = JsonNum(Hemi, TEXT("intensity"), 0.6) + JsonNum(Fill, TEXT("intensity"), 0.3);
 	SkyLight->SetIntensity(static_cast<float>(Ambient * Tune(TEXT("skyLightScale"), 1.5)));
-	SkyLight->SetLightColor(FMath::Lerp(FLinearColor::White, JsonColor(Hemi, TEXT("sky"), TEXT("ffffff")), 0.35f));
+	SkyLight->SetLightColor(FMath::Lerp(FLinearColor::White, TuneColor(TEXT("skyLightTint"), JsonColor(Hemi, TEXT("sky"), TEXT("ffffff"))), 0.35f));
 	SkyLight->bLowerHemisphereIsBlack = false;
-	SkyLight->SetLowerHemisphereColor(JsonColor(Hemi, TEXT("ground"), TEXT("6e5a48")) * 0.5f);
+	SkyLight->SetLowerHemisphereColor(TuneColor(TEXT("groundBounce"), JsonColor(Hemi, TEXT("ground"), TEXT("6e5a48"))) * 0.5f);
 	SkyLight->RecaptureSky();
 
-	// Sky: the web's dome (kartLook mood: three-stop gradient, sun disc and glow) on M_TrackSky. The physical
-	// atmosphere stays off: at the web's light levels it renders a dim grey sky, and it would tint the sun.
+	// Sky: a painted dome (M_TrackSky: gradient, sun, horizon glow, clouds). The physical atmosphere stays
+	// off: at these light levels it renders a dim grey sky, and it would tint the sun.
 	Atmosphere->SetVisibility(false);
 	Sun->SetAtmosphereSunLight(false);
 	SkySphere->SetVisibility(bAddLighting);
+	const FLinearColor Horizon = TuneColor(TEXT("skyHorizon"), JsonColor(Mood, TEXT("skyHorizon"), TEXT("d4e6f5")));
+	const FLinearColor Top = TuneColor(TEXT("skyTop"), JsonColor(Mood, TEXT("skyTop"), TEXT("4f78b8")));
 	if (UMaterialInterface* SkyMaster = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 	{
-		const TSharedPtr<FJsonObject> SkyLook = JsonObj(Mood, TEXT("sky"));
 		UMaterialInstanceDynamic* Sky = UMaterialInstanceDynamic::Create(SkyMaster, this, TEXT("MID_Sky"));
-		const float Brightness = static_cast<float>(Tune(TEXT("skyBrightness"), 1.0));
-		Sky->SetVectorParameterValue(TEXT("SkyTop"), JsonColor(Mood, TEXT("skyTop"), TEXT("4f78b8")));
-		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), JsonColor(Mood, TEXT("skyHorizon"), TEXT("d4e6f5")));
-		Sky->SetVectorParameterValue(TEXT("SkyBelow"), JsonColor(Mood, TEXT("skyGround"), TEXT("a9bfd6")));
-		const FVector SkySun = Coords::DirToUE(JsonVec(SkyLook, TEXT("sunDirection"), SunDir)).GetSafeNormal();
+		Sky->SetVectorParameterValue(TEXT("SkyTop"), Top);
+		Sky->SetVectorParameterValue(TEXT("SkyMid"), TuneColor(TEXT("skyMid"), FMath::Lerp(Horizon, Top, 0.55f)));
+		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), Horizon);
+		Sky->SetVectorParameterValue(TEXT("SkyBelow"), TuneColor(TEXT("skyBelow"), JsonColor(Mood, TEXT("skyGround"), TEXT("a9bfd6"))));
+		const FVector SkySun = Coords::DirToUE(UELook.IsValid() && UELook->HasField(TEXT("sunDirection")) ? SunDir : JsonVec(SkyLook, TEXT("sunDirection"), SunDir)).GetSafeNormal();
 		Sky->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(SkySun.X, SkySun.Y, SkySun.Z, 0.0));
-		Sky->SetVectorParameterValue(TEXT("SunColor"), JsonColor(SkyLook, TEXT("cloudColor"), TEXT("fff6ee")));
-		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.6 * JsonNum(SkyLook, TEXT("sunSize"), 0.03)));
-		Sky->SetScalarParameterValue(TEXT("SunGlow"), JsonNum(SkyLook, TEXT("sunGlow"), 0.8) * 0.6);
-		Sky->SetScalarParameterValue(TEXT("Brightness"), Brightness);
+		Sky->SetVectorParameterValue(TEXT("SunColor"), TuneColor(TEXT("sunDisc"), JsonColor(SkyLook, TEXT("cloudColor"), TEXT("fff6ee"))));
+		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.6 * Tune(TEXT("sunSize"), JsonNum(SkyLook, TEXT("sunSize"), 0.03))));
+		Sky->SetScalarParameterValue(TEXT("SunGlow"), Tune(TEXT("sunGlow"), JsonNum(SkyLook, TEXT("sunGlow"), 0.8) * 0.6));
 		Sky->SetScalarParameterValue(TEXT("GlowPower"), Tune(TEXT("glowPower"), 24.0));
+		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), Tune(TEXT("horizonGlow"), 0.4));
+		Sky->SetScalarParameterValue(TEXT("Brightness"), Tune(TEXT("skyBrightness"), 1.0));
+		// Clouds: the generated density map, coverage from the web's mood (0 = clear).
+		if (UTexture* Clouds = LoadObject<UTexture>(nullptr, TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+		{
+			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
+		}
+		Sky->SetScalarParameterValue(TEXT("Clouds"), Tune(TEXT("clouds"), JsonNum(SkyLook, TEXT("clouds"), 0.4)));
+		Sky->SetScalarParameterValue(TEXT("CloudScale"), Tune(TEXT("cloudScale"), 0.35));
+		Sky->SetVectorParameterValue(TEXT("CloudLit"), TuneColor(TEXT("cloudLit"), JsonColor(SkyLook, TEXT("cloudColor"), TEXT("fff6ee"))));
+		Sky->SetVectorParameterValue(TEXT("CloudShade"), TuneColor(TEXT("cloudShade"), FMath::Lerp(Horizon, Top, 0.4f) * 0.8f));
 		SkySphere->SetMaterial(0, Sky);
 	}
 	Fog->SetFogCutoffDistance(900000.f); // the dome at 10 km stays unfogged
 
-	// Fog: the web's linear fog runs from near to far in the sky horizon colour. Height fog starts at near
-	// and is dense enough to read as haze at far.
+	// Fog: height fog from `fogStart`, dense enough to read as haze at the web's far distance, in the horizon
+	// colour unless look.ue picks one; the sun side scatters warmer.
 	const double Near = JsonNum(FogLook, TEXT("near"), 260.0), Far = JsonNum(FogLook, TEXT("far"), 2000.0);
-	Fog->SetStartDistance(static_cast<float>(Near * 100.0));
+	Fog->SetStartDistance(static_cast<float>(Tune(TEXT("fogStart"), Near) * 100.0));
 	Fog->SetFogDensity(static_cast<float>(Tune(TEXT("fogDensity"), 5.0 / FMath::Max(Far - Near, 100.0))));
 	Fog->SetFogHeightFalloff(static_cast<float>(Tune(TEXT("fogFalloff"), 0.02)));
 	Fog->SetFogMaxOpacity(static_cast<float>(Tune(TEXT("fogMaxOpacity"), 0.85)));
-	Fog->SetFogInscatteringColor(JsonColor(Mood, TEXT("skyHorizon"), TEXT("d4e6f5")) * static_cast<float>(Tune(TEXT("fogBrightness"), 1.0)));
-	Fog->SetDirectionalInscatteringColor(JsonColor(Look, TEXT("sunColor"), TEXT("ffffff")) * 0.25f);
+	Fog->SetFogInscatteringColor(TuneColor(TEXT("fogColor"), Horizon) * static_cast<float>(Tune(TEXT("fogBrightness"), 1.0)));
+	Fog->SetDirectionalInscatteringColor(SunColor * static_cast<float>(Tune(TEXT("fogSunScatter"), 0.25)));
+	Fog->SetDirectionalInscatteringExponent(static_cast<float>(Tune(TEXT("fogSunExponent"), 6.0)));
 
-	// Post: manual exposure, the grade, bloom, vignette, Lumen.
+	// Post, per level: only this track's colour tint (the web's per-track gain and lift). Exposure, tone curve,
+	// saturation, bloom, vignette and AO come from the global grade (AKartGradeVolume, priority -100), whose
+	// auto exposure centres on this level's sun; look.ue's exposureBias nudges it for a track that needs it.
 	FPostProcessSettings& S = PostProcess->Settings;
 	S = FPostProcessSettings();
-	S.bOverride_AutoExposureMethod = true;
-	S.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
-	S.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
-	S.AutoExposureApplyPhysicalCameraExposure = false;
-	S.bOverride_AutoExposureBias = true;
-	S.AutoExposureBias = static_cast<float>(FMath::Log2(FMath::Max(JsonNum(Grade, TEXT("exposure"), 1.0), 0.01)) + Tune(TEXT("exposureBias"), 0.0));
-	// Vibrance has no UE twin; a quarter of it goes into saturation.
-	const double Contrast = JsonNum(Grade, TEXT("contrast"), 1.0), Saturation = JsonNum(Grade, TEXT("saturation"), 1.0) + 0.25 * JsonNum(Grade, TEXT("vibrance"), 0.0);
-	S.bOverride_ColorContrast = true;
-	S.ColorContrast = FVector4(Contrast, Contrast, Contrast, 1.0);
-	S.bOverride_ColorSaturation = true;
-	S.ColorSaturation = FVector4(Saturation, Saturation, Saturation, 1.0);
 	const FVector Gain = JsonVec(Grade, TEXT("gain"), FVector::OneVector), Lift = JsonVec(Grade, TEXT("lift"), FVector::ZeroVector);
 	S.bOverride_ColorGain = true;
 	S.ColorGain = FVector4(Gain.X, Gain.Y, Gain.Z, 1.0);
 	// The web lifts after tone mapping; UE's offset acts on scene colour, so a third of it gives the same tint.
 	S.bOverride_ColorOffset = true;
 	S.ColorOffset = FVector4(Lift.X / 3.0, Lift.Y / 3.0, Lift.Z / 3.0, 0.0);
-	// The web tone maps with three.js Neutral; soften the filmic curve toward it.
-	S.bOverride_ToneCurveAmount = true;
-	S.ToneCurveAmount = static_cast<float>(Tune(TEXT("toneCurve"), 0.6));
-	S.bOverride_BloomIntensity = true;
-	S.BloomIntensity = static_cast<float>(JsonNum(Bloom, TEXT("strength"), 0.3) * 1.5);
-	S.bOverride_BloomThreshold = true;
-	S.BloomThreshold = static_cast<float>(JsonNum(Bloom, TEXT("threshold"), 1.0));
-	S.bOverride_VignetteIntensity = true;
-	S.VignetteIntensity = static_cast<float>(JsonNum(Look, TEXT("vignette"), 0.3));
-	S.bOverride_DynamicGlobalIlluminationMethod = true;
-	S.DynamicGlobalIlluminationMethod = EDynamicGlobalIlluminationMethod::Lumen;
-	S.bOverride_ReflectionMethod = true;
-	S.ReflectionMethod = EReflectionMethod::Lumen;
-	// Split-screen budget: four views share the frame, so Lumen runs at its cheaper settings.
-	S.bOverride_LumenSceneLightingQuality = true;
-	S.LumenSceneLightingQuality = 0.75f;
-	S.bOverride_LumenFinalGatherQuality = true;
-	S.LumenFinalGatherQuality = 0.75f;
-	S.bOverride_LumenMaxTraceDistance = true;
-	S.LumenMaxTraceDistance = 20000.f;
-	S.bOverride_AmbientOcclusionIntensity = true;
-	S.AmbientOcclusionIntensity = 0.4f;
+	const double ExposureBias = Tune(TEXT("exposureBias"), 0.0);
+	if (ExposureBias != 0.0)
+	{
+		S.bOverride_AutoExposureBias = true;
+		S.AutoExposureBias = static_cast<float>(1.0 + ExposureBias); // the global grade's +1 compensation, nudged
+	}
 }
 
 void ATrackBuilder::BeginPlay()

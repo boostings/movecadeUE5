@@ -8,7 +8,10 @@ Optional env:  KART_IMPORT=violet,harbor,neon,shared (default all), KART_MATERIA
   Tiling and PanU/PanV), M_TrackUnlitTexture (signs), M_TrackTranslucent and M_TrackAdditive (unlit, Opacity),
   M_TrackSurface / M_TrackSurfaceWall (Map x Color x vertex colour x a world-space CC0 detail set: colour
   divided by the set's mean, world-space normal, roughness; top-down or dominant-axis projection) and
-  M_TrackBoostPad (emissive chevrons that scroll forward and pulse).
+  M_TrackBoostPad (emissive chevrons that scroll forward and pulse), M_TrackFoliage (M_TrackSurfaceWall with
+  two-sided foliage shading: hedges, crowns, lavender), M_TrackCrystal (glossy facets with an inner glow),
+  M_TrackGlass (lit translucent glazing), M_TrackWater (single layer water: depth-tinted, two scrolling
+  normal maps, real reflections) and M_TrackSky (gradient dome, sun, horizon glow and a scrolling cloud layer).
 - The CC0 surface sets (out/shared/surfaces, normal maps already flipped to DirectX) to /Game/Tracks/Shared/Surfaces.
 - GLBs through Interchange: <dir>/<file>/StaticMeshes/<node> (+ Materials, Textures from the GLB).
 - Canvas PNGs to <dir>/Textures/<name>.
@@ -32,12 +35,14 @@ eal = unreal.EditorAssetLibrary
 GLBS = [
     # (group, file under out/, destination, nanite)
     ("violet", "violet/violet_loop.glb", "/Game/Tracks/VioletLoop", True),
-    ("violet", "violet/violet_kerbs.glb", "/Game/Tracks/VioletLoop", False),
+    ("violet", "violet/violet_garden.glb", "/Game/Tracks/VioletLoop", True),
+    ("violet", "violet/violet_garden_props.glb", "/Game/Tracks/VioletLoop", True),
     ("shared", "shared/violet_prefabs.glb", "/Game/Tracks/Shared", False),
     ("shared", "shared/movecade_props.glb", "/Game/Tracks/Shared", False),
     ("harbor", "harbor/harbor_ribbons.glb", "/Game/Tracks/SunsetHarbor", False),
     ("harbor", "harbor/harbor_scenery.glb", "/Game/Tracks/SunsetHarbor", True),
     ("harbor", "harbor/harbor_motion.glb", "/Game/Tracks/SunsetHarbor", False),
+    ("harbor", "harbor/harbor_coast.glb", "/Game/Tracks/SunsetHarbor", True),
     ("neon", "neon/neon_ribbons.glb", "/Game/Tracks/NeonCity", False),
     ("neon", "neon/neon_scenery.glb", "/Game/Tracks/NeonCity", True),
 ]
@@ -47,9 +52,26 @@ TEXTURES = [
     ("neon", "neon/textures", "/Game/Tracks/NeonCity/Textures"),
     ("shared", "shared/textures", "/Game/Tracks/Shared/Textures"),
 ]
-# The Violet IP cleanup (Tools/track-export/src/violetMesh.mjs) no longer exports these: the warp pipes
-# (Object_12, material_7) and the brick blocks (Object_47, material_3).
+# The Violet rebuild (Tools/track-export/src/violetMesh.mjs, violetGarden.ts) no longer exports these: the
+# warp pipes (Object_12, material_7), the brick blocks (Object_47, material_3), the barrier blocks
+# (Object_13, material_8), the start structure (Object_10, material_5), the hills (Object_18, material_12),
+# the speed quad (Object_27, material_21) and the old kerbs.
 STALE = [
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_10",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_13",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_18",
+    "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_27",
+    "/Game/Tracks/VioletLoop/violet_loop/Materials/material_5",
+    "/Game/Tracks/VioletLoop/violet_loop/Materials/material_8",
+    "/Game/Tracks/VioletLoop/violet_loop/Materials/material_12",
+    "/Game/Tracks/VioletLoop/violet_loop/Materials/material_21",
+    "/Game/Tracks/VioletLoop/violet_loop/Textures/material_5_basecolor",
+    "/Game/Tracks/VioletLoop/violet_loop/Textures/material_8_recoloured",
+    "/Game/Tracks/VioletLoop/violet_loop/Textures/material_12_basecolor",
+    "/Game/Tracks/VioletLoop/violet_loop/Textures/material_21_basecolor",
+    "/Game/Tracks/VioletLoop/violet_loop/Textures/material_21_emissive",
+    "/Game/Tracks/VioletLoop/violet_kerbs/StaticMeshes/violet_kerbs",
+    "/Game/Tracks/VioletLoop/violet_kerbs/Materials/violet_kerbs",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_12",
     "/Game/Tracks/VioletLoop/violet_loop/StaticMeshes/Object_47",
     "/Game/Tracks/VioletLoop/violet_loop/Materials/material_7",
@@ -156,13 +178,21 @@ def make_materials():
         color = vparam(m, "Color", -700, 0)
         opacity = sparam(m, "Opacity", -700, 200, 0.5)
         if blend == unreal.BlendMode.BLEND_ADDITIVE:
-            mel.connect_material_property(mul(m, color, opacity, -400, 0), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+            # Light shafts: fade toward the silhouette (where the surface turns edge-on), so no hard outline.
+            fres = expr(m, unreal.MaterialExpressionFresnel, -900, 300, exponent=1.5, base_reflect_fraction=0.0)
+            facing = op(m, unreal.MaterialExpressionSubtract, expr(m, unreal.MaterialExpressionConstant, -900, 400, r=1.0), fres, -700, 300)
+            soft = mul(m, facing, facing, -550, 300)
+            mel.connect_material_property(mul(m, mul(m, color, opacity, -400, 0), soft, -250, 100), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
         else:
             mel.connect_material_property(color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
             mel.connect_material_property(opacity, "", unreal.MaterialProperty.MP_OPACITY)
         mel.recompile_material(m)
     make_surface_material("M_TrackSurface", wall=False)
     make_surface_material("M_TrackSurfaceWall", wall=True)
+    make_surface_material("M_TrackFoliage", wall=True, foliage=True)
+    make_crystal_material()
+    make_glass_material()
+    make_water_material()
     make_boost_pad_material()
     make_sky_material()
     for path in eal.list_assets(MAT_DIR):
@@ -209,7 +239,7 @@ def surface_texture(m, name, set_id, kind, uv, x, y):
     return e
 
 
-def make_surface_material(name, wall):
+def make_surface_material(name, wall, foliage=False):
     """Map(UV0) x Color x vertex colour x CC0 detail (trackSurfaces.ts / worldSurface.ts on the web).
 
     Detail UVs are world metres / DetailTileM: top-down (XY) on ground, or on the plane of the dominant normal
@@ -217,9 +247,13 @@ def make_surface_material(name, wall):
     and blended in by DetailAlbedo, so a palette colour keeps its hue. Normals are world space (no tangents
     needed: the Violet palette UVs are degenerate): the detail normal's XY tilts the vertex normal in the
     projection plane by DetailNormal. Roughness x lerp(1, 2 x rough map, DetailRough).
+
+    foliage=True: two-sided foliage shading, light through the leaves tinted by SubsurfaceTint.
     """
     m = new_material(name)
     m.set_editor_property("two_sided", True)
+    if foliage:
+        m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
     m.set_editor_property("tangent_space_normal", False)
     X = -2600
     base_map = texture_sample(m, -1700, -900)
@@ -260,6 +294,9 @@ def make_surface_material(name, wall):
     mel.connect_material_expressions(sparam(m, "DetailAlbedo", -1100, 200, 0.5), "", detail, "Alpha")
     final = mul(m, base, detail, -700, -300)
     mel.connect_material_property(final, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    if foliage:
+        sss = mul(m, final, vparam(m, "SubsurfaceTint", -900, -420, (0.75, 0.9, 0.45, 1)), -500, -420)
+        mel.connect_material_property(sss, "", unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
     mel.connect_material_property(mul(m, final, sparam(m, "Emissive", -900, -150, 0.0), -500, -150), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel.connect_material_property(sparam(m, "Metallic", -500, 900, 0.0), "", unreal.MaterialProperty.MP_METALLIC)
 
@@ -300,52 +337,175 @@ def make_surface_material(name, wall):
     mel.recompile_material(m)
 
 
+def make_crystal_material():
+    """Crystals: glossy faceted base plus an inner glow that is strongest where a facet faces the viewer
+    (1 - Fresnel) and toward the tips (world height above the instance pivot, per metre of GlowRise)."""
+    m = new_material("M_TrackCrystal")
+    color = mul(m, vparam(m, "Color", -1100, 0), expr(m, unreal.MaterialExpressionVertexColor, -1100, 150), -900, 0)
+    mel.connect_material_property(mul(m, color, expr(m, unreal.MaterialExpressionConstant, -900, 120, r=0.32), -600, 0), "", unreal.MaterialProperty.MP_BASE_COLOR)
+    fres = expr(m, unreal.MaterialExpressionFresnel, -1100, 300, exponent=2.5, base_reflect_fraction=0.0)
+    facing = op(m, unreal.MaterialExpressionSubtract, expr(m, unreal.MaterialExpressionConstant, -1100, 400, r=1.0), fres, -900, 300)
+    height = op(m, unreal.MaterialExpressionSubtract, mask(m, expr(m, unreal.MaterialExpressionWorldPosition, -1300, 550), -1150, 550, b=True),
+                mask(m, expr(m, unreal.MaterialExpressionObjectPositionWS, -1300, 650), -1150, 650, b=True), -1000, 550)
+    tips = expr(m, unreal.MaterialExpressionSaturate, -700, 550)
+    mel.connect_material_expressions(op(m, unreal.MaterialExpressionDivide, height, mul(m, sparam(m, "GlowRise", -1000, 700, 3.0), expr(m, unreal.MaterialExpressionConstant, -1000, 780, r=100.0), -850, 700), -850, 550), "", tips, "")
+    glow = op(m, unreal.MaterialExpressionAdd, mul(m, facing, facing, -700, 300), mul(m, tips, expr(m, unreal.MaterialExpressionConstant, -700, 650, r=0.6), -550, 600), -500, 400)
+    glow = op(m, unreal.MaterialExpressionAdd, glow, expr(m, unreal.MaterialExpressionConstant, -500, 500, r=0.12), -350, 450)
+    mel.connect_material_property(mul(m, mul(m, color, glow, -250, 300), sparam(m, "Emissive", -400, 620, 1.5), -100, 350), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.connect_material_property(sparam(m, "Roughness", -300, 800, 0.12), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(expr(m, unreal.MaterialExpressionConstant, -300, 900, r=0.9), "", unreal.MaterialProperty.MP_SPECULAR)
+    mel.recompile_material(m)
+
+
+def make_glass_material():
+    """Glazing: lit translucency (forward shaded per pixel, so the sun and sky reflect), tinted, see-through."""
+    m = new_material("M_TrackGlass")
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property("two_sided", True)
+    for mode in ("TLM_SURFACE_PER_PIXEL_LIGHTING", "TLM_SURFACE"):
+        if hasattr(unreal.TranslucencyLightingMode, mode):
+            m.set_editor_property("translucency_lighting_mode", getattr(unreal.TranslucencyLightingMode, mode))
+            break
+    color = mul(m, vparam(m, "Color", -700, 0), expr(m, unreal.MaterialExpressionVertexColor, -700, 120), -450, 0)
+    mel.connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(sparam(m, "Roughness", -450, 200, 0.05), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(sparam(m, "Metallic", -450, 300, 0.0), "", unreal.MaterialProperty.MP_METALLIC)
+    mel.connect_material_property(expr(m, unreal.MaterialExpressionConstant, -450, 400, r=1.0), "", unreal.MaterialProperty.MP_SPECULAR)
+    fres = expr(m, unreal.MaterialExpressionFresnel, -700, 500, exponent=4.0, base_reflect_fraction=0.04)
+    opacity = op(m, unreal.MaterialExpressionAdd, sparam(m, "Opacity", -700, 650, 0.2), mul(m, fres, expr(m, unreal.MaterialExpressionConstant, -700, 750, r=0.6), -500, 600), -300, 550)
+    mel.connect_material_property(opacity, "", unreal.MaterialProperty.MP_OPACITY)
+    mel.connect_material_property(mul(m, color, sparam(m, "Emissive", -700, 900, 0.0), -300, 850), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+
+
+def panning_normal(m, tex, tile_m, speed, x, y):
+    """A world-space (top-down) normal map sample: UV = world XY / (TileM x 100) + Time x speed."""
+    wp = mask(m, expr(m, unreal.MaterialExpressionWorldPosition, x - 900, y), x - 750, y, r=True, g=True)
+    uv = op(m, unreal.MaterialExpressionDivide, wp, mul(m, tile_m, expr(m, unreal.MaterialExpressionConstant, x - 900, y + 100, r=100.0), x - 750, y + 100), x - 600, y)
+    pan = mul(m, expr(m, unreal.MaterialExpressionTime, x - 750, y + 200), expr(m, unreal.MaterialExpressionConstant2Vector, x - 750, y + 280, r=speed[0], g=speed[1]), x - 600, y + 200)
+    uvp = op(m, unreal.MaterialExpressionAdd, uv, pan, x - 450, y)
+    e = expr(m, unreal.MaterialExpressionTextureSampleParameter2D, x - 300, y, parameter_name=tex, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL,
+             texture=unreal.load_asset("/Engine/EngineMaterials/DefaultNormal"))
+    mel.connect_material_expressions(uvp, "", e, "UVs")
+    return e
+
+
+def make_water_material():
+    """Single layer water: the engine absorbs and scatters light through the depth behind the surface (so a
+    sloped seabed reads turquoise in the shallows and deep blue further out), Lumen reflects the sky and
+    the scenery. Two normal maps (WaveNormal, a generated wave texture) scroll across each other in world
+    space; a third, coarser sample breaks up the tiling."""
+    # Rebuilt from scratch: delete_all_material_expressions leaves the water output node behind.
+    if eal.does_asset_exist(f"{MAT_DIR}/M_TrackWater"):
+        eal.delete_asset(f"{MAT_DIR}/M_TrackWater")
+    m = new_material("M_TrackWater")
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_SINGLE_LAYER_WATER)
+    m.set_editor_property("two_sided", False)
+    a = panning_normal(m, "WaveNormal", sparam(m, "WaveTileA", -1600, -300, 9.0), (0.006, 0.0035), -400, -300)
+    b = panning_normal(m, "WaveNormal", sparam(m, "WaveTileB", -1600, 200, 23.0), (-0.0025, 0.004), -400, 200)
+    c = panning_normal(m, "WaveNormal", sparam(m, "WaveTileC", -1600, 700, 71.0), (0.0012, -0.001), -400, 700)
+    ab = op(m, unreal.MaterialExpressionAdd, op(m, unreal.MaterialExpressionAdd, a, b, -150, 0), c, -50, 200)
+    flat = mul(m, ab, expr(m, unreal.MaterialExpressionConstant3Vector, -150, 350, constant=unreal.LinearColor(1, 1, 0, 1)), 50, 200)
+    strength = mul(m, flat, sparam(m, "WaveStrength", -150, 450, 0.35), 150, 250)
+    normal = op(m, unreal.MaterialExpressionAdd, strength, expr(m, unreal.MaterialExpressionConstant3Vector, 150, 400, constant=unreal.LinearColor(0, 0, 1, 1)), 300, 250)
+    mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
+    # Base colour is the surface film only (scattering and absorption give the water its colour); foam on the
+    # shore is a separate translucent ribbon, since scene depth is not readable from a single layer water pass.
+    mel.connect_material_property(vparam(m, "Color", -300, 1100, (0.02, 0.03, 0.03, 1)), "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(sparam(m, "Roughness", 0, 600, 0.04), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(sparam(m, "Metallic", 0, 700, 0.0), "", unreal.MaterialProperty.MP_METALLIC)
+    mel.connect_material_property(expr(m, unreal.MaterialExpressionConstant, 0, 800, r=1.0), "", unreal.MaterialProperty.MP_SPECULAR)
+    out = mel.create_material_expression(m, unreal.MaterialExpressionSingleLayerWaterMaterialOutput, 400, 900)
+    scatter = mul(m, vparam(m, "Scattering", 0, 900, (0.02, 0.12, 0.11, 1)), expr(m, unreal.MaterialExpressionConstant, 0, 1000, r=0.01), 200, 900)
+    absorb = mul(m, vparam(m, "Absorption", 0, 1050, (0.45, 0.09, 0.06, 1)), expr(m, unreal.MaterialExpressionConstant, 0, 1150, r=0.01), 200, 1050)
+    for name, src in (("ScatteringCoefficients", scatter), ("AbsorptionCoefficients", absorb)):
+        if not mel.connect_material_expressions(src, "", out, name):
+            mel.connect_material_expressions(src, "", out, name.replace("Coefficients", " Coefficients"))
+    mel.connect_material_expressions(sparam(m, "PhaseG", 200, 1200, 0.2), "", out, "PhaseG")
+    mel.recompile_material(m)
+
+
 def make_sky_material():
-    """The web's sky dome (render/skyShader.ts): a three-stop gradient (top, horizon, below) plus a sun disc
-    and glow, unlit and flagged as sky so the real-time sky light captures it."""
+    """The sky dome: a four-stop gradient (below, horizon, mid, top), a horizon glow toward the sun, the sun
+    disc, and a cloud layer: CloudMap (a tileable density texture) projected onto a flat sky plane
+    (view.xy / (view.z + 0.12), so clouds crowd toward the horizon), lit on the sun side (CloudLit) and
+    shaded away from it (CloudShade). Unlit, flagged as sky so the real-time sky light captures it."""
     m = new_material("M_TrackSky")
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property("two_sided", True)
     m.set_editor_property("is_sky", True)
-    # The view ray: CameraVector points from the pixel back to the camera.
-    view = mul(m, expr(m, unreal.MaterialExpressionCameraVectorWS, -1800, 0), expr(m, unreal.MaterialExpressionConstant, -1800, 100, r=-1.0), -1600, 0)
-    z = mask(m, view, -1400, 0, b=True)
+    view = mul(m, expr(m, unreal.MaterialExpressionCameraVectorWS, -2200, 0), expr(m, unreal.MaterialExpressionConstant, -2200, 100, r=-1.0), -2000, 0)
+    z = mask(m, view, -1800, 0, b=True)
     sat = lambda src, x, y: (lambda e: (mel.connect_material_expressions(src, "", e, ""), e)[1])(expr(m, unreal.MaterialExpressionSaturate, x, y))
-    up = expr(m, unreal.MaterialExpressionPower, -1100, -200)
-    mel.connect_material_expressions(sat(z, -1250, -200), "", up, "Base")
-    mel.connect_material_expressions(sparam(m, "TopCurve", -1250, -100, 0.55), "", up, "Exp")
-    top = vparam(m, "SkyTop", -1100, -400, (0.05, 0.16, 0.66, 1))
-    horizon = vparam(m, "SkyHorizon", -1100, 0, (0.66, 0.79, 0.91, 1))
-    below = vparam(m, "SkyBelow", -1100, 300, (0.4, 0.52, 0.67, 1))
-    upper = expr(m, unreal.MaterialExpressionLinearInterpolate, -850, -250)
-    mel.connect_material_expressions(horizon, "", upper, "A")
-    mel.connect_material_expressions(top, "", upper, "B")
-    mel.connect_material_expressions(up, "", upper, "Alpha")
-    down = mul(m, op(m, unreal.MaterialExpressionSubtract, expr(m, unreal.MaterialExpressionConstant, -1400, 300, r=0.0), z, -1250, 300),
-               expr(m, unreal.MaterialExpressionConstant, -1400, 400, r=4.0), -1100, 400)
-    lower = expr(m, unreal.MaterialExpressionLinearInterpolate, -850, 250)
-    mel.connect_material_expressions(horizon, "", lower, "A")
-    mel.connect_material_expressions(below, "", lower, "B")
-    mel.connect_material_expressions(sat(down, -950, 400), "", lower, "Alpha")
-    sky = expr(m, unreal.MaterialExpressionLinearInterpolate, -600, 0)
-    mel.connect_material_expressions(lower, "", sky, "A")
-    mel.connect_material_expressions(upper, "", sky, "B")
-    mel.connect_material_expressions(sat(mul(m, z, expr(m, unreal.MaterialExpressionConstant, -900, 150, r=200.0), -750, 100), -650, 150), "", sky, "Alpha")
-    # Sun: glow pow(max(dot, 0), GlowPower) x SunGlow, disc where dot > 1 - SunSize.
-    d = expr(m, unreal.MaterialExpressionDotProduct, -1400, 700)
+
+    def lerp3(a, b, alpha, x, y):
+        e = expr(m, unreal.MaterialExpressionLinearInterpolate, x, y)
+        mel.connect_material_expressions(a, "", e, "A")
+        mel.connect_material_expressions(b, "", e, "B")
+        mel.connect_material_expressions(alpha, "", e, "Alpha")
+        return e
+
+    def smooth(src, lo, hi, x, y):
+        e = expr(m, unreal.MaterialExpressionSmoothStep, x, y)
+        mel.connect_material_expressions(src, "", e, "Value")
+        mel.connect_material_expressions(expr(m, unreal.MaterialExpressionConstant, x - 150, y + 60, r=lo), "", e, "Min")
+        mel.connect_material_expressions(expr(m, unreal.MaterialExpressionConstant, x - 150, y + 120, r=hi), "", e, "Max")
+        return e
+
+    up = expr(m, unreal.MaterialExpressionPower, -1500, -200)
+    mel.connect_material_expressions(sat(z, -1650, -200), "", up, "Base")
+    mel.connect_material_expressions(sparam(m, "TopCurve", -1650, -100, 0.55), "", up, "Exp")
+    top = vparam(m, "SkyTop", -1300, -500, (0.05, 0.16, 0.66, 1))
+    mid = vparam(m, "SkyMid", -1300, -350, (0.3, 0.45, 0.8, 1))
+    horizon = vparam(m, "SkyHorizon", -1300, 0, (0.66, 0.79, 0.91, 1))
+    below = vparam(m, "SkyBelow", -1300, 300, (0.4, 0.52, 0.67, 1))
+    upper = lerp3(lerp3(horizon, mid, smooth(up, 0.0, 0.45, -1100, -150), -900, -300), top, smooth(up, 0.35, 1.0, -1100, -50), -700, -300)
+    down = mul(m, op(m, unreal.MaterialExpressionSubtract, expr(m, unreal.MaterialExpressionConstant, -1650, 300, r=0.0), z, -1500, 300),
+               expr(m, unreal.MaterialExpressionConstant, -1650, 400, r=4.0), -1350, 400)
+    lower = lerp3(horizon, below, sat(down, -1150, 400), -900, 250)
+    sky = lerp3(lower, upper, sat(mul(m, z, expr(m, unreal.MaterialExpressionConstant, -1100, 150, r=200.0), -950, 100), -850, 150), -600, 0)
+
+    # Sun: glow pow(max(dot, 0), GlowPower) x SunGlow, a wide horizon glow, and the disc.
+    sun_dir = vparam(m, "SunDir", -2000, 750, (0.5, 0.5, 0.5, 1))
+    d = expr(m, unreal.MaterialExpressionDotProduct, -1800, 700)
     mel.connect_material_expressions(view, "", d, "A")
-    mel.connect_material_expressions(vparam(m, "SunDir", -1600, 750, (0.5, 0.5, 0.5, 1)), "", d, "B")
-    ds = sat(d, -1250, 700)
-    glow = expr(m, unreal.MaterialExpressionPower, -1100, 700)
+    mel.connect_material_expressions(sun_dir, "", d, "B")
+    ds = sat(d, -1650, 700)
+    glow = expr(m, unreal.MaterialExpressionPower, -1500, 700)
     mel.connect_material_expressions(ds, "", glow, "Base")
-    mel.connect_material_expressions(sparam(m, "GlowPower", -1250, 800, 24.0), "", glow, "Exp")
-    disc = sat(mul(m, op(m, unreal.MaterialExpressionSubtract, ds, sparam(m, "SunCos", -1250, 900, 0.9995), -1100, 900),
-                   expr(m, unreal.MaterialExpressionConstant, -1250, 1000, r=4000.0), -950, 900), -800, 900)
-    sun_amount = op(m, unreal.MaterialExpressionAdd, mul(m, glow, sparam(m, "SunGlow", -1100, 1000, 0.6), -900, 750),
-                    mul(m, disc, sparam(m, "SunDisc", -950, 1050, 8.0), -800, 1000), -650, 800)
-    sun = mul(m, sun_amount, vparam(m, "SunColor", -800, 1100, (1, 0.95, 0.85, 1)), -500, 800)
-    total = op(m, unreal.MaterialExpressionAdd, sky, sun, -350, 300)
-    mel.connect_material_property(mul(m, total, sparam(m, "Brightness", -500, 500, 1.0), -200, 300), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.connect_material_expressions(sparam(m, "GlowPower", -1650, 800, 24.0), "", glow, "Exp")
+    wide = expr(m, unreal.MaterialExpressionPower, -1500, 900)
+    mel.connect_material_expressions(ds, "", wide, "Base")
+    mel.connect_material_expressions(expr(m, unreal.MaterialExpressionConstant, -1650, 950, r=3.0), "", wide, "Exp")
+    abs_z = expr(m, unreal.MaterialExpressionAbs, -1800, 1100)
+    mel.connect_material_expressions(z, "", abs_z, "")
+    near_horizon = op(m, unreal.MaterialExpressionSubtract, expr(m, unreal.MaterialExpressionConstant, -1650, 1050, r=1.0), sat(mul(m, abs_z, expr(m, unreal.MaterialExpressionConstant, -1800, 1180, r=3.0), -1650, 1120), -1500, 1120), -1350, 1050)
+    horizon_glow = mul(m, mul(m, wide, near_horizon, -1200, 950), sparam(m, "HorizonGlow", -1350, 1150, 0.5), -1050, 950)
+    disc = sat(mul(m, op(m, unreal.MaterialExpressionSubtract, ds, sparam(m, "SunCos", -1650, 1250, 0.9995), -1500, 1250),
+                   expr(m, unreal.MaterialExpressionConstant, -1650, 1350, r=4000.0), -1350, 1250), -1200, 1250)
+    sun_color = vparam(m, "SunColor", -1200, 1400, (1, 0.95, 0.85, 1))
+    sun_amount = op(m, unreal.MaterialExpressionAdd, op(m, unreal.MaterialExpressionAdd, mul(m, glow, sparam(m, "SunGlow", -1500, 1450, 0.6), -1300, 750), horizon_glow, -1100, 800),
+                    mul(m, disc, sparam(m, "SunDisc", -1350, 1500, 8.0), -1100, 1300), -950, 900)
+    with_sun = op(m, unreal.MaterialExpressionAdd, sky, mul(m, sun_amount, sun_color, -800, 900), -450, 300)
+
+    # Clouds on a sky plane, above the horizon only.
+    zc = op(m, unreal.MaterialExpressionAdd, z, expr(m, unreal.MaterialExpressionConstant, -1800, 1650, r=0.12), -1650, 1600)
+    plane = op(m, unreal.MaterialExpressionDivide, mask(m, view, -1800, 1550, r=True, g=True), zc, -1500, 1550)
+    pan = mul(m, expr(m, unreal.MaterialExpressionTime, -1500, 1700), expr(m, unreal.MaterialExpressionConstant2Vector, -1500, 1780, r=0.004, g=0.0015), -1350, 1700)
+    uv = op(m, unreal.MaterialExpressionAdd, mul(m, plane, sparam(m, "CloudScale", -1500, 1850, 0.35), -1350, 1550), pan, -1200, 1600)
+    cloud_tex = expr(m, unreal.MaterialExpressionTextureSampleParameter2D, -1050, 1600, parameter_name="CloudMap", sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR,
+                     texture=unreal.load_asset("/Engine/EngineResources/Black"))
+    mel.connect_material_expressions(uv, "", cloud_tex, "UVs")
+    density = mask(m, cloud_tex, -900, 1600, r=True)
+    cover = op(m, unreal.MaterialExpressionSubtract, density, op(m, unreal.MaterialExpressionSubtract, expr(m, unreal.MaterialExpressionConstant, -1050, 1750, r=1.0), sparam(m, "Clouds", -1200, 1800, 0.5), -900, 1750), -750, 1650)
+    alpha = sat(mul(m, cover, expr(m, unreal.MaterialExpressionConstant, -750, 1800, r=3.0), -600, 1700), -450, 1700)
+    fade = sat(mul(m, z, expr(m, unreal.MaterialExpressionConstant, -750, 1950, r=7.0), -600, 1900), -450, 1900)
+    cloud_alpha = mul(m, alpha, fade, -300, 1750)
+    lit = lerp3(vparam(m, "CloudShade", -750, 2050, (0.5, 0.5, 0.6, 1)), vparam(m, "CloudLit", -750, 2150, (1, 0.95, 0.9, 1)),
+                sat(op(m, unreal.MaterialExpressionAdd, mul(m, d, expr(m, unreal.MaterialExpressionConstant, -900, 2250, r=0.5), -750, 2250), expr(m, unreal.MaterialExpressionConstant, -900, 2320, r=0.5), -600, 2250), -450, 2250), -300, 2100)
+    lit = op(m, unreal.MaterialExpressionAdd, lit, mul(m, glow, mul(m, sun_color, expr(m, unreal.MaterialExpressionConstant, -450, 2400, r=0.6), -300, 2400), -150, 2350), -50, 2150)
+    final = lerp3(with_sun, lit, cloud_alpha, -100, 600)
+    mel.connect_material_property(mul(m, final, sparam(m, "Brightness", -300, 800, 1.0), 100, 600), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel.recompile_material(m)
 
 
@@ -353,7 +513,8 @@ def make_boost_pad_material():
     """BoostPads.jsx's pad, emissive: the chevron art scrolls forward (PanV) and pulses so it blooms."""
     m = new_material("M_TrackBoostPad")
     tex = texture_sample(m, -500, -200)
-    rgb = mask(m, tex, -350, -200, r=True, g=True, b=True)
+    rgb = expr(m, unreal.MaterialExpressionComponentMask, -350, -200, r=True, g=True, b=True)
+    mel.connect_material_expressions(tex, "RGB", rgb, "")
     mel.connect_material_property(mul(m, rgb, expr(m, unreal.MaterialExpressionConstant, -500, 0, r=0.45), -250, -100), "", unreal.MaterialProperty.MP_BASE_COLOR)
     sine = expr(m, unreal.MaterialExpressionSine, -500, 300, period=6.283185)
     mel.connect_material_expressions(mul(m, expr(m, unreal.MaterialExpressionTime, -800, 300), sparam(m, "PulseRate", -800, 400, 6.0), -650, 300), "", sine, "")
@@ -468,6 +629,11 @@ def main():
         for name in sorted(os.listdir(os.path.join(OUT, folder))):
             if name.endswith(".png"):
                 for path in import_file(os.path.join(OUT, folder, name), dest):
+                    tex = unreal.load_asset(path)
+                    if name.endswith("_normal.png"):
+                        # Generated normal maps (env_waves_normal) are already DirectX.
+                        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
+                        tex.set_editor_property("srgb", False)
                     eal.save_asset(path.split(".")[0], only_if_is_dirty=False)
         log(f"textures -> {dest}")
     for path in eal.list_assets(MAT_DIR):
