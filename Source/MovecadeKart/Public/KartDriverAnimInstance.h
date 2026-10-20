@@ -23,6 +23,22 @@ struct FKartDriverPoseInput
 	float ItemRaise = 0.f;
 	/** Both arms up and waving, head back: the finish-line celebration, 0..1. */
 	float Cheer = 0.f;
+	/** Off the podium: slumped forward, head down, 0..1. */
+	float Slump = 0.f;
+	/** Drifting, -1..1, positive = drifting right (UE convention), scaled by the drift's charge. The body leans in. */
+	float DriftSide = 0.f;
+	/** Boosting, 0..1: pressed back into the seat, chin up. */
+	float Boost = 0.f;
+	/** Revving on the grid, 0..1: hunched forward, buzzing with the engine. */
+	float Rev = 0.f;
+	/** Spun out or tumbling, 0..1: arms flailing, head reeling. */
+	float Spin = 0.f;
+	/** An impact's whiplash from a spring: positive throws the torso back, and to the right. */
+	float JoltBack = 0.f;
+	float JoltSide = 0.f;
+	/** Where the driver is looking (component space) and how much, 0 = the road ahead. */
+	FVector LookAt = FVector::ZeroVector;
+	float LookWeight = 0.f;
 	bool bHasGrip = false;
 	FVector LeftHand = FVector::ZeroVector;
 	FVector RightHand = FVector::ZeroVector;

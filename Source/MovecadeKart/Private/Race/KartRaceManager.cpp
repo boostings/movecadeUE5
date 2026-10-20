@@ -1,6 +1,9 @@
 #include "Race/KartRaceManager.h"
 
+#include "Algo/Count.h"
+
 #include "Camera/CameraActor.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
@@ -232,6 +235,7 @@ void AKartRaceManager::RestartRace()
 		Racer.FinishMs = 0.0;
 		Racer.bUseItemHeld = false;
 		Racer.LastTerrainRumble = -1000.0;
+		Racer.Kart->SetFinishPlace(0);
 	}
 	++RaceNumber;
 	Items.Reset(1234 + RaceNumber);
@@ -301,12 +305,27 @@ void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
 		ResultsCameraPos = FVector::ZeroVector;
 		if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 		{
-			PC->SetViewTargetWithBlend(ResultsCamera, 0.8f, VTBlend_Cubic);
+			// A cut under a quick white flash: blending between two moving cameras flies through the scenery.
+			PC->SetViewTarget(ResultsCamera);
+			if (PC->PlayerCameraManager)
+			{
+				PC->PlayerCameraManager->StartCameraFade(0.85f, 0.f, 0.55f, FLinearColor(1.f, 0.97f, 0.92f), false, false);
+			}
 		}
 	}
 	else if (!bFullScreenShot)
 	{
 		UseRaceViews();
+	}
+	// The crane down onto the grid opens the countdown after the flyover; without a flyover it is the race's very
+	// first shot (so there is no cut from the chase view up to the crane).
+	const bool bSwoop = bSkipIntro ? NewPhase == EKartRacePhase::Waiting : NewPhase == EKartRacePhase::Countdown;
+	if (bSwoop)
+	{
+		for (FKartRacer& Racer : Racers)
+		{
+			Racer.Kart->PlayCountdownSwoop(bSkipIntro ? WaitingSeconds + 2.4 : 2.4);
+		}
 	}
 	for (FKartRacer& Racer : Racers)
 	{
@@ -324,7 +343,8 @@ void AKartRaceManager::UseRaceViews()
 	{
 		if (Racer.Viewer && Racer.Viewer->GetViewTarget() != Racer.Kart)
 		{
-			Racer.Viewer->SetViewTargetWithBlend(Racer.Kart, Phase == EKartRacePhase::Countdown ? 0.8f : 0.f, VTBlend_Cubic);
+			// A cut: the countdown opens on the crane shot (AKartPawn::PlayCountdownSwoop), which carries the motion.
+			Racer.Viewer->SetViewTarget(Racer.Kart);
 		}
 	}
 }
@@ -450,9 +470,13 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 		{
 			if (Racer.Kind == EKartSeatKind::Bot)
 			{
+				// Bots rev up for the last two counts, in their own rhythm.
+				const double Eager = PhaseSeconds > CountdownSeconds - 2.0 ? 0.6 + 0.4 * FMath::Sin(PhaseSeconds * 5.0 + Racer.Seat * 1.7) : 0.0;
+				Racer.Kart->SetGridRev(static_cast<float>(Eager));
 				continue;
 			}
 			const FKartInput Input = GatherInput(Racer, false);
+			Racer.Kart->SetGridRev(Input.bForward ? 1.f : 0.f);
 			if (!Input.bForward)
 			{
 				Racer.GasHeldSince = -1.0;
@@ -547,6 +571,7 @@ void AKartRaceManager::BeginRacing()
 	for (FKartRacer& Racer : Racers)
 	{
 		Racer.Bot.Reset();
+		Racer.Kart->SetGridRev(0.f);
 		FDriftBoost Start;
 		if (Racer.GasHeldSince >= 0.0 && RocketStartBoost((CountdownSeconds - Racer.GasHeldSince) * 1000.0, Start))
 		{
@@ -558,6 +583,10 @@ void AKartRaceManager::BeginRacing()
 	RaceSteps = 0;
 	Accumulator = 0.0;
 	SetPhase(EKartRacePhase::Racing);
+	for (FKartRacer& Racer : Racers)
+	{
+		Racer.Kart->PlayRaceStart();
+	}
 	OnCue.Broadcast(-1, TEXT("race.go"));
 	if (UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this))
 	{
@@ -718,6 +747,7 @@ void AKartRaceManager::StepRace()
 			{
 				Racer.bFinished = true;
 				Racer.FinishMs = RaceMs;
+				Racer.Kart->SetFinishPlace(Algo::CountIf(Racers, [](const FKartRacer& R) { return R.bFinished; }));
 				if (LeaderFinishMs <= 0.0)
 				{
 					LeaderFinishMs = RaceMs;

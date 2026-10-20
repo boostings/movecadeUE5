@@ -16,6 +16,11 @@ namespace
 	/** A cockpit driver sits back against the seat; a rider leans into the bars. */
 	constexpr float SeatedTorsoRecline = 0.14f;
 	constexpr float StraddleTorsoLean = -0.36f;
+	/**
+	 * The hand mesh reaches past the wrist joint (the rig has no finger bones), so the wrist is pulled back along
+	 * the arm by this fraction of the forearm's length, to put the middle of the hand, not the wrist, on the rim.
+	 */
+	constexpr double HandReach = 0.3;
 	/** The grips sit at most this fraction of the arm's full length from the shoulder, so the elbows stay bent. */
 	constexpr double GripComfort = 0.9;
 	/** How far (radians) the torso may lean in to reach the wheel. */
@@ -205,17 +210,26 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 		Rig.Aim(Lower, Foot, Shin);
 	}
 
-	// Torso: reclined in the seat (or over the bars), rolling into the turn.
-	const float Recline = (bStraddle ? StraddleTorsoLean : 0.f) + SeatedTorsoRecline + 0.05f * Input.Moving - Bounce * 0.05f;
+	// Torso: reclined in the seat (or over the bars), rolling into the turn. On top: pressed back by a boost,
+	// hunched and buzzing while revving, slumped after a bad finish, whiplash from impacts, and breathing.
+	const float Time = Input.Time;
+	const float Still = 1.f - FMath::Clamp(Input.Moving * 3.f, 0.f, 1.f);
+	const float Breath = FMath::Sin(Time * 1.7f) * 0.018f * Still;
+	const float Buzz = FMath::Sin(Time * 17.f) * 0.014f * Input.Rev;
+	const float Recline = (bStraddle ? StraddleTorsoLean : 0.f) + SeatedTorsoRecline + 0.05f * Input.Moving - Bounce * 0.05f
+		+ 0.16f * Input.Boost - 0.12f * Input.Rev - 0.30f * Input.Slump + 0.35f * Input.JoltBack + Breath + Buzz;
+	const float Roll = TorsoRoll + 0.16f * Input.DriftSide + 0.30f * Input.JoltSide;
 	FVector TorsoUp = Up * FMath::Cos(Recline) - Forward * FMath::Sin(Recline);
-	TorsoUp = TorsoUp * FMath::Cos(TorsoRoll) + Right * FMath::Sin(TorsoRoll);
+	TorsoUp = TorsoUp * FMath::Cos(Roll) + Right * FMath::Sin(Roll);
 	FQuat TorsoDelta = FQuat::FindBetweenNormals(Up, TorsoUp.GetSafeNormal());
 	Rig.Rotate(Torso, TorsoDelta);
 
 	// Reach: lean in until both grips are comfortably within reach, rather than locking the elbows straight
 	// toward a wheel that sits past the arm's length (the mounts place the rim for the web's thinner arms).
 	const float Cheer = FMath::Clamp(Input.Cheer, 0.f, 1.f);
-	if (Input.bHasGrip && Cheer < 0.99f)
+	const float Spin = FMath::Clamp(Input.Spin, 0.f, 1.f);
+	const float HandsOff = FMath::Max(Cheer, Spin);
+	if (Input.bHasGrip && HandsOff < 0.99f)
 	{
 		float Leaned = 0.f;
 		for (int32 Iteration = 0; Iteration < 4 && Leaned < MaxReachLean; ++Iteration)
@@ -241,7 +255,7 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 			{
 				break;
 			}
-			const float Step = FMath::Min(static_cast<float>(Excess / Lever), MaxReachLean - Leaned) * (1.f - Cheer);
+			const float Step = FMath::Min(static_cast<float>(Excess / Lever), MaxReachLean - Leaned) * (1.f - HandsOff);
 			const FQuat Lean(Axis, Step);
 			Rig.Rotate(Torso, Lean);
 			TorsoDelta = Lean * TorsoDelta;
@@ -252,7 +266,19 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 	// Head: eyes back toward level and looking into the turn.
 	const FVector Facing = TorsoDelta.RotateVector(Forward);
 	FVector Gaze = Forward * FMath::Cos(HeadYaw) + Right * FMath::Sin(HeadYaw);
-	Gaze = (Gaze + Down * (0.06f - Bounce * 0.07f) + Up * 0.3f * Cheer).GetSafeNormal();
+	Gaze = (Gaze + Down * (0.06f - Bounce * 0.07f) + Up * (0.3f * Cheer + 0.12f * Input.Boost) + Down * 0.45f * Input.Slump).GetSafeNormal();
+	if (Input.LookWeight > 0.f && !Input.LookAt.IsNearlyZero())
+	{
+		// A glance at a rival alongside, never fully over the shoulder: the target is pulled toward the front.
+		const FVector ToTarget = (Input.LookAt - Rig.Pos(Head)).GetSafeNormal();
+		const FVector Glance = (ToTarget + Forward * 0.45f).GetSafeNormal();
+		Gaze = FMath::Lerp(Gaze, Glance, FMath::Clamp(Input.LookWeight, 0.f, 1.f)).GetSafeNormal();
+	}
+	if (Spin > 0.f)
+	{
+		// Dizzy: the head rolls round in a loose circle.
+		Gaze = (Gaze + (Right * FMath::Cos(Time * 9.f) + Up * FMath::Sin(Time * 9.f)) * 0.4f * Spin).GetSafeNormal();
+	}
 	const FQuat HeadDelta = FQuat::FindBetweenNormals(Facing, FMath::Lerp(Facing, Gaze, 0.85f).GetSafeNormal());
 	if (Neck != INDEX_NONE)
 	{
@@ -274,6 +300,8 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 			const double L1 = (Rig.Pos(Fore) - Shoulder).Size();
 			const double L2 = (Rig.Pos(Hand) - Rig.Pos(Fore)).Size();
 			FVector Target = Side == 0 ? Input.LeftHand : Input.RightHand;
+			// Hold the rim with the hand, not the wrist: back off along the reach by the hand's length.
+			Target -= (Target - Shoulder).GetSafeNormal() * L2 * HandReach;
 			if (Side == 1 && Input.ItemRaise > 0.f)
 			{
 				// Item use takes the right hand off the wheel, up and out (drivingExpression.ts).
@@ -287,6 +315,13 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 				const float Wave = FMath::Sin(Input.Time * 7.f + Side * UE_PI) * 0.18f;
 				const FVector Raised = Shoulder + (Up * 0.85f + Out * (0.38f + Wave) + Forward * 0.12f).GetSafeNormal() * (L1 + L2) * 0.93;
 				Target = FMath::Lerp(Target, Raised, Cheer);
+			}
+			if (Spin > 0.f)
+			{
+				// Flailing: each hand circles up and out, out of phase with the other.
+				const float Phase = Time * 13.f + Side * 2.4f;
+				const FVector Flail = Up * (0.55f + 0.25f * FMath::Sin(Phase)) + Out * (0.75f + 0.2f * FMath::Cos(Phase)) + Forward * (0.15f + 0.3f * FMath::Sin(Phase * 0.7f));
+				Target = FMath::Lerp(Target, Shoulder + Flail.GetSafeNormal() * (L1 + L2) * 0.9, Spin);
 			}
 			const FVector Pole = Out * 0.6f + Down * 0.7f - Forward * 0.3f;
 			const FVector Elbow = SolveMiddle(Shoulder, Target, L1, L2, Pole);
