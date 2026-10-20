@@ -183,9 +183,11 @@ def default_tex(name):
 class Graph:
     def __init__(self, folder, name, shading):
         path = f"{folder}/{name}"
-        if ASSETS.does_asset_exist(path):
-            ASSETS.delete_asset(path)
-        self.mat = TOOLS.create_asset(name, folder, unreal.Material, unreal.MaterialFactoryNew())
+        self.path = path
+        self.replaces = ASSETS.load_asset(path) if ASSETS.does_asset_exist(path) else None
+        # An existing master is rebuilt beside it and swapped in on save, so its instances keep a parent.
+        self.mat = TOOLS.create_asset(f"{name}_Rebuilt" if self.replaces else name, folder, unreal.Material,
+                                      unreal.MaterialFactoryNew())
         self.mat.set_editor_property("shading_model", shading)
         self.x = -900
         self.y = -300
@@ -241,10 +243,69 @@ class Graph:
             log(f"  could not connect {pin} on {self.mat.get_name()}")
 
     def save(self):
+        set_usage(self.mat)
         MEL.layout_material_expressions(self.mat)
         MEL.recompile_material(self.mat)
         ASSETS.save_loaded_asset(self.mat)
+        if self.replaces:
+            self.mat = swap_master(self.path)
         return self.mat
+
+
+def set_usage(mat):
+    """A cooked or -game build only compiles the shader permutations a material is flagged for; drivers
+    are skinned with morph targets, so without these flags they fall back to the default material."""
+    if mat.get_path_name().startswith(AVATAR_MATS):
+        for flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
+            set_if(mat, flag, True)
+
+
+def fix_usage():
+    for name in ("M_AvatarSkin", "M_AvatarHair", "M_AvatarCloth", "M_AvatarSurface"):
+        mat = ASSETS.load_asset(f"{AVATAR_MATS}/{name}")
+        set_usage(mat)
+        MEL.recompile_material(mat)
+        ASSETS.save_loaded_asset(mat)
+        log(f"usage flags on {name}")
+
+
+def swap_master(path):
+    """Moves every instance under /Game/Karts and /Game/Avatars from <path> to <path>_Rebuilt, deletes the
+    old master and renames the rebuilt one into its place."""
+    rebuilt_path = f"{path}_Rebuilt"
+    rebuilt = ASSETS.load_asset(rebuilt_path)
+    old_name = path.rsplit("/", 1)[1]
+    moved = []
+    for root in ("/Game/Karts", "/Game/Avatars"):
+        for mi in assets_in(root, unreal.MaterialInstanceConstant):
+            parent = mi.get_editor_property("parent")
+            if parent is not None and parent.get_name() in (old_name, f"{old_name}_Rebuilt"):
+                MEL.set_material_instance_parent(mi, rebuilt)
+                ASSETS.save_loaded_asset(mi)
+                moved.append(mi.get_path_name().split(".")[0])
+    if ASSETS.does_asset_exist(path):
+        ASSETS.delete_asset(path)
+    ASSETS.rename_asset(rebuilt_path, path)
+    mat = ASSETS.load_asset(path)
+    ASSETS.save_loaded_asset(mat)
+    for mi_path in moved:
+        ASSETS.save_asset(mi_path, only_if_is_dirty=False)
+    # The rename leaves a redirector at the old name; repoint and remove it.
+    redirector = unreal.EditorAssetLibrary.find_asset_data(rebuilt_path)
+    if redirector.is_valid():
+        TOOLS.fix_up_referencers([ASSETS.load_asset(rebuilt_path)])
+        if ASSETS.does_asset_exist(rebuilt_path):
+            ASSETS.delete_asset(rebuilt_path)
+    log(f"rebuilt {path}: {len(moved)} instances re-parented")
+    return mat
+
+
+def finish_swaps():
+    for folder in (KART_MATS, AVATAR_MATS):
+        for path in ASSETS.list_assets(folder, recursive=False, include_folder=False):
+            path = path.split(".")[0]
+            if path.endswith("_Rebuilt"):
+                swap_master(path[: -len("_Rebuilt")])
 
 
 SAMPLER_COLOR = unreal.MaterialSamplerType.SAMPLERTYPE_COLOR
@@ -267,7 +328,20 @@ def make_kart_masters():
     g = Graph(KART_MATS, "M_KartPaint", unreal.MaterialShadingModel.MSM_CLEAR_COAT)
     paint = g.vector("PaintColor", (0.871, 0.084, 0.270))
     base = g.texture("BaseTex", white, SAMPLER_COLOR)
-    g.out(g.mul(base, paint, "RGB"), "BaseColor")
+    # Upgrade over the web: the stock kart texture is multi-coloured (orange, yellow, grey), so a straight
+    # multiply turns cyan paint lime and pink paint orange. TexDesaturation pulls the texture toward its
+    # own luminance (x TexBrightness) first, so the whole body reads as the paint. 0 / 1 = spec 01 §9.2.
+    weights = g.node(unreal.MaterialExpressionConstant3Vector)
+    weights.set_editor_property("constant", unreal.LinearColor(0.2126, 0.7152, 0.0722, 1.0))
+    luma = g.node(unreal.MaterialExpressionDotProduct)
+    MEL.connect_material_expressions(base, "RGB", luma, "A")
+    MEL.connect_material_expressions(weights, "", luma, "B")
+    grey = g.mul(luma, g.scalar("TexBrightness", 1.0))
+    mix = g.node(unreal.MaterialExpressionLinearInterpolate)
+    MEL.connect_material_expressions(base, "RGB", mix, "A")
+    MEL.connect_material_expressions(grey, "", mix, "B")
+    MEL.connect_material_expressions(g.scalar("TexDesaturation", 0.0), "", mix, "Alpha")
+    g.out(g.mul(mix, paint), "BaseColor")
     mr = g.texture("MRTex", linear, SAMPLER_MASKS)
     g.out(g.mul(mr, g.scalar("RoughnessScale", 0.38), "G"), "Roughness")
     g.out(g.mul(mr, g.scalar("MetallicScale", 0.12), "B"), "Metallic")
@@ -432,7 +506,10 @@ def import_vehicles():
         for mname, entry in table.items():
             tex = {k: find_texture(folder, v) for k, v in entry["tex"].items()}
             if mname == "m_Body":
+                textured = "BaseColor" in entry["tex"]
                 mis[mname] = make_mi(f"{folder}/Materials", f"MI_{vname}_Paint", paint,
+                                     scalars={"TexDesaturation": PAINT_DESATURATION if textured else 0.0,
+                                              "TexBrightness": PAINT_BRIGHTNESS if textured else 1.0},
                                      vectors={"PaintColor": entry["base"][:3]},
                                      textures={"BaseTex": tex.get("BaseColor"), "MRTex": tex.get("MetallicRoughness"),
                                                "NormalTex": tex.get("Normal"), "EmissiveTex": tex.get("Emissive")})
@@ -471,6 +548,10 @@ def delete_imported_materials_except(folder, keep_folder):
 # --------------------------------------------------------------------------------------------------
 # Drivers and outfits
 # --------------------------------------------------------------------------------------------------
+# The stock kart's texture under the paint (see M_KartPaint).
+PAINT_DESATURATION = 0.75
+PAINT_BRIGHTNESS = 2.0
+
 FACES = ["mira", "kai", "leo", "nia", "omar", "rose"]
 BODIES = ["female", "male"]
 
@@ -602,6 +683,16 @@ def main():
         import_defaults()
         make_kart_masters()
         make_avatar_masters()
+    if STAGE == "swaps":
+        finish_swaps()
+    if STAGE == "usage":
+        fix_usage()
+    if STAGE == "paint":
+        make_kart_masters()
+        mi = ASSETS.load_asset("/Game/Karts/Kart/Materials/MI_Kart_Paint")
+        MEL.set_material_instance_scalar_parameter_value(mi, "TexDesaturation", PAINT_DESATURATION)
+        MEL.set_material_instance_scalar_parameter_value(mi, "TexBrightness", PAINT_BRIGHTNESS)
+        ASSETS.save_loaded_asset(mi)
     if STAGE in ("all", "vehicles"):
         import_vehicles()
     if STAGE in ("all", "drivers"):
