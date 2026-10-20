@@ -66,7 +66,9 @@ AKartItemPresenter::AKartItemPresenter()
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 
-	Boxes = MakeMeshes(TEXT("ItemBoxes"), Cube.Object);
+	// The item "box" is an original prize orb (glass sphere, spinning gem), not the web's yellow "?" cube, which
+	// read as a famous franchise's question block.
+	Boxes = MakeMeshes(TEXT("ItemBoxes"), Sphere.Object);
 	BoxCores = MakeMeshes(TEXT("ItemBoxCores"), nullptr);
 	BoxLabels = MakeMeshes(TEXT("ItemBoxLabels"), nullptr);
 	BoxHalos = MakeMeshes(TEXT("ItemBoxHalos"), Sphere.Object);
@@ -218,28 +220,28 @@ void AKartItemPresenter::SetupMaterials()
 	{
 		UInstancedStaticMeshComponent* M = MeshesFor(EKartItem::Rocket);
 		Set(M, TEXT("Exhaust"), ItemMaterial(Hex(TEXT("2a2a2e")), Hex(TEXT("ff6a2a")), 2.5f, 0.6f, 0.4f));
-		Set(M, TEXT("Body"), ItemMaterial(Hex(TEXT("111111")), Hex(TEXT("444444")), 0.3f, 0.8f, 0.3f));
-		Set(M, TEXT("Band"), ItemMaterial(Hex(TEXT("e8e4dc")), Hex(TEXT("000000")), 0.f, 0.2f, 0.35f));
-		Set(M, TEXT("Fins"), ItemMaterial(Hex(TEXT("d8262c")), Hex(TEXT("441010")), 0.2f, 0.5f, 0.35f));
+		Set(M, TEXT("Body"), ItemMaterial(Hex(TEXT("f2f4f8")), Hex(TEXT("c8d4ff")), 0.15f, 0.2f, 0.3f));
+		Set(M, TEXT("Band"), ItemMaterial(Hex(TEXT("ff6a13")), Hex(TEXT("ff4a00")), 0.3f, 0.2f, 0.35f));
+		Set(M, TEXT("Fins"), ItemMaterial(Hex(TEXT("21c7c0")), Hex(TEXT("0a5a58")), 0.2f, 0.4f, 0.35f));
 	}
 	Glows->SetMaterial(0, GlowMaterial(ItemColors(EKartItem::SkySeeker).Emissive * 2.f + FLinearColor(0.f, 0.05f, 0.3f), 3.0f, 1.6f, 0.08f));
 	BombGlows->SetMaterial(0, GlowMaterial(ItemColors(EKartItem::Bomb).Emissive, 2.5f, 1.4f, 0.12f));
 
-	// Item box (MultiplayerPowerups.tsx): #ffcc00 glass at 0.4, inner box metal 0.8 rough 0.2 emissive #ff9900 0.6,
-	// a soft glow sphere at 0.9 x size, and "?" glyphs on every face.
+	// Prize orb: violet glass with a cyan rim, an iridescent magenta gem inside, and a soft cyan halo.
 	if (UMaterialInterface* Glass = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/FX/Materials/M_ItemBoxGlass.M_ItemBoxGlass")))
 	{
 		UMaterialInstanceDynamic* M = UMaterialInstanceDynamic::Create(Glass, this);
-		M->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("ff9900")) * 0.6f);
-		M->SetVectorParameterValue(TEXT("EdgeColor"), Hex(TEXT("ffcc00")));
+		M->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("7a5cff")) * 0.6f);
+		M->SetVectorParameterValue(TEXT("EdgeColor"), Hex(TEXT("5ff0ff")));
 		Boxes->SetMaterial(0, M);
 	}
-	BoxCores->SetMaterial(0, ItemMaterial(Hex(TEXT("ffcc00")), Hex(TEXT("ff9900")), 0.6f, 0.8f, 0.2f, 1.0f));
+	BoxCores->SetMaterial(0, ItemMaterial(Hex(TEXT("ff5fd2")), Hex(TEXT("b45cff")), 0.9f, 0.8f, 0.15f, 1.0f));
 	if (UMaterialInterface* Label = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/FX/Materials/M_ItemBoxLabel.M_ItemBoxLabel")))
 	{
 		BoxLabels->SetMaterial(0, Label);
 	}
-	BoxHalos->SetMaterial(0, GlowMaterial(Hex(TEXT("ffcc00")), 0.9f, 2.6f, 0.0f));
+	BoxHalos->SetMaterial(0, GlowMaterial(Hex(TEXT("5ff0ff")), 0.9f, 2.6f, 0.0f));
+	BoxLabels->SetVisibility(false);
 	if (UMaterialInterface* Fire = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/FX/Materials/M_FX_Fireball.M_FX_Fireball")))
 	{
 		Blasts->SetMaterial(0, Fire);
@@ -455,7 +457,7 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 			break;
 		case EKartItemEventType::Pickup:
 		{
-			// Collect burst: gold twinkles, sparks, a ring and a puff of glass at the box.
+			// Collect burst: cyan twinkles, sparks, a ring and a puff of glass at the box.
 			const FVector Box = Coords::ToUE(E.Position, 1.0);
 			FKartFxEmit Twinkle;
 			Twinkle.Field = EField::Flare;
@@ -466,8 +468,8 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 			Twinkle.Life = { 0.35, 0.7 };
 			Twinkle.Size = { 0.35, 0.7 };
 			Twinkle.SizeEnd = 0.2;
-			Twinkle.Color = Hex(TEXT("fff2b0"));
-			Twinkle.ColorEnd = Hex(TEXT("ff9900"));
+			Twinkle.Color = Hex(TEXT("c8fbff"));
+			Twinkle.ColorEnd = Hex(TEXT("b45cff"));
 			Twinkle.Intensity = 3.0;
 			Twinkle.Jitter = 0.6;
 			Out.Add(Twinkle);
@@ -477,7 +479,7 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 			Sparks.Speed = { 5.0, 12.0 };
 			Sparks.Life = { 0.25, 0.5 };
 			Sparks.Size = { 0.06, 0.11 };
-			Sparks.Color = Hex(TEXT("fff4c0"));
+			Sparks.Color = Hex(TEXT("e8fdff"));
 			Out.Add(Sparks);
 			FKartFxEmit Ring;
 			Ring.Field = EField::Ring;
@@ -487,8 +489,8 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 			Ring.Life = { 0.4, 0.4 };
 			Ring.Size = { 1.0, 1.0 };
 			Ring.SizeEnd = 4.0;
-			Ring.Color = Hex(TEXT("ffe27a"));
-			Ring.ColorEnd = Hex(TEXT("ff9900"));
+			Ring.Color = Hex(TEXT("7ff4ff"));
+			Ring.ColorEnd = Hex(TEXT("b45cff"));
 			Ring.Intensity = 2.0;
 			Out.Add(Ring);
 			break;
@@ -691,11 +693,11 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 			Ring.Life = { 0.45, 0.45 };
 			Ring.Size = { 2.6, 2.6 };
 			Ring.SizeEnd = 0.25;
-			Ring.Color = Hex(TEXT("fff2b0"));
-			Ring.ColorEnd = Hex(TEXT("ffb000"));
+			Ring.Color = Hex(TEXT("c8fbff"));
+			Ring.ColorEnd = Hex(TEXT("b45cff"));
 			Ring.Intensity = 2.0;
 			Out.Add(Ring);
-			Poof(BoxPositions[i], Hex(TEXT("ffcc00")), 1.3, Out);
+			Poof(BoxPositions[i], Hex(TEXT("5ff0ff")), 1.3, Out);
 		}
 		BoxWasVisible[i] = bVisible;
 		// Pop back in with a springy overshoot.
@@ -703,11 +705,12 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 		// MultiplayerPowerups.tsx: spin 1.5 rad/s, bob 0.1 m at 2.5 rad/s, inner icon +0.5 rad/s.
 		const FVector P = BoxPositions[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time + i * 0.7));
 		const FQuat Spin(FVector::UpVector, -1.5 * Time - i);
-		Boxes->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)), true, false);
-		const FQuat Core = FQuat(FVector::UpVector, -2.0 * Time - i) * FQuat(FVector(1.0, 1.0, 0.0).GetSafeNormal(), 0.6 + 0.25 * FMath::Sin(Time * 1.3 + i));
-		BoxCores->UpdateInstanceTransform(i, FTransform(Core, P, FVector(BoxSize * 0.62 / 100.0 * Scale)), true, false);
+		Boxes->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize * 0.9 / 100.0 * Scale)), true, false);
+		// The gem stands on a corner (a cube tipped onto its diagonal) and tumbles slowly.
+		const FQuat Corner(FVector(1.0, -1.0, 0.0).GetSafeNormal(), FMath::Acos(1.0 / FMath::Sqrt(3.0)));
+		const FQuat Core = FQuat(FVector::UpVector, -2.0 * Time - i) * Corner * FQuat(FVector(1.0, 1.0, 1.0).GetSafeNormal(), 0.3 * FMath::Sin(Time * 1.3 + i));
+		BoxCores->UpdateInstanceTransform(i, FTransform(Core, P, FVector(BoxSize * 0.42 / 100.0 * Scale)), true, false);
 		BoxHalos->UpdateInstanceTransform(i, FTransform(FQuat::Identity, P, FVector(BoxSize * 0.9 * 2.0 / 100.0 * Scale * (1.0 + 0.04 * FMath::Sin(Time * 3.0 + i)))), true, false);
-		// "?" glyphs on all six faces, just outside the glass.
 		BoxLabels->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)), true, false);
 		if (BoxTwinkles.IsValidIndex(i) && BoxTwinkles[i])
 		{
@@ -719,8 +722,8 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 			Twinkle.Life = { 0.7, 1.3 };
 			Twinkle.Size = { 0.22, 0.42 };
 			Twinkle.SizeEnd = 0.3;
-			Twinkle.Color = Hex(TEXT("ffe9a0"));
-			Twinkle.ColorEnd = Hex(TEXT("ff9900"));
+			Twinkle.Color = Hex(TEXT("d8f9ff"));
+			Twinkle.ColorEnd = Hex(TEXT("b45cff"));
 			Twinkle.Intensity = 2.2;
 			Twinkle.Jitter = 1.25;
 			UKartFxSubsystem::UpdateStream(BoxTwinkles[i], Twinkle, bVisible ? 5.0 : 0.0);

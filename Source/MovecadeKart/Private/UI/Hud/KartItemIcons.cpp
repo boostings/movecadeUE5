@@ -13,13 +13,22 @@ namespace
 		return FLinearColor::FromSRGBColor(FColor::FromHex(Code));
 	}
 
-	/** A shell: coloured dome, white rim band, a highlight. */
-	void Shell(const FKartPainter& P, const FVector2D& C, float S, const FLinearColor& Body)
+	/** The buzz disc seen from above: eight swept teeth, a coloured disc, a pale bumper ring and a hub. */
+	void Disc(const FKartPainter& P, const FVector2D& C, float S, const FLinearColor& Body, double Now)
 	{
-		const float R = S * 0.42f;
-		P.Circle(C, R, Body, Color::Night, S * 0.05f);
-		P.Box(C + FVector2D(-R, R * 0.12), FVector2D(R * 2.0, R * 0.34), Color::White, R * 0.17f, Color::Night, S * 0.03f);
-		P.Circle(C + FVector2D(-R * 0.35, -R * 0.4), R * 0.2f, Color::WithAlpha(Color::White, 0.75f));
+		const float R = S * 0.36f;
+		const double Spin = Now * 3.0;
+		for (int32 k = 0; k < 8; ++k)
+		{
+			const double A = Spin + 2.0 * PI * k / 8.0;
+			const FVector2D Out(FMath::Cos(A), FMath::Sin(A));
+			const FVector2D Along(-Out.Y, Out.X);
+			P.Polygon({ C + Out * R * 0.9, C + Out * R * 1.3 + Along * R * 0.18, C + Out * R * 0.95 + Along * R * 0.42 }, Color::White);
+		}
+		P.Circle(C, R, Color::White, Color::Night, S * 0.04f);
+		P.Circle(C, R * 0.8f, Body);
+		P.Circle(C, R * 0.28f, Color::White, Color::Night, S * 0.025f);
+		P.Circle(C + FVector2D(-R * 0.4, -R * 0.42), R * 0.16f, Color::WithAlpha(Color::White, 0.7f));
 	}
 
 	TArray<FVector2D> Arc(const FVector2D& C, double R, double From, double To, int32 Steps)
@@ -56,14 +65,14 @@ namespace KartItemIcons
 		case EKartItem::Shot: return Hex(TEXT("37c45a"));
 		case EKartItem::Seeker: return Hex(TEXT("ec3b4b"));
 		case EKartItem::SkySeeker: return Hex(TEXT("3b7cf0"));
-		case EKartItem::Banana: return Hex(TEXT("ffd84a"));
+		case EKartItem::Banana: return Hex(TEXT("ff7a22"));
 		case EKartItem::Nitro:
 		case EKartItem::TripleNitro: return Hex(TEXT("ff8a2a"));
 		case EKartItem::Prism: return Hex(TEXT("ffe25a"));
 		case EKartItem::Lightning: return Hex(TEXT("ffd21f"));
 		case EKartItem::Ink: return Hex(TEXT("4a3f7a"));
 		case EKartItem::Bomb: return Hex(TEXT("2b2b38"));
-		case EKartItem::Rocket: return Hex(TEXT("3d3f4f"));
+		case EKartItem::Rocket: return Hex(TEXT("f2f4f8"));
 		default: return Color::White;
 		}
 	}
@@ -73,35 +82,40 @@ namespace KartItemIcons
 		switch (Item)
 		{
 		case EKartItem::Shot:
-			Shell(P, C, S, Tint(Item));
+			Disc(P, C, S, Tint(Item), Now);
 			break;
 		case EKartItem::Seeker:
-			Shell(P, C, S, Tint(Item));
-			P.Circle(C + FVector2D(0.0, -S * 0.16), S * 0.07f, Color::White);
+			// The homing disc: a target reticle on its hub.
+			Disc(P, C, S, Tint(Item), Now);
+			P.Lines({ C + FVector2D(-S * 0.2, 0.0), C + FVector2D(S * 0.2, 0.0) }, Color::Night, S * 0.03f);
+			P.Lines({ C + FVector2D(0.0, -S * 0.2), C + FVector2D(0.0, S * 0.2) }, Color::Night, S * 0.03f);
 			break;
 		case EKartItem::SkySeeker:
 		{
-			for (int32 Side = -1; Side <= 1; Side += 2)
+			// The drone: four rotor rings round a smaller disc.
+			for (int32 k = 0; k < 4; ++k)
 			{
-				const double Flap = FMath::Sin(Now * 14.0) * S * 0.05;
-				P.Polygon({ C + FVector2D(Side * S * 0.25, -S * 0.08), C + FVector2D(Side * S * 0.55, -S * 0.3 - Flap), C + FVector2D(Side * S * 0.5, S * 0.05) }, Color::White);
+				const double A = PI * 0.25 + PI * 0.5 * k;
+				const FVector2D Rotor = C + FVector2D(FMath::Cos(A), FMath::Sin(A)) * S * 0.34;
+				P.Circle(Rotor, S * 0.13f, Color::WithAlpha(Color::White, 0.35f), Color::White, S * 0.03f);
 			}
-			Shell(P, C, S * 0.9f, Tint(Item));
+			Disc(P, C, S * 0.72f, Tint(Item), Now);
 			break;
 		}
 		case EKartItem::Banana:
 		{
-			// A crescent: an outer arc back along a smaller, offset inner arc.
-			TArray<FVector2D> Outer = Arc(C + FVector2D(S * 0.08, -S * 0.08), S * 0.44, 60.0, 200.0, 16);
-			TArray<FVector2D> Inner = Arc(C + FVector2D(S * 0.2, -S * 0.2), S * 0.36, 200.0, 60.0, 16);
-			// Fill it as quads between matching arc points (it isn't convex).
-			for (int32 i = 0; i < 16; ++i)
+			// The traffic cone: an orange cone with two white bands on a dark foot.
+			P.Box(C + FVector2D(-S * 0.36, S * 0.3), FVector2D(S * 0.72, S * 0.12), Color::Night, S * 0.03f);
+			const FVector2D Tip = C + FVector2D(0.0, -S * 0.46);
+			const FVector2D L = C + FVector2D(-S * 0.27, S * 0.3), R = C + FVector2D(S * 0.27, S * 0.3);
+			P.Polygon({ Tip, R, L }, Tint(Item));
+			auto Band = [&](float From, float To)
 			{
-				P.Polygon({ Outer[i], Outer[i + 1], Inner[15 - i], Inner[16 - i] }, Tint(Item));
-			}
-			P.Lines(Outer, Color::Night, S * 0.04f);
-			P.Circle(Outer[0], S * 0.05f, Hex(TEXT("6b4b1e")));
-			P.Circle(Outer.Last(), S * 0.05f, Hex(TEXT("6b4b1e")));
+				P.Polygon({ FMath::Lerp(Tip, L, From), FMath::Lerp(Tip, R, From), FMath::Lerp(Tip, R, To), FMath::Lerp(Tip, L, To) }, Color::White);
+			};
+			Band(0.32f, 0.45f);
+			Band(0.62f, 0.76f);
+			P.Lines({ Tip, R, L }, Color::Night, S * 0.035f, true);
 			break;
 		}
 		case EKartItem::Nitro:
@@ -114,11 +128,16 @@ namespace KartItemIcons
 			break;
 		case EKartItem::Prism:
 		{
-			const FLinearColor Hue = FLinearColor::MakeFromHSV8(static_cast<uint8>(FMath::Fmod(Now * 180.0, 256.0)), 190, 255);
-			KartWidgets::Star(P, C, S * 0.5f, S * 0.22f, Color::Night, 0.f);
-			KartWidgets::Star(P, C, S * 0.43f, S * 0.18f, Hue, 0.f);
-			P.Circle(C + FVector2D(-S * 0.07, -S * 0.04), S * 0.04f, Color::Night);
-			P.Circle(C + FVector2D(S * 0.07, -S * 0.04), S * 0.04f, Color::Night);
+			// The prism crystal, cycling through the rainbow: a cut gem with a crown and pavilion.
+			const FLinearColor Hue = FLinearColor::MakeFromHSV8(static_cast<uint8>(FMath::Fmod(Now * 180.0, 256.0)), 170, 255);
+			const FVector2D Top = C + FVector2D(0.0, -S * 0.3), Bottom = C + FVector2D(0.0, S * 0.46);
+			const FVector2D L = C + FVector2D(-S * 0.42, -S * 0.1), R = C + FVector2D(S * 0.42, -S * 0.1);
+			const FVector2D TL = C + FVector2D(-S * 0.22, -S * 0.3), TR = C + FVector2D(S * 0.22, -S * 0.3);
+			P.Polygon({ TL, TR, R, Bottom, L }, Hue);
+			P.Polygon({ TL, TR, R, L }, Color::WithAlpha(Color::White, 0.45f));
+			P.Lines({ TL, TR, R, Bottom, L }, Color::Night, S * 0.035f, true);
+			P.Lines({ L, R }, Color::Night, S * 0.025f);
+			P.Lines({ C + FVector2D(-S * 0.1, -S * 0.1), Bottom, C + FVector2D(S * 0.1, -S * 0.1) }, Color::WithAlpha(Color::Night, 0.5f), S * 0.02f);
 			break;
 		}
 		case EKartItem::Lightning:
@@ -139,8 +158,7 @@ namespace KartItemIcons
 			P.Circle(C + FVector2D(-S * 0.24, S * 0.1), S * 0.16f, Tint(Item));
 			P.Circle(C + FVector2D(S * 0.26, S * 0.12), S * 0.14f, Tint(Item));
 			P.Circle(C + FVector2D(S * 0.05, S * 0.32), S * 0.1f, Tint(Item));
-			P.Circle(C + FVector2D(-S * 0.1, -S * 0.12), S * 0.07f, Color::White);
-			P.Circle(C + FVector2D(S * 0.1, -S * 0.12), S * 0.07f, Color::White);
+			P.Circle(C + FVector2D(-S * 0.1, -S * 0.14), S * 0.06f, Color::WithAlpha(Color::White, 0.55f));
 			break;
 		case EKartItem::Bomb:
 		{
@@ -160,7 +178,8 @@ namespace KartItemIcons
 			P.Box(C + FVector2D(-S * 0.1, -Body.Y * 0.5), FVector2D(S * 0.08, Body.Y), Color::Hot);
 			P.Polygon({ C + FVector2D(-S * 0.4, -Body.Y * 0.5), C + FVector2D(-S * 0.5, -Body.Y * 0.95), C + FVector2D(-S * 0.24, -Body.Y * 0.5) }, Color::Hot);
 			P.Polygon({ C + FVector2D(-S * 0.4, Body.Y * 0.5), C + FVector2D(-S * 0.5, Body.Y * 0.95), C + FVector2D(-S * 0.24, Body.Y * 0.5) }, Color::Hot);
-			P.Circle(C + FVector2D(S * 0.18, -S * 0.04), S * 0.06f, Color::White);
+			// A porthole, not an eye.
+			P.Circle(C + FVector2D(S * 0.05, 0.0), S * 0.075f, Hex(TEXT("5fd6ff")), Color::Night, S * 0.025f);
 			break;
 		}
 		default:

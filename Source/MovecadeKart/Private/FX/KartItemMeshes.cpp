@@ -284,14 +284,26 @@ namespace
 		return Out;
 	}
 
+	/**
+	 * The thrown projectile: a "buzz disc", a flat puck with a bumper rim and eight teeth, and a low lens on top with
+	 * a hub. Deliberately not a domed shell (the web's look, which belongs to a famous franchise).
+	 */
 	void AddShell(FItemMeshBuilder& B)
 	{
-		// Belly: shallow bowl under the rim (the web's inner colour).
-		B.Lathe(TEXT("Belly"), { {0.0, -13.0}, {9.0, -12.2}, {17.0, -10.0}, {23.0, -6.5}, {26.5, -3.0} }, 28);
-		// Rim: a rounded cream band around the waist.
-		B.Lathe(TEXT("Rim"), { {26.0, -3.6}, {29.5, -3.4}, {31.5, -1.6}, {32.0, 0.4}, {31.0, 2.4}, {28.5, 3.6}, {27.0, 3.8} }, 28);
-		// Dome: a raised, slightly pointed cap (the web's 0.3 m sphere, top half).
-		B.Lathe(TEXT("Dome"), { {27.4, 3.2}, {26.8, 8.0}, {24.5, 13.5}, {20.5, 18.5}, {14.5, 22.8}, {7.5, 25.6}, {0.0, 26.6} }, 28);
+		// Belly: the flat underside.
+		B.Lathe(TEXT("Belly"), { {0.0, -9.0}, {20.0, -9.0}, {26.0, -7.5}, {28.0, -5.0} }, 32);
+		// Rim: a rounded bumper band, with eight teeth standing out of it.
+		B.Lathe(TEXT("Rim"), { {28.0, -5.0}, {31.5, -3.5}, {32.5, 0.0}, {31.5, 3.5}, {28.0, 5.0} }, 32);
+		for (int32 k = 0; k < 8; ++k)
+		{
+			const double A = 2.0 * PI * k / 8.0;
+			const FVector Out(FMath::Cos(A), FMath::Sin(A), 0.0);
+			const FVector Along(-Out.Y, Out.X, 0.0);
+			// Swept teeth, like a saw: offset along the spin direction.
+			B.Box(TEXT("Rim"), Out * 34.0 + Along * 2.5, FVector(5.0, 3.5, 3.2), Out, Along, FVector::UpVector);
+		}
+		// Dome: a low lens with a raised hub.
+		B.Lathe(TEXT("Dome"), { {28.0, 5.0}, {24.0, 7.5}, {16.0, 9.0}, {9.0, 9.5}, {8.5, 12.5}, {6.0, 14.0}, {0.0, 14.5} }, 32);
 	}
 }
 
@@ -308,52 +320,30 @@ namespace MovecadeKart::Fx
 	{
 		FItemMeshBuilder B;
 		AddShell(B);
-		// Swept wings on both sides, tilted up, trailing back (-X).
-		for (int32 Side = -1; Side <= 1; Side += 2)
+		// A drone: four arms out to ducted rotor rings, so it reads as flying without wings.
+		for (int32 k = 0; k < 4; ++k)
 		{
-			// Span outward and up, swept back.
-			const FVector Span = FVector(-0.35, Side * 0.86, 0.38).GetSafeNormal();
-			const FVector Chord = FVector(1.0, Side * 0.35, 0.0).GetSafeNormal();
-			const FVector Thick = FVector::CrossProduct(Chord, Span).GetSafeNormal();
-			const FVector Chord2 = FVector::CrossProduct(Span, Thick).GetSafeNormal();
-			B.Box(TEXT("Wings"), FVector(-4.0, Side * 30.0, 6.0) + Span * 12.0, FVector(11.0, 13.0, 1.6), Chord2, Span, Thick);
-			B.Box(TEXT("Wings"), FVector(-4.0, Side * 30.0, 6.0) + Span * 28.0 - Chord2 * 6.0, FVector(7.0, 6.0, 1.4), Chord2, Span, Thick);
+			const double A = PI * 0.25 + PI * 0.5 * k;
+			const FVector Out(FMath::Cos(A), FMath::Sin(A), 0.0);
+			B.Box(TEXT("Wings"), Out * 38.0 + FVector(0.0, 0.0, 8.0), FVector(12.0, 2.2, 1.8), Out, FVector(-Out.Y, Out.X, 0.0), FVector::UpVector);
+			// The duct: a short open ring around the rotor.
+			B.Lathe(TEXT("Wings"), { {13.0, 5.0}, {15.0, 5.5}, {15.5, 8.0}, {15.0, 10.5}, {13.0, 11.0}, {12.5, 8.0}, {13.0, 5.0} }, 20, Out * 52.0);
 		}
 		return B.Build(Outer, TEXT("SM_Item_WingedShell"));
 	}
 
 	UStaticMesh* BuildBananaMesh(UObject* Outer)
 	{
+		// The dropped hazard is a striped traffic cone on a square foot: the web's banana peel is that franchise's
+		// signature hazard. Peel is the cone (orange), Tips the foot and the reflective bands.
 		FItemMeshBuilder B;
-		// Quadratic bezier (0,-0.2,0)-(0.15,0,0)-(0,0.2,0) from the web, scaled up a little and given a taper.
-		const FVector P0(0.0, 0.0, -24.0), P1(-20.0, 0.0, 0.0), P2(0.0, 0.0, 24.0);
-		TArray<FVector> Peel, TipA, TipB;
-		TArray<double> PeelR, TipAR, TipBR;
-		const int32 Steps = 16;
-		for (int32 i = 0; i <= Steps; ++i)
-		{
-			const double T = FMath::Lerp(0.08, 0.92, static_cast<double>(i) / Steps);
-			const FVector P = (1 - T) * (1 - T) * P0 + 2 * (1 - T) * T * P1 + T * T * P2;
-			Peel.Add(P);
-			PeelR.Add(FMath::Lerp(2.6, 9.0, FMath::Pow(FMath::Sin(PI * (T - 0.08) / 0.84), 0.55)));
-		}
-		B.Tube(TEXT("Peel"), Peel, PeelR, 10);
-		// Brown stalk tips past both ends.
-		auto Tip = [&](double From, double To, double R0, double R1)
-		{
-			TArray<FVector> Pts;
-			TArray<double> Rs;
-			for (int32 i = 0; i <= 3; ++i)
-			{
-				const double T = FMath::Lerp(From, To, i / 3.0);
-				Pts.Add((1 - T) * (1 - T) * P0 + 2 * (1 - T) * T * P1 + T * T * P2);
-				Rs.Add(FMath::Lerp(R0, R1, i / 3.0));
-			}
-			B.Tube(TEXT("Tips"), Pts, Rs, 8);
-		};
-		Tip(0.0, 0.1, 1.4, 2.7);
-		Tip(0.9, 1.02, 2.7, 1.8);
-		return B.Build(Outer, TEXT("SM_Item_Banana"));
+		B.Box(TEXT("Tips"), FVector(0.0, 0.0, 1.5), FVector(22.0, 22.0, 1.5));
+		B.Lathe(TEXT("Peel"), { {17.0, 3.0}, {14.5, 14.0}, {12.0, 24.0} }, 24);
+		B.Lathe(TEXT("Tips"), { {12.0, 24.0}, {10.4, 31.0} }, 24);
+		B.Lathe(TEXT("Peel"), { {10.4, 31.0}, {8.0, 41.0} }, 24);
+		B.Lathe(TEXT("Tips"), { {8.0, 41.0}, {6.6, 47.0} }, 24);
+		B.Lathe(TEXT("Peel"), { {6.6, 47.0}, {4.0, 56.0}, {2.0, 57.5}, {0.0, 58.0} }, 24);
+		return B.Build(Outer, TEXT("SM_Item_Cone"));
 	}
 
 	FVector BombFuseTip()

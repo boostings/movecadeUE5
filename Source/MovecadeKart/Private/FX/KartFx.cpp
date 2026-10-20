@@ -323,15 +323,15 @@ namespace MovecadeKart::Fx
 		case EKartItem::Shot: return { Hex(TEXT("00ff00")), Hex(TEXT("087c36")), Hex(TEXT("00aa00")) };
 		case EKartItem::Seeker: return { Hex(TEXT("ff0000")), Hex(TEXT("8a1721")), Hex(TEXT("aa0000")) };
 		case EKartItem::SkySeeker: return { Hex(TEXT("0066ff")), Hex(TEXT("174188")), Hex(TEXT("0033aa")) };
-		case EKartItem::Banana: return { Hex(TEXT("ffff00")), Hex(TEXT("9f6d08")), Hex(TEXT("aaaa00")) };
+		case EKartItem::Banana: return { Hex(TEXT("ff6a13")), Hex(TEXT("f4f4f4")), Hex(TEXT("ff4a00")) }; // the traffic cone
 		case EKartItem::Bomb: return { Hex(TEXT("111111")), Hex(TEXT("6d1c19")), Hex(TEXT("ff4400")) };
-		// The port's own: a red nitro canister, a rainbow prism, an electric bolt, violet ink, the black rocket.
+		// The port's own: a red nitro canister, a rainbow prism, an electric bolt, violet ink, a white toy rocket.
 		case EKartItem::Nitro:
 		case EKartItem::TripleNitro: return { Hex(TEXT("ff3b2f")), Hex(TEXT("f2f2f2")), Hex(TEXT("ff7a1a")) };
 		case EKartItem::Prism: return { Hex(TEXT("ffffff")), Hex(TEXT("ffd84a")), Hex(TEXT("ff7ad9")) };
 		case EKartItem::Lightning: return { Hex(TEXT("ffe14a")), Hex(TEXT("fff6c8")), Hex(TEXT("6ab0ff")) };
 		case EKartItem::Ink: return { Hex(TEXT("2a1840")), Hex(TEXT("6b3fa0")), Hex(TEXT("8a4dff")) };
-		case EKartItem::Rocket: return { Hex(TEXT("1a1a1d")), Hex(TEXT("e8e4dc")), Hex(TEXT("ff6a2a")) };
+		case EKartItem::Rocket: return { Hex(TEXT("f2f4f8")), Hex(TEXT("ff6a13")), Hex(TEXT("ff6a2a")) };
 		default: return { FLinearColor::White, FLinearColor::Gray, FLinearColor::Black };
 		}
 	}
