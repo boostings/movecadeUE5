@@ -199,6 +199,8 @@ private:
 	uint32 SeenBarrierEvents = 0;
 	uint32 SeenBumpEvents = 0;
 	bool bDebugGrip = false;
+	/** -KartCinematic: trailer camera coverage instead of the chase rig. */
+	bool bCinematic = false;
 	/** -KartCloseCam: yaw, distance and height of an orbit shot, and its rate; Y <= 0 means off. */
 	FVector4 CloseCam = FVector4(0, -1, 0, 0);
 
