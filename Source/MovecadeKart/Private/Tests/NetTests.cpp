@@ -249,6 +249,52 @@ bool FNetPracticeTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetMotionPadTest, "MovecadeKart.Net.MotionPad", NetTestFlags)
+bool FNetMotionPadTest::RunTest(const FString&)
+{
+	// pad:prompt data, as motionPad.ts readMotionPadPrompt reads it.
+	const TSharedPtr<FJsonObject> Prompt = ParseJson(PadPromptData(TEXT("p1"), TEXT("Shove \"now\""), TEXT("Red is close"),
+		TEXT("DASH"), FString(), TEXT("#ff6B4a"), TEXT("tilt")));
+	if (!TestTrue(TEXT("prompt parses"), Prompt.IsValid())) return false;
+	TestEqual(TEXT("player"), Prompt->GetStringField(TEXT("playerId")), FString(TEXT("p1")));
+	TestEqual(TEXT("title, quotes escaped"), Prompt->GetStringField(TEXT("title")), FString(TEXT("Shove \"now\"")));
+	TestEqual(TEXT("subtitle"), Prompt->GetStringField(TEXT("subtitle")), FString(TEXT("Red is close")));
+	TestEqual(TEXT("a"), Prompt->GetStringField(TEXT("a")), FString(TEXT("DASH")));
+	TestEqual(TEXT("empty b hides it"), Prompt->GetStringField(TEXT("b")), FString());
+	TestEqual(TEXT("accent"), Prompt->GetStringField(TEXT("accent")), FString(TEXT("#ff6B4a")));
+	TestEqual(TEXT("mode"), Prompt->GetStringField(TEXT("mode")), FString(TEXT("tilt")));
+
+	const TSharedPtr<FJsonObject> Loose = ParseJson(PadPromptData(TEXT("*"), FString::ChrN(100, 'x'), FString::ChrN(200, 'y'),
+		FString::ChrN(30, 'z'), TEXT("B"), TEXT("red"), TEXT("dance")));
+	if (!TestTrue(TEXT("loose prompt parses"), Loose.IsValid())) return false;
+	TestEqual(TEXT("title capped at 80"), Loose->GetStringField(TEXT("title")).Len(), 80);
+	TestEqual(TEXT("subtitle capped at 160"), Loose->GetStringField(TEXT("subtitle")).Len(), 160);
+	TestEqual(TEXT("label capped at 16"), Loose->GetStringField(TEXT("a")).Len(), 16);
+	TestFalse(TEXT("a bad accent is left out"), Loose->HasField(TEXT("accent")));
+	TestFalse(TEXT("an unknown mode is left out"), Loose->HasField(TEXT("mode")));
+
+	const TSharedPtr<FJsonObject> Frame = ParseJson(Msg::GameEvent(PadPromptEvent, PadPromptData(TEXT("p1"), TEXT("T"), TEXT("S"), TEXT("A"), TEXT("B"), TEXT("#000000"), TEXT("aim"))));
+	if (!TestTrue(TEXT("frame parses"), Frame.IsValid())) return false;
+	TestEqual(TEXT("frame type"), Frame->GetStringField(TEXT("t")), FString(TEXT("game-event")));
+	TestEqual(TEXT("frame event"), Frame->GetStringField(TEXT("event")), FString(TEXT("pad:prompt")));
+	TestEqual(TEXT("frame data mode"), Frame->GetObjectField(TEXT("data"))->GetStringField(TEXT("mode")), FString(TEXT("aim")));
+
+	// pad:press / pad:release data.
+	TCHAR Button = 0;
+	TestTrue(TEXT("button a"), ReadPadButton(*ParseJson(TEXT("{\"button\":\"a\"}")), Button) && Button == TEXT('a'));
+	TestTrue(TEXT("button b"), ReadPadButton(*ParseJson(TEXT("{\"button\":\"b\"}")), Button) && Button == TEXT('b'));
+	TestFalse(TEXT("button A (upper case) is refused"), ReadPadButton(*ParseJson(TEXT("{\"button\":\"A\"}")), Button));
+	TestFalse(TEXT("button c is refused"), ReadPadButton(*ParseJson(TEXT("{\"button\":\"c\"}")), Button));
+	TestFalse(TEXT("a missing button is refused"), ReadPadButton(*ParseJson(TEXT("{}")), Button));
+	TestFalse(TEXT("a numeric button is refused"), ReadPadButton(*ParseJson(TEXT("{\"button\":1}")), Button));
+	for (const TCHAR* Mode : { TEXT("tilt"), TEXT("swing"), TEXT("aim"), TEXT("flick") })
+	{
+		TestTrue(FString::Printf(TEXT("mode %s"), Mode), IsPadMode(Mode));
+	}
+	TestFalse(TEXT("modes are lower case"), IsPadMode(TEXT("Tilt")));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetJoinUrlTest, "MovecadeKart.Net.JoinUrlAndRoomCode", NetTestFlags)
 bool FNetJoinUrlTest::RunTest(const FString&)
 {
