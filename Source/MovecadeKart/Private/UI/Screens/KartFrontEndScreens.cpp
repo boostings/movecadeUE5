@@ -390,7 +390,7 @@ namespace
 			const FText Names[] = { LOCTEXT("Race", "Race"), LOCTEXT("Arcade", "Arcade"), LOCTEXT("Party", "Party Mode"), LOCTEXT("Settings", "Settings"), LOCTEXT("Credits", "Credits"), LOCTEXT("Quit", "Quit") };
 			const FText Details[] = {
 				LOCTEXT("RaceDetail", "Up to four players on one screen, with bots."),
-				LOCTEXT("ArcadeDetail", "Bowling, darts and more party games, with friends or the house."),
+				LOCTEXT("ArcadeDetail", "Bowling, darts, Samurai Slice and more, with friends or the house."),
 				LOCTEXT("PartyDetail", "Phones are the controllers. Scan, tilt, race."),
 				LOCTEXT("SettingsDetail", "Graphics, sound and controls."),
 				LOCTEXT("CreditsDetail", "Who made this, and with what."),
@@ -488,15 +488,17 @@ namespace
 		const TCHAR* Map;
 		FLinearColor Accent;
 		int32 MaxPlayers;
+		/** Players on this screen: turn-based games share one set of controls; simultaneous ones need a pair of hands each. */
+		int32 MaxLocal;
 	};
 
 	const TArray<FArcadeGame>& ArcadeGames()
 	{
 		static const TArray<FArcadeGame> Games = {
-			{ TEXT("bowling"), LOCTEXT("Bowling", "Bowling"), LOCTEXT("BowlingTag", "Ten frames down a neon lane. Swing, hook and chase the turkey."), TEXT("L_Bowling"), Color::Sun, 4 },
-			{ TEXT("darts"), LOCTEXT("Darts", "Bullseye Bash"), LOCTEXT("DartsTag", "Pub darts on one board. Three darts a visit; hit the called sector for double."), TEXT("L_Darts"), Color::Hot, 4 },
-			{ TEXT("samurai"), LOCTEXT("Samurai", "Samurai Slice"), LOCTEXT("SamuraiTag", "Slice the fruit, dodge the bombs. Coming soon."), nullptr, Color::Mint, 4 },
-			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop the blocks, build the tower, keep it straight. Coming soon."), nullptr, Color::Sky, 4 },
+			{ TEXT("bowling"), LOCTEXT("Bowling", "Bowling"), LOCTEXT("BowlingTag", "Ten frames down a neon lane. Swing, hook and chase the turkey."), TEXT("L_Bowling"), Color::Sun, 4, 4 },
+			{ TEXT("darts"), LOCTEXT("Darts", "Bullseye Bash"), LOCTEXT("DartsTag", "Pub darts on one board. Three darts a visit; hit the called sector for double."), TEXT("L_Darts"), Color::Hot, 4, 4 },
+			{ TEXT("samurai"), LOCTEXT("Samurai", "Samurai Slice"), LOCTEXT("SamuraiTag", "Swing the katana through the fruit, never the bombs. Three precise cuts: Focus."), TEXT("L_Samurai"), Color::Mint, 4, 1 },
+			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop the blocks, build the tower, keep it straight. Coming soon."), nullptr, Color::Sky, 4, 1 },
 		};
 		return Games;
 	}
@@ -724,7 +726,12 @@ namespace
 				Host->PlaySound(EKartUISound::Move);
 				if (Focus.Cursor.Index < PlayersRow && ArcadePick().Game != Focus.Cursor.Index)
 				{
-					ArcadePick().Game = Focus.Cursor.Index;
+					FArcadePick& Pick = ArcadePick();
+					Pick.Game = Focus.Cursor.Index;
+					// A simultaneous game seats one player here; the rest of the line-up becomes the house.
+					const FArcadeGame& G = ArcadeGames()[Pick.Game];
+					Pick.Players = FMath::Min(Pick.Players, G.MaxLocal);
+					Pick.House = FMath::Min(Pick.House, G.MaxPlayers - Pick.Players);
 					PickedAt = NowSeconds();
 				}
 			}
@@ -741,7 +748,7 @@ namespace
 			const int32 Max = ArcadeGames()[Pick.Game].MaxPlayers;
 			if (Row == PlayersRow)
 			{
-				Pick.Players = FMath::Clamp(Pick.Players + Dir, 1, Max);
+				Pick.Players = FMath::Clamp(Pick.Players + Dir, 1, ArcadeGames()[Pick.Game].MaxLocal);
 				Pick.House = FMath::Min(Pick.House, Max - Pick.Players);
 			}
 			else

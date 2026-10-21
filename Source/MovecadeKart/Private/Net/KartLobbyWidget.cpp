@@ -44,7 +44,7 @@ namespace
 	/** The lobby's games, in pill order (the room's gameId). */
 	const TArray<FString>& LobbyGames()
 	{
-		static const TArray<FString> Games = { TEXT("kart"), TEXT("bowling"), TEXT("darts") };
+		static const TArray<FString> Games = { TEXT("kart"), TEXT("bowling"), TEXT("darts"), TEXT("samurai") };
 		return Games;
 	}
 }
@@ -238,7 +238,7 @@ void UKartLobbyWidget::BuildTree()
 	// The game: Kart Racer or a ported party game, as chunky pills.
 	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
-	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling"), TEXT("Bullseye Bash") })
+	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling"), TEXT("Bullseye Bash"), TEXT("Samurai Slice") })
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
 		Button->SetStyle(CardButtonStyle(30.f));
@@ -254,6 +254,7 @@ void UKartLobbyWidget::BuildTree()
 	GameButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
 	GameButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
 	GameButtons[2]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame2Clicked);
+	GameButtons[3]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame3Clicked);
 	AddV(Right, Games, 26.f);
 
 	TrackSection = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -557,7 +558,8 @@ void UKartLobbyWidget::Refresh()
 	TrackSection->SetVisibility(bKart ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	SubtitleText->SetText(FText::FromString(bKart ? TEXT("Phones are the controllers: scan the code, tilt to steer.")
 		: Subsystem->GetGameId() == TEXT("bowling") ? TEXT("Phones are the ball: scan the code, swing and let go to bowl.")
-		: TEXT("Phones are the darts: scan the code, aim, pinch and flick.")));
+		: Subsystem->GetGameId() == TEXT("darts") ? TEXT("Phones are the darts: scan the code, aim, pinch and flick.")
+		: TEXT("Phones are katanas: scan the code, then swing through the fruit.")));
 
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < TrackButtons.Num() && i < Catalog.Num(); ++i)
@@ -659,6 +661,11 @@ void UKartLobbyWidget::HandleGame1Clicked()
 void UKartLobbyWidget::HandleGame2Clicked()
 {
 	SelectGame(2);
+}
+
+void UKartLobbyWidget::HandleGame3Clicked()
+{
+	SelectGame(3);
 }
 
 void UKartLobbyWidget::HandleStartClicked()

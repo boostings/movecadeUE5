@@ -208,8 +208,8 @@ void ADartsGameMode::BindRoom()
 		}
 	};
 	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, [this]() { PushScores(false); }, 1.0f, true);
-	GetWorldTimerManager().SetTimer(AimTimer, [this]() { PushTurnAndAim(); }, 0.08f, true);
+	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
+	GetWorldTimerManager().SetTimer(AimTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushTurnAndAim(); }), 0.08f, true);
 }
 
 void ADartsGameMode::PushTurnAndAim()
@@ -280,6 +280,9 @@ void ADartsGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const 
 
 void ADartsGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
+	// The world's timers live on the game instance and outlast the level.
+	GetWorldTimerManager().ClearTimer(ScoreTimer);
+	GetWorldTimerManager().ClearTimer(AimTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))
 	{
 		Room->OnGameEvent.Remove(GameEventHandle);
@@ -300,22 +303,22 @@ void ADartsGameMode::SetupTestHooks()
 		for (const FString& Time : Times)
 		{
 			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, [this]()
+			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 			{
 				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 				{
 					PC->ConsoleCommand(TEXT("Shot showui"));
 				}
-			}, FCString::Atof(*Time), false);
+			}), FCString::Atof(*Time), false);
 		}
 	}
 	float QuitAfter = 0.f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
 	{
 		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, [this]()
+		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}, QuitAfter, false);
+		}), QuitAfter, false);
 	}
 }

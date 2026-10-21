@@ -227,7 +227,7 @@ void ABowlingGameMode::BindRoom()
 		}
 	};
 	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, [this]() { PushScores(false); }, 1.0f, true);
+	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
 }
 
 void ABowlingGameMode::PushScores(bool bFinal)
@@ -271,6 +271,8 @@ void ABowlingGameMode::HandleRoomPause(bool bPaused, const FString& Reason, cons
 
 void ABowlingGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
+	// The world's timers live on the game instance and outlast the level.
+	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))
 	{
 		Room->OnGameEvent.Remove(GameEventHandle);
@@ -291,22 +293,22 @@ void ABowlingGameMode::SetupTestHooks()
 		for (const FString& Time : Times)
 		{
 			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, [this]()
+			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 			{
 				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 				{
 					PC->ConsoleCommand(TEXT("Shot showui"));
 				}
-			}, FCString::Atof(*Time), false);
+			}), FCString::Atof(*Time), false);
 		}
 	}
 	float QuitAfter = 0.f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
 	{
 		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, [this]()
+		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}, QuitAfter, false);
+		}), QuitAfter, false);
 	}
 }

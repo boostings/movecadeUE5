@@ -178,3 +178,29 @@ increasing, ≤ 2.
 | M7 | Blade length depends on the shared rig (hand scale unverified) | Use the shared avatar rig port; verify ≈ 1.12 m |
 | M8 | Sound pan uses player count | Fix: lane span |
 | M9 | Local play | Mouse/right stick moves the blade tip; intent from tip speed |
+
+## 11. Port status (2026-10-21)
+
+- **Rules and blade:** `Games/Samurai/SamuraiRules` (engine.ts; mulberry32 bit-exact) and `SamuraiBlade` (contact,
+  intent, the blade rig), with suites `MovecadeKart.Samurai.{Rng,Engine,Focus,Blade}`. The RNG and a full two-player
+  spawn sequence are goldens computed by the web's own engine under Node.
+- **M2 as built:** every 60 Hz step samples each lane's blade (a phone's calibrated attitude applied to the phone's
+  top, the mouse or pad's tip aim, or a bot's planned sweep). It resolves the swept quad against the lane's targets
+  while the intent gate is open. The hand reaches along a blend of rest and blade (elbow follow .7); the avatar's
+  arms are posed to that hand.
+- **Dojo:** `ASamuraiDojo` holds the sunset look (sun, rose rim, sky light, the painted sky dome, haze, grade). It
+  builds the cedar stage, a tatami per lane, the torii and the shoji wall open onto the garden (stone lanterns,
+  stepping stones, raked gravel, pines, layered ridges), plus swaying chochin, bamboo and drifting petals.
+- **Game:** `ASamuraiGame` spins the targets on their arcs (the bomb's barred octagon, the halo for scrolls, Focus
+  and the precise moment). Cuts leave the halves modelled in code (capped with flesh, pith or a dark inside), juice
+  and a flash; bombs explode. It adds the katana and its trail ribbon, hit-stop, the camera's punch and shake, and
+  the cues (the combo bell climbs a semitone a cut). `SSamuraiHud` covers the rest.
+- **Controls (M9):** one local swordsman: the mouse, either stick or WASD move the blade's tip; a fast sweep opens
+  the intent gate. The Arcade picker limits simultaneous games to one player on the screen (`MaxLocal`).
+- **Party Mode:** the lobby offers Samurai Slice. The mode seeds the round with 0x5a3c + the match number and routes
+  sensor frames to the lanes. It announces simultaneous play and the countdown, and sends feedback per effect,
+  scores and completion. Test: `e2e.ps1 -RoomGame samurai -Bots 0 -QuitAfter 75 -SimSeconds 120`. Here
+  `phone-sim.mjs --game samurai` streams 100 Hz quaternion sweeps, which cut real fruit to a completed match.
+- **Fix found on the way:** the world timer manager belongs to the game instance, so lambda timers outlived their
+  level and fired on a dead game mode after travel (a crash at the e2e's quit, and after a room rematch). All game
+  modes now use weak lambdas and clear their room timers in EndPlay.

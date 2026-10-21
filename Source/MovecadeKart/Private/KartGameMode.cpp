@@ -178,9 +178,10 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 	if (const URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>(); Room && Room->GetRoom().GameId != TEXT("kart"))
 	{
 		const FString& Game = Room->GetRoom().GameId;
-		if (Game == TEXT("bowling") || Game == TEXT("darts"))
+		static const TMap<FString, FName> Levels = { { TEXT("bowling"), TEXT("L_Bowling") }, { TEXT("darts"), TEXT("L_Darts") }, { TEXT("samurai"), TEXT("L_Samurai") } };
+		if (const FName* Level = Levels.Find(Game))
 		{
-			UGameplayStatics::OpenLevel(this, Game == TEXT("bowling") ? TEXT("L_Bowling") : TEXT("L_Darts"));
+			UGameplayStatics::OpenLevel(this, *Level);
 			return;
 		}
 	}
@@ -370,23 +371,23 @@ void AKartGameMode::SetupTestHooks()
 		for (const FString& Time : Times)
 		{
 			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, [this]()
+			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 			{
 				// Saved/Screenshots/<platform>/ScreenShotNNNNN.png, with the UI
 				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 				{
 					PC->ConsoleCommand(TEXT("Shot showui"));
 				}
-			}, FCString::Atof(*Time), false);
+			}), FCString::Atof(*Time), false);
 		}
 	}
 	float QuitAfter = 0.f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
 	{
 		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, [this]()
+		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}, QuitAfter, false);
+		}), QuitAfter, false);
 	}
 }
