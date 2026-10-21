@@ -7,6 +7,9 @@
 #include "UI/KartTrackCatalog.h"
 #include "UI/KartWidgets.h"
 
+#include "Games/ArcadeCatalog.h"
+#include "Games/ArcadeSession.h"
+
 #define LOCTEXT_NAMESPACE "KartFrontEnd"
 
 using namespace KartUI;
@@ -301,6 +304,26 @@ namespace
 			KartWidgets::Star(P, C, 0.85f * S, 0.38f * S, Color::Navy, static_cast<float>(FMath::Sin(Now * 1.5) * 12.0));
 			KartWidgets::Star(P, C, 0.5f * S, 0.22f * S, Color::Sun, static_cast<float>(FMath::Sin(Now * 1.5) * 12.0));
 			break;
+		case 5: // Arcade: a ball rolling into three pins.
+		{
+			for (int32 i = 0; i < 3; ++i)
+			{
+				const FVector2D Pin = C + FVector2D(0.18 * S + i * 0.26 * S, -0.1 * S - (i == 1 ? 0.12 * S : 0.0));
+				P.Circle(Pin + FVector2D(0.0, -0.42 * S), 0.09f * S, Color::White, Color::Navy, 0.03f * S);
+				P.Box(Pin + FVector2D(-0.1 * S, -0.36 * S), FVector2D(0.2 * S, 0.66 * S), Color::White, 0.09f * S, Color::Navy, 0.03f * S);
+				P.Box(Pin + FVector2D(-0.1 * S, -0.26 * S), FVector2D(0.2 * S, 0.06 * S), Color::Hot);
+			}
+			const double Roll = FMath::Fmod(Now * 0.8, 1.0);
+			const FVector2D Ball = C + FVector2D(-0.9 * S + Roll * 0.5 * S, 0.28 * S);
+			P.Circle(Ball, 0.34f * S, Color::Navy);
+			for (int32 Hole = 0; Hole < 3; ++Hole)
+			{
+				const double A = Now * 4.0 + Hole * 0.6;
+				P.Circle(Ball + FVector2D(FMath::Cos(A), FMath::Sin(A)) * 0.16 * S, 0.045f * S, Color::Sun);
+			}
+			P.Box(C + FVector2D(-0.95 * S, 0.64 * S), FVector2D(1.9 * S, 0.06 * S), Color::Navy, 0.03f * S);
+			break;
+		}
 		default: // Quit: a door with an arrow.
 			P.Box(C + FVector2D(-0.5 * S, -0.75 * S), FVector2D(0.7 * S, 1.5 * S), Color::Navy, 0.08f * S);
 			P.Box(C + FVector2D(-0.42 * S, -0.66 * S), FVector2D(0.54 * S, 1.32 * S), Color::PaperShade, 0.05f * S);
@@ -315,7 +338,7 @@ namespace
 	public:
 		explicit FMainMenuScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
 		{
-			Focus.Cursor.Count = 5;
+			Focus.Cursor.Count = 6;
 		}
 
 		virtual FName GetId() const override { return TEXT("menu"); }
@@ -367,25 +390,29 @@ namespace
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
 			LeftPanel(P, Frame, 720.f);
-			const FText Names[] = { LOCTEXT("Race", "Race"), LOCTEXT("Party", "Party Mode"), LOCTEXT("Settings", "Settings"), LOCTEXT("Credits", "Credits"), LOCTEXT("Quit", "Quit") };
+			const FText Names[] = { LOCTEXT("Race", "Race"), LOCTEXT("Arcade", "Arcade"), LOCTEXT("Party", "Party Mode"), LOCTEXT("Settings", "Settings"), LOCTEXT("Credits", "Credits"), LOCTEXT("Quit", "Quit") };
 			const FText Details[] = {
 				LOCTEXT("RaceDetail", "Up to four players on one screen, with bots."),
+				LOCTEXT("ArcadeDetail", "Bowling, darts, Samurai Slice and Sky Stacker, with friends or the house."),
 				LOCTEXT("PartyDetail", "Phones are the controllers. Scan, tilt, race."),
 				LOCTEXT("SettingsDetail", "Graphics, sound and controls."),
 				LOCTEXT("CreditsDetail", "Who made this, and with what."),
 				LOCTEXT("QuitDetail", "Back to the desktop."),
 			};
-			const FLinearColor Accents[] = { Color::Hot, Color::Sky, Color::Grape, Color::Mint, Color::NavyDim };
+			const FLinearColor Accents[] = { Color::Hot, Color::Sun, Color::Sky, Color::Grape, Color::Mint, Color::NavyDim };
+			// The icon each entry shows on the card (MenuIcon's cases).
+			const int32 IconOf[] = { 0, 5, 1, 2, 3, 4 };
 
 			// The small logo at the top of the panel.
 			Logo(P.Transformed(FVector2D(Frame.SafeMin.X + 300.0, Frame.SafeMin.Y + 70.0), 1.f), FVector2D(Frame.SafeMin.X + 300.0, Frame.SafeMin.Y + 70.0), 0.42f, 10.0, Frame.Now);
 
-			const FVector2D ButtonSize(560.0, 96.0);
-			const double Top = Frame.Size.Y * 0.5 - (5 * ButtonSize.Y + 4 * 22.0) * 0.5 + 40.0;
-			for (int32 i = 0; i < 5; ++i)
+			const FVector2D ButtonSize(560.0, 88.0);
+			const double Gap = 18.0;
+			const double Top = Frame.Size.Y * 0.5 - (6 * ButtonSize.Y + 5 * Gap) * 0.5 + 50.0;
+			for (int32 i = 0; i < 6; ++i)
 			{
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
-				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + 22.0));
+				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + Gap));
 				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Names[i], Focus.State(i, Frame.Now), Accents[i], i);
 			}
 
@@ -407,7 +434,7 @@ namespace
 					Card.Box(FVector2D(X0, CardPos.Y + 18.0), FVector2D(X1 - X0, 270.0), Color::WithAlpha(Color::White, 0.12f));
 				}
 			}
-			MenuIcon(Card, Item, CardPos + FVector2D(CardSize.X * 0.5, 153.0), 110.f, Frame.Now);
+			MenuIcon(Card, IconOf[Item], CardPos + FVector2D(CardSize.X * 0.5, 153.0), 110.f, Frame.Now);
 			Card.Text(Names[Item], Font(EFont::Title, 46.f), CardPos + FVector2D(36.0, 312.0), Color::Navy);
 			Card.TextWrapped(Details[Item], Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 368.0), CardSize.X - 76.0, Color::NavyDim);
 		}
@@ -423,17 +450,21 @@ namespace
 				Host->PushScreen(KartScreens::MakeRacers(FE));
 				break;
 			case 1:
+				Host->PlaySound(EKartUISound::Accept);
+				Host->PushScreen(KartScreens::MakeArcade(FE));
+				break;
+			case 2:
 				Host->PlaySound(EKartUISound::Go);
 				if (FE)
 				{
 					FE->StartParty();
 				}
 				break;
-			case 2:
+			case 3:
 				Host->PlaySound(EKartUISound::Accept);
 				Host->PushScreen(KartScreens::MakeSettings(0));
 				break;
-			case 3:
+			case 4:
 				Host->PlaySound(EKartUISound::Accept);
 				Host->PushScreen(KartScreens::MakeCredits());
 				break;
@@ -448,6 +479,331 @@ namespace
 		TWeakObjectPtr<AKartFrontEnd> FrontEnd;
 		FFocus Focus;
 	};
+
+	// ---------------------------------------------------------------------------------------------- Arcade
+
+	/** The party games (Docs/Port/05-games-framework.md); Map is null until a game is ported. */
+	struct FArcadeGame
+	{
+		FName Id;
+		FText Name;
+		FText Tagline;
+		const TCHAR* Map;
+		FLinearColor Accent;
+		int32 MaxPlayers;
+		/** Players on this screen: turn-based games share one set of controls; simultaneous ones need a pair of hands each. */
+		int32 MaxLocal;
+	};
+
+	const TArray<FArcadeGame>& ArcadeGames()
+	{
+		// The shared catalog (Games/ArcadeCatalog) is the one list; the picker keeps its own view of it.
+		static const TArray<FArcadeGame> Games = []()
+		{
+			TArray<FArcadeGame> Out;
+			for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
+			{
+				Out.Add({ FName(*G.Id), G.Name, G.Tagline, *G.Map, G.Accent, G.MaxPlayers, G.MaxLocal });
+			}
+			return Out;
+		}();
+		return Games;
+	}
+
+	/** The picker's choices, kept for the session so coming back lands where you left. */
+	struct FArcadePick
+	{
+		int32 Game = 0;
+		int32 Players = 1;
+		int32 House = 1;
+	};
+
+	FArcadePick& ArcadePick()
+	{
+		static FArcadePick Pick;
+		return Pick;
+	}
+
+	/** Each game's card art, drawn from primitives like the main menu's. */
+	void GameIcon(const FKartPainter& P, int32 Game, const FVector2D& C, float S, double Now)
+	{
+		switch (Game)
+		{
+		case 0:
+			MenuIcon(P, 5, C, S, Now);
+			break;
+		case 1: // A dartboard with a dart in it.
+		{
+			const FLinearColor Rings[] = { Color::Navy, Color::White, Color::Hot, Color::White, Color::Mint, Color::Hot };
+			for (int32 i = 0; i < UE_ARRAY_COUNT(Rings); ++i)
+			{
+				P.Circle(C, (0.9f - i * 0.15f) * S, Rings[i]);
+			}
+			const double Wobble = FMath::Sin(Now * 9.0) * 0.03 * S;
+			P.Box(C + FVector2D(0.05 * S, -0.08 * S + Wobble), FVector2D(0.7 * S, 0.07 * S), Color::Navy, 0.03f * S);
+			P.Polygon({ C + FVector2D(0.62 * S, -0.2 * S + Wobble), C + FVector2D(0.85 * S, -0.2 * S + Wobble), C + FVector2D(0.85 * S, 0.05 * S + Wobble), C + FVector2D(0.62 * S, 0.05 * S + Wobble) }, Color::Sun);
+			break;
+		}
+		case 2: // A fruit falling apart under a blade stroke.
+		{
+			const double Part = 0.08 * S * (0.5 + 0.5 * FMath::Sin(Now * 3.0));
+			P.Circle(C + FVector2D(-0.1 * S - Part, 0.05 * S), 0.5f * S, Color::Hot, Color::Navy, 0.04f * S);
+			P.Circle(C + FVector2D(0.1 * S + Part, -0.05 * S), 0.5f * S, Color::Sun, Color::Navy, 0.04f * S);
+			P.Polygon({ C + FVector2D(-0.9 * S, 0.6 * S), C + FVector2D(0.8 * S, -0.7 * S), C + FVector2D(0.9 * S, -0.62 * S), C + FVector2D(-0.82 * S, 0.68 * S) }, Color::White);
+			break;
+		}
+		default: // A swaying tower of blocks.
+		{
+			const FLinearColor Fills[] = { Color::Navy, Color::Sky, Color::Sun, Color::Hot, Color::Mint };
+			for (int32 i = 0; i < 5; ++i)
+			{
+				const double Sway = FMath::Sin(Now * 1.6) * 0.03 * S * i;
+				const double W = (1.2 - i * 0.12) * S;
+				P.Box(C + FVector2D(-W * 0.5 + Sway + i * 0.03 * S, 0.62 * S - (i + 1) * 0.26 * S), FVector2D(W, 0.24 * S), Fills[i], 0.04f * S, Color::Navy, 0.03f * S);
+			}
+			break;
+		}
+		}
+	}
+
+	class FArcadeScreen final : public FKartScreen
+	{
+	public:
+		/** Rows: the games, then Players and House players. */
+		static constexpr int32 PlayersRow = 4;
+		static constexpr int32 HouseRow = 5;
+
+		explicit FArcadeScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
+		{
+			Focus.Cursor.Count = 6;
+		}
+
+		virtual FName GetId() const override { return TEXT("arcade"); }
+
+		virtual void OnShown() override
+		{
+			// Back from a game: land on the one just played (next game may have moved on from the pick).
+			if (const UArcadeSession* Session = UArcadeSession::Get(FrontEnd.Get()); Session && !Session->GetGameId().IsEmpty())
+			{
+				const int32 Played = ArcadeGames().IndexOfByPredicate([Session](const FArcadeGame& G) { return G.Id == FName(*Session->GetGameId()); });
+				if (Played != INDEX_NONE)
+				{
+					ArcadePick().Game = Played;
+				}
+			}
+			Focus.Cursor.Set(ArcadePick().Game);
+			Focus.FocusAt = NowSeconds();
+			bStarting = false;
+			if (AKartFrontEnd* FE = FrontEnd.Get())
+			{
+				FE->SetShot(EKartFrontEndShot::Orbit);
+				FE->SetShowroom({});
+			}
+		}
+
+		virtual TArray<FKartHint> GetHints() const override
+		{
+			return { { EKartMenuAction::Left, LOCTEXT("Change", "Change") }, { EKartMenuAction::Accept, LOCTEXT("Play", "Play") }, { EKartMenuAction::Back, LOCTEXT("Back", "Back") } };
+		}
+
+		virtual bool HandleEvent(const FKartMenuEvent& Event) override
+		{
+			if (bStarting)
+			{
+				return true;
+			}
+			switch (Event.Action)
+			{
+			case EKartMenuAction::Up:
+			case EKartMenuAction::Down:
+				MoveTo(Focus.Cursor.Index + (Event.Action == EKartMenuAction::Up ? -1 : 1));
+				return true;
+			case EKartMenuAction::Left:
+			case EKartMenuAction::Right:
+				Change(Focus.Cursor.Index, Event.Action == EKartMenuAction::Left ? -1 : 1);
+				return true;
+			case EKartMenuAction::Accept:
+			case EKartMenuAction::Start:
+				Play();
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		virtual void OnHover(int32 HitId) override
+		{
+			if (HitId != PlayHit)
+			{
+				MoveTo(KartWidgets::HitBase(HitId));
+			}
+		}
+
+		virtual void OnClick(int32 HitId) override
+		{
+			if (HitId == PlayHit)
+			{
+				Play();
+				return;
+			}
+			const int32 Row = KartWidgets::HitBase(HitId);
+			MoveTo(Row);
+			if (Row < PlayersRow)
+			{
+				Play();
+			}
+			else
+			{
+				Change(Row, KartWidgets::HitArrow(HitId) < 0 ? -1 : 1);
+			}
+		}
+
+		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
+		{
+			const TArray<FArcadeGame>& Games = ArcadeGames();
+			const FArcadePick& Pick = ArcadePick();
+			const FArcadeGame& Game = Games[Pick.Game];
+			LeftPanel(P, Frame, 760.f, 0.76f);
+			KartWidgets::Header(P, Frame, LOCTEXT("ArcadeTitle", "Arcade"), LOCTEXT("ArcadeSub", "Pick a game, then who's playing."), Color::Sun);
+
+			const double Top = Frame.SafeMin.Y + 190.0;
+			const FVector2D ButtonSize(600.0, 84.0);
+			for (int32 i = 0; i < Games.Num(); ++i)
+			{
+				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
+				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + 16.0));
+				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Games[i].Name, Focus.State(i, Frame.Now, Games[i].Map != nullptr), Games[i].Accent, i);
+				if (!Games[i].Map)
+				{
+					// Not ported yet: a chip at the right end rather than a second line.
+					const FVector2D ChipSize(116.0, 40.0);
+					const FVector2D ChipPos(Pos.X + ButtonSize.X - ChipSize.X - 24.0, Pos.Y + (ButtonSize.Y - ChipSize.Y) * 0.5);
+					P.Faded(In).Box(ChipPos, ChipSize, Color::WithAlpha(Games[i].Accent, 0.9f), 20.f);
+					P.Faded(In).Text(LOCTEXT("Soon", "SOON"), Font(EFont::Label, 19.f), ChipPos + ChipSize * 0.5, Color::TextOn(Games[i].Accent), FVector2D(0.5, 0.5));
+				}
+			}
+			const FText Labels[] = { LOCTEXT("ArcadePlayers", "Players"), LOCTEXT("ArcadeHouse", "House players") };
+			const FText Values[] = {
+				FText::Format(LOCTEXT("PlayersN", "{0} on this screen"), Pick.Players),
+				Pick.House == 0 ? LOCTEXT("NoHouse", "None") : FText::Format(LOCTEXT("HouseN", "{0} {0}|plural(one=bot,other=bots)"), Pick.House),
+			};
+			const FVector2D RowSize(600.0, 76.0);
+			const double OptTop = Top + Games.Num() * (ButtonSize.Y + 16.0) + 24.0;
+			for (int32 i = 0; i < 2; ++i)
+			{
+				const int32 Row = PlayersRow + i;
+				const float In = KartWidgets::Entrance(Frame, 0.25f + i * 0.05f);
+				const FVector2D Pos(Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * 200.0, OptTop + i * (RowSize.Y + 14.0));
+				KartWidgets::OptionRow(P.Faded(In), Pos, RowSize, Labels[i], Values[i], Focus.State(Row, Frame.Now), Row);
+			}
+
+			// The picked game's card: its icon, pitch and the line-up as dots.
+			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - PickedAt) / 0.35), 2.f);
+			const FVector2D CardSize(620.0, 560.0);
+			const FVector2D CardPos(Frame.SafeMax.X - CardSize.X, Top);
+			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, 0.92f + 0.08f * Pop, (1.f - Pop) * -3.f).Faded(KartWidgets::Entrance(Frame, 0.2f));
+			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
+			Card.Gradient(CardPos + FVector2D(18.0, 18.0), FVector2D(CardSize.X - 36.0, 250.0), Game.Accent, FMath::Lerp(Game.Accent, Color::Night, 0.35f), true, Metric::Radius);
+			GameIcon(Card, Pick.Game, CardPos + FVector2D(CardSize.X * 0.5, 143.0), 100.f, Frame.Now);
+			Card.Text(Game.Name, Font(EFont::Display, 54.f), CardPos + FVector2D(36.0, 290.0), Color::Navy);
+			Card.TextWrapped(Game.Tagline, Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 362.0), CardSize.X - 76.0, Color::NavyDim);
+			const int32 Seats = Pick.Players + Pick.House;
+			for (int32 i = 0; i < Game.MaxPlayers; ++i)
+			{
+				const FVector2D C(CardPos.X + 70.0 + i * 76.0, CardPos.Y + CardSize.Y - 66.0);
+				if (i < Seats)
+				{
+					const bool bLocal = i < Pick.Players;
+					const FLinearColor Fill = bLocal ? Game.Accent : Color::NavyDim;
+					Card.Circle(C, 28.f, Fill, Color::Navy, 3.f);
+					Card.Text(bLocal ? FString::Printf(TEXT("P%d"), i + 1) : FString(TEXT("CPU")), Font(EFont::Label, bLocal ? 18.f : 14.f), C, Color::TextOn(Fill), FVector2D(0.5, 0.5));
+				}
+				else
+				{
+					Card.Circle(C, 28.f, FLinearColor::Transparent, Color::WithAlpha(Color::NavyDim, 0.4f), 3.f);
+				}
+			}
+
+			FItemState Start;
+			Start.bFocused = true;
+			Start.bEnabled = Game.Map != nullptr;
+			Start.FocusAge = Frame.Now - Focus.FocusAt;
+			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, 0.35f)), FVector2D(CardPos.X + CardSize.X * 0.5, CardPos.Y + CardSize.Y + 70.0),
+				Game.Map ? LOCTEXT("PlayButton", "PLAY") : LOCTEXT("SoonButton", "COMING SOON"), EKartMenuAction::Accept, Frame.Device, Start, PlayHit);
+		}
+
+	private:
+		static constexpr int32 PlayHit = 99;
+
+		void MoveTo(int32 Row)
+		{
+			if (Focus.SetFocus(FMath::Clamp(Row, 0, Focus.Cursor.Count - 1), NowSeconds()))
+			{
+				Host->PlaySound(EKartUISound::Move);
+				if (Focus.Cursor.Index < PlayersRow && ArcadePick().Game != Focus.Cursor.Index)
+				{
+					FArcadePick& Pick = ArcadePick();
+					Pick.Game = Focus.Cursor.Index;
+					// A simultaneous game seats one player here; the rest of the line-up becomes the house.
+					const FArcadeGame& G = ArcadeGames()[Pick.Game];
+					Pick.Players = FMath::Min(Pick.Players, G.MaxLocal);
+					Pick.House = FMath::Min(Pick.House, G.MaxPlayers - Pick.Players);
+					PickedAt = NowSeconds();
+				}
+			}
+		}
+
+		void Change(int32 Row, int32 Dir)
+		{
+			if (Row < PlayersRow)
+			{
+				return;
+			}
+			FArcadePick& Pick = ArcadePick();
+			const FArcadePick Before = Pick;
+			const int32 Max = ArcadeGames()[Pick.Game].MaxPlayers;
+			if (Row == PlayersRow)
+			{
+				Pick.Players = FMath::Clamp(Pick.Players + Dir, 1, ArcadeGames()[Pick.Game].MaxLocal);
+				Pick.House = FMath::Min(Pick.House, Max - Pick.Players);
+			}
+			else
+			{
+				Pick.House = FMath::Clamp(Pick.House + Dir, 0, Max - Pick.Players);
+			}
+			const bool bChanged = Pick.Players != Before.Players || Pick.House != Before.House;
+			if (bChanged)
+			{
+				Focus.Changed(Row, Dir, NowSeconds());
+			}
+			Host->PlaySound(bChanged ? EKartUISound::Tick : EKartUISound::Error);
+		}
+
+		void Play()
+		{
+			const FArcadePick& Pick = ArcadePick();
+			const FArcadeGame& Game = ArcadeGames()[Pick.Game];
+			AKartFrontEnd* FE = FrontEnd.Get();
+			if (bStarting || !Game.Map || !FE)
+			{
+				Host->PlaySound(EKartUISound::Error);
+				return;
+			}
+			bStarting = true;
+			Host->PlaySound(EKartUISound::Go);
+			if (UArcadeSession* Session = UArcadeSession::Get(FE))
+			{
+				Session->NoteLaunch(Game.Id.ToString(), Pick.Players, Pick.House);
+			}
+			FE->StartGame(Game.Map, Pick.Players, Pick.House);
+		}
+
+		TWeakObjectPtr<AKartFrontEnd> FrontEnd;
+		FFocus Focus;
+		double PickedAt = -10.0;
+		bool bStarting = false;
+	};
+
 
 	const TArray<FText>& SetupSteps()
 	{
@@ -1385,6 +1741,7 @@ namespace KartScreens
 {
 	TSharedRef<FKartScreen> MakeTitle(AKartFrontEnd* FrontEnd) { return MakeShared<FTitleScreen>(FrontEnd); }
 	TSharedRef<FKartScreen> MakeMainMenu(AKartFrontEnd* FrontEnd) { return MakeShared<FMainMenuScreen>(FrontEnd); }
+	TSharedRef<FKartScreen> MakeArcade(AKartFrontEnd* FrontEnd) { return MakeShared<FArcadeScreen>(FrontEnd); }
 	TSharedRef<FKartScreen> MakeRacers(AKartFrontEnd* FrontEnd) { return MakeShared<FRacersScreen>(FrontEnd); }
 	TSharedRef<FKartScreen> MakeRules(AKartFrontEnd* FrontEnd) { return MakeShared<FRulesScreen>(FrontEnd); }
 	TSharedRef<FKartScreen> MakeTracks(AKartFrontEnd* FrontEnd) { return MakeShared<FTracksScreen>(FrontEnd); }

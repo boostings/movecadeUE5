@@ -177,6 +177,10 @@ void AKartFrontEnd::BuildScreens(EKartMenuEntry Entry)
 		Screens->PushScreen(KartScreens::MakeMainMenu(this));
 		Screens->PushScreen(KartScreens::MakeTracks(this));
 		break;
+	case EKartMenuEntry::Arcade:
+		Screens->PushScreen(KartScreens::MakeMainMenu(this));
+		Screens->PushScreen(KartScreens::MakeArcade(this));
+		break;
 	default:
 		Screens->PushScreen(KartScreens::MakeTitle(this));
 		break;
@@ -353,6 +357,17 @@ void AKartFrontEnd::StartParty()
 	UI->TravelTo(UGameplayStatics::GetCurrentLevelName(this));
 }
 
+void AKartFrontEnd::StartGame(const FString& Map, int32 Locals, int32 Bots)
+{
+	UKartUISubsystem* UI = UKartUISubsystem::Get(this);
+	if (bStarting || !UI)
+	{
+		return;
+	}
+	bStarting = true;
+	UI->TravelTo(FString::Printf(TEXT("%s?Players=%d?Bots=%d"), *Map, Locals, Bots));
+}
+
 void AKartFrontEnd::QuitGame()
 {
 	if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
@@ -365,7 +380,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 {
 	static const TMap<FName, int32> Settle = {
 		{ TEXT("title"), 3 }, { TEXT("menu"), 2 }, { TEXT("racers"), 4 }, { TEXT("rules"), 2 }, { TEXT("tracks"), 3 },
-		{ TEXT("settings"), 2 }, { TEXT("audio"), 2 }, { TEXT("controls"), 2 }, { TEXT("credits"), 2 }, { TEXT("quit"), 2 },
+		{ TEXT("settings"), 2 }, { TEXT("audio"), 2 }, { TEXT("controls"), 2 }, { TEXT("credits"), 2 }, { TEXT("quit"), 2 }, { TEXT("arcade"), 2 },
 	};
 	const int32* Seconds = Settle.Find(Step);
 	UKartUISubsystem* UI = UKartUISubsystem::Get(this);
@@ -404,6 +419,10 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 		else if (Step == TEXT("settings") || Step == TEXT("audio") || Step == TEXT("controls"))
 		{
 			Screens->PushScreen(KartScreens::MakeSettings(Step == TEXT("settings") ? 0 : Step == TEXT("audio") ? 1 : 2));
+		}
+		else if (Step == TEXT("arcade"))
+		{
+			Screens->PushScreen(KartScreens::MakeArcade(this));
 		}
 		else if (Step == TEXT("credits"))
 		{

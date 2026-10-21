@@ -9,7 +9,16 @@
 //   node Tools/net-sim/phone-sim.mjs --from-log Saved/Logs/KartGame.log [options]
 //
 // Options: --party localhost:1999  --name Sim1  --paint cyan  --seconds 30  --sweep 60 (deg)
-//          --period 4 (s per sweep)  --hz 30
+//          --period 4 (s per sweep)  --hz 30  --game kart|bowling|darts|samurai|stacker
+//
+// --game bowling: on its turn (state.game.activePlayerId) the phone streams a swing (accel frames) and sends
+// game-event bowling:release, as BowlingController.tsx does, every few seconds until the turn moves on.
+// --game darts: it streams gravity frames (the host's reticle) and, while darts:turn names it with darts left,
+// sends darts:release (thumb-lift) every 1.6 s, aimed near the board's top half.
+// --game samurai: it streams 38-byte frames at 100 Hz with the calibrated attitude as a quaternion: the katana held
+// up, then every 0.9 s a 0.3 s downward cut at a random yaw, gyro high through the sweep (the host's intent gate).
+// --game stacker: it streams the palm at 60 Hz (a quaternion rolling a few degrees either way, as a hand does) and
+// presses DROP (game-event stacker:drop) every 1.3 s, as StackerController.tsx does on pointerdown.
 import { readFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -25,6 +34,7 @@ const seconds = Number(opt('seconds', '30'));
 const sweepDeg = Number(opt('sweep', '60'));
 const periodS = Number(opt('period', '4'));
 const hz = Number(opt('hz', '30'));
+const game = opt('game', 'kart');
 const log = (...parts) => console.log(`[phone-sim ${name} +${((Date.now() - t0) / 1000).toFixed(2)}s]`, ...parts);
 const t0 = Date.now();
 
@@ -83,6 +93,168 @@ let sequence = 0;
 let lastFrameAt = Date.now();
 let stats = { frames: 0, events: 0 };
 
+// A bowling swing: gravity down the phone, a forward push that peaks and fades over ~0.7 s.
+function swingFrame(sequence, push, dtMs) {
+  const buffer = new ArrayBuffer(30);
+  const view = new DataView(buffer);
+  const i16 = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
+  const CALIBRATED = 1, HAS_ACCEL = 8, HAS_GRAVITY = 16;
+  view.setUint8(0, 0x02);
+  view.setUint8(1, CALIBRATED | HAS_ACCEL | HAS_GRAVITY);
+  view.setUint8(2, 0);
+  view.setUint8(3, sequence & 255);
+  view.setInt16(16, 0, true);
+  view.setInt16(18, i16(push * 1000), true);
+  view.setInt16(20, i16(push * 300), true);
+  view.setInt16(22, 0, true);
+  view.setInt16(24, i16(-9.81 * 1000), true);
+  view.setInt16(26, 0, true);
+  view.setUint16(28, dtMs, true);
+  return buffer;
+}
+
+let myTurn = false;
+let bowling = null;
+let throws = 0;
+function bowl() {
+  if (!myTurn) return;
+  const started = Date.now();
+  let sent = 0;
+  const swing = setInterval(() => {
+    const t = (Date.now() - started) / 1000;
+    const due = Math.floor(t * 60) + 1 - sent;
+    for (let i = 0; i < Math.min(due, 2); i += 1) {
+      const push = 22 * Math.sin(Math.PI * Math.min(1, t / 0.7));
+      ws.send(swingFrame(sequence, push, 16));
+      sequence = (sequence + 1) & 255;
+      stats.frames += 1;
+      sent += 1;
+    }
+    if (t >= 0.7) {
+      clearInterval(swing);
+      const release = { aim: (Math.random() - 0.5) * 0.12, power: 0.72 + Math.random() * 0.2, curve: 0.12 + Math.random() * 0.1,
+        loft: 0.08, confidence: 1, source: 'accel', hookUnavailable: false };
+      send({ t: 'game-event', event: 'bowling:release', data: release });
+      stats.events += 1;
+      throws += 1;
+      log(`bowling:release #${throws} ${JSON.stringify(release)}`);
+    }
+  }, 5);
+}
+// The calibrated attitude for a blade pitched by `pitch` (about x) then turned by `yaw` (about y), radians.
+function bladeQuaternion(pitch, yaw) {
+  const qx = [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)];
+  const qy = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)];
+  // qy * qx
+  return [
+    qy[3] * qx[0] + qy[0] * qx[3] + qy[1] * qx[2] - qy[2] * qx[1],
+    qy[3] * qx[1] - qy[0] * qx[2] + qy[1] * qx[3] + qy[2] * qx[0],
+    qy[3] * qx[2] + qy[0] * qx[1] - qy[1] * qx[0] + qy[2] * qx[3],
+    qy[3] * qx[3] - qy[0] * qx[0] - qy[1] * qx[1] - qy[2] * qx[2],
+  ];
+}
+function attitudeFrame(sequence, q, gyroDegPerSec, dtMs) {
+  const buffer = new ArrayBuffer(38);
+  const view = new DataView(buffer);
+  const i16 = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
+  const CALIBRATED = 1, HAS_GYRO = 4, HAS_ACCEL = 8, HAS_GRAVITY = 16, HAS_QUATERNION = 32;
+  view.setUint8(0, 0x02);
+  view.setUint8(1, CALIBRATED | HAS_GYRO | HAS_ACCEL | HAS_GRAVITY | HAS_QUATERNION);
+  view.setUint8(2, 0);
+  view.setUint8(3, sequence & 255);
+  view.setInt16(10, i16(gyroDegPerSec * 20), true);
+  view.setInt16(24, i16(-9.81 * 1000), true);
+  view.setUint16(28, dtMs, true);
+  for (let i = 0; i < 4; i += 1) view.setInt16(30 + i * 2, i16(q[i] * 16384), true);
+  return buffer;
+}
+let samuraiTimer = null;
+function startSamurai() {
+  if (samuraiTimer) return;
+  log('samurai: streaming the katana at 100 Hz');
+  const started = Date.now();
+  let sent = 0;
+  let cutAt = 1.0;
+  let yaw = 0;
+  samuraiTimer = setInterval(() => {
+    const t = (Date.now() - started) / 1000;
+    const due = Math.floor(t * 100) + 1 - sent;
+    for (let i = 0; i < Math.min(due, 3); i += 1) {
+      const ft = (sent + 1) / 100;
+      if (ft > cutAt + 0.3) {
+        cutAt = ft + 0.6;
+        yaw = (Math.random() - 0.5) * 0.7;
+        throws += 1;
+      }
+      const k = Math.max(0, Math.min(1, (ft - cutAt) / 0.3));
+      const cutting = ft >= cutAt && ft <= cutAt + 0.3;
+      const pitch = cutting ? 0.5 - 2.2 * k : 0.25;
+      ws.send(attitudeFrame(sequence, bladeQuaternion(pitch, yaw), cutting ? 420 : 0, 10));
+      sequence = (sequence + 1) & 255;
+      stats.frames += 1;
+      sent += 1;
+    }
+  }, 4);
+}
+
+let stackerTimer = null;
+function startStacker() {
+  if (stackerTimer) return;
+  log('stacker: streaming the palm at 60 Hz, DROP every 1.3 s');
+  const started = Date.now();
+  let sent = 0;
+  let dropAt = 1.3;
+  stackerTimer = setInterval(() => {
+    const t = (Date.now() - started) / 1000;
+    const due = Math.floor(t * 60) + 1 - sent;
+    for (let i = 0; i < Math.min(due, 3); i += 1) {
+      const roll = (4 * Math.sin(t * 0.9)) * Math.PI / 180;
+      const q = [0, Math.sin(roll / 2), 0, Math.cos(roll / 2)];
+      ws.send(attitudeFrame(sequence, q, 0, 16));
+      sequence = (sequence + 1) & 255;
+      stats.frames += 1;
+      sent += 1;
+    }
+    if (t >= dropAt) {
+      dropAt = t + 1.3;
+      send({ t: 'game-event', event: 'stacker:drop' });
+      stats.events += 1;
+      throws += 1;
+      if (throws % 10 === 1) log(`stacker:drop #${throws}`);
+    }
+  }, 4);
+}
+
+let dartsTimer = null;
+let dartsLeft = 0;
+let dartsMine = false;
+function dartsTick() {
+  if (!dartsMine || dartsLeft <= 0) return;
+  for (let i = 0; i < 4; i += 1) {
+    ws.send(swingFrame(sequence, 0, 16));
+    sequence = (sequence + 1) & 255;
+    stats.frames += 1;
+  }
+  const release = { aimX: (Math.random() - 0.5) * 0.3, aimY: 0.25 + (Math.random() - 0.5) * 0.3, power: 0.55 + (Math.random() - 0.5) * 0.12,
+    spinDegPerSec: (Math.random() - 0.5) * 60, rollDegPerSec: 0, confidence: 0.9, steadiness: 0.85, peakMs2: 18, durationMs: 160, source: 'accel' };
+  send({ t: 'game-event', event: 'darts:release', data: release });
+  stats.events += 1;
+  throws += 1;
+  log(`darts:release #${throws} aim (${release.aimX.toFixed(2)}, ${release.aimY.toFixed(2)}) power ${release.power.toFixed(2)}`);
+}
+
+function setTurn(active) {
+  if (active === myTurn) return;
+  myTurn = active;
+  log(active ? 'my turn: swinging every 5 s' : 'turn moved on');
+  clearInterval(bowling);
+  bowling = null;
+  if (active) {
+    setTimeout(bowl, 1500);
+    bowling = setInterval(bowl, 5000);
+  }
+}
+
 function stopDriving() {
   if (!streaming) return;
   clearInterval(streaming);
@@ -91,7 +263,7 @@ function stopDriving() {
 }
 
 function startDriving() {
-  if (streaming) return;
+  if (streaming || game !== 'kart') return;
   log('screen active: GAS down, streaming sensor frames');
   send({ t: 'game-event', event: 'kart-input', data: { isAccelerating: true } });
   stats.events += 1;
@@ -162,8 +334,23 @@ ws.addEventListener('message', (event) => {
     case 'state':
       if (m.state?.countdown) log(`room countdown ${m.state.countdown.kind} ends in ${m.state.countdown.endsAt - m.state.serverTime} ms`);
       if (m.state?.game?.status === 'in-progress') startDriving();
+      if (game === 'samurai' && m.state?.game?.status === 'in-progress') startSamurai();
+      if (game === 'stacker' && m.state?.game?.status === 'in-progress') startStacker();
+      if (game === 'bowling') setTurn(m.state?.game?.status === 'in-progress' && !!playerId && m.state?.game?.activePlayerId === playerId);
       break;
     case 'game-event':
+      if (m.event === 'darts:turn') {
+        const mine = m.data?.activePlayerId === playerId && m.data?.phase === 'playing';
+        dartsLeft = m.data?.dartsLeft ?? 0;
+        if (mine !== dartsMine) {
+          dartsMine = mine;
+          log(mine ? `darts: my visit (${dartsLeft} darts)` : 'darts: visit over');
+          clearInterval(dartsTimer);
+          dartsTimer = mine ? setInterval(dartsTick, 1600) : null;
+        }
+        break;
+      }
+      if (m.event === 'darts:aim') break;
       if (m.event !== 'kart-input') log(`game-event ${m.event} ${JSON.stringify(m.data ?? null)} from ${m.fromPlayerId}`);
       break;
     case 'error':
@@ -180,7 +367,7 @@ ws.addEventListener('close', (event) => {
 });
 
 setTimeout(() => {
-  log(`done: ${stats.frames} sensor frames, ${stats.events} kart-input events; pedals off, leaving`);
+  log(`done: ${stats.frames} sensor frames, ${stats.events} events, ${throws} throws/cuts; leaving`);
   clearInterval(streaming);
   if (ws.readyState === WebSocket.OPEN) {
     send({ t: 'game-event', event: 'kart-input', data: { isAccelerating: false, isReversing: false, isDrifting: false } });

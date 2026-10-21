@@ -1,5 +1,6 @@
 #include "KartGameMode.h"
 
+#include "Games/ArcadeCatalog.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -161,6 +162,11 @@ void AKartGameMode::SetupRoom()
 		HandleRoomStart(Room->GetRoom().SelectedMapId);
 		return;
 	}
+	// A finished match left the room on its results: bring everyone back to the lobby, or nothing could start.
+	if (Status == EMcRoomStatus::Complete && Room->IsHost())
+	{
+		Room->ReturnToLobby();
+	}
 	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 	{
 		UKartLobbyWidget::Show(PC);
@@ -187,6 +193,15 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 	if (bRaceBuilt)
 	{
 		return;
+	}
+	// A party game plays in its own level; the room (a game instance subsystem) survives the travel.
+	if (const URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>(); Room && Room->GetRoom().GameId != TEXT("kart"))
+	{
+		if (const MovecadeKart::Arcade::FGameInfo* Game = MovecadeKart::Arcade::Find(Room->GetRoom().GameId))
+		{
+			UGameplayStatics::OpenLevel(this, FName(*Game->Map));
+			return;
+		}
 	}
 	ATrackBuilder* Builder = GetTrackBuilder();
 	if (Builder && !MapId.IsEmpty() && Builder->TrackId != MapId)
@@ -380,23 +395,23 @@ void AKartGameMode::SetupTestHooks()
 		for (const FString& Time : Times)
 		{
 			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, [this]()
+			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 			{
 				// Saved/Screenshots/<platform>/ScreenShotNNNNN.png, with the UI
 				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 				{
 					PC->ConsoleCommand(TEXT("Shot showui"));
 				}
-			}, FCString::Atof(*Time), false);
+			}), FCString::Atof(*Time), false);
 		}
 	}
 	float QuitAfter = 0.f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
 	{
 		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, [this]()
+		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}, QuitAfter, false);
+		}), QuitAfter, false);
 	}
 }

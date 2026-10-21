@@ -43,3 +43,17 @@ Every workstream is merged on master; 51 automation tests pass, and the packaged
 
 Open: key remapping (the controls page is read-only), Neon City's art pass, and phones acting on haptics (that
 needs a change in movecade-v2's phone code).
+
+## Status (2026-10-20, later): the living track and the drivers
+
+- **Track life** (`ATrackLife`): Violet's lawn verges carry about 400k geometry grass tufts and flowers on a baked
+  lawn height grid (`Data/Tracks/violet-loop.lawn.json`). The grass sways in a rolling wind and lies down in a
+  lighter trail wherever a kart crosses it: two ping-ponged 1024² render targets, decayed and stamped per frame,
+  sampled by the grass material. The grandstands are rebuilt with about 370 spectators who track the nearest kart,
+  jump and wave when one passes, and cheer at GO, laps and the finish. Also butterflies that scatter, daylight
+  fireworks over the gate, and wind on every instanced plant. It costs about 1.4 ms GPU and 1.5 ms render thread
+  in solo view (110 fps at 1080p). `-KartNoLife` turns it off.
+- **Drivers:** softer skin (the 512 px AO atlas at a third of its strength, a lighter albedo bake, a warm rim),
+  stylised hair sheen and rim, eye catchlights and per-face iris colours, and spring-driven hair and hem
+  swing in the native driver pose, and cartoon proportions (head x1.14, hands x1.2).
+

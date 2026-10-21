@@ -580,6 +580,27 @@ namespace MovecadeKart::Net
 		}
 
 		FString StartGame() { return FJsonOut(TEXT("start-game")).Done(); }
+		FString AdvanceTurn(const FString& ActivePlayerId)
+		{
+			return FJsonOut(TEXT("advance-turn")).Str(TEXT("activePlayerId"), ActivePlayerId).Str(TEXT("phase"), TEXT("active")).Done();
+		}
+		FString GameEvent(const FString& Event, const FString& DataJson) { return FJsonOut(TEXT("game-event")).Str(TEXT("event"), Event).Raw(TEXT("data"), DataJson).Done(); }
+		FString ConfigureRoomGame(const FString& GameId) { return FJsonOut(TEXT("configure-room")).Str(TEXT("gameId"), GameId).Done(); }
+		FString PlayFeedback(const FString& GameId, int32 MatchNumber, const FString& PlayerId, const FString& Title,
+			const FString& Detail, const FString& Tone, const FString& Haptic, bool bMajor)
+		{
+			FString Data = FString::Printf(TEXT("{\"gameId\":%s,\"matchNumber\":%d,\"playerId\":%s,\"title\":%s,\"detail\":%s,\"tone\":%s"),
+				*FJsonOut::Quote(GameId), MatchNumber, *FJsonOut::Quote(PlayerId), *FJsonOut::Quote(Title.Left(80)), *FJsonOut::Quote(Detail.Left(160)), *FJsonOut::Quote(Tone));
+			if (!Haptic.IsEmpty())
+			{
+				Data += FString::Printf(TEXT(",\"haptic\":%s"), *FJsonOut::Quote(Haptic));
+			}
+			if (bMajor)
+			{
+				Data += TEXT(",\"prominence\":\"major\"");
+			}
+			return GameEvent(TEXT("play:feedback"), Data + TEXT("}"));
+		}
 		FString AdvanceTurnSimultaneous() { return FJsonOut(TEXT("advance-turn")).Null(TEXT("activePlayerId")).Str(TEXT("phase"), TEXT("active")).Done(); }
 		FString ScoreUpdate(const TArray<FMcScoreEntry>& Scores) { return FJsonOut(TEXT("score-update")).Raw(TEXT("scores"), ScoresJson(Scores)).Done(); }
 		FString CompleteGame(const TArray<FMcScoreEntry>& Scores) { return FJsonOut(TEXT("complete-game")).Raw(TEXT("scores"), ScoresJson(Scores)).Done(); }
@@ -618,6 +639,11 @@ namespace MovecadeKart::Net
 				*FJsonOut::Quote(GameId), *FJsonOut::Quote(PlayerId), *FJsonOut::Quote(ActionId));
 			return FJsonOut(TEXT("game-event")).Str(TEXT("event"), TEXT("practice:ack")).Raw(TEXT("data"), Data).Done();
 		}
+	}
+
+	FString QuoteJson(const FString& Value)
+	{
+		return FJsonOut::Quote(Value);
 	}
 
 	bool IsMomentaryType(const FString& Type)

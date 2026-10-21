@@ -1,5 +1,7 @@
 #include "Net/KartLobbyWidget.h"
 
+#include "Games/ArcadeCatalog.h"
+#include "Games/ArcadeSession.h"
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Camera/CameraActor.h"
@@ -37,6 +39,25 @@
 
 // The lobby's look follows the UI style (UI/KartUIStyle.h): white cards on the track backdrop, the game's type and
 // palette, and the shared button glyphs. Its behaviour (room calls, keys, auto-hide) is the network workstream's.
+
+
+namespace
+{
+	/** The lobby's games, in pill order (the room's gameId). */
+	const TArray<FString>& LobbyGames()
+	{
+		static const TArray<FString> Games = []()
+		{
+			TArray<FString> Out = { TEXT("kart") };
+			for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
+			{
+				Out.Add(G.Id);
+			}
+			return Out;
+		}();
+		return Games;
+	}
+}
 
 namespace
 {
@@ -166,15 +187,20 @@ void UKartLobbyWidget::BuildTree()
 
 	// Painted layer: the dimming behind the cards and the button hints.
 	UKartPaintWidget* Backdrop = WidgetTree->ConstructWidget<UKartPaintWidget>();
-	Backdrop->OnPaintKart = [](const FKartPainter& P, const FKartScreenFrame& Frame)
+	Backdrop->OnPaintKart = [WeakThis = TWeakObjectPtr<UKartLobbyWidget>(this)](const FKartPainter& P, const FKartScreenFrame& Frame)
 	{
+		const URoomHostSubsystem* Subsystem = WeakThis.IsValid() ? WeakThis->Room() : nullptr;
+		const bool bKart = !Subsystem || Subsystem->GetGameId() == TEXT("kart");
 		P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X * 0.62, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.82f), Color::WithAlpha(Color::Night, 0.45f), false);
 		P.Gradient(FVector2D(Frame.Size.X * 0.62, 0.0), FVector2D(Frame.Size.X * 0.38, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.45f), Color::WithAlpha(Color::Night, 0.3f), false);
-		KartWidgets::Hints(P, Frame, {
-			{ EKartMenuAction::Left, NSLOCTEXT("KartLobby", "Track", "Track") },
-			{ EKartMenuAction::Accept, NSLOCTEXT("KartLobby", "Start", "Start") },
-			{ EKartMenuAction::Back, NSLOCTEXT("KartLobby", "Leave", "Leave") },
-		});
+		TArray<FKartHint> Hints = { { EKartMenuAction::Up, NSLOCTEXT("KartLobby", "Game", "Game") } };
+		if (bKart)
+		{
+			Hints.Add({ EKartMenuAction::Left, NSLOCTEXT("KartLobby", "Track", "Track") });
+		}
+		Hints.Add({ EKartMenuAction::Accept, NSLOCTEXT("KartLobby", "Start", "Start") });
+		Hints.Add({ EKartMenuAction::Back, NSLOCTEXT("KartLobby", "Leave", "Leave") });
+		KartWidgets::Hints(P, Frame, Hints);
 	};
 	if (UOverlaySlot* BackSlot = Root->AddChildToOverlay(Backdrop))
 	{
@@ -216,9 +242,40 @@ void UKartLobbyWidget::BuildTree()
 	// Right: title, track, seats, start.
 	UVerticalBox* Right = WidgetTree->ConstructWidget<UVerticalBox>();
 	AddV(Right, Text(TEXT("Party Mode"), Font(EFont::Display, 84.f, 5.f), Color::White), 0.f);
-	AddV(Right, Text(TEXT("Phones are the controllers: scan the code, tilt to steer."), Font(EFont::Body, 26.f, 2.f), Color::White), 30.f);
+	SubtitleText = Text(TEXT("Phones are the controllers: scan the code, tilt to steer."), Font(EFont::Body, 26.f, 2.f), Color::White);
+	AddV(Right, SubtitleText, 24.f);
 
-	AddV(Right, Text(TEXT("TRACK"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
+	// The game: Kart Racer or a ported party game, as chunky pills.
+	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
+	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
+	TArray<FString> PillNames = { TEXT("Kart Racer") };
+	for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
+	{
+		PillNames.Add(G.Name.ToString());
+	}
+	check(PillNames.Num() == 5); // one handler per pill below
+	for (const FString& Name : PillNames)
+	{
+		UButton* Button = WidgetTree->ConstructWidget<UButton>();
+		Button->SetStyle(CardButtonStyle(30.f));
+		UTextBlock* Label = Text(*Name, Font(EFont::Title, 25.f), Color::Navy);
+		if (UButtonSlot* PillSlot = Cast<UButtonSlot>(Button->SetContent(Label)))
+		{
+			PillSlot->SetPadding(FMargin(18.f, 10.f));
+		}
+		Button->SetBackgroundColor(Color::Paper);
+		AddH(Games, Button, 10.f);
+		GameButtons.Add(Button);
+	}
+	GameButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
+	GameButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
+	GameButtons[2]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame2Clicked);
+	GameButtons[3]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame3Clicked);
+	GameButtons[4]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame4Clicked);
+	AddV(Right, Games, 26.f);
+
+	TrackSection = WidgetTree->ConstructWidget<UVerticalBox>();
+	AddV(TrackSection, Text(TEXT("TRACK"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Tracks = WidgetTree->ConstructWidget<UHorizontalBox>();
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < Catalog.Num() && i < 2; ++i)
@@ -245,7 +302,8 @@ void UKartLobbyWidget::BuildTree()
 	}
 	if (TrackButtons.Num() > 0) TrackButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack0Clicked);
 	if (TrackButtons.Num() > 1) TrackButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack1Clicked);
-	AddV(Right, Tracks, 30.f);
+	AddV(TrackSection, Tracks, 30.f);
+	AddV(Right, TrackSection, 0.f);
 
 	AddV(Right, Text(TEXT("PLAYERS"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* SeatRowsBox[2] = { WidgetTree->ConstructWidget<UHorizontalBox>(), WidgetTree->ConstructWidget<UHorizontalBox>() };
@@ -393,6 +451,7 @@ void UKartLobbyWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	{
 		UpdateBackdrop(InDeltaTime);
 	}
+	UpdatePartyContinue();
 	RefreshAccumulator += InDeltaTime;
 	if (RefreshAccumulator >= 0.1f)
 	{
@@ -409,9 +468,23 @@ FReply UKartLobbyWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 		HandleStartClicked();
 		return FReply::Handled();
 	}
-	if (Key == EKeys::Left || Key == EKeys::Right || Key == EKeys::Tab || Key == EKeys::Gamepad_DPad_Left || Key == EKeys::Gamepad_DPad_Right)
+	if (Key == EKeys::Up || Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Up || Key == EKeys::Gamepad_DPad_Down)
 	{
 		if (const URoomHostSubsystem* Subsystem = Room())
+		{
+			const int32 Current = FMath::Max(0, LobbyGames().IndexOfByKey(Subsystem->GetGameId()));
+			const int32 Step = Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up ? -1 : 1;
+			SelectGame((Current + Step + LobbyGames().Num()) % LobbyGames().Num());
+			if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+			{
+				UI->PlaySound(EKartUISound::Tick);
+			}
+		}
+		return FReply::Handled();
+	}
+	if (Key == EKeys::Left || Key == EKeys::Right || Key == EKeys::Tab || Key == EKeys::Gamepad_DPad_Left || Key == EKeys::Gamepad_DPad_Right)
+	{
+		if (const URoomHostSubsystem* Subsystem = Room(); Subsystem && Subsystem->GetGameId() == TEXT("kart"))
 		{
 			const int32 Current = FKartTrackCatalog::IndexOf(Subsystem->GetRoom().SelectedMapId);
 			SelectTrack(Current == 0 ? 1 : 0);
@@ -492,6 +565,20 @@ void UKartLobbyWidget::Refresh()
 	ConnectionText->SetText(FText::FromString(Connection));
 	ConnectionText->SetColorAndOpacity(FSlateColor(ConnectionColor));
 
+	const bool bKart = Subsystem->GetGameId() == TEXT("kart");
+	for (int32 i = 0; i < GameButtons.Num(); ++i)
+	{
+		const bool bSelected = LobbyGames().IsValidIndex(i) && LobbyGames()[i] == Subsystem->GetGameId();
+		GameButtons[i]->SetBackgroundColor(bSelected ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f));
+		GameButtons[i]->SetRenderScale(bSelected ? FVector2D(1.04, 1.04) : FVector2D(1.0, 1.0));
+	}
+	TrackSection->SetVisibility(bKart ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	SubtitleText->SetText(FText::FromString(bKart ? TEXT("Phones are the controllers: scan the code, tilt to steer.")
+		: Subsystem->GetGameId() == TEXT("bowling") ? TEXT("Phones are the ball: scan the code, swing and let go to bowl.")
+		: Subsystem->GetGameId() == TEXT("darts") ? TEXT("Phones are the darts: scan the code, aim, pinch and flick.")
+		: Subsystem->GetGameId() == TEXT("stacker") ? TEXT("Phones are your palm: scan the code, keep it level and tap DROP.")
+		: TEXT("Phones are katanas: scan the code, then swing through the fruit.")));
+
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < TrackButtons.Num() && i < Catalog.Num(); ++i)
 	{
@@ -570,6 +657,40 @@ void UKartLobbyWidget::SelectTrack(int32 Index)
 	}
 }
 
+void UKartLobbyWidget::SelectGame(int32 Index)
+{
+	if (URoomHostSubsystem* Subsystem = Room())
+	{
+		Subsystem->SelectGame(LobbyGames().IsValidIndex(Index) ? LobbyGames()[Index] : FString(TEXT("kart")));
+		Refresh();
+	}
+}
+
+void UKartLobbyWidget::HandleGame0Clicked()
+{
+	SelectGame(0);
+}
+
+void UKartLobbyWidget::HandleGame1Clicked()
+{
+	SelectGame(1);
+}
+
+void UKartLobbyWidget::HandleGame2Clicked()
+{
+	SelectGame(2);
+}
+
+void UKartLobbyWidget::HandleGame3Clicked()
+{
+	SelectGame(3);
+}
+
+void UKartLobbyWidget::HandleGame4Clicked()
+{
+	SelectGame(4);
+}
+
 void UKartLobbyWidget::HandleStartClicked()
 {
 	if (URoomHostSubsystem* Subsystem = Room())
@@ -607,8 +728,40 @@ void UKartLobbyWidget::HandleStartRequested(const FString& MapId)
 	}
 }
 
+void UKartLobbyWidget::UpdatePartyContinue()
+{
+	// "Next game" on a party game's results queued a game: select it, and start as soon as the phones re-ready,
+	// even with a single phone (the evening is already under way; nobody should have to reach for the keyboard).
+	URoomHostSubsystem* RoomHost = Room();
+	UArcadeSession* Session = UArcadeSession::Get(this);
+	if (!RoomHost || !Session || RoomHost->GetConnectionState() != EMcConnection::Open || RoomHost->GetRoom().Status != EMcRoomStatus::Lobby)
+	{
+		return;
+	}
+	if (Session->HasQueuedRoomGame())
+	{
+		RoomHost->SelectGame(Session->ConsumeQueuedRoomGame());
+		bContinueParty = true;
+		ContinueSince = GetWorld() ? GetWorld()->GetRealTimeSeconds() : 0.0;
+	}
+	if (bContinueParty && RoomHost->GetRoom().GameId == RoomHost->GetGameId() && RoomHost->CanStart())
+	{
+		bContinueParty = false;
+		RoomHost->RequestStart();
+	}
+	// Give up on the auto start after a couple of minutes: the lobby's own flow takes over.
+	if (bContinueParty && GetWorld() && GetWorld()->GetRealTimeSeconds() - ContinueSince > 120.0)
+	{
+		bContinueParty = false;
+	}
+}
+
 void UKartLobbyWidget::HandleReturnedToLobby()
 {
+	if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+	{
+		UI->SetMenuMusic(true);
+	}
 	if (!bAutoHide)
 	{
 		return;

@@ -1,5 +1,6 @@
 #include "Net/RoomHostSubsystem.h"
 
+#include "Games/ArcadeCatalog.h"
 #include "Algo/Compare.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
@@ -70,6 +71,10 @@ void URoomHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	const bool bJoinBaseGiven = FParse::Value(Cmd, TEXT("RoomJoinBase="), JoinBaseUrl);
 	FParse::Value(Cmd, TEXT("RoomOrigin="), Origin);
 	FParse::Value(Cmd, TEXT("RoomMap="), PendingMapId);
+	if (FString Game; FParse::Value(Cmd, TEXT("RoomGame="), Game) && IsPlayableGame(Game))
+	{
+		GameId = Game;
+	}
 	// A server on this machine speaks plain ws and is joined from the local web app; anything else is TLS.
 	if (IsLocalPartyHost(PartyHost))
 	{
@@ -174,6 +179,7 @@ void URoomHostSubsystem::CloseRoom(bool bEndForEveryone)
 		Code.Reset();
 		HostToken.Reset();
 		JoinToken.Reset();
+		ResetRoomState();
 		Save();
 	}
 	SetConnection(EMcConnection::Idle);
@@ -243,6 +249,7 @@ void URoomHostSubsystem::Connect()
 					Self->Code.Reset();
 					Self->HostToken.Reset();
 					Self->JoinToken.Reset();
+					Self->ResetRoomState();
 					Self->Save();
 				}
 				Self->SetConnection(EMcConnection::Failed);
@@ -372,6 +379,11 @@ void URoomHostSubsystem::HandleText(const FString& Text)
 		{
 			HandlePracticeAction(From, **Data);
 		}
+		else if (!Event.IsEmpty() && !From.IsEmpty())
+		{
+			Message->TryGetObjectField(TEXT("data"), Data);
+			OnGameEvent.Broadcast(From, Event, Data ? *Data : TSharedPtr<FJsonObject>());
+		}
 	}
 	else if (Type == TEXT("error"))
 	{
@@ -430,6 +442,10 @@ void URoomHostSubsystem::HandleWelcome(const FJsonObject& Message)
 	{
 		ApplyState(**State, true);
 	}
+	if (Room.Status == EMcRoomStatus::Lobby)
+	{
+		bStartSent = false;
+	}
 	SetConnection(EMcConnection::Open);
 	UE_LOG(LogRoomHost, Display, TEXT("Welcome: session %s, %s of room %s (%s), map %s, %d seat(s)"),
 		*SessionId, IsHost() ? TEXT("host") : TEXT("STANDBY (another screen hosts this room)"), *Room.JoinCode, *Room.RoomId, *Room.SelectedMapId, Room.Players.Num());
@@ -439,6 +455,11 @@ void URoomHostSubsystem::HandleWelcome(const FJsonObject& Message)
 		SelectMap(PendingMapId);
 	}
 	PendingMapId.Reset();
+	if (!PendingGameId.IsEmpty())
+	{
+		SelectGame(PendingGameId);
+	}
+	PendingGameId.Reset();
 	Save();
 }
 
@@ -594,6 +615,11 @@ void URoomHostSubsystem::OnStateApplied(const FMcRoomState& Previous)
 		bStartSent = false;
 	}
 
+	// The server's game is the truth (a rejected configure-room, another host); our own pick wins only while in flight.
+	if (!Room.GameId.IsEmpty() && Room.GameId != GameId && Now() - GameAskedAt > 2.0)
+	{
+		GameId = Room.GameId;
+	}
 	UpdateJoinUrl();
 	if (bSeatsChanged)
 	{
@@ -644,6 +670,7 @@ void URoomHostSubsystem::HandleSensorFrame(const uint8* Data, int32 Size)
 	In.LastSequence = Frame.Sequence;
 	In.LastSensorTime = Now();
 	++In.SensorFrames;
+	OnSensorFrame.Broadcast(Frame.PlayerIndex, Frame);
 	if (In.LastSensorTime - In.LastLogTime >= 1.0)
 	{
 		In.LastLogTime = In.LastSensorTime;
@@ -759,10 +786,52 @@ void URoomHostSubsystem::SelectMap(const FString& MapId)
 		PendingMapId = MapId;
 		return;
 	}
+	// Maps are Kart's: the server refuses one for any other game (MALFORMED_MESSAGE "Unknown mapId for game").
+	if (GameId != TEXT("kart"))
+	{
+		return;
+	}
 	if (Room.Status == EMcRoomStatus::Lobby && MapId != Room.SelectedMapId)
 	{
 		Send(Msg::ConfigureRoomMap(MapId), TEXT("configure-room"));
 	}
+}
+
+bool URoomHostSubsystem::IsPlayableGame(const FString& InGameId)
+{
+	return InGameId == TEXT("kart") || MovecadeKart::Arcade::Find(InGameId) != nullptr;
+}
+
+void URoomHostSubsystem::SelectGame(const FString& InGameId)
+{
+	if (!IsPlayableGame(InGameId))
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("Unknown or unported game %s"), *InGameId);
+		return;
+	}
+	if (!bWelcomed)
+	{
+		GameId = InGameId;
+		PendingGameId = InGameId;
+		return;
+	}
+	if (Room.Status != EMcRoomStatus::Lobby)
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("SelectGame %s ignored: the room is not in its lobby"), *InGameId);
+		return;
+	}
+	GameId = InGameId;
+	GameAskedAt = Now();
+	if (InGameId != Room.GameId)
+	{
+		UE_LOG(LogRoomHost, Display, TEXT("Room game -> %s"), *InGameId);
+		Send(Msg::ConfigureRoomGame(InGameId), TEXT("configure-room"));
+	}
+}
+
+bool URoomHostSubsystem::IsMatchRunning(const FString& InGameId) const
+{
+	return (Room.Status == EMcRoomStatus::InProgress || Room.Status == EMcRoomStatus::Paused) && Room.GameId == InGameId;
 }
 
 bool URoomHostSubsystem::CanStart() const
@@ -829,7 +898,28 @@ void URoomHostSubsystem::StartGameNow()
 	bStartSent = true;
 	LobbyCountdownEndsAt = -1.0;
 	UE_LOG(LogRoomHost, Display, TEXT("start-game (%d seat(s), map %s)"), Room.Players.Num(), *Room.SelectedMapId);
+	StartSentAt = Now();
 	Send(Msg::StartGame(), TEXT("start-game"));
+}
+
+void URoomHostSubsystem::ResetRoomState()
+{
+	HighestStateVersion = -1;
+	Room = FMcRoomState();
+	for (int32 i = 0; i < SeatCount; ++i)
+	{
+		ResetSeatInput(i);
+	}
+	LastLiveScores.Reset();
+	LobbyCountdownKey.Reset();
+	LobbyCountdownEndsAt = -1.0;
+	bStartSent = false;
+	StartSentAt = -1.0;
+	AdvancedMatchNumber = -1;
+	StartedMatchNumber = -1;
+	AckedMatchNumber = -1;
+	SubmittedMatchNumber = -1;
+	AutoStartAt = -1.0;
 }
 
 int32 URoomHostSubsystem::GetLobbyCountdownRemainingMs() const
@@ -839,6 +929,11 @@ int32 URoomHostSubsystem::GetLobbyCountdownRemainingMs() const
 
 void URoomHostSubsystem::UpdateLobbyCountdown(double T)
 {
+	if (bStartSent && Room.Status == EMcRoomStatus::Lobby && StartSentAt >= 0.0 && T - StartSentAt > 8.0)
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("start-game was never answered; the lobby may start again"));
+		bStartSent = false;
+	}
 	// useReadyCountdown.ts + LobbyScreen.tsx: a lone person never starts on a timer ("Start solo");
 	// a second seat runs the 5 s count, restarted by any roster or map change.
 	const bool bSolo = Room.Players.Num() == 1 && !Room.Players[0].bBot;
@@ -970,6 +1065,56 @@ void URoomHostSubsystem::SubmitResults(const TArray<FMcRaceResult>& Results)
 		Send(Msg::ScoreUpdate(Scores), TEXT("score-update"));
 	}
 	Send(Msg::CompleteGame(Scores), TEXT("complete-game"));
+}
+
+void URoomHostSubsystem::CompleteGame(const TArray<FMcScoreEntry>& Scores)
+{
+	if (Room.Status != EMcRoomStatus::InProgress && Room.Status != EMcRoomStatus::Paused)
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("CompleteGame: the match is not running (status %d)"), static_cast<int32>(Room.Status));
+		return;
+	}
+	if (SubmittedMatchNumber == Room.MatchNumber || !AreScoresValid(Scores))
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("CompleteGame: match %d already submitted, or an invalid score list"), Room.MatchNumber);
+		return;
+	}
+	SubmittedMatchNumber = Room.MatchNumber;
+	for (const FMcScoreEntry& Entry : Scores)
+	{
+		UE_LOG(LogRoomHost, Display, TEXT("Score %s: %d"), *Entry.PlayerId, Entry.Score);
+	}
+	// RaceUI.tsx: the update goes first, so a rejected completion still leaves the scores.
+	if (Scores.Num() > 0)
+	{
+		Send(Msg::ScoreUpdate(Scores), TEXT("score-update"));
+	}
+	Send(Msg::CompleteGame(Scores), TEXT("complete-game"));
+}
+
+void URoomHostSubsystem::AdvanceTurn(const FString& ActivePlayerId)
+{
+	if (Room.Status == EMcRoomStatus::InProgress || Room.Status == EMcRoomStatus::Paused)
+	{
+		// Empty: every seated phone streams (activePlayerId null), as darts asks.
+		Send(ActivePlayerId.IsEmpty() ? Msg::AdvanceTurnSimultaneous() : Msg::AdvanceTurn(ActivePlayerId), TEXT("advance-turn"));
+	}
+}
+
+void URoomHostSubsystem::SendGameEvent(const FString& Event, const FString& DataJson)
+{
+	if (bWelcomed)
+	{
+		Send(Msg::GameEvent(Event, DataJson), TEXT("game-event"));
+	}
+}
+
+void URoomHostSubsystem::SendPlayFeedback(const FString& PlayerId, const FString& Title, const FString& Detail, const FString& Tone, const FString& Haptic, bool bMajor)
+{
+	if (bWelcomed)
+	{
+		Send(Msg::PlayFeedback(GameId, Room.MatchNumber, PlayerId, Title, Detail, Tone, Haptic, bMajor), TEXT("game-event"));
+	}
 }
 
 void URoomHostSubsystem::SendHaptic(int32 Seat, float Intensity, FName CollisionType, bool bSustained)

@@ -73,6 +73,7 @@ and UE yaw is the negated three.js yaw.
 | Effects | `FX/KartFxComponent`, `FX/KartFxSubsystem`, `FX/KartItemMeshes`, `Race/KartItemPresenter` | Per-kart Niagara streams (boost flames, tiered drift sparks, tyre marks, dust, impact sparks), pooled bursts, item meshes modelled in code, the per-view screen effects (ink, flashes) |
 | UI | `UI/*` | A Slate front end and HUD drawn in code: one painter and style, a screen stack with transitions, raw multi-pad input routing, session settings that turn the menu choices into seats |
 | Tracks | `TrackBuilder`, `TrackScenery`, `Tools/track-export` | Builds the road, walls and scenery from exported JSON |
+| Track life | `Track/TrackLife`, `Track/TrackLifeMeshes`, `Tools/ue/make_track_life.py` | Presentation-only life around the circuit: interactive lawn grass over the sim's dirt cells (wind, and a GPU trample field karts press trails into), crowds that watch and cheer, butterflies that scatter, fireworks on race cues, foliage wind |
 | Network | `Net/RoomHostSubsystem`, `Net/RoomProtocol`, `Net/QrCode`, `Net/KartLobbyWidget` | Hosts a PartyKit room: lobby, QR join, phone sensor frames to inputs, haptics, signed results |
 | Audio | `Audio/*` | Engine layers, drift, surfaces, impacts and cues, synthesised to match the web mix |
 | Game | `KartGameMode`, `KartPlayerController`, `KartGameViewportClient`, `KartHUD` | Local or room races, Enhanced Input built in code, split-screen layout, HUD |

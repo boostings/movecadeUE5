@@ -1,0 +1,124 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "DartsPub.generated.h"
+
+class UInstancedStaticMeshComponent;
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
+class UStaticMesh;
+class UStaticMeshComponent;
+class UTextRenderComponent;
+
+/**
+ * Bullseye Bash's pub (movecade-v2 darts/DartsPub.tsx, DartsScene.tsx, pubLayout.ts; Docs/Port/07-darts.md §2, §6),
+ * modelled in code like the tracks: brick behind the board, bottle-green plaster and panelled wainscot, beams, the
+ * oche and its brass line, a chalkboard (which chalks the live scores), the bar with bottles and a lit back bar,
+ * pendants, and the cabinet with its lamp hood. The board is a real clock board built from its sectors and rings,
+ * with the wire spider, the number ring and the brass hoop; it hangs from a pivot that wobbles when darts land.
+ *
+ * Web world units map 1:1 to metres (UE cm via MovecadeKart::Coords). The board's centre is (0, 0.45, 0) facing
+ * +z (the camera), so UE -X; the pub group sits at z -0.75 as on the web.
+ */
+UCLASS()
+class MOVECADEKART_API ADartsPub : public AActor
+{
+	GENERATED_BODY()
+
+public:
+	ADartsPub();
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+
+	static constexpr double BoardRadius = 0.5;
+	static constexpr double BoardY = 0.45;
+	static constexpr double PubZ = -0.75;
+	static constexpr double FloorY = -1.32;
+	static constexpr double CeilingY = 5.5;
+	/** The thrower's mark (world z) and where they stand. */
+	static constexpr double OcheZ = 4.65;
+	static constexpr double ThrowerX = -0.85;
+	/** The exposure band (EV100) the pub's grade holds the camera to. */
+	static constexpr float ExposureMinEV = 7.6f;
+	static constexpr float ExposureMaxEV = 8.6f;
+	/** Unlit and emissive colours are tuned for an auto-exposed scene; at this exposure they need this much more. */
+	static constexpr float GlowGain = 7.f;
+
+	/** Web world (x, y, z) to UE cm. */
+	static FVector ToWorld(const FVector& Web);
+	/** A point on the board in board radii (+x right, +y up) to web world, Lift metres out from the face. */
+	static FVector BoardPoint(double X, double Y, double Lift = 0.0);
+
+	/** The pivot the face, spider, numbers and bounty wedge hang from: the game wobbles it. */
+	USceneComponent* GetBoardPivot() const { return BoardPivot; }
+	/** The bounty wedge (one sector, oriented by the game). */
+	UStaticMeshComponent* GetBountyWedge() const { return BountyWedge; }
+	UMaterialInstanceDynamic* GetBountyMaterial() const { return BountyMaterial; }
+	UStaticMesh* GetDartMesh() const { return DartMesh; }
+	UMaterialInterface* GetDartMaterial(int32 Slot) const { return DartMaterials.IsValidIndex(Slot) ? DartMaterials[Slot].Get() : nullptr; }
+	int32 GetDartMaterialCount() const { return DartMaterials.Num(); }
+	UStaticMesh* GetRingMesh() const { return RingMesh; }
+
+	/** Chalks "NAME  score" lines on the chalkboard. */
+	void SetChalk(const TArray<FString>& Lines);
+
+private:
+	void Build();
+	void Clear();
+	void BuildMeshes();
+	void BuildShell();
+	void BuildBar();
+	void BuildBoard();
+	void BuildLights();
+
+	/** A box centred at C with size S, in pub-local web units (z offset by PubZ). */
+	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, bool bShadows = true);
+	/** A cylinder along web Y, pub-local. */
+	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
+	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
+	UStaticMeshComponent* Part(UStaticMesh* Mesh, USceneComponent* Parent, const FTransform& Relative);
+	UTextRenderComponent* Text(USceneComponent* Parent, const FString& Value, const FVector& RelativeCm, float SizeCm, const FLinearColor& Color);
+
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USceneComponent> BoardPivot;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> BountyWedge;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> BountyMaterial;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UTextRenderComponent>> ChalkLines;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> BoardMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> WireMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> WedgeMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> DartMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> RingMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> BottleMesh;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInterface>> DartMaterials;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMesh> Cube;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMesh> Cylinder;
+};

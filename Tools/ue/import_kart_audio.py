@@ -2,6 +2,8 @@
 
 Run headless from the project root:
     .\\Tools\\ue\\run.ps1 import_kart_audio.py
+    .\\Tools\\ue\\run.ps1 import_kart_audio.py @{ KART_AUDIO_SET = 'games' }
+        (the party games' set: Tools/audio/games -> /Game/Audio/Games, bowling_strike, darts_thud, ...)
 
 Assets land in /Game/Audio/Kart, named after the file with '-' -> '_' (kart-engine-on-1000.wav ->
 kart_engine_on_1000). Every cue the web build loops (kartCues.ts `loop: true`) is flagged looping and
@@ -13,7 +15,8 @@ import os
 
 import unreal
 
-DEST = "/Game/Audio/Kart"
+AUDIO_SET = os.environ.get("KART_AUDIO_SET", "kart")
+DEST = "/Game/Audio/Kart" if AUDIO_SET == "kart" else "/Game/Audio/Games"
 # kartCues.ts: the cues with `loop: true`.
 LOOPING = {
     "kart_engine_on_1000", "kart_engine_on_2500", "kart_engine_on_4000", "kart_engine_on_5500",
@@ -25,7 +28,7 @@ LOOPING = {
 
 def main():
     project = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
-    source_dir = os.path.join(project, "Tools", "audio", "kart")
+    source_dir = os.path.join(project, "Tools", "audio", AUDIO_SET)
     files = sorted(glob.glob(os.path.join(source_dir, "*.wav")))
     if not files:
         raise RuntimeError(f"No wavs in {source_dir}")

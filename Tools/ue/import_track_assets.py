@@ -1,7 +1,8 @@
 """Imports the track exporter's binaries (Tools/track-export/out, from `npm run export`) into Content/Tracks.
 
 Run headless:  .\\Tools\\ue\\run.ps1 import_track_assets.py
-Optional env:  KART_IMPORT=violet,harbor,neon,shared (default all), KART_MATERIALS_ONLY=1
+Optional env:  KART_IMPORT=violet,harbor,neon,shared (default all), KART_MATERIALS_ONLY=1,
+               KART_FOLIAGE_WIND_ONLY=1 (only M_TrackFoliageWind)
 
 - Master materials in /Game/Tracks/Shared/Materials, which ATrackBuilder instances per part:
   M_TrackVertexColor (lit, Color x vertex colour), M_TrackTextured (lit, Map x Color x vertex colour, UV
@@ -9,7 +10,8 @@ Optional env:  KART_IMPORT=violet,harbor,neon,shared (default all), KART_MATERIA
   M_TrackSurface / M_TrackSurfaceWall (Map x Color x vertex colour x a world-space CC0 detail set: colour
   divided by the set's mean, world-space normal, roughness; top-down or dominant-axis projection) and
   M_TrackBoostPad (emissive chevrons that scroll forward and pulse), M_TrackFoliage (M_TrackSurfaceWall with
-  two-sided foliage shading: hedges, crowns, lavender), M_TrackCrystal (glossy facets with an inner glow),
+  two-sided foliage shading: hedges, crowns, lavender; M_TrackFoliageWind adds the wind sway that ATrackLife
+  puts on the instanced plants), M_TrackCrystal (glossy facets with an inner glow),
   M_TrackGlass (lit translucent glazing), M_TrackWater (single layer water: depth-tinted, two scrolling
   normal maps, real reflections) and M_TrackSky (gradient dome, sun, horizon glow and a scrolling cloud layer).
 - The CC0 surface sets (out/shared/surfaces, normal maps already flipped to DirectX) to /Game/Tracks/Shared/Surfaces.
@@ -190,6 +192,7 @@ def make_materials():
     make_surface_material("M_TrackSurface", wall=False)
     make_surface_material("M_TrackSurfaceWall", wall=True)
     make_surface_material("M_TrackFoliage", wall=True, foliage=True)
+    make_surface_material("M_TrackFoliageWind", wall=True, foliage=True, wind=True)
     make_crystal_material()
     make_glass_material()
     make_water_material()
@@ -239,7 +242,65 @@ def surface_texture(m, name, set_id, kind, uv, x, y):
     return e
 
 
-def make_surface_material(name, wall, foliage=False):
+FOLIAGE_WIND = r"""
+float3 rel = WP - Pivot;
+float h = max(rel.z, 0.0) * 0.01;
+float2 wd = normalize(Wind.xy + float2(1e-4, 0.0));
+float2 p = Pivot.xy * 0.01;
+// A gust wave rolls along the wind; each plant sways on its own phase.
+float gust = 0.6 + 0.4 * sin(T * 0.8 - dot(p, wd) * 0.09);
+float sway = gust * (0.55 + 0.45 * sin(T * 1.7 + dot(p, float2(0.31, 0.17))));
+float3 o = float3(wd * sway * Sway * Wind.z * h, 0.0);
+o += N * sin(T * 6.5 + dot(WP, float3(0.021, 0.017, 0.033))) * Flutter * saturate(h * 0.6);
+return o;
+"""
+
+
+def instance_origin(m, x, y):
+    """The instance's world origin from custom data 0..2 (ATrackBuilder::EnableFoliageWind writes it): on
+    instanced components neither Object Position nor a local/instance transform yields the instance's own."""
+    xy = expr(m, unreal.MaterialExpressionAppendVector, x, y)
+    for i, pin in enumerate(("A", "B")):
+        mel.connect_material_expressions(expr(m, unreal.MaterialExpressionPerInstanceCustomData, x - 200, y + i * 70, data_index=i), "", xy, pin)
+    xyz = expr(m, unreal.MaterialExpressionAppendVector, x + 100, y)
+    mel.connect_material_expressions(xy, "", xyz, "A")
+    mel.connect_material_expressions(expr(m, unreal.MaterialExpressionPerInstanceCustomData, x - 200, y + 140, data_index=2), "", xyz, "B")
+    return xyz
+
+
+def add_foliage_wind(m):
+    """World position offset for the instanced plants (ATrackLife sets WindSway per prefab, in cm per metre of
+    height above the instance pivot, and WindFlutter in cm along the normal); MPC_TrackLife's Wind blows."""
+    mpc = unreal.load_asset("/Game/Tracks/Shared/Life/MPC_TrackLife")
+    if mpc is None:
+        unreal.log_warning("import_track_assets: no MPC_TrackLife yet (run make_track_life.py); M_TrackFoliageWind stays still")
+        return
+    node = expr(m, unreal.MaterialExpressionCustom, -700, 1200)
+    node.set_editor_property("code", FOLIAGE_WIND)
+    node.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    node.set_editor_property("description", "FoliageWind")
+    ins = []
+    for name in ("WP", "Pivot", "N", "T", "Wind", "Sway", "Flutter"):
+        ci = unreal.CustomInput()
+        ci.set_editor_property("input_name", name)
+        ins.append(ci)
+    node.set_editor_property("inputs", ins)
+    for name, src in (("WP", expr(m, unreal.MaterialExpressionWorldPosition, -1000, 1100)),
+                      ("Pivot", instance_origin(m, -1000, 1200)),
+                      ("N", expr(m, unreal.MaterialExpressionVertexNormalWS, -1000, 1300)),
+                      ("T", expr(m, unreal.MaterialExpressionTime, -1000, 1400)),
+                      ("Wind", expr(m, unreal.MaterialExpressionCollectionParameter, -1000, 1500, collection=mpc, parameter_name="Wind")),
+                      ("Sway", sparam(m, "WindSway", -1000, 1600, 0.0)),
+                      ("Flutter", sparam(m, "WindFlutter", -1000, 1700, 0.0))):
+        mel.connect_material_expressions(src, "", node, name)
+    mel.connect_material_property(node, "", unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    try:
+        m.set_editor_property("max_world_position_offset_displacement", 60.0)
+    except Exception:  # noqa: BLE001 - an engine without the property
+        pass
+
+
+def make_surface_material(name, wall, foliage=False, wind=False):
     """Map(UV0) x Color x vertex colour x CC0 detail (trackSurfaces.ts / worldSurface.ts on the web).
 
     Detail UVs are world metres / DetailTileM: top-down (XY) on ground, or on the plane of the dominant normal
@@ -249,6 +310,7 @@ def make_surface_material(name, wall, foliage=False):
     projection plane by DetailNormal. Roughness x lerp(1, 2 x rough map, DetailRough).
 
     foliage=True: two-sided foliage shading, light through the leaves tinted by SubsurfaceTint.
+    wind=True: the instanced plants' sway (add_foliage_wind).
     """
     m = new_material(name)
     m.set_editor_property("two_sided", True)
@@ -334,6 +396,8 @@ def make_surface_material(name, wall, foliage=False):
     rc = expr(m, unreal.MaterialExpressionClamp, -800, 650, min_default=0.04, max_default=1.0)
     mel.connect_material_expressions(rr, "", rc, "")
     mel.connect_material_property(rc, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    if wind:
+        add_foliage_wind(m)
     mel.recompile_material(m)
 
 
@@ -608,6 +672,13 @@ def make_writable():
 def main():
     groups = set((os.environ.get("KART_IMPORT") or "violet,harbor,neon,shared").split(","))
     make_writable()
+    if os.environ.get("KART_FOLIAGE_WIND_ONLY") == "1":
+        # Just the wind-swayed foliage master (it needs MPC_TrackLife from make_track_life.py). The full pass
+        # rebuilds M_TrackWater from scratch, which fails while the startup map (Sunset Harbor) holds it.
+        make_surface_material("M_TrackFoliageWind", wall=True, foliage=True, wind=True)
+        eal.save_asset(f"{MAT_DIR}/M_TrackFoliageWind", only_if_is_dirty=False)
+        log("M_TrackFoliageWind built")
+        return
     import_surfaces()
     make_materials()
     if os.environ.get("KART_MATERIALS_ONLY") == "1":

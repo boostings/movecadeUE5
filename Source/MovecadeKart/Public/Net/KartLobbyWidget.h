@@ -11,6 +11,7 @@ class UBorder;
 class UButton;
 class UImage;
 class UTextBlock;
+class UVerticalBox;
 class URoomHostSubsystem;
 
 /**
@@ -45,6 +46,8 @@ private:
 	void BuildTree();
 	void Refresh();
 	void SelectTrack(int32 Index);
+	/** Kart Racer or one of the ported party games (the room's gameId). */
+	void SelectGame(int32 Index);
 	/** The look: a slow orbit of the track behind the lobby. */
 	void ShowBackdrop(bool bShow);
 	void UpdateBackdrop(float DeltaSeconds);
@@ -58,6 +61,16 @@ private:
 	void HandleTrack0Clicked();
 	UFUNCTION()
 	void HandleTrack1Clicked();
+	UFUNCTION()
+	void HandleGame0Clicked();
+	UFUNCTION()
+	void HandleGame1Clicked();
+	UFUNCTION()
+	void HandleGame2Clicked();
+	UFUNCTION()
+	void HandleGame3Clicked();
+	UFUNCTION()
+	void HandleGame4Clicked();
 	UFUNCTION()
 	void HandleStartRequested(const FString& MapId);
 	UFUNCTION()
@@ -80,6 +93,13 @@ private:
 	UPROPERTY()
 	TArray<TObjectPtr<UButton>> TrackButtons;
 	UPROPERTY()
+	TArray<TObjectPtr<UButton>> GameButtons;
+	/** The track picker, collapsed for games without tracks. */
+	UPROPERTY()
+	TObjectPtr<UVerticalBox> TrackSection;
+	UPROPERTY()
+	TObjectPtr<UTextBlock> SubtitleText;
+	UPROPERTY()
 	TArray<TObjectPtr<UBorder>> SeatRows;
 	UPROPERTY()
 	TArray<TObjectPtr<UBorder>> SeatSwatches;
@@ -97,5 +117,9 @@ private:
 	double BackdropClock = 0.0;
 
 	float RefreshAccumulator = 0.f;
+	/** A queued next game is selected and should start once the phones are ready. */
+	bool bContinueParty = false;
+	double ContinueSince = 0.0;
+	void UpdatePartyContinue();
 	bool bBound = false;
 };

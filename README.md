@@ -68,6 +68,8 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` races a simulated phone against bots o
 | `-KartUiPad` | Show gamepad button hints regardless of input (for screenshots) |
 | `-KartCinematic` | Trailer camera: cuts every 4.5 s between the chase view and tracking shots round your kart |
 | `-KartCapture=<dir>`, `-KartCaptureFrom=s`, `-KartCaptureFor=s`, `-KartCaptureNoUI` | Write every frame of a time window (use with `-benchmark -fps=60`; `Tools/video/capture.ps1` does this and encodes the MP4) |
+| `-KartNoLife` | Turns off the living track layer (`ATrackLife`: interactive lawn grass, crowds, butterflies, fireworks, foliage wind) for comparisons |
+| `-KartLifeDemo` (with `-KartTrackCam`), `-KartFieldDebug` | A phantom kart circles the fixed camera's look-at point so stills show the grass trampling; paint the trample field on the grass |
 | `-KartFxShowcase[=explosion\|lightning\|prism\|rocket\|ink\|hit\|confetti\|box\|items]` | Plays effects on your kart for screenshots, without touching the race |
 
 ## Develop
@@ -95,6 +97,11 @@ No phone handy? `.\Tools\net-sim\e2e.ps1` races a simulated phone against bots o
 |---|---|---|
 | Violet Loop | `L_VioletLoop` | The Violet Gardens at twilight: hedged islands, crystals, lavender rows, a glass conservatory |
 | Sunset Harbor | `L_SunsetHarbor` | A coastal town at golden hour: seawalls, real water, sandstone islets, palms |
+
+At play, `ATrackLife` (`Source/MovecadeKart/.../Track`) brings them to life without touching the race: lawn grass that
+sways and lies down in a trail wherever a kart cuts across it, spectators in the stands who follow the karts and jump
+at GO, laps and the finish, butterflies that scatter, fireworks over the gate, and wind in the trees. Its assets come
+from `Tools/ue/make_track_life.py`; Violet's lawn heights from `Tools/ue/bake_lawn_heights.py`.
 
 Both are built from `Data/Tracks/*.track.json` by `ATrackBuilder` (levels rebuilt by `Tools/ue/make_track_map.py`);
 the art comes from `Tools/track-export` (see its README). Look checks: `-KartTrackCam=x,y,z,lookX,lookY,lookZ` holds
