@@ -1,5 +1,6 @@
 #include "Net/RoomHostSubsystem.h"
 
+#include "Games/ArcadeCatalog.h"
 #include "Algo/Compare.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
@@ -178,6 +179,7 @@ void URoomHostSubsystem::CloseRoom(bool bEndForEveryone)
 		Code.Reset();
 		HostToken.Reset();
 		JoinToken.Reset();
+		ResetRoomState();
 		Save();
 	}
 	SetConnection(EMcConnection::Idle);
@@ -247,6 +249,7 @@ void URoomHostSubsystem::Connect()
 					Self->Code.Reset();
 					Self->HostToken.Reset();
 					Self->JoinToken.Reset();
+					Self->ResetRoomState();
 					Self->Save();
 				}
 				Self->SetConnection(EMcConnection::Failed);
@@ -439,6 +442,10 @@ void URoomHostSubsystem::HandleWelcome(const FJsonObject& Message)
 	{
 		ApplyState(**State, true);
 	}
+	if (Room.Status == EMcRoomStatus::Lobby)
+	{
+		bStartSent = false;
+	}
 	SetConnection(EMcConnection::Open);
 	UE_LOG(LogRoomHost, Display, TEXT("Welcome: session %s, %s of room %s (%s), map %s, %d seat(s)"),
 		*SessionId, IsHost() ? TEXT("host") : TEXT("STANDBY (another screen hosts this room)"), *Room.JoinCode, *Room.RoomId, *Room.SelectedMapId, Room.Players.Num());
@@ -608,6 +615,11 @@ void URoomHostSubsystem::OnStateApplied(const FMcRoomState& Previous)
 		bStartSent = false;
 	}
 
+	// The server's game is the truth (a rejected configure-room, another host); our own pick wins only while in flight.
+	if (!Room.GameId.IsEmpty() && Room.GameId != GameId && Now() - GameAskedAt > 2.0)
+	{
+		GameId = Room.GameId;
+	}
 	UpdateJoinUrl();
 	if (bSeatsChanged)
 	{
@@ -787,7 +799,7 @@ void URoomHostSubsystem::SelectMap(const FString& MapId)
 
 bool URoomHostSubsystem::IsPlayableGame(const FString& InGameId)
 {
-	return InGameId == TEXT("kart") || InGameId == TEXT("bowling") || InGameId == TEXT("darts") || InGameId == TEXT("samurai") || InGameId == TEXT("stacker");
+	return InGameId == TEXT("kart") || MovecadeKart::Arcade::Find(InGameId) != nullptr;
 }
 
 void URoomHostSubsystem::SelectGame(const FString& InGameId)
@@ -797,13 +809,20 @@ void URoomHostSubsystem::SelectGame(const FString& InGameId)
 		UE_LOG(LogRoomHost, Warning, TEXT("Unknown or unported game %s"), *InGameId);
 		return;
 	}
-	GameId = InGameId;
 	if (!bWelcomed)
 	{
+		GameId = InGameId;
 		PendingGameId = InGameId;
 		return;
 	}
-	if (Room.Status == EMcRoomStatus::Lobby && InGameId != Room.GameId)
+	if (Room.Status != EMcRoomStatus::Lobby)
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("SelectGame %s ignored: the room is not in its lobby"), *InGameId);
+		return;
+	}
+	GameId = InGameId;
+	GameAskedAt = Now();
+	if (InGameId != Room.GameId)
 	{
 		UE_LOG(LogRoomHost, Display, TEXT("Room game -> %s"), *InGameId);
 		Send(Msg::ConfigureRoomGame(InGameId), TEXT("configure-room"));
@@ -879,7 +898,28 @@ void URoomHostSubsystem::StartGameNow()
 	bStartSent = true;
 	LobbyCountdownEndsAt = -1.0;
 	UE_LOG(LogRoomHost, Display, TEXT("start-game (%d seat(s), map %s)"), Room.Players.Num(), *Room.SelectedMapId);
+	StartSentAt = Now();
 	Send(Msg::StartGame(), TEXT("start-game"));
+}
+
+void URoomHostSubsystem::ResetRoomState()
+{
+	HighestStateVersion = -1;
+	Room = FMcRoomState();
+	for (int32 i = 0; i < SeatCount; ++i)
+	{
+		ResetSeatInput(i);
+	}
+	LastLiveScores.Reset();
+	LobbyCountdownKey.Reset();
+	LobbyCountdownEndsAt = -1.0;
+	bStartSent = false;
+	StartSentAt = -1.0;
+	AdvancedMatchNumber = -1;
+	StartedMatchNumber = -1;
+	AckedMatchNumber = -1;
+	SubmittedMatchNumber = -1;
+	AutoStartAt = -1.0;
 }
 
 int32 URoomHostSubsystem::GetLobbyCountdownRemainingMs() const
@@ -889,6 +929,11 @@ int32 URoomHostSubsystem::GetLobbyCountdownRemainingMs() const
 
 void URoomHostSubsystem::UpdateLobbyCountdown(double T)
 {
+	if (bStartSent && Room.Status == EMcRoomStatus::Lobby && StartSentAt >= 0.0 && T - StartSentAt > 8.0)
+	{
+		UE_LOG(LogRoomHost, Warning, TEXT("start-game was never answered; the lobby may start again"));
+		bStartSent = false;
+	}
 	// useReadyCountdown.ts + LobbyScreen.tsx: a lone person never starts on a timer ("Start solo");
 	// a second seat runs the 5 s count, restarted by any roster or map change.
 	const bool bSolo = Room.Players.Num() == 1 && !Room.Players[0].bBot;

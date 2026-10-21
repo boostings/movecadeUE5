@@ -7,6 +7,9 @@
 #include "UI/KartTrackCatalog.h"
 #include "UI/KartWidgets.h"
 
+#include "Games/ArcadeCatalog.h"
+#include "Games/ArcadeSession.h"
+
 #define LOCTEXT_NAMESPACE "KartFrontEnd"
 
 using namespace KartUI;
@@ -494,12 +497,16 @@ namespace
 
 	const TArray<FArcadeGame>& ArcadeGames()
 	{
-		static const TArray<FArcadeGame> Games = {
-			{ TEXT("bowling"), LOCTEXT("Bowling", "Bowling"), LOCTEXT("BowlingTag", "Ten frames down a neon lane. Swing, hook and chase the turkey."), TEXT("L_Bowling"), Color::Sun, 4, 4 },
-			{ TEXT("darts"), LOCTEXT("Darts", "Bullseye Bash"), LOCTEXT("DartsTag", "Pub darts on one board. Three darts a visit; hit the called sector for double."), TEXT("L_Darts"), Color::Hot, 4, 4 },
-			{ TEXT("samurai"), LOCTEXT("Samurai", "Samurai Slice"), LOCTEXT("SamuraiTag", "Swing the katana through the fruit, never the bombs. Three precise cuts: Focus."), TEXT("L_Samurai"), Color::Mint, 4, 1 },
-			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop each block on the last, trim the overhang, lean the tower against the wind."), TEXT("L_Stacker"), Color::Sky, 4, 1 },
-		};
+		// The shared catalog (Games/ArcadeCatalog) is the one list; the picker keeps its own view of it.
+		static const TArray<FArcadeGame> Games = []()
+		{
+			TArray<FArcadeGame> Out;
+			for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
+			{
+				Out.Add({ FName(*G.Id), G.Name, G.Tagline, *G.Map, G.Accent, G.MaxPlayers, G.MaxLocal });
+			}
+			return Out;
+		}();
 		return Games;
 	}
 
@@ -575,6 +582,15 @@ namespace
 
 		virtual void OnShown() override
 		{
+			// Back from a game: land on the one just played (next game may have moved on from the pick).
+			if (const UArcadeSession* Session = UArcadeSession::Get(FrontEnd.Get()); Session && !Session->GetGameId().IsEmpty())
+			{
+				const int32 Played = ArcadeGames().IndexOfByPredicate([Session](const FArcadeGame& G) { return G.Id == FName(*Session->GetGameId()); });
+				if (Played != INDEX_NONE)
+				{
+					ArcadePick().Game = Played;
+				}
+			}
 			Focus.Cursor.Set(ArcadePick().Game);
 			Focus.FocusAt = NowSeconds();
 			bStarting = false;
@@ -775,6 +791,10 @@ namespace
 			}
 			bStarting = true;
 			Host->PlaySound(EKartUISound::Go);
+			if (UArcadeSession* Session = UArcadeSession::Get(FE))
+			{
+				Session->NoteLaunch(Game.Id.ToString(), Pick.Players, Pick.House);
+			}
 			FE->StartGame(Game.Map, Pick.Players, Pick.House);
 		}
 

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Games/ArcadeGame.h"
 #include "Games/GameAudio.h"
 #include "Games/Samurai/SamuraiBlade.h"
 #include "Games/Samurai/SamuraiRules.h"
@@ -63,7 +64,7 @@ struct FSamuraiSeat
  * juice, bombs blow, the katana leaves a trail, the swordsman follows the blade, the camera punches and hit-stops.
  */
 UCLASS(NotPlaceable)
-class MOVECADEKART_API ASamuraiGame : public AActor
+class MOVECADEKART_API ASamuraiGame : public AActor, public IArcadeGame
 {
 	GENERATED_BODY()
 
@@ -99,6 +100,14 @@ public:
 	TFunction<void()> OnRematch;
 
 	void Rematch();
+
+	// IArcadeGame (SArcadeOverlay: pause, results, play again, next game) -----------------------------------
+	virtual FString GetArcadeId() const override { return TEXT("samurai"); }
+	virtual double GetArcadeFinishedAge() const override { return GetFinishedAge(); }
+	virtual void SetArcadePaused(bool bInPaused) override { bPaused = bInPaused; }
+	virtual bool IsArcadePaused() const override { return bPaused; }
+	virtual void ArcadeRestart() override;
+	virtual void GetArcadeStandings(TArray<FArcadeStanding>& Out) const override;
 
 private:
 	struct FLane

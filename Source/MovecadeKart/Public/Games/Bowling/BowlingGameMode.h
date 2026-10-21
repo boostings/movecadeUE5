@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Templates/SharedPointer.h"
 #include "BowlingGameMode.generated.h"
 
 class ABowlingAlley;
 class ABowlingGame;
+class SArcadeOverlay;
 
 /**
  * Bowling's level mode (L_Bowling): finds the alley (or builds one) and starts a game. Local play by default:
@@ -47,6 +49,8 @@ private:
 	void HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId);
 
 	bool bRoomMatch = false;
+	/** Pause, results and the play-again / next-game loop over the game. */
+	TSharedPtr<SArcadeOverlay> Overlay;
 	FDelegateHandle GameEventHandle;
 	FDelegateHandle SensorHandle;
 	FTimerHandle ScoreTimer;

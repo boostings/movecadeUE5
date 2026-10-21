@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Templates/SharedPointer.h"
 #include "StackerGameMode.generated.h"
 
 class AStackerRooftop;
 class AStackerGame;
+class SArcadeOverlay;
 
 /**
  * Sky Stacker's level mode (L_Stacker): finds the rooftop (or builds one) and starts a round. Local play: one
@@ -50,6 +52,8 @@ private:
 	TObjectPtr<AStackerGame> Game;
 
 	bool bRoomMatch = false;
+	/** Pause, results and the play-again / next-game loop over the game. */
+	TSharedPtr<SArcadeOverlay> Overlay;
 	FDelegateHandle GameEventHandle;
 	FDelegateHandle SensorHandle;
 	FTimerHandle ScoreTimer;

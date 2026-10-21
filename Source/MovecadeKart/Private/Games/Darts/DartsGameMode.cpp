@@ -7,6 +7,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Games/Darts/DartsGame.h"
 #include "Games/Darts/DartsPub.h"
+#include "Games/ArcadeSession.h"
+#include "Games/SArcadeOverlay.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
@@ -90,6 +92,15 @@ void ADartsGameMode::StartPlay()
 		PC->SetInputMode(FInputModeGameOnly());
 		PC->bShowMouseCursor = false;
 	}
+	if (!bRoomMatch)
+	{
+		// Play again and next game keep these seats.
+		if (UArcadeSession* Session = UArcadeSession::Get(this))
+		{
+			Session->NoteLaunch(TEXT("darts"), Locals, Bots);
+		}
+	}
+	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
 	SetupTestHooks();
 }
 
@@ -280,6 +291,11 @@ void ADartsGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const 
 
 void ADartsGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
+	if (Overlay.IsValid())
+	{
+		Overlay->Detach();
+		Overlay.Reset();
+	}
 	// The world's timers live on the game instance and outlast the level.
 	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	GetWorldTimerManager().ClearTimer(AimTimer);

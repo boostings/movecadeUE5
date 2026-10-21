@@ -117,5 +117,9 @@ private:
 	double BackdropClock = 0.0;
 
 	float RefreshAccumulator = 0.f;
+	/** A queued next game is selected and should start once the phones are ready. */
+	bool bContinueParty = false;
+	double ContinueSince = 0.0;
+	void UpdatePartyContinue();
 	bool bBound = false;
 };

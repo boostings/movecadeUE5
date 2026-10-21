@@ -6,6 +6,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Games/Stacker/StackerGame.h"
 #include "Games/Stacker/StackerRooftop.h"
+#include "Games/ArcadeSession.h"
+#include "Games/SArcadeOverlay.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
@@ -81,6 +83,15 @@ void AStackerGameMode::StartPlay()
 		PC->SetInputMode(FInputModeGameOnly());
 		PC->bShowMouseCursor = false;
 	}
+	if (!bRoomMatch)
+	{
+		// Play again and next game keep these seats.
+		if (UArcadeSession* Session = UArcadeSession::Get(this))
+		{
+			Session->NoteLaunch(TEXT("stacker"), Locals, Bots);
+		}
+	}
+	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
 	SetupTestHooks();
 }
 
@@ -219,6 +230,11 @@ void AStackerGameMode::HandleRoomPause(bool bPaused, const FString& Reason, cons
 
 void AStackerGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
+	if (Overlay.IsValid())
+	{
+		Overlay->Detach();
+		Overlay.Reset();
+	}
 	// The world's timers live on the game instance and outlast the level.
 	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))

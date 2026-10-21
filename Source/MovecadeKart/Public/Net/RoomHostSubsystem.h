@@ -308,6 +308,8 @@ private:
 
 	void UpdateJoinUrl();
 	void UpdateLobbyCountdown(double Now);
+	/** Forgets everything about the previous room (a new code is about to be minted): versions, match numbers, seats. */
+	void ResetRoomState();
 	void StartGameNow();
 	void ResetSeatInput(int32 SeatIndex);
 
@@ -356,6 +358,10 @@ private:
 	FString LobbyCountdownKey;
 	double LobbyCountdownEndsAt = -1.0;
 	bool bStartSent = false;
+	/** When start-game went out: a start lost to a dropped socket must not block the lobby for good. */
+	double StartSentAt = -1.0;
+	/** When we last asked the server for a game: until it echoes, the local pick wins over Room.GameId. */
+	double GameAskedAt = -1000.0;
 	int32 AdvancedMatchNumber = -1;
 	int32 StartedMatchNumber = -1;
 	int32 AckedMatchNumber = -1;

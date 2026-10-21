@@ -251,10 +251,4 @@ void SBowlingHud::PaintStandings(const FKartPainter& P, const ABowlingGame& G, f
 		Row.Text(Seat->Name, KartUI::Font(EFont::Title, 36.f * S), Pos + FVector2D(100.f * S, 44.f * S), Ink, FVector2D(0.0, 0.5));
 		Row.Text(FString::FromInt(Card->Score), KartUI::Font(EFont::Display, 56.f * S), Pos + FVector2D(690.f * S, 44.f * S), Ink, FVector2D(1.0, 0.5));
 	}
-	if (G.GetFinishedAge() > 2.0)
-	{
-		const float Pulse = 0.75f + 0.25f * FMath::Sin(static_cast<float>(G.GetClock()) * 3.f);
-		F.Faded(Pulse).Text(NSLOCTEXT("Bowling", "Again", "ENTER / A  play again     ESC / B  menu"), KartUI::Font(EFont::Label, 24.f * S),
-			FVector2D(P.Size().X / 2.f, P.Size().Y * 0.9f), KC::White, FVector2D(0.5, 0.5), 3.f * S);
-	}
 }

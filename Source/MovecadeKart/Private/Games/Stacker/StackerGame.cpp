@@ -649,20 +649,9 @@ void AStackerGame::Tick(float DeltaSeconds)
 		break;
 	case EStackerStage::Finished:
 		// compareHold.ts: the showcase holds eight seconds before the room hears the result.
-		if (GetStageAge() >= CompareHoldSeconds && GetStageAge() - Dt < CompareHoldSeconds && OnFinished)
+		if (GetStageAge() >= CompareHoldSeconds)
 		{
-			OnFinished();
-		}
-		if (Viewer && GetStageAge() > 2.5)
-		{
-			if (Viewer->WasInputKeyJustPressed(EKeys::Enter) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) || Viewer->WasInputKeyJustPressed(EKeys::SpaceBar))
-			{
-				if (OnRematch) OnRematch(); else Rematch();
-			}
-			else if ((Viewer->WasInputKeyJustPressed(EKeys::Escape) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right)) && OnQuit)
-			{
-				OnQuit();
-			}
+			ArcadeCommitResults();
 		}
 		break;
 	}
@@ -972,5 +961,37 @@ void AStackerGame::Rematch()
 	SeenEffects.Reset();
 	Accumulator = 0.0;
 	AltitudeBand = 0;
+	bResultsCommitted = false;
 	SetStage(EStackerStage::Intro);
+}
+
+void AStackerGame::ArcadeCommitResults()
+{
+	if (!bResultsCommitted && Stage == EStackerStage::Finished)
+	{
+		bResultsCommitted = true;
+		if (OnFinished)
+		{
+			OnFinished();
+		}
+	}
+}
+
+void AStackerGame::ArcadeRestart()
+{
+	if (OnRematch) OnRematch(); else Rematch();
+}
+
+void AStackerGame::GetArcadeStandings(TArray<FArcadeStanding>& Out) const
+{
+	for (const FTower& T : Match.Towers)
+	{
+		FArcadeStanding& Row = Out.AddDefaulted_GetRef();
+		const FStackerSeat* Seat = SeatOf(T.PlayerId);
+		Row.Name = T.Name;
+		Row.Color = AStackerRooftop::LaneColor(T.LaneIndex);
+		Row.bHuman = Seat && Seat->Kind != EBuilderKind::Bot;
+		Row.Score = T.Score;
+	}
+	RankByScore(Out);
 }

@@ -465,27 +465,6 @@ void ABowlingGame::Tick(float DeltaSeconds)
 		}
 		break;
 	case EBowlingPhase::Finished:
-		if (Viewer && Age > 2.0)
-		{
-			if (Viewer->WasInputKeyJustPressed(EKeys::Enter) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) || Viewer->WasInputKeyJustPressed(EKeys::SpaceBar))
-			{
-				if (OnRematch)
-				{
-					OnRematch();
-				}
-				else
-				{
-					Rematch();
-				}
-			}
-			else if (Viewer->WasInputKeyJustPressed(EKeys::Escape) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right))
-			{
-				if (OnQuit)
-				{
-					OnQuit();
-				}
-			}
-		}
 		break;
 	}
 	UpdateBowler(Dt);
@@ -1004,4 +983,23 @@ void ABowlingGame::Rematch()
 	HeldRelease.Reset();
 	bSplitLeft = false;
 	SetPhase(EBowlingPhase::Intro);
+}
+
+void ABowlingGame::ArcadeRestart()
+{
+	if (OnRematch) OnRematch(); else Rematch();
+}
+
+void ABowlingGame::GetArcadeStandings(TArray<FArcadeStanding>& Out) const
+{
+	for (const MovecadeKart::Bowling::FCard& Card : Match.Cards)
+	{
+		FArcadeStanding& Row = Out.AddDefaulted_GetRef();
+		const FBowlerSeat* Seat = Seats.FindByPredicate([&Card](const FBowlerSeat& S) { return S.Id == Card.PlayerId; });
+		Row.Name = Seat ? Seat->Name : Card.PlayerId;
+		Row.Color = Seat ? Seat->Color : FLinearColor::White;
+		Row.bHuman = Seat && Seat->Kind != EBowlerKind::Bot;
+		Row.Score = Card.Score;
+	}
+	RankByScore(Out);
 }

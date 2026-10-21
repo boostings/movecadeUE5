@@ -519,24 +519,6 @@ void ADartsGame::Tick(float DeltaSeconds)
 		break;
 	}
 	case EDartsStage::Finished:
-		if (Viewer && GetStageAge() > 2.0)
-		{
-			if (Viewer->WasInputKeyJustPressed(EKeys::Enter) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) || Viewer->WasInputKeyJustPressed(EKeys::SpaceBar))
-			{
-				if (OnRematch)
-				{
-					OnRematch();
-				}
-				else
-				{
-					Rematch();
-				}
-			}
-			else if ((Viewer->WasInputKeyJustPressed(EKeys::Escape) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right)) && OnQuit)
-			{
-				OnQuit();
-			}
-		}
 		break;
 	}
 	UpdateAmbience();
@@ -1009,4 +991,23 @@ void ADartsGame::Rematch()
 	LastLandingAt = -10.0;
 	LastLanding = FDartLanding();
 	SetStage(EDartsStage::Intro);
+}
+
+void ADartsGame::ArcadeRestart()
+{
+	if (OnRematch) OnRematch(); else Rematch();
+}
+
+void ADartsGame::GetArcadeStandings(TArray<FArcadeStanding>& Out) const
+{
+	for (const MovecadeKart::Darts::FDartsPlayer& P : Match.Players)
+	{
+		FArcadeStanding& Row = Out.AddDefaulted_GetRef();
+		const FDartsSeat* Seat = Seats.FindByPredicate([&P](const FDartsSeat& S) { return S.Id == P.Id; });
+		Row.Name = P.Name;
+		Row.Color = Seat ? Seat->Color : FLinearColor::White;
+		Row.bHuman = Seat && Seat->Kind != EThrowerKind::Bot;
+		Row.Score = P.Score;
+	}
+	RankByScore(Out);
 }

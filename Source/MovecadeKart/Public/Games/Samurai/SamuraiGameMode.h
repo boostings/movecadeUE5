@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Templates/SharedPointer.h"
 #include "SamuraiGameMode.generated.h"
 
 class ASamuraiDojo;
 class ASamuraiGame;
+class SArcadeOverlay;
 
 /**
  * Samurai Slice's level mode (L_Samurai): finds the dojo (or builds one) and starts a round. Local play: one
@@ -51,6 +53,8 @@ private:
 	TObjectPtr<ASamuraiGame> Game;
 
 	bool bRoomMatch = false;
+	/** Pause, results and the play-again / next-game loop over the game. */
+	TSharedPtr<SArcadeOverlay> Overlay;
 	FDelegateHandle SensorHandle;
 	FTimerHandle ScoreTimer;
 };

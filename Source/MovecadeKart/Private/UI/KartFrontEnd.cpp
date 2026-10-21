@@ -177,6 +177,10 @@ void AKartFrontEnd::BuildScreens(EKartMenuEntry Entry)
 		Screens->PushScreen(KartScreens::MakeMainMenu(this));
 		Screens->PushScreen(KartScreens::MakeTracks(this));
 		break;
+	case EKartMenuEntry::Arcade:
+		Screens->PushScreen(KartScreens::MakeMainMenu(this));
+		Screens->PushScreen(KartScreens::MakeArcade(this));
+		break;
 	default:
 		Screens->PushScreen(KartScreens::MakeTitle(this));
 		break;

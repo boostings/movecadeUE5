@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Templates/SharedPointer.h"
 #include "DartsGameMode.generated.h"
 
 class ADartsPub;
 class ADartsGame;
+class SArcadeOverlay;
 
 /**
  * Bullseye Bash's level mode (L_Darts): finds the pub (or builds one) and starts a game. Local play by default:
@@ -52,6 +54,8 @@ private:
 	TObjectPtr<ADartsGame> Game;
 
 	bool bRoomMatch = false;
+	/** Pause, results and the play-again / next-game loop over the game. */
+	TSharedPtr<SArcadeOverlay> Overlay;
 	FDelegateHandle GameEventHandle;
 	FDelegateHandle SensorHandle;
 	FTimerHandle ScoreTimer;

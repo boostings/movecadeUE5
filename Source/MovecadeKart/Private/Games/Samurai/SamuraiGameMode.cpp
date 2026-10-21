@@ -6,6 +6,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Games/Samurai/SamuraiDojo.h"
 #include "Games/Samurai/SamuraiGame.h"
+#include "Games/ArcadeSession.h"
+#include "Games/SArcadeOverlay.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
@@ -83,6 +85,15 @@ void ASamuraiGameMode::StartPlay()
 		PC->SetInputMode(FInputModeGameOnly());
 		PC->bShowMouseCursor = false;
 	}
+	if (!bRoomMatch)
+	{
+		// Play again and next game keep these seats.
+		if (UArcadeSession* Session = UArcadeSession::Get(this))
+		{
+			Session->NoteLaunch(TEXT("samurai"), Locals, Bots);
+		}
+	}
+	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
 	SetupTestHooks();
 }
 
@@ -212,6 +223,11 @@ void ASamuraiGameMode::HandleRoomPause(bool bPaused, const FString& Reason, cons
 
 void ASamuraiGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
+	if (Overlay.IsValid())
+	{
+		Overlay->Detach();
+		Overlay.Reset();
+	}
 	// The world's timers live on the game instance and outlast the level.
 	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))

@@ -574,17 +574,6 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 		{
 			SampleBlade(Lanes[i], i, Dt);
 		}
-		if (Viewer && GetStageAge() > 2.0)
-		{
-			if (Viewer->WasInputKeyJustPressed(EKeys::Enter) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) || Viewer->WasInputKeyJustPressed(EKeys::SpaceBar))
-			{
-				if (OnRematch) OnRematch(); else Rematch();
-			}
-			else if ((Viewer->WasInputKeyJustPressed(EKeys::Escape) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right)) && OnQuit)
-			{
-				OnQuit();
-			}
-		}
 		break;
 	}
 	const bool bFrozen = Clock < FrozenUntil;
@@ -871,4 +860,23 @@ void ASamuraiGame::Rematch()
 		Lane.Intent.Reset();
 	}
 	SetStage(ESamuraiStage::Intro);
+}
+
+void ASamuraiGame::ArcadeRestart()
+{
+	if (OnRematch) OnRematch(); else Rematch();
+}
+
+void ASamuraiGame::GetArcadeStandings(TArray<FArcadeStanding>& Out) const
+{
+	for (const MovecadeKart::Samurai::FPlayer& P : Match.Players)
+	{
+		FArcadeStanding& Row = Out.AddDefaulted_GetRef();
+		const FSamuraiSeat* Seat = SeatOf(P.Id);
+		Row.Name = P.Name;
+		Row.Color = Seat ? Seat->Color : FLinearColor::White;
+		Row.bHuman = Seat && Seat->Kind != ESwordKind::Bot;
+		Row.Score = P.Score;
+	}
+	RankByScore(Out);
 }

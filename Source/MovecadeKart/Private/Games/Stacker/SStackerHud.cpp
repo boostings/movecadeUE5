@@ -262,10 +262,4 @@ void SStackerHud::PaintStandings(const FKartPainter& P, const AStackerGame& G, f
 			KartUI::Font(EFont::Body, 17.f * S), Pos + FVector2D(92.f * S, 58.f * S), KC::WithAlpha(Ink, 0.75f), FVector2D(0.0, 0.5));
 		Row.Text(FString::FromInt(Tower.Score), KartUI::Font(EFont::Display, 50.f * S), Pos + FVector2D(655.f * S, 40.f * S), Ink, FVector2D(1.0, 0.5));
 	}
-	if (Age > 2.5)
-	{
-		const float Pulse = 0.75f + 0.25f * FMath::Sin(static_cast<float>(G.GetClock()) * 3.f);
-		F.Faded(Pulse).Text(NSLOCTEXT("Stacker", "Again", "ENTER / A  play again     ESC / B  menu"), KartUI::Font(EFont::Label, 24.f * S),
-			FVector2D(P.Size().X / 2.f, P.Size().Y * 0.92f), KC::White, FVector2D(0.5, 0.5), 3.f * S);
-	}
 }

@@ -1,5 +1,7 @@
 #include "Net/KartLobbyWidget.h"
 
+#include "Games/ArcadeCatalog.h"
+#include "Games/ArcadeSession.h"
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Camera/CameraActor.h"
@@ -44,7 +46,15 @@ namespace
 	/** The lobby's games, in pill order (the room's gameId). */
 	const TArray<FString>& LobbyGames()
 	{
-		static const TArray<FString> Games = { TEXT("kart"), TEXT("bowling"), TEXT("darts"), TEXT("samurai"), TEXT("stacker") };
+		static const TArray<FString> Games = []()
+		{
+			TArray<FString> Out = { TEXT("kart") };
+			for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
+			{
+				Out.Add(G.Id);
+			}
+			return Out;
+		}();
 		return Games;
 	}
 }
@@ -238,11 +248,17 @@ void UKartLobbyWidget::BuildTree()
 	// The game: Kart Racer or a ported party game, as chunky pills.
 	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
-	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling"), TEXT("Bullseye Bash"), TEXT("Samurai Slice"), TEXT("Sky Stacker") })
+	TArray<FString> PillNames = { TEXT("Kart Racer") };
+	for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
+	{
+		PillNames.Add(G.Name.ToString());
+	}
+	check(PillNames.Num() == 5); // one handler per pill below
+	for (const FString& Name : PillNames)
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
 		Button->SetStyle(CardButtonStyle(30.f));
-		UTextBlock* Label = Text(Name, Font(EFont::Title, 25.f), Color::Navy);
+		UTextBlock* Label = Text(*Name, Font(EFont::Title, 25.f), Color::Navy);
 		if (UButtonSlot* PillSlot = Cast<UButtonSlot>(Button->SetContent(Label)))
 		{
 			PillSlot->SetPadding(FMargin(18.f, 10.f));
@@ -436,6 +452,7 @@ void UKartLobbyWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	{
 		UpdateBackdrop(InDeltaTime);
 	}
+	UpdatePartyContinue();
 	RefreshAccumulator += InDeltaTime;
 	if (RefreshAccumulator >= 0.1f)
 	{
@@ -712,8 +729,40 @@ void UKartLobbyWidget::HandleStartRequested(const FString& MapId)
 	}
 }
 
+void UKartLobbyWidget::UpdatePartyContinue()
+{
+	// "Next game" on a party game's results queued a game: select it, and start as soon as the phones re-ready,
+	// even with a single phone (the evening is already under way; nobody should have to reach for the keyboard).
+	URoomHostSubsystem* RoomHost = Room();
+	UArcadeSession* Session = UArcadeSession::Get(this);
+	if (!RoomHost || !Session || RoomHost->GetConnectionState() != EMcConnection::Open || RoomHost->GetRoom().Status != EMcRoomStatus::Lobby)
+	{
+		return;
+	}
+	if (Session->HasQueuedRoomGame())
+	{
+		RoomHost->SelectGame(Session->ConsumeQueuedRoomGame());
+		bContinueParty = true;
+		ContinueSince = GetWorld() ? GetWorld()->GetRealTimeSeconds() : 0.0;
+	}
+	if (bContinueParty && RoomHost->GetRoom().GameId == RoomHost->GetGameId() && RoomHost->CanStart())
+	{
+		bContinueParty = false;
+		RoomHost->RequestStart();
+	}
+	// Give up on the auto start after a couple of minutes: the lobby's own flow takes over.
+	if (bContinueParty && GetWorld() && GetWorld()->GetRealTimeSeconds() - ContinueSince > 120.0)
+	{
+		bContinueParty = false;
+	}
+}
+
 void UKartLobbyWidget::HandleReturnedToLobby()
 {
+	if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+	{
+		UI->SetMenuMusic(true);
+	}
 	if (!bAutoHide)
 	{
 		return;

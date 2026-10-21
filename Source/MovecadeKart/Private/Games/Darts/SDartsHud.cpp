@@ -293,10 +293,4 @@ void SDartsHud::PaintStandings(const FKartPainter& P, const ADartsGame& G, float
 			KartUI::Font(EFont::Body, 18.f * S), Pos + FVector2D(100.f * S, 64.f * S), KC::WithAlpha(Ink, 0.75f), FVector2D(0.0, 0.5));
 		Row.Text(FString::FromInt(Player.Score), KartUI::Font(EFont::Display, 56.f * S), Pos + FVector2D(770.f * S, 44.f * S), Ink, FVector2D(1.0, 0.5));
 	}
-	if (Age > 2.0)
-	{
-		const float Pulse = 0.75f + 0.25f * FMath::Sin(static_cast<float>(G.GetClock()) * 3.f);
-		F.Faded(Pulse).Text(NSLOCTEXT("Darts", "Again", "ENTER / A  play again     ESC / B  menu"), KartUI::Font(EFont::Label, 24.f * S),
-			FVector2D(P.Size().X / 2.f, P.Size().Y * 0.9f), KC::White, FVector2D(0.5, 0.5), 3.f * S);
-	}
 }

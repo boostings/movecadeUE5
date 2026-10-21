@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "Games/Darts/DartsRules.h"
 #include "Games/Darts/DartsThrow.h"
+#include "Games/ArcadeGame.h"
 #include "Games/GameAudio.h"
 #include "KartLook.h"
 #include "DartsGame.generated.h"
@@ -74,7 +75,7 @@ struct FLocalThrow
  * and plays the cues and impact effects. Owns the HUD.
  */
 UCLASS(NotPlaceable)
-class MOVECADEKART_API ADartsGame : public AActor
+class MOVECADEKART_API ADartsGame : public AActor, public IArcadeGame
 {
 	GENERATED_BODY()
 
@@ -122,6 +123,14 @@ public:
 	TFunction<void()> OnRematch;
 
 	void Rematch();
+
+	// IArcadeGame (SArcadeOverlay: pause, results, play again, next game) -----------------------------------
+	virtual FString GetArcadeId() const override { return TEXT("darts"); }
+	virtual double GetArcadeFinishedAge() const override { return GetFinishedAge(); }
+	virtual void SetArcadePaused(bool bInPaused) override { bPaused = bInPaused; }
+	virtual bool IsArcadePaused() const override { return bPaused; }
+	virtual void ArcadeRestart() override;
+	virtual void GetArcadeStandings(TArray<FArcadeStanding>& Out) const override;
 
 private:
 	void SetStage(EDartsStage Next);

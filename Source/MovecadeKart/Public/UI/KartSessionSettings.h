@@ -70,6 +70,8 @@ enum class EKartMenuEntry : uint8
 	Title,
 	MainMenu,
 	TrackSelect,
+	/** The Arcade game picker (after a party game's "change game"). */
+	Arcade,
 };
 
 /** The race AKartGameMode builds: the seats, views and switches, from the menu setup and the command line. */

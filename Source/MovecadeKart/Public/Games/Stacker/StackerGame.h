@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Games/ArcadeGame.h"
 #include "Games/GameAudio.h"
 #include "Games/Stacker/StackerRules.h"
 #include "KartLook.h"
@@ -60,7 +61,7 @@ struct FStackerSeat
  * the next block in hand; the city sinks behind; the camera fits the lanes and, at the end, orbits the winner.
  */
 UCLASS(NotPlaceable)
-class MOVECADEKART_API AStackerGame : public AActor
+class MOVECADEKART_API AStackerGame : public AActor, public IArcadeGame
 {
 	GENERATED_BODY()
 
@@ -104,6 +105,15 @@ public:
 	TFunction<void()> OnRematch;
 
 	void Rematch();
+
+	// IArcadeGame (SArcadeOverlay: pause, results, play again, next game) -----------------------------------
+	virtual FString GetArcadeId() const override { return TEXT("stacker"); }
+	virtual double GetArcadeFinishedAge() const override { return GetFinishedAge(); }
+	virtual void SetArcadePaused(bool bInPaused) override { bPaused = bInPaused; }
+	virtual bool IsArcadePaused() const override { return bPaused; }
+	virtual void ArcadeRestart() override;
+	virtual void ArcadeCommitResults() override;
+	virtual void GetArcadeStandings(TArray<FArcadeStanding>& Out) const override;
 
 private:
 	struct FLane
@@ -194,6 +204,8 @@ private:
 	double Accumulator = 0.0;
 	bool bPaused = false;
 	double Shake = 0.0;
+	/** OnFinished has run for this round (after the showcase, or early when the room is asked to move on). */
+	bool bResultsCommitted = false;
 	int32 AltitudeBand = 0;
 
 	FVector CamPos = FVector::ZeroVector;

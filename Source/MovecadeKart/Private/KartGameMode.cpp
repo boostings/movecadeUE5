@@ -1,5 +1,6 @@
 #include "KartGameMode.h"
 
+#include "Games/ArcadeCatalog.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -162,6 +163,11 @@ void AKartGameMode::SetupRoom()
 		HandleRoomStart(Room->GetRoom().SelectedMapId);
 		return;
 	}
+	// A finished match left the room on its results: bring everyone back to the lobby, or nothing could start.
+	if (Status == EMcRoomStatus::Complete && Room->IsHost())
+	{
+		Room->ReturnToLobby();
+	}
 	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 	{
 		UKartLobbyWidget::Show(PC);
@@ -177,11 +183,9 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 	// A party game plays in its own level; the room (a game instance subsystem) survives the travel.
 	if (const URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>(); Room && Room->GetRoom().GameId != TEXT("kart"))
 	{
-		const FString& Game = Room->GetRoom().GameId;
-		static const TMap<FString, FName> Levels = { { TEXT("bowling"), TEXT("L_Bowling") }, { TEXT("darts"), TEXT("L_Darts") }, { TEXT("samurai"), TEXT("L_Samurai") }, { TEXT("stacker"), TEXT("L_Stacker") } };
-		if (const FName* Level = Levels.Find(Game))
+		if (const MovecadeKart::Arcade::FGameInfo* Game = MovecadeKart::Arcade::Find(Room->GetRoom().GameId))
 		{
-			UGameplayStatics::OpenLevel(this, *Level);
+			UGameplayStatics::OpenLevel(this, FName(*Game->Map));
 			return;
 		}
 	}

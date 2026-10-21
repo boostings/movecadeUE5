@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Games/Bowling/BowlingPins.h"
+#include "Games/ArcadeGame.h"
 #include "Games/GameAudio.h"
 #include "Games/Bowling/BowlingRules.h"
 #include "Games/Bowling/BowlingSim.h"
@@ -91,7 +92,7 @@ struct FLocalBowl
  * to the card when the pins settle, as in the web build (runtime.ts). Owns the lane camera and the HUD.
  */
 UCLASS(NotPlaceable)
-class MOVECADEKART_API ABowlingGame : public AActor
+class MOVECADEKART_API ABowlingGame : public AActor, public IArcadeGame
 {
 	GENERATED_BODY()
 
@@ -144,6 +145,14 @@ public:
 
 	/** A fresh game for the same bowlers (the results' "play again"). */
 	void Rematch();
+
+	// IArcadeGame (SArcadeOverlay: pause, results, play again, next game) -----------------------------------
+	virtual FString GetArcadeId() const override { return TEXT("bowling"); }
+	virtual double GetArcadeFinishedAge() const override { return GetFinishedAge(); }
+	virtual void SetArcadePaused(bool bInPaused) override { bPaused = bInPaused; }
+	virtual bool IsArcadePaused() const override { return bPaused; }
+	virtual void ArcadeRestart() override;
+	virtual void GetArcadeStandings(TArray<FArcadeStanding>& Out) const override;
 
 private:
 	void SetPhase(EBowlingPhase Next);

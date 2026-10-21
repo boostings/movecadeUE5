@@ -5,6 +5,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Games/Bowling/BowlingAlley.h"
 #include "Games/Bowling/BowlingGame.h"
+#include "Games/ArcadeSession.h"
+#include "Games/SArcadeOverlay.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Dom/JsonObject.h"
@@ -116,6 +118,15 @@ void ABowlingGameMode::StartPlay()
 		PC->SetInputMode(FInputModeGameOnly());
 		PC->bShowMouseCursor = false;
 	}
+	if (!bRoomMatch)
+	{
+		// Play again and next game keep these seats.
+		if (UArcadeSession* Session = UArcadeSession::Get(this))
+		{
+			Session->NoteLaunch(TEXT("bowling"), Locals, Bots);
+		}
+	}
+	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
 	SetupTestHooks();
 }
 
@@ -271,6 +282,11 @@ void ABowlingGameMode::HandleRoomPause(bool bPaused, const FString& Reason, cons
 
 void ABowlingGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
+	if (Overlay.IsValid())
+	{
+		Overlay->Detach();
+		Overlay.Reset();
+	}
 	// The world's timers live on the game instance and outlast the level.
 	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))
