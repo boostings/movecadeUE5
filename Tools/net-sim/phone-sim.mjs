@@ -19,6 +19,10 @@
 // up, then every 0.9 s a 0.3 s downward cut at a random yaw, gyro high through the sweep (the host's intent gate).
 // --game stacker: it streams the palm at 60 Hz (a quaternion rolling a few degrees either way, as a hand does) and
 // presses DROP (game-event stacker:drop) every 1.3 s, as StackerController.tsx does on pointerdown.
+// --game pad (or any motion pad game id: sumo, derby, fishing): the generic motion pad (Docs/Port/server 0002).
+// It streams 38-byte attitude frames (a gently rocking phone) while the match runs (in turn-based games only on
+// its turn), presses and releases button A (game-event pad:press / pad:release {button:'a'}) periodically, and
+// logs every pad:prompt addressed to it. Specialise a game by adding a PAD_PROFILES entry below.
 import { readFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -111,6 +115,67 @@ function swingFrame(sequence, push, dtMs) {
   view.setInt16(26, 0, true);
   view.setUint16(28, dtMs, true);
   return buffer;
+}
+
+// The motion pad (protocol/src/motionPad.ts in the 0002 patch). One profile per game; `pad` is the generic one.
+//   hz:          sensor frames per second (the phone streams at the game's sendHz)
+//   attitude(t): { q: [x, y, z, w] calibrated attitude, gyro: deg/s around the screen axis } at t seconds
+//   pressEvery:  seconds between A presses (0: never), hold: seconds A stays down
+//   turnBased:   stream and press only while state.game.activePlayerId names this phone
+const rock = (t) => {
+  const roll = (15 * Math.sin(t * 1.3)) * Math.PI / 180;
+  const pitch = (10 * Math.sin(t * 0.8 + 1)) * Math.PI / 180;
+  return { q: bladeQuaternion(pitch, roll), gyro: 15 * 1.3 * Math.cos(t * 1.3) };
+};
+const PAD_PROFILES = {
+  pad: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
+  sumo: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
+  derby: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: true },
+  fishing: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
+};
+const padProfile = PAD_PROFILES[game] ?? null;
+let padTimer = null;
+let padPrompts = 0;
+let padPresses = 0;
+function startPad() {
+  if (padTimer || !padProfile) return;
+  log(`pad: streaming attitude at ${padProfile.hz} Hz, A every ${padProfile.pressEvery} s`);
+  const started = Date.now();
+  let sent = 0;
+  let pressAt = padProfile.pressEvery;
+  let releaseAt = -1;
+  padTimer = setInterval(() => {
+    const t = (Date.now() - started) / 1000;
+    const due = Math.floor(t * padProfile.hz) + 1 - sent;
+    for (let i = 0; i < Math.min(due, 3); i += 1) {
+      const pose = padProfile.attitude((sent + 1) / padProfile.hz);
+      ws.send(attitudeFrame(sequence, pose.q, pose.gyro, Math.round(1000 / padProfile.hz)));
+      sequence = (sequence + 1) & 255;
+      stats.frames += 1;
+      sent += 1;
+    }
+    if (padProfile.pressEvery > 0 && t >= pressAt) {
+      pressAt = t + padProfile.pressEvery;
+      releaseAt = t + padProfile.hold;
+      send({ t: 'game-event', event: 'pad:press', data: { button: 'a' } });
+      stats.events += 1;
+      padPresses += 1;
+      if (padPresses % 10 === 1) log(`pad:press a #${padPresses}`);
+    }
+    if (releaseAt >= 0 && t >= releaseAt) {
+      releaseAt = -1;
+      send({ t: 'game-event', event: 'pad:release', data: { button: 'a' } });
+      stats.events += 1;
+    }
+  }, 4);
+}
+function stopPad() {
+  if (!padTimer) return;
+  clearInterval(padTimer);
+  padTimer = null;
+  // Never leave the host holding a button.
+  send({ t: 'game-event', event: 'pad:release', data: { button: 'a' } });
+  log('pad: stopped');
 }
 
 let myTurn = false;
@@ -336,6 +401,12 @@ ws.addEventListener('message', (event) => {
       if (m.state?.game?.status === 'in-progress') startDriving();
       if (game === 'samurai' && m.state?.game?.status === 'in-progress') startSamurai();
       if (game === 'stacker' && m.state?.game?.status === 'in-progress') startStacker();
+      if (padProfile) {
+        const running = m.state?.game?.status === 'in-progress';
+        const mine = !padProfile.turnBased || (!!playerId && m.state?.game?.activePlayerId === playerId);
+        if (running && mine) startPad();
+        else stopPad();
+      }
       if (game === 'bowling') setTurn(m.state?.game?.status === 'in-progress' && !!playerId && m.state?.game?.activePlayerId === playerId);
       break;
     case 'game-event':
@@ -351,6 +422,14 @@ ws.addEventListener('message', (event) => {
         break;
       }
       if (m.event === 'darts:aim') break;
+      if (m.event === 'pad:prompt') {
+        const to = m.data?.playerId;
+        if (to === playerId || to === '*') {
+          padPrompts += 1;
+          log(`pad:prompt #${padPrompts} "${m.data?.title ?? ''}" / "${m.data?.subtitle ?? ''}" a="${m.data?.a ?? ''}" b="${m.data?.b ?? ''}" mode=${m.data?.mode ?? '-'} accent=${m.data?.accent ?? '-'}`);
+        }
+        break;
+      }
       if (m.event !== 'kart-input') log(`game-event ${m.event} ${JSON.stringify(m.data ?? null)} from ${m.fromPlayerId}`);
       break;
     case 'error':
@@ -367,7 +446,8 @@ ws.addEventListener('close', (event) => {
 });
 
 setTimeout(() => {
-  log(`done: ${stats.frames} sensor frames, ${stats.events} events, ${throws} throws/cuts; leaving`);
+  log(`done: ${stats.frames} sensor frames, ${stats.events} events, ${throws} throws/cuts${padProfile ? `, ${padPresses} pad presses, ${padPrompts} pad prompts` : ''}; leaving`);
+  stopPad();
   clearInterval(streaming);
   if (ws.readyState === WebSocket.OPEN) {
     send({ t: 'game-event', event: 'kart-input', data: { isAccelerating: false, isReversing: false, isDrifting: false } });
