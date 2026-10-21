@@ -1,4 +1,4 @@
-# End-to-end check of the UE room host with no phone: runs the game (-game, windowed) as the host with
+﻿# End-to-end check of the UE room host with no phone: runs the game (-game, windowed) as the host with
 # the lobby (-KartRoom), has Tools/net-sim/phone-sim.mjs join as a phone and race it against bots
 # through the real race layer, then prints the evidence.
 #
@@ -15,7 +15,7 @@ param(
     [int]$SimSeconds = 105,
     [int]$Bots = 2,
     [int]$Laps = 1,
-    # kart, or bowling: the room plays bowling on L_Bowling and the simulated phone bowls its turns.
+    # kart, bowling or darts: the room plays bowling on L_Bowling and the simulated phone bowls its turns.
     [string]$RoomGame = 'kart'
 )
 $ErrorActionPreference = 'Stop'
@@ -39,6 +39,6 @@ if (-not $game.HasExited) { Stop-Process -Id $game.Id -Force }
 if (-not $sim.HasExited) { Stop-Process -Id $sim.Id -Force }
 
 Write-Output '--- host (LogRoomHost / laps) ---'
-Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:' | ForEach-Object { $_.Line }
+Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:|LogDarts|Darts:' | ForEach-Object { $_.Line }
 Write-Output '--- phone simulator ---'
 Get-Content $simLog

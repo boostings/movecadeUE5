@@ -199,7 +199,7 @@ public:
 	/** Ends a party game's match: score-update then complete-game with every player's score (once per match). */
 	void CompleteGame(const TArray<FMcScoreEntry>& Scores);
 
-	/** advance-turn: the bowler (or thrower) up; the server drops other phones' frames until the next turn. */
+	/** advance-turn: the bowler up (the server drops other phones' frames), or empty for everyone (null). */
 	void AdvanceTurn(const FString& ActivePlayerId);
 
 	/** A host game-event to every phone; DataJson is a JSON value (Net::QuoteJson for strings). */

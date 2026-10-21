@@ -38,6 +38,17 @@
 // The lobby's look follows the UI style (UI/KartUIStyle.h): white cards on the track backdrop, the game's type and
 // palette, and the shared button glyphs. Its behaviour (room calls, keys, auto-hide) is the network workstream's.
 
+
+namespace
+{
+	/** The lobby's games, in pill order (the room's gameId). */
+	const TArray<FString>& LobbyGames()
+	{
+		static const TArray<FString> Games = { TEXT("kart"), TEXT("bowling"), TEXT("darts") };
+		return Games;
+	}
+}
+
 namespace
 {
 	using namespace KartUI;
@@ -227,7 +238,7 @@ void UKartLobbyWidget::BuildTree()
 	// The game: Kart Racer or a ported party game, as chunky pills.
 	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
-	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling") })
+	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling"), TEXT("Bullseye Bash") })
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
 		Button->SetStyle(CardButtonStyle(30.f));
@@ -242,6 +253,7 @@ void UKartLobbyWidget::BuildTree()
 	}
 	GameButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
 	GameButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
+	GameButtons[2]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame2Clicked);
 	AddV(Right, Games, 26.f);
 
 	TrackSection = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -442,7 +454,9 @@ FReply UKartLobbyWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 	{
 		if (const URoomHostSubsystem* Subsystem = Room())
 		{
-			SelectGame(Subsystem->GetGameId() == TEXT("kart") ? 1 : 0);
+			const int32 Current = FMath::Max(0, LobbyGames().IndexOfByKey(Subsystem->GetGameId()));
+			const int32 Step = Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up ? -1 : 1;
+			SelectGame((Current + Step + LobbyGames().Num()) % LobbyGames().Num());
 			if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
 			{
 				UI->PlaySound(EKartUISound::Tick);
@@ -536,13 +550,14 @@ void UKartLobbyWidget::Refresh()
 	const bool bKart = Subsystem->GetGameId() == TEXT("kart");
 	for (int32 i = 0; i < GameButtons.Num(); ++i)
 	{
-		const bool bSelected = (i == 0) == bKart;
+		const bool bSelected = LobbyGames().IsValidIndex(i) && LobbyGames()[i] == Subsystem->GetGameId();
 		GameButtons[i]->SetBackgroundColor(bSelected ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f));
 		GameButtons[i]->SetRenderScale(bSelected ? FVector2D(1.04, 1.04) : FVector2D(1.0, 1.0));
 	}
 	TrackSection->SetVisibility(bKart ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	SubtitleText->SetText(FText::FromString(bKart ? TEXT("Phones are the controllers: scan the code, tilt to steer.")
-		: TEXT("Phones are the ball: scan the code, swing and let go to bowl.")));
+		: Subsystem->GetGameId() == TEXT("bowling") ? TEXT("Phones are the ball: scan the code, swing and let go to bowl.")
+		: TEXT("Phones are the darts: scan the code, aim, pinch and flick.")));
 
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < TrackButtons.Num() && i < Catalog.Num(); ++i)
@@ -626,7 +641,7 @@ void UKartLobbyWidget::SelectGame(int32 Index)
 {
 	if (URoomHostSubsystem* Subsystem = Room())
 	{
-		Subsystem->SelectGame(Index == 0 ? TEXT("kart") : TEXT("bowling"));
+		Subsystem->SelectGame(LobbyGames().IsValidIndex(Index) ? LobbyGames()[Index] : FString(TEXT("kart")));
 		Refresh();
 	}
 }
@@ -639,6 +654,11 @@ void UKartLobbyWidget::HandleGame0Clicked()
 void UKartLobbyWidget::HandleGame1Clicked()
 {
 	SelectGame(1);
+}
+
+void UKartLobbyWidget::HandleGame2Clicked()
+{
+	SelectGame(2);
 }
 
 void UKartLobbyWidget::HandleStartClicked()

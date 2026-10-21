@@ -9,10 +9,12 @@
 //   node Tools/net-sim/phone-sim.mjs --from-log Saved/Logs/KartGame.log [options]
 //
 // Options: --party localhost:1999  --name Sim1  --paint cyan  --seconds 30  --sweep 60 (deg)
-//          --period 4 (s per sweep)  --hz 30  --game kart|bowling
+//          --period 4 (s per sweep)  --hz 30  --game kart|bowling|darts
 //
 // --game bowling: on its turn (state.game.activePlayerId) the phone streams a swing (accel frames) and sends
 // game-event bowling:release, as BowlingController.tsx does, every few seconds until the turn moves on.
+// --game darts: it streams gravity frames (the host's reticle) and, while darts:turn names it with darts left,
+// sends darts:release (thumb-lift) every 1.6 s, aimed near the board's top half.
 import { readFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -135,6 +137,24 @@ function bowl() {
     }
   }, 5);
 }
+let dartsTimer = null;
+let dartsLeft = 0;
+let dartsMine = false;
+function dartsTick() {
+  if (!dartsMine || dartsLeft <= 0) return;
+  for (let i = 0; i < 4; i += 1) {
+    ws.send(swingFrame(sequence, 0, 16));
+    sequence = (sequence + 1) & 255;
+    stats.frames += 1;
+  }
+  const release = { aimX: (Math.random() - 0.5) * 0.3, aimY: 0.25 + (Math.random() - 0.5) * 0.3, power: 0.55 + (Math.random() - 0.5) * 0.12,
+    spinDegPerSec: (Math.random() - 0.5) * 60, rollDegPerSec: 0, confidence: 0.9, steadiness: 0.85, peakMs2: 18, durationMs: 160, source: 'accel' };
+  send({ t: 'game-event', event: 'darts:release', data: release });
+  stats.events += 1;
+  throws += 1;
+  log(`darts:release #${throws} aim (${release.aimX.toFixed(2)}, ${release.aimY.toFixed(2)}) power ${release.power.toFixed(2)}`);
+}
+
 function setTurn(active) {
   if (active === myTurn) return;
   myTurn = active;
@@ -229,6 +249,18 @@ ws.addEventListener('message', (event) => {
       if (game === 'bowling') setTurn(m.state?.game?.status === 'in-progress' && !!playerId && m.state?.game?.activePlayerId === playerId);
       break;
     case 'game-event':
+      if (m.event === 'darts:turn') {
+        const mine = m.data?.activePlayerId === playerId && m.data?.phase === 'playing';
+        dartsLeft = m.data?.dartsLeft ?? 0;
+        if (mine !== dartsMine) {
+          dartsMine = mine;
+          log(mine ? `darts: my visit (${dartsLeft} darts)` : 'darts: visit over');
+          clearInterval(dartsTimer);
+          dartsTimer = mine ? setInterval(dartsTick, 1600) : null;
+        }
+        break;
+      }
+      if (m.event === 'darts:aim') break;
       if (m.event !== 'kart-input') log(`game-event ${m.event} ${JSON.stringify(m.data ?? null)} from ${m.fromPlayerId}`);
       break;
     case 'error':

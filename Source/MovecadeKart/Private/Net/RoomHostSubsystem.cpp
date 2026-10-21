@@ -787,7 +787,7 @@ void URoomHostSubsystem::SelectMap(const FString& MapId)
 
 bool URoomHostSubsystem::IsPlayableGame(const FString& InGameId)
 {
-	return InGameId == TEXT("kart") || InGameId == TEXT("bowling");
+	return InGameId == TEXT("kart") || InGameId == TEXT("bowling") || InGameId == TEXT("darts");
 }
 
 void URoomHostSubsystem::SelectGame(const FString& InGameId)
@@ -1051,7 +1051,8 @@ void URoomHostSubsystem::AdvanceTurn(const FString& ActivePlayerId)
 {
 	if (Room.Status == EMcRoomStatus::InProgress || Room.Status == EMcRoomStatus::Paused)
 	{
-		Send(Msg::AdvanceTurn(ActivePlayerId), TEXT("advance-turn"));
+		// Empty: every seated phone streams (activePlayerId null), as darts asks.
+		Send(ActivePlayerId.IsEmpty() ? Msg::AdvanceTurnSimultaneous() : Msg::AdvanceTurn(ActivePlayerId), TEXT("advance-turn"));
 	}
 }
 

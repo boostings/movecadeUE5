@@ -186,3 +186,25 @@ pubLayout `cameraZ(2) = 8`.
 | D6 | Hard-coded 3 instead of `DARTS_PER_ROUND` in HUD/turn payload | Use the constant |
 | D7 | Gyro in deg/s; UE motion APIs give rad/s | Convert at the boundary |
 | D8 | Local play | Gamepad: stick aims, RT pull-and-release sets power; mouse: hover aims, drag-flick |
+
+## 12. Port status (2026-10-21)
+
+- **Rules and throw:** `Games/Darts/DartsRules` (board, landing model, match) and `DartsThrow` (the detector),
+  with golden tests `MovecadeKart.Darts.{Board,Landing,Match,Scoring,Throw}` (the perfect match is 1170; the
+  captured sector-19 trace lands in 19). The engine steps on a fixed 60 Hz clock.
+- **Pub:** `ADartsPub` builds the room in code: brick, plaster, wainscot, beams, oche and brass line, night windows,
+  prints, the bar with bottles and pints, a chalkboard that chalks the live scores, pendants, and the cabinet with its
+  lamp hood. The board is modelled from its sectors and rings (sisal colours, wire spider, brass hoop, number ring)
+  on a pivot that wobbles on landings; the bounty wedge pulses on the called sector. The pub holds exposure to
+  EV 7.6-8.6 (a lit board in a dim room) and scales its emissives by `GlowGain`.
+- **Game:** `ADartsGame` flies the scripted 620 ms arc and sticks and bounces the darts. It shows the reticle and
+  the held dart, poses the thrower (wind-up, the 320 ms flick, reactions), and directs the camera (home, aim, the
+  reaction cut, results). It plays the cues and the impact tiers (dust, sparks, ring, flash; confetti on bonuses).
+  The finished visit lingers 1.6 s after the board passes (the web clears it at once).
+- **Controls (D8):** WASD, the left stick or the mouse aim. Hold Space, RT or click: the meter swings, with the sweet
+  spot marked; let go to throw. A mouse flick sets power from its speed and spin from its drift. Bots aim for the
+  called shot by skill.
+- **Party Mode:** the lobby's GAME row offers Bullseye Bash. `ADartsGameMode` seats the room and implements the
+  runtime.ts protocol: advance-turn null, darts:turn and darts:aim, darts:result, replay outcome and feedback, plus
+  scores, countdown and completion. Test: `Tools/net-sim/e2e.ps1 -RoomGame darts -Bots 0 -QuitAfter 60
+  -SimSeconds 110` (`phone-sim.mjs --game darts`) plays nine darts to signed scores.
