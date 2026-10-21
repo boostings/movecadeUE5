@@ -9,7 +9,7 @@
 //   node Tools/net-sim/phone-sim.mjs --from-log Saved/Logs/KartGame.log [options]
 //
 // Options: --party localhost:1999  --name Sim1  --paint cyan  --seconds 30  --sweep 60 (deg)
-//          --period 4 (s per sweep)  --hz 30  --game kart|bowling|darts|samurai
+//          --period 4 (s per sweep)  --hz 30  --game kart|bowling|darts|samurai|stacker
 //
 // --game bowling: on its turn (state.game.activePlayerId) the phone streams a swing (accel frames) and sends
 // game-event bowling:release, as BowlingController.tsx does, every few seconds until the turn moves on.
@@ -17,6 +17,8 @@
 // sends darts:release (thumb-lift) every 1.6 s, aimed near the board's top half.
 // --game samurai: it streams 38-byte frames at 100 Hz with the calibrated attitude as a quaternion: the katana held
 // up, then every 0.9 s a 0.3 s downward cut at a random yaw, gyro high through the sweep (the host's intent gate).
+// --game stacker: it streams the palm at 60 Hz (a quaternion rolling a few degrees either way, as a hand does) and
+// presses DROP (game-event stacker:drop) every 1.3 s, as StackerController.tsx does on pointerdown.
 import { readFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -195,6 +197,34 @@ function startSamurai() {
   }, 4);
 }
 
+let stackerTimer = null;
+function startStacker() {
+  if (stackerTimer) return;
+  log('stacker: streaming the palm at 60 Hz, DROP every 1.3 s');
+  const started = Date.now();
+  let sent = 0;
+  let dropAt = 1.3;
+  stackerTimer = setInterval(() => {
+    const t = (Date.now() - started) / 1000;
+    const due = Math.floor(t * 60) + 1 - sent;
+    for (let i = 0; i < Math.min(due, 3); i += 1) {
+      const roll = (4 * Math.sin(t * 0.9)) * Math.PI / 180;
+      const q = [0, Math.sin(roll / 2), 0, Math.cos(roll / 2)];
+      ws.send(attitudeFrame(sequence, q, 0, 16));
+      sequence = (sequence + 1) & 255;
+      stats.frames += 1;
+      sent += 1;
+    }
+    if (t >= dropAt) {
+      dropAt = t + 1.3;
+      send({ t: 'game-event', event: 'stacker:drop' });
+      stats.events += 1;
+      throws += 1;
+      if (throws % 10 === 1) log(`stacker:drop #${throws}`);
+    }
+  }, 4);
+}
+
 let dartsTimer = null;
 let dartsLeft = 0;
 let dartsMine = false;
@@ -305,6 +335,7 @@ ws.addEventListener('message', (event) => {
       if (m.state?.countdown) log(`room countdown ${m.state.countdown.kind} ends in ${m.state.countdown.endsAt - m.state.serverTime} ms`);
       if (m.state?.game?.status === 'in-progress') startDriving();
       if (game === 'samurai' && m.state?.game?.status === 'in-progress') startSamurai();
+      if (game === 'stacker' && m.state?.game?.status === 'in-progress') startStacker();
       if (game === 'bowling') setTurn(m.state?.game?.status === 'in-progress' && !!playerId && m.state?.game?.activePlayerId === playerId);
       break;
     case 'game-event':

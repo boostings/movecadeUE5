@@ -15,7 +15,7 @@ param(
     [int]$SimSeconds = 105,
     [int]$Bots = 2,
     [int]$Laps = 1,
-    # kart, bowling, darts or samurai: the room plays bowling on L_Bowling and the simulated phone bowls its turns.
+    # kart, bowling, darts, samurai or stacker: the room plays bowling on L_Bowling and the simulated phone bowls its turns.
     [string]$RoomGame = 'kart'
 )
 $ErrorActionPreference = 'Stop'
@@ -39,6 +39,6 @@ if (-not $game.HasExited) { Stop-Process -Id $game.Id -Force }
 if (-not $sim.HasExited) { Stop-Process -Id $sim.Id -Force }
 
 Write-Output '--- host (LogRoomHost / laps) ---'
-Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:|LogDarts|Darts:|LogSamurai|Samurai:' | ForEach-Object { $_.Line }
+Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:|LogDarts|Darts:|LogSamurai|Samurai:|LogStacker|Stacker:' | ForEach-Object { $_.Line }
 Write-Output '--- phone simulator ---'
 Get-Content $simLog

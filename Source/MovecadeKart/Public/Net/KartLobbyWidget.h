@@ -70,6 +70,8 @@ private:
 	UFUNCTION()
 	void HandleGame3Clicked();
 	UFUNCTION()
+	void HandleGame4Clicked();
+	UFUNCTION()
 	void HandleStartRequested(const FString& MapId);
 	UFUNCTION()
 	void HandleReturnedToLobby();

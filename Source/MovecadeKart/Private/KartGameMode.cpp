@@ -178,7 +178,7 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 	if (const URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>(); Room && Room->GetRoom().GameId != TEXT("kart"))
 	{
 		const FString& Game = Room->GetRoom().GameId;
-		static const TMap<FString, FName> Levels = { { TEXT("bowling"), TEXT("L_Bowling") }, { TEXT("darts"), TEXT("L_Darts") }, { TEXT("samurai"), TEXT("L_Samurai") } };
+		static const TMap<FString, FName> Levels = { { TEXT("bowling"), TEXT("L_Bowling") }, { TEXT("darts"), TEXT("L_Darts") }, { TEXT("samurai"), TEXT("L_Samurai") }, { TEXT("stacker"), TEXT("L_Stacker") } };
 		if (const FName* Level = Levels.Find(Game))
 		{
 			UGameplayStatics::OpenLevel(this, *Level);

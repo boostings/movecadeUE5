@@ -3,7 +3,8 @@
     .\\Tools\\ue\\run.ps1 make_game_map.py @{ KART_GAME = 'bowling' }
 
 Games (KART_GAME): bowling -> L_Bowling (ABowlingAlley, ABowlingGameMode); darts -> L_Darts (ADartsPub, ADartsGameMode);
-samurai -> L_Samurai (ASamuraiDojo, ASamuraiGameMode). The venue builds itself in code
+samurai -> L_Samurai (ASamuraiDojo, ASamuraiGameMode);
+stacker -> L_Stacker (AStackerRooftop, AStackerGameMode). The venue builds itself in code
 (OnConstruction), like ATrackBuilder, so the level only holds the actor and the mode override.
 """
 import os
@@ -16,6 +17,7 @@ GAMES = {
     "bowling": ("L_Bowling", "/Script/MovecadeKart.BowlingAlley", "/Script/MovecadeKart.BowlingGameMode"),
     "darts": ("L_Darts", "/Script/MovecadeKart.DartsPub", "/Script/MovecadeKart.DartsGameMode"),
     "samurai": ("L_Samurai", "/Script/MovecadeKart.SamuraiDojo", "/Script/MovecadeKart.SamuraiGameMode"),
+    "stacker": ("L_Stacker", "/Script/MovecadeKart.StackerRooftop", "/Script/MovecadeKart.StackerGameMode"),
 }
 game = os.environ.get("KART_GAME", "bowling")
 quit_after = os.environ.get("KART_QUIT") == "1"

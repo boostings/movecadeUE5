@@ -390,7 +390,7 @@ namespace
 			const FText Names[] = { LOCTEXT("Race", "Race"), LOCTEXT("Arcade", "Arcade"), LOCTEXT("Party", "Party Mode"), LOCTEXT("Settings", "Settings"), LOCTEXT("Credits", "Credits"), LOCTEXT("Quit", "Quit") };
 			const FText Details[] = {
 				LOCTEXT("RaceDetail", "Up to four players on one screen, with bots."),
-				LOCTEXT("ArcadeDetail", "Bowling, darts, Samurai Slice and more, with friends or the house."),
+				LOCTEXT("ArcadeDetail", "Bowling, darts, Samurai Slice and Sky Stacker, with friends or the house."),
 				LOCTEXT("PartyDetail", "Phones are the controllers. Scan, tilt, race."),
 				LOCTEXT("SettingsDetail", "Graphics, sound and controls."),
 				LOCTEXT("CreditsDetail", "Who made this, and with what."),
@@ -498,7 +498,7 @@ namespace
 			{ TEXT("bowling"), LOCTEXT("Bowling", "Bowling"), LOCTEXT("BowlingTag", "Ten frames down a neon lane. Swing, hook and chase the turkey."), TEXT("L_Bowling"), Color::Sun, 4, 4 },
 			{ TEXT("darts"), LOCTEXT("Darts", "Bullseye Bash"), LOCTEXT("DartsTag", "Pub darts on one board. Three darts a visit; hit the called sector for double."), TEXT("L_Darts"), Color::Hot, 4, 4 },
 			{ TEXT("samurai"), LOCTEXT("Samurai", "Samurai Slice"), LOCTEXT("SamuraiTag", "Swing the katana through the fruit, never the bombs. Three precise cuts: Focus."), TEXT("L_Samurai"), Color::Mint, 4, 1 },
-			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop the blocks, build the tower, keep it straight. Coming soon."), nullptr, Color::Sky, 4, 1 },
+			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop each block on the last, trim the overhang, lean the tower against the wind."), TEXT("L_Stacker"), Color::Sky, 4, 1 },
 		};
 		return Games;
 	}

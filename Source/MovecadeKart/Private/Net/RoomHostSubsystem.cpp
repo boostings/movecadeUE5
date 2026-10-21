@@ -787,7 +787,7 @@ void URoomHostSubsystem::SelectMap(const FString& MapId)
 
 bool URoomHostSubsystem::IsPlayableGame(const FString& InGameId)
 {
-	return InGameId == TEXT("kart") || InGameId == TEXT("bowling") || InGameId == TEXT("darts") || InGameId == TEXT("samurai");
+	return InGameId == TEXT("kart") || InGameId == TEXT("bowling") || InGameId == TEXT("darts") || InGameId == TEXT("samurai") || InGameId == TEXT("stacker");
 }
 
 void URoomHostSubsystem::SelectGame(const FString& InGameId)

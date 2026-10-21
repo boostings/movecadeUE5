@@ -193,3 +193,32 @@ Cue gain/throttle: drop 0.6/30 ms, perfect 0.5/30, debris 0.26/55, miss 0.34/90,
 | S5 | Phone shows gamma; host uses the quaternion roll/pitch | Keep the host's mapping; verify axes against the protocol |
 | S6 | Sound pan uses tower count, not lane span | Fix: lane span |
 | S7 | `winnerIds` ties by score; scene/HUD break ties by height | Keep both |
+
+## 10. Port status (2026-10-21)
+
+- **Rules:** `Games/Stacker/StackerRules` ports engine.ts and balance.ts, with suites `MovecadeKart.Stacker.{Engine,Balance}`
+  covering the §8 goldens (scores, trims and shards, sway, landing impulse, completion, mirroring, countdown,
+  countering the wind for 90 s, the single topple).
+- **S1 to S7 as built:** the rules step on a fixed 10 ms clock. Drops resolve at receipt with no rewind. S3 lives in
+  the game layer, so the parity tests stand: a phone lane starts with a stale `LastInputMs`, so it is frozen and
+  can't drop until its first frame. S4: the cursor is drawn where the rules hold it (no smoothing; it is hidden
+  through the reload anyway). S5: the host maps the quaternion as runtime.ts does, falling back to gamma and beta.
+  S6: the cue player is 2D, so there is no pan. S7: the HUD and showcase sort by score, then height.
+- **Rooftop:** `AStackerRooftop` holds the golden-hour look and the deck: work zones, plinths, lane numbers and the
+  hazard stripe. Around it are the building under the roof and three city bands that sink with the scroll at their
+  parallax. Props: the crane with its hook, the railing, cones, the spool, the pallet, the HVAC fan and two flags.
+- **Game:** `AStackerGame` draws the blocks as rounded ribbed panels: the landing squash, the lean carried up the
+  tower, perfect blocks brighter. The cursor pulses as the block narrows; shards tumble. A perfect gets sparks, a
+  flash and a ring; a miss or topple gets dust; a completed tower gets confetti. It plays the cues (the perfect
+  climbs a semitone per combo, debris by width, altitude per five rows). Each builder rides a lift beside their
+  lane (the web's spot in front hid a lone tower) with the next block in hand, and reacts to each drop. The end
+  showcase compresses every tower to .15 a row, dims the losers and swings around the winner. `SStackerHud`
+  shows the clock, the wind, and per lane the score, lives, row, combo, balance gauge and danger. It also has the
+  callouts, the "hold your phone flat" banner, the controls, the intro and the standings.
+- **Controls:** one local builder; the left stick, A/D or the mouse lean the palm, W/S pitch it; A, Space, Enter or a
+  click drops. House bots counter the wind with a wandering hand and drop at a mark scattered by skill.
+- **Party Mode:** the lobby offers Sky Stacker. The mode routes sensor frames to the palms and `stacker:drop` to
+  the drop. It announces simultaneous play and the countdown, sends feedback per effect ("+N points · L lives ·
+  B blocks"), and sends live scores only when they change. It completes the match after the 8 s showcase. Test:
+  `e2e.ps1 -RoomGame stacker -QuitAfter 150 -SimSeconds 145`; `phone-sim.mjs --game stacker` streams a 60 Hz palm and
+  drops every 1.3 s.

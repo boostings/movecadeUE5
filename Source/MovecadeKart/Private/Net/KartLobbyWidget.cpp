@@ -44,7 +44,7 @@ namespace
 	/** The lobby's games, in pill order (the room's gameId). */
 	const TArray<FString>& LobbyGames()
 	{
-		static const TArray<FString> Games = { TEXT("kart"), TEXT("bowling"), TEXT("darts"), TEXT("samurai") };
+		static const TArray<FString> Games = { TEXT("kart"), TEXT("bowling"), TEXT("darts"), TEXT("samurai"), TEXT("stacker") };
 		return Games;
 	}
 }
@@ -238,23 +238,24 @@ void UKartLobbyWidget::BuildTree()
 	// The game: Kart Racer or a ported party game, as chunky pills.
 	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
-	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling"), TEXT("Bullseye Bash"), TEXT("Samurai Slice") })
+	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling"), TEXT("Bullseye Bash"), TEXT("Samurai Slice"), TEXT("Sky Stacker") })
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
 		Button->SetStyle(CardButtonStyle(30.f));
-		UTextBlock* Label = Text(Name, Font(EFont::Title, 30.f), Color::Navy);
+		UTextBlock* Label = Text(Name, Font(EFont::Title, 25.f), Color::Navy);
 		if (UButtonSlot* PillSlot = Cast<UButtonSlot>(Button->SetContent(Label)))
 		{
-			PillSlot->SetPadding(FMargin(34.f, 10.f));
+			PillSlot->SetPadding(FMargin(18.f, 10.f));
 		}
 		Button->SetBackgroundColor(Color::Paper);
-		AddH(Games, Button, 16.f);
+		AddH(Games, Button, 10.f);
 		GameButtons.Add(Button);
 	}
 	GameButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
 	GameButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
 	GameButtons[2]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame2Clicked);
 	GameButtons[3]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame3Clicked);
+	GameButtons[4]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame4Clicked);
 	AddV(Right, Games, 26.f);
 
 	TrackSection = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -559,6 +560,7 @@ void UKartLobbyWidget::Refresh()
 	SubtitleText->SetText(FText::FromString(bKart ? TEXT("Phones are the controllers: scan the code, tilt to steer.")
 		: Subsystem->GetGameId() == TEXT("bowling") ? TEXT("Phones are the ball: scan the code, swing and let go to bowl.")
 		: Subsystem->GetGameId() == TEXT("darts") ? TEXT("Phones are the darts: scan the code, aim, pinch and flick.")
+		: Subsystem->GetGameId() == TEXT("stacker") ? TEXT("Phones are your palm: scan the code, keep it level and tap DROP.")
 		: TEXT("Phones are katanas: scan the code, then swing through the fruit.")));
 
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
@@ -666,6 +668,11 @@ void UKartLobbyWidget::HandleGame2Clicked()
 void UKartLobbyWidget::HandleGame3Clicked()
 {
 	SelectGame(3);
+}
+
+void UKartLobbyWidget::HandleGame4Clicked()
+{
+	SelectGame(4);
 }
 
 void UKartLobbyWidget::HandleStartClicked()
