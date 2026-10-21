@@ -4,6 +4,7 @@
 #include "GameFramework/Pawn.h"
 #include "Feel/KartFeel.h"
 #include "KartDriverExpression.h"
+#include "Avatar/AvatarDressing.h"
 #include "KartLook.h"
 #include "KartPawn.generated.h"
 
@@ -157,20 +158,13 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> PaintMaterial;
 
-	/** Driver and outfit slots tinted from the look (skin, hair, jersey, ...), by slot name. */
-	UPROPERTY()
-	TMap<FName, TObjectPtr<UMaterialInstanceDynamic>> DriverTints;
-
-	UPROPERTY()
-	TMap<FName, TObjectPtr<UMaterialInstanceDynamic>> OutfitTints;
+	/** The driver's face, body, outfit and tints from the look. */
+	MovecadeKart::Avatar::FDressing Dressing;
 
 	FKartLook Look;
 	bool bLookSet = false;
 	bool bVehicleBuilt = false;
 	EKartVehicle BuiltVehicle = EKartVehicle::Kart;
-	FString BuiltDriver;
-	EKartOutfit BuiltOutfit = EKartOutfit::Classic;
-	bool bRebuildOutfit = true;
 
 	/** Steering wheel frame in VehicleRoot space: centre, normal toward the driver, radius (cm). */
 	FVector GripCentre = FVector::ZeroVector;
