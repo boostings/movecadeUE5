@@ -1,4 +1,4 @@
-﻿# End-to-end check of the UE room host with no phone: runs the game (-game, windowed) as the host with
+# End-to-end check of the UE room host with no phone: runs the game (-game, windowed) as the host with
 # the lobby (-KartRoom), has Tools/net-sim/phone-sim.mjs join as a phone and race it against bots
 # through the real race layer, then prints the evidence.
 #
