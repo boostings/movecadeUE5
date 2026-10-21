@@ -12,6 +12,8 @@ namespace KartScreens
 	// Front end (KartFrontEndScreens.cpp)
 	TSharedRef<FKartScreen> MakeTitle(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeMainMenu(AKartFrontEnd* FrontEnd);
+	/** The party-game picker (Arcade on the main menu). */
+	TSharedRef<FKartScreen> MakeArcade(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeRacers(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeRules(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeTracks(AKartFrontEnd* FrontEnd);

@@ -50,6 +50,8 @@ public:
 	/** Saves the setup and travels to its track; the level builds the race. */
 	void StartRace();
 	void StartParty();
+	/** Travels to a party game's level for Locals players on this screen and Bots house players (?Players=&Bots=). */
+	void StartGame(const FString& Map, int32 Locals, int32 Bots);
 	void QuitGame();
 
 	// -KartUiShots ------------------------------------------------------------------------------------

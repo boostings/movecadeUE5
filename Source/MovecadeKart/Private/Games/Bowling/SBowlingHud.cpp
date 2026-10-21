@@ -160,12 +160,12 @@ void SBowlingHud::PaintControls(const FKartPainter& P, const ABowlingGame& G, fl
 	P.Card(Centre - FVector2D(420.f, 70.f) * S, FVector2D(840.f, 140.f) * S, KC::WithAlpha(KC::Night, 0.82f), 24.f * S, 6.f * S, Bowler->Color, 3.f * S);
 	P.Text(Up, KartUI::Font(EFont::Title, 30.f * S), Centre + FVector2D(0.f, -40.f * S), KC::White, FVector2D(0.5, 0.5));
 	const FText Hint = L.bGripped
-		? NSLOCTEXT("Bowling", "Release", "Let go to bowl  ·  flick the mouse up for a hard ball")
-		: NSLOCTEXT("Bowling", "Grip", "A/D or stick: line  ·  Q/E or right stick: hook  ·  hold SPACE, RT or click to grip");
+		? NSLOCTEXT("Bowling", "Release", "Let go to bowl  ·  flick up for a hard ball")
+		: NSLOCTEXT("Bowling", "Grip", "A/D line  ·  Q/E hook  ·  hold SPACE, RT or click to grip");
 	P.Text(Hint, KartUI::Font(EFont::Body, 19.f * S), Centre + FVector2D(0.f, -6.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.5, 0.5));
 	// Power meter, with the 7-9 m/s sweet band of the web's speed dial marked.
-	const FVector2D BarPos = Centre + FVector2D(-300.f * S, 26.f * S);
-	const FVector2D BarSize(600.f * S, 22.f * S);
+	const FVector2D BarPos = Centre + FVector2D(-250.f * S, 26.f * S);
+	const FVector2D BarSize(520.f * S, 22.f * S);
 	P.Box(BarPos, BarSize, KC::WithAlpha(KC::White, 0.12f), 11.f * S);
 	P.Box(BarPos + FVector2D(BarSize.X * 0.6f, 0.f), FVector2D(BarSize.X * 0.4f, BarSize.Y), KC::WithAlpha(KC::Mint, 0.25f), 11.f * S);
 	const float Power = static_cast<float>(L.bGripped ? L.Power : 0.0);

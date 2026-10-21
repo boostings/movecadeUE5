@@ -4,7 +4,7 @@
 #   .\Tools\ui\shots.ps1 -Steps title,menu -ResX 2560 -ResY 1440
 #   .\Tools\ui\shots.ps1 -Steps race,pause,results -Extra '-KartLaps=1 -KartAutoDrive -KartBots=3'
 param(
-    [string]$Steps = 'title,menu,racers,rules,tracks,settings,audio,controls,credits,quit',
+    [string]$Steps = 'title,menu,racers,rules,tracks,settings,audio,controls,credits,quit,arcade',
     [string]$Map = 'L_SunsetHarbor',
     [int]$ResX = 1920,
     [int]$ResY = 1080,

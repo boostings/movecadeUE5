@@ -37,7 +37,9 @@ void ABowlingGameMode::StartPlay()
 		Alley = World->SpawnActor<ABowlingAlley>();
 	}
 
-	int32 Locals = 1, Bots = 1;
+	// The front end's picker passes ?Players=&Bots=; -BowlPlayers= / -BowlBots= on the command line override (tests).
+	int32 Locals = UGameplayStatics::GetIntOption(OptionsString, TEXT("Players"), 1);
+	int32 Bots = UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 1);
 	FParse::Value(FCommandLine::Get(), TEXT("BowlPlayers="), Locals);
 	FParse::Value(FCommandLine::Get(), TEXT("BowlBots="), Bots);
 	const bool bAuto = FParse::Param(FCommandLine::Get(), TEXT("BowlAuto"));
