@@ -6,6 +6,7 @@
 #include "Games/GameAudio.h"
 #include "Games/Bowling/BowlingRules.h"
 #include "Games/Bowling/BowlingSim.h"
+#include "Games/Bowling/BowlingThrow.h"
 #include "KartLook.h"
 #include "BowlingGame.generated.h"
 
@@ -99,8 +100,18 @@ public:
 
 	void Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSeats, APlayerController* InViewer);
 
-	/** A phone's release (bowling:release): only from the bowler up, while aiming. */
+	/**
+	 * A phone's release (bowling:release): only from the bowler up, while aiming. One that arrives while the intro
+	 * card shows is held and rolls when the card goes (runtime.ts releaseDisposition): the phone never resends it.
+	 */
 	bool SubmitRelease(const FString& PlayerId, const MovecadeKart::Bowling::FShot& Shot);
+
+	/** A phone's sensor frame: the bowler up's arm and lane guide follow it (the release itself comes from the phone). */
+	void FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSensorFrame& Frame);
+
+	/** The room paused (a phone dropped): everything holds, with no catch-up on resume. */
+	void SetPaused(bool bInPaused) { bPaused = bInPaused; }
+	bool IsPaused() const { return bPaused; }
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -128,6 +139,8 @@ public:
 	TFunction<void()> OnFinished;
 	/** The results' "back to the menu" (Esc / B). */
 	TFunction<void()> OnQuit;
+	/** The results' "play again" (Enter / A); unset, it is a local Rematch(). A room rematches through its lobby. */
+	TFunction<void()> OnRematch;
 
 	/** A fresh game for the same bowlers (the results' "play again"). */
 	void Rematch();
@@ -143,6 +156,8 @@ private:
 	void UpdatePins(float Dt);
 	void UpdatePinsetter();
 	void UpdateGuide();
+	/** The live line for the bowler up (local inputs or the phone's detector): false when there is none to show. */
+	bool LiveAim(double& OutAim, double& OutCurve, double& OutCharge) const;
 	void UpdateCamera(float Dt);
 	void UpdateBowler(float Dt);
 	/** How far the bowling arm is swung, radians: negative behind the hip, positive forward and up. */
@@ -218,6 +233,12 @@ private:
 	double BotGripAt = -1.0;
 	FString DressedFor;
 	FRandomStream BotRng;
+	/** One detector per phone, for the live guide and the arm (throw.ts on the host). */
+	TMap<FString, MovecadeKart::Bowling::FThrowDetector> PhoneDetectors;
+	/** The phone bowler up's smoothed swing energy, 0..1. */
+	double PhoneCharge = 0.0;
+	TOptional<MovecadeKart::Bowling::FShot> HeldRelease;
+	bool bPaused = false;
 	MovecadeKart::Games::FCuePlayer Cues;
 
 	FVector CamPos = FVector::ZeroVector;

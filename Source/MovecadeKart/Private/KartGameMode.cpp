@@ -174,6 +174,12 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 	{
 		return;
 	}
+	// A party game plays in its own level; the room (a game instance subsystem) survives the travel.
+	if (const URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>(); Room && Room->GetRoom().GameId == TEXT("bowling"))
+	{
+		UGameplayStatics::OpenLevel(this, TEXT("L_Bowling"));
+		return;
+	}
 	ATrackBuilder* Builder = GetTrackBuilder();
 	if (Builder && !MapId.IsEmpty() && Builder->TrackId != MapId)
 	{

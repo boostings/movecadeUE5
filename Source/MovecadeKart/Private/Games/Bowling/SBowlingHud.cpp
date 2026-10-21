@@ -79,7 +79,7 @@ void SBowlingHud::PaintSheet(const FKartPainter& P, const ABowlingGame& G, float
 	// One row per bowler: colour, name, ten frames (marks over the running total), and the score.
 	const FMatch& M = G.GetMatch();
 	const FVector2D Origin = P.Size() * KartUI::Metric::SafeFraction;
-	const float Row = 62.f * S, NameW = 190.f * S, Box = 58.f * S, TotalW = 92.f * S;
+	const float Row = 62.f * S, NameW = 236.f * S, Box = 58.f * S, TotalW = 92.f * S;
 	const FString* Up = M.Bowler();
 	for (int32 r = 0; r < G.GetSeats().Num(); ++r)
 	{
@@ -92,7 +92,20 @@ void SBowlingHud::PaintSheet(const FKartPainter& P, const ABowlingGame& G, float
 			bUp ? Seat.Color : FLinearColor::Transparent, bUp ? 3.f * S : 0.f);
 		const FLinearColor Ink = bUp ? KC::Night : KC::White;
 		P.Circle(Pos + FVector2D(26.f * S, Row / 2.f), 10.f * S, Seat.Color, KC::Night, 2.f * S);
-		P.Text(Seat.Name, KartUI::Font(EFont::Title, 24.f * S), Pos + FVector2D(46.f * S, Row / 2.f), Ink, FVector2D(0.0, 0.5));
+		// Long names shrink to the column (down to 15 pt), then lose letters, so they never run into frame 1.
+		const float NameRoom = NameW - 56.f * S;
+		float NameSize = 24.f * S;
+		FString Name = Seat.Name;
+		const double NaturalW = FKartPainter::Measure(Name, KartUI::Font(EFont::Title, NameSize)).X;
+		if (NaturalW > NameRoom)
+		{
+			NameSize = FMath::Max(15.f * S, NameSize * NameRoom / static_cast<float>(NaturalW));
+			while (Name.Len() > 2 && FKartPainter::Measure(Name, KartUI::Font(EFont::Title, NameSize)).X > NameRoom)
+			{
+				Name = Name.LeftChop(2) + TEXT(".");
+			}
+		}
+		P.Text(Name, KartUI::Font(EFont::Title, NameSize), Pos + FVector2D(46.f * S, Row / 2.f), Ink, FVector2D(0.0, 0.5));
 		for (int32 f = 0; f < Frames; ++f)
 		{
 			const FVector2D BoxPos = Pos + FVector2D(NameW + f * Box, 6.f * S);

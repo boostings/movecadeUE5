@@ -221,3 +221,18 @@ within 1e-4; no tunnelling at 2-10 fps.
 | W6 | Ambience counter per render frame | Fix: on a timer |
 | W7 | Max visual frame step 1 s (comment says 200 ms) | 200 ms |
 | W8 | Local play | Gamepad: hold RT to grip, right stick sets aim/curve, flick the stick forward to release (power from flick speed); mouse: drag back and throw |
+
+## 9. Port status (2026-10-21)
+
+- **Local play:** the Arcade picker on the main menu (Players, House players) travels to `L_Bowling?Players=N?Bots=N`.
+- **Party Mode:** the lobby's GAME row picks Kart Racer or Bowling (`configure-room {gameId}`, also the hello's
+  gameId so a reconnecting lobby keeps it). On start the lobby level travels to `L_Bowling`, whose mode seats the
+  room's players (phones bowl, room bots use the house AI) and:
+  - announces each bowler with `advance-turn {activePlayerId, phase: 'active'}`;
+  - takes `bowling:release` from the bowler up only (held through the intro card, as `releaseDisposition`);
+  - feeds every phone's sensor frames to a per-phone `FThrowDetector`, so the bowler up's arm and lane guide follow the swing;
+  - sends `play:feedback` and `bowling:replay-outcome` per roll, scores each second, and `complete-game` at the end;
+  - pauses with the room, and goes back to the lobby level on rematch / return-to-lobby.
+- **Test:** `Tools/net-sim/run-party.ps1`, then `Tools/net-sim/e2e.ps1 -RoomGame bowling -Bots 0 -QuitAfter 170
+  -SimSeconds 230`: `phone-sim.mjs --game bowling` swings and releases on its turns; the run plays a full game
+  to signed scores.

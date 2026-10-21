@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Net/RoomProtocol.h"
 #include "Net/RoomTypes.h"
 #include "Sim/KartSim.h"
 #include "Subsystems/GameInstanceSubsystem.h"
@@ -19,6 +20,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FMcPauseChanged, bool, bPaused, c
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FMcRoomEvent);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMcConnectionChanged, EMcConnection, State);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMcSignedScores, const FString&, SignedScoresJson);
+/** A phone's game-event other than kart-input and practice:action: (from player id, event, data or null). */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FMcGameEvent, const FString&, const FString&, const TSharedPtr<FJsonObject>&);
+/** Every accepted sensor frame: (seat index 0..3, frame). */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FMcSensorFrameEvent, int32, const MovecadeKart::Net::FSensorFrame&);
 
 /**
  * Makes this game the Movecade room host (Docs/Port/04 §1-§7, Docs/Port/WORKSTREAMS.md "Room host API").
@@ -33,7 +38,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMcSignedScores, const FString&, Sig
  * Settings come from [/Script/MovecadeKart.RoomHostSubsystem] in DefaultGame.ini, then the command
  * line: -RoomLocal (127.0.0.1:1999 and http://localhost:5173), -RoomServer=host[:port] -RoomSecure/-RoomInsecure
  * (a local server defaults to plain ws, anything else to wss) -RoomJoinBase=<url> -RoomOrigin=...
- * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomAutoStart[=Seconds] -RoomShots=6,20 (UI screenshots)
+ * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling -RoomAutoStart[=Seconds] -RoomShots=6,20 (UI screenshots)
  * -RoomSelfTest (plays the race layer's part after each start: phases, haptics, live scores, results, restart).
  * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -Room.
  *
@@ -124,6 +129,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Room")
 	void SelectMap(const FString& MapId);
 
+	/**
+	 * configure-room {gameId}; lobby only. The game this host runs: "kart" or a party game that has been ported
+	 * (IsPlayableGame). It is also the gameId of every hello, so a reconnecting lobby keeps it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Room")
+	void SelectGame(const FString& InGameId);
+
+	/** The game this host runs (GameId), which the room adopts in the lobby. */
+	UFUNCTION(BlueprintPure, Category = "Room")
+	FString GetGameId() const { return GameId; }
+
+	static bool IsPlayableGame(const FString& InGameId);
+
+	/** True while the room plays a match of InGameId (in progress or paused). */
+	bool IsMatchRunning(const FString& InGameId) const;
+
 	/** HostSurface.tsx start conditions: open, host, lobby, a person seated, every seat ready and connected. */
 	UFUNCTION(BlueprintPure, Category = "Room")
 	bool CanStart() const;
@@ -175,6 +196,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Room")
 	void SubmitResults(const TArray<FMcRaceResult>& Results);
 
+	/** Ends a party game's match: score-update then complete-game with every player's score (once per match). */
+	void CompleteGame(const TArray<FMcScoreEntry>& Scores);
+
+	/** advance-turn: the bowler (or thrower) up; the server drops other phones' frames until the next turn. */
+	void AdvanceTurn(const FString& ActivePlayerId);
+
+	/** A host game-event to every phone; DataJson is a JSON value (Net::QuoteJson for strings). */
+	void SendGameEvent(const FString& Event, const FString& DataJson);
+
+	/** play:feedback for one player's phone (toast and haptic); see Net::Msg::PlayFeedback. */
+	void SendPlayFeedback(const FString& PlayerId, const FString& Title, const FString& Detail, const FString& Tone, const FString& Haptic = FString(), bool bMajor = false);
+
 	/** Phone haptic for seat 0..3 (game-event `collision`), throttled to stay inside the 40/s control budget. */
 	UFUNCTION(BlueprintCallable, Category = "Room")
 	void SendHaptic(int32 Seat, float Intensity, FName CollisionType = TEXT("barrier"), bool bSustained = false);
@@ -218,6 +251,12 @@ public:
 	/** The verbatim signed-scores frame, for leaderboard submission (POST /api/scores). */
 	UPROPERTY(BlueprintAssignable, Category = "Room")
 	FMcSignedScores OnSignedScores;
+
+	/** Party games' phone events (bowling:release, darts:release, stacker:drop, ...). */
+	FMcGameEvent OnGameEvent;
+
+	/** Party games' motion: every accepted sensor frame, by seat. */
+	FMcSensorFrameEvent OnSensorFrame;
 
 	// FTickableGameObject
 	virtual void Tick(float DeltaTime) override;
@@ -313,6 +352,7 @@ private:
 	double AutoStartDelay = 0.0;
 	double AutoStartAt = -1.0;
 	FString PendingMapId;
+	FString PendingGameId;
 	FString LobbyCountdownKey;
 	double LobbyCountdownEndsAt = -1.0;
 	bool bStartSent = false;

@@ -11,6 +11,7 @@ class UBorder;
 class UButton;
 class UImage;
 class UTextBlock;
+class UVerticalBox;
 class URoomHostSubsystem;
 
 /**
@@ -45,6 +46,8 @@ private:
 	void BuildTree();
 	void Refresh();
 	void SelectTrack(int32 Index);
+	/** Kart Racer or one of the ported party games (the room's gameId). */
+	void SelectGame(int32 Index);
 	/** The look: a slow orbit of the track behind the lobby. */
 	void ShowBackdrop(bool bShow);
 	void UpdateBackdrop(float DeltaSeconds);
@@ -58,6 +61,10 @@ private:
 	void HandleTrack0Clicked();
 	UFUNCTION()
 	void HandleTrack1Clicked();
+	UFUNCTION()
+	void HandleGame0Clicked();
+	UFUNCTION()
+	void HandleGame1Clicked();
 	UFUNCTION()
 	void HandleStartRequested(const FString& MapId);
 	UFUNCTION()
@@ -79,6 +86,13 @@ private:
 	TObjectPtr<UTextBlock> StartLabel;
 	UPROPERTY()
 	TArray<TObjectPtr<UButton>> TrackButtons;
+	UPROPERTY()
+	TArray<TObjectPtr<UButton>> GameButtons;
+	/** The track picker, collapsed for games without tracks. */
+	UPROPERTY()
+	TObjectPtr<UVerticalBox> TrackSection;
+	UPROPERTY()
+	TObjectPtr<UTextBlock> SubtitleText;
 	UPROPERTY()
 	TArray<TObjectPtr<UBorder>> SeatRows;
 	UPROPERTY()

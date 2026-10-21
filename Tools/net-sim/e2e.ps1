@@ -14,7 +14,9 @@ param(
     [int]$AutoStartDelay = 12,
     [int]$SimSeconds = 105,
     [int]$Bots = 2,
-    [int]$Laps = 1
+    [int]$Laps = 1,
+    # kart, or bowling: the room plays bowling on L_Bowling and the simulated phone bowls its turns.
+    [string]$RoomGame = 'kart'
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -26,17 +28,17 @@ Remove-Item (Join-Path $root 'Saved\Screenshots\WindowsEditor\RoomHost_*.png') -
 
 $game = Start-Process -PassThru -FilePath $editor -ArgumentList @(
     "`"$root\MyProject.uproject`"", $Map, '-game', '-windowed', '-ResX=1280', '-ResY=720', '-nosound',
-    '-KartRoom', '-RoomLocal', "-KartBots=$Bots", "-KartLaps=$Laps", '-KartSkipIntro', '-RoomNew', '-RoomMap=sunset-harbor', "-RoomAutoStart=$AutoStartDelay", "-RoomShots=$Shots",
+    '-KartRoom', '-RoomLocal', "-KartBots=$Bots", "-KartLaps=$Laps", '-KartSkipIntro', '-RoomNew', '-RoomMap=sunset-harbor', "-RoomGame=$RoomGame", "-RoomAutoStart=$AutoStartDelay", "-RoomShots=$Shots",
     "-KartQuitAfter=$QuitAfter", '-ExecCmds=DisableAllScreenMessages', '-log=NetE2E.log')
 $sim = Start-Process -PassThru -NoNewWindow -FilePath 'node' -ArgumentList @(
     "`"$root\Tools\net-sim\phone-sim.mjs`"", '--from-log', "`"$log`"", '--name', 'SimPhone', '--paint', 'cyan',
-    '--seconds', "$SimSeconds") -RedirectStandardOutput $simLog -RedirectStandardError "$simLog.err"
+    '--seconds', "$SimSeconds", '--game', $RoomGame) -RedirectStandardOutput $simLog -RedirectStandardError "$simLog.err"
 $null = $game.WaitForExit(($QuitAfter + 120) * 1000)
 $null = $sim.WaitForExit(30000)
 if (-not $game.HasExited) { Stop-Process -Id $game.Id -Force }
 if (-not $sim.HasExited) { Stop-Process -Id $sim.Id -Force }
 
 Write-Output '--- host (LogRoomHost / laps) ---'
-Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode' | ForEach-Object { $_.Line }
+Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:' | ForEach-Object { $_.Line }
 Write-Output '--- phone simulator ---'
 Get-Content $simLog

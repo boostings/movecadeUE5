@@ -88,6 +88,9 @@ namespace MovecadeKart::Net
 	/** validateSensorFrame: size 30/31/38/39, type 0x02, flags within 0x3F, quaternion flag needs 38/39, orientation <= 3. */
 	MOVECADEKART_API ESensorError ValidateSensorFrame(const uint8* Data, int32 Size);
 	/** decodeSensorFrame, little-endian. Returns false (and leaves Out alone) on an invalid frame. */
+	/** A JSON string literal, escaped. */
+	MOVECADEKART_API FString QuoteJson(const FString& Value);
+
 	MOVECADEKART_API bool DecodeSensorFrame(const uint8* Data, int32 Size, FSensorFrame& Out, ESensorError* OutError = nullptr);
 
 	/**
@@ -156,11 +159,17 @@ namespace MovecadeKart::Net
 		MOVECADEKART_API FString Pong();
 		MOVECADEKART_API FString StateAck(int64 StateVersion);
 		MOVECADEKART_API FString ConfigureRoomMap(const FString& MapId);
+		/** configure-room {gameId}: lobby only; the server clears everyone's ready and calibration on a change. */
+		MOVECADEKART_API FString ConfigureRoomGame(const FString& GameId);
 		/** Kind is "lobby" or "match"; DurationMs 0 cancels / marks GO. */
 		MOVECADEKART_API FString SetCountdown(const FString& Kind, int32 DurationMs);
 		MOVECADEKART_API FString StartGame();
 		/** advance-turn {activePlayerId:null, phase:'active'}: simultaneous play, so every seat's frames are relayed. */
 		MOVECADEKART_API FString AdvanceTurnSimultaneous();
+		/** advance-turn {activePlayerId, phase: 'active'}: a turn-based game names who may send frames now. */
+		MOVECADEKART_API FString AdvanceTurn(const FString& ActivePlayerId);
+		/** game-event {event, data}; Data is a JSON value written by the caller (QuoteJson for strings). */
+		MOVECADEKART_API FString GameEvent(const FString& Event, const FString& DataJson);
 		MOVECADEKART_API FString ScoreUpdate(const TArray<FMcScoreEntry>& Scores);
 		MOVECADEKART_API FString CompleteGame(const TArray<FMcScoreEntry>& Scores);
 		MOVECADEKART_API FString RestartGame(const FString& ActionId);
@@ -172,6 +181,12 @@ namespace MovecadeKart::Net
 		 * The web host's phone haptic (MultiplayerKart.tsx:1447-1569): game-event `collision` with
 		 * {type:'collision', targetPlayerId, intensity, collisionType, sustained}. Intensity is clamped to 0..1.
 		 */
+		/**
+		 * play:feedback (playFeedback.ts): the phone's toast and haptic after a play. Tone success | warning | neutral;
+		 * Haptic impact | warning | celebration or empty; title <= 80 and detail <= 160 characters.
+		 */
+		MOVECADEKART_API FString PlayFeedback(const FString& GameId, int32 MatchNumber, const FString& PlayerId, const FString& Title,
+			const FString& Detail, const FString& Tone, const FString& Haptic, bool bMajor);
 		MOVECADEKART_API FString Haptic(const FString& TargetPlayerId, double Intensity, const FString& CollisionType, bool bSustained);
 		/** Out-of-union ack that stops signed-scores redelivery (engine.ts handleScoresAck). */
 		MOVECADEKART_API FString ScoresAck(int32 MatchNumber);

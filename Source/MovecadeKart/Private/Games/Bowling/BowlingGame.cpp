@@ -260,6 +260,7 @@ void ABowlingGame::BeginTurn()
 	Local = FLocalBowl();
 	bHasShot = false;
 	BotGripAt = -1.0;
+	PhoneCharge = 0.0;
 	if (const FBowlerSeat* Bowler = GetBowler())
 	{
 		BallMaterial->SetVectorParameterValue(TEXT("Color"), Bowler->Color * 0.55f);
@@ -277,22 +278,47 @@ void ABowlingGame::BeginTurn()
 			}
 		}
 	}
+	if (HeldRelease.IsSet())
+	{
+		const FShot Held = HeldRelease.GetValue();
+		HeldRelease.Reset();
+		Launch(Held);
+	}
 }
 
 bool ABowlingGame::SubmitRelease(const FString& PlayerId, const FShot& InShot)
 {
 	const FString* Up = Match.Bowler();
-	if (Phase != EBowlingPhase::Aiming || !Up || *Up != PlayerId)
+	if (!Up || *Up != PlayerId || (Phase != EBowlingPhase::Aiming && Phase != EBowlingPhase::Intro))
 	{
 		return false;
 	}
+	// runtime.ts releaseGestureFromPayload: every field bounded to what the detector can produce.
 	FShot Clamped = InShot;
 	Clamped.Aim = FMath::Clamp(Clamped.Aim, -0.45, 0.45);
 	Clamped.Power = FMath::Clamp(Clamped.Power, 0.0, 1.0);
 	Clamped.Curve = FMath::Clamp(Clamped.Curve, -0.45, 0.45);
 	Clamped.Loft = FMath::Clamp(Clamped.Loft, 0.0, 1.0);
+	if (Phase == EBowlingPhase::Intro)
+	{
+		HeldRelease = Clamped;
+		return true;
+	}
 	Launch(Clamped);
 	return true;
+}
+
+void ABowlingGame::FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSensorFrame& Frame)
+{
+	FThrowDetector& Detector = PhoneDetectors.FindOrAdd(PlayerId);
+	Detector.Feed(Frame);
+	const FString* Up = Match.Bowler();
+	if (Up && *Up == PlayerId && Phase == EBowlingPhase::Aiming)
+	{
+		// Rises with the swing at once, settles over a few frames, so the arm doesn't flicker.
+		const double Charge = Detector.Preview().Charge;
+		PhoneCharge = Charge > PhoneCharge ? Charge : FMath::Lerp(PhoneCharge, Charge, 0.12);
+	}
 }
 
 void ABowlingGame::Launch(const FShot& InShot)
@@ -373,6 +399,11 @@ void ABowlingGame::Settle()
 void ABowlingGame::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (bPaused)
+	{
+		UpdateCamera(DeltaSeconds);
+		return;
+	}
 	const float Dt = FMath::Min(DeltaSeconds, 0.1f);
 	Clock += Dt;
 	const double Age = GetPhaseAge();
@@ -438,7 +469,14 @@ void ABowlingGame::Tick(float DeltaSeconds)
 		{
 			if (Viewer->WasInputKeyJustPressed(EKeys::Enter) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) || Viewer->WasInputKeyJustPressed(EKeys::SpaceBar))
 			{
-				Rematch();
+				if (OnRematch)
+				{
+					OnRematch();
+				}
+				else
+				{
+					Rematch();
+				}
 			}
 			else if (Viewer->WasInputKeyJustPressed(EKeys::Escape) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right))
 			{
@@ -723,21 +761,47 @@ void ABowlingGame::UpdatePinsetter()
 	Setter->SetWorldLocation(W(0.0, TableY, ABowlingAlley::DeckZ - 0.88));
 }
 
+bool ABowlingGame::LiveAim(double& OutAim, double& OutCurve, double& OutCharge) const
+{
+	const FBowlerSeat* Bowler = GetBowler();
+	if (Phase != EBowlingPhase::Aiming || !Bowler)
+	{
+		return false;
+	}
+	if (Bowler->Kind == EBowlerKind::Local)
+	{
+		OutAim = Local.Aim;
+		OutCurve = Local.Curve;
+		OutCharge = Local.bGripped ? Local.Power : 0.0;
+		return true;
+	}
+	if (Bowler->Kind == EBowlerKind::Phone)
+	{
+		// runtime.ts: only the bowler up's frames steer the guide.
+		const FThrowDetector* Detector = PhoneDetectors.Find(Bowler->Id);
+		OutAim = Detector ? Detector->Preview().Aim : 0.0;
+		OutCurve = Detector ? Detector->Preview().Curve : 0.0;
+		OutCharge = PhoneCharge;
+		return true;
+	}
+	return false;
+}
+
 void ABowlingGame::UpdateGuide()
 {
 	const FBowlerSeat* Bowler = GetBowler();
-	const bool bShow = Phase == EBowlingPhase::Aiming && Bowler && Bowler->Kind == EBowlerKind::Local;
+	double Aim = 0.0, Curve = 0.0, Charge = 0.0;
+	const bool bShow = LiveAim(Aim, Curve, Charge);
 	Guide->SetVisibility(bShow);
 	if (!bShow)
 	{
 		return;
 	}
 	// BowlingScene.tsx:1908-1951: 24 dots along the previewed line, brighter as the arm charges.
-	const double Charge = Local.bGripped ? Local.Power : 0.0;
 	GuideMaterial->SetVectorParameterValue(TEXT("Color"), Bowler->Color * static_cast<float>(1.4 + 1.6 * Charge));
 	FShot Preview;
-	Preview.Aim = Local.Aim;
-	Preview.Curve = Local.Curve;
+	Preview.Aim = Aim;
+	Preview.Curve = Curve;
 	for (int32 i = 0; i < 24; ++i)
 	{
 		const double T = (i + 0.5) / 24.0;
@@ -825,6 +889,11 @@ double ABowlingGame::ArmSwing() const
 		{
 			return -0.35 - 1.2 * Smooth(0.0, 1.0, (Clock - BotGripAt) / 0.8);
 		}
+		if (PhoneCharge > 0.02)
+		{
+			// A phone's swing: the backswing grows with its energy.
+			return -0.35 * Smooth(0.0, 0.15, PhoneCharge) - 1.2 * PhoneCharge;
+		}
 		return 0.0;
 	case EBowlingPhase::Delivery:
 		return FMath::Lerp(SwingAtRelease, 0.25, Smooth(0.0, 1.0, Age / DeliverySeconds));
@@ -846,7 +915,8 @@ void ABowlingGame::UpdateBowler(float Dt)
 	// Where the bowler stands: on the line (the right hand over it), sliding to the foul line as the ball goes.
 	if (Phase == EBowlingPhase::Aiming || Phase == EBowlingPhase::Intro)
 	{
-		const double Line = (Bowler && Bowler->Kind == EBowlerKind::Local ? Local.Aim : 0.0) * ABowlingAlley::LaneVisualScale - 0.3;
+		double Aim = 0.0, Curve = 0.0, Charge = 0.0;
+		const double Line = (LiveAim(Aim, Curve, Charge) ? Aim : 0.0) * ABowlingAlley::LaneVisualScale - 0.3;
 		StanceX = FMath::FInterpTo(StanceX, Line, Dt, 10.0);
 	}
 	const bool bThrown = Phase == EBowlingPhase::Delivery || Phase == EBowlingPhase::Rolling || Phase == EBowlingPhase::Settling;
@@ -931,6 +1001,7 @@ void ABowlingGame::Rematch()
 	Solver.Reset(nullptr, Standing);
 	LastBeat = EBowlingBeat::None;
 	AnnouncedBowler.Reset();
+	HeldRelease.Reset();
 	bSplitLeft = false;
 	SetPhase(EBowlingPhase::Intro);
 }

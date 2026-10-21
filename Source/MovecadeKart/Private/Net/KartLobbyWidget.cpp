@@ -166,15 +166,20 @@ void UKartLobbyWidget::BuildTree()
 
 	// Painted layer: the dimming behind the cards and the button hints.
 	UKartPaintWidget* Backdrop = WidgetTree->ConstructWidget<UKartPaintWidget>();
-	Backdrop->OnPaintKart = [](const FKartPainter& P, const FKartScreenFrame& Frame)
+	Backdrop->OnPaintKart = [WeakThis = TWeakObjectPtr<UKartLobbyWidget>(this)](const FKartPainter& P, const FKartScreenFrame& Frame)
 	{
+		const URoomHostSubsystem* Subsystem = WeakThis.IsValid() ? WeakThis->Room() : nullptr;
+		const bool bKart = !Subsystem || Subsystem->GetGameId() == TEXT("kart");
 		P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X * 0.62, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.82f), Color::WithAlpha(Color::Night, 0.45f), false);
 		P.Gradient(FVector2D(Frame.Size.X * 0.62, 0.0), FVector2D(Frame.Size.X * 0.38, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.45f), Color::WithAlpha(Color::Night, 0.3f), false);
-		KartWidgets::Hints(P, Frame, {
-			{ EKartMenuAction::Left, NSLOCTEXT("KartLobby", "Track", "Track") },
-			{ EKartMenuAction::Accept, NSLOCTEXT("KartLobby", "Start", "Start") },
-			{ EKartMenuAction::Back, NSLOCTEXT("KartLobby", "Leave", "Leave") },
-		});
+		TArray<FKartHint> Hints = { { EKartMenuAction::Up, NSLOCTEXT("KartLobby", "Game", "Game") } };
+		if (bKart)
+		{
+			Hints.Add({ EKartMenuAction::Left, NSLOCTEXT("KartLobby", "Track", "Track") });
+		}
+		Hints.Add({ EKartMenuAction::Accept, NSLOCTEXT("KartLobby", "Start", "Start") });
+		Hints.Add({ EKartMenuAction::Back, NSLOCTEXT("KartLobby", "Leave", "Leave") });
+		KartWidgets::Hints(P, Frame, Hints);
 	};
 	if (UOverlaySlot* BackSlot = Root->AddChildToOverlay(Backdrop))
 	{
@@ -216,9 +221,31 @@ void UKartLobbyWidget::BuildTree()
 	// Right: title, track, seats, start.
 	UVerticalBox* Right = WidgetTree->ConstructWidget<UVerticalBox>();
 	AddV(Right, Text(TEXT("Party Mode"), Font(EFont::Display, 84.f, 5.f), Color::White), 0.f);
-	AddV(Right, Text(TEXT("Phones are the controllers: scan the code, tilt to steer."), Font(EFont::Body, 26.f, 2.f), Color::White), 30.f);
+	SubtitleText = Text(TEXT("Phones are the controllers: scan the code, tilt to steer."), Font(EFont::Body, 26.f, 2.f), Color::White);
+	AddV(Right, SubtitleText, 24.f);
 
-	AddV(Right, Text(TEXT("TRACK"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
+	// The game: Kart Racer or a ported party game, as chunky pills.
+	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
+	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
+	for (const TCHAR* Name : { TEXT("Kart Racer"), TEXT("Bowling") })
+	{
+		UButton* Button = WidgetTree->ConstructWidget<UButton>();
+		Button->SetStyle(CardButtonStyle(30.f));
+		UTextBlock* Label = Text(Name, Font(EFont::Title, 30.f), Color::Navy);
+		if (UButtonSlot* PillSlot = Cast<UButtonSlot>(Button->SetContent(Label)))
+		{
+			PillSlot->SetPadding(FMargin(34.f, 10.f));
+		}
+		Button->SetBackgroundColor(Color::Paper);
+		AddH(Games, Button, 16.f);
+		GameButtons.Add(Button);
+	}
+	GameButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
+	GameButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
+	AddV(Right, Games, 26.f);
+
+	TrackSection = WidgetTree->ConstructWidget<UVerticalBox>();
+	AddV(TrackSection, Text(TEXT("TRACK"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Tracks = WidgetTree->ConstructWidget<UHorizontalBox>();
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < Catalog.Num() && i < 2; ++i)
@@ -245,7 +272,8 @@ void UKartLobbyWidget::BuildTree()
 	}
 	if (TrackButtons.Num() > 0) TrackButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack0Clicked);
 	if (TrackButtons.Num() > 1) TrackButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleTrack1Clicked);
-	AddV(Right, Tracks, 30.f);
+	AddV(TrackSection, Tracks, 30.f);
+	AddV(Right, TrackSection, 0.f);
 
 	AddV(Right, Text(TEXT("PLAYERS"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* SeatRowsBox[2] = { WidgetTree->ConstructWidget<UHorizontalBox>(), WidgetTree->ConstructWidget<UHorizontalBox>() };
@@ -410,9 +438,21 @@ FReply UKartLobbyWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 		HandleStartClicked();
 		return FReply::Handled();
 	}
-	if (Key == EKeys::Left || Key == EKeys::Right || Key == EKeys::Tab || Key == EKeys::Gamepad_DPad_Left || Key == EKeys::Gamepad_DPad_Right)
+	if (Key == EKeys::Up || Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Up || Key == EKeys::Gamepad_DPad_Down)
 	{
 		if (const URoomHostSubsystem* Subsystem = Room())
+		{
+			SelectGame(Subsystem->GetGameId() == TEXT("kart") ? 1 : 0);
+			if (UKartUISubsystem* UI = UKartUISubsystem::Get(this))
+			{
+				UI->PlaySound(EKartUISound::Tick);
+			}
+		}
+		return FReply::Handled();
+	}
+	if (Key == EKeys::Left || Key == EKeys::Right || Key == EKeys::Tab || Key == EKeys::Gamepad_DPad_Left || Key == EKeys::Gamepad_DPad_Right)
+	{
+		if (const URoomHostSubsystem* Subsystem = Room(); Subsystem && Subsystem->GetGameId() == TEXT("kart"))
 		{
 			const int32 Current = FKartTrackCatalog::IndexOf(Subsystem->GetRoom().SelectedMapId);
 			SelectTrack(Current == 0 ? 1 : 0);
@@ -493,6 +533,17 @@ void UKartLobbyWidget::Refresh()
 	ConnectionText->SetText(FText::FromString(Connection));
 	ConnectionText->SetColorAndOpacity(FSlateColor(ConnectionColor));
 
+	const bool bKart = Subsystem->GetGameId() == TEXT("kart");
+	for (int32 i = 0; i < GameButtons.Num(); ++i)
+	{
+		const bool bSelected = (i == 0) == bKart;
+		GameButtons[i]->SetBackgroundColor(bSelected ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f));
+		GameButtons[i]->SetRenderScale(bSelected ? FVector2D(1.04, 1.04) : FVector2D(1.0, 1.0));
+	}
+	TrackSection->SetVisibility(bKart ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	SubtitleText->SetText(FText::FromString(bKart ? TEXT("Phones are the controllers: scan the code, tilt to steer.")
+		: TEXT("Phones are the ball: scan the code, swing and let go to bowl.")));
+
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < TrackButtons.Num() && i < Catalog.Num(); ++i)
 	{
@@ -569,6 +620,25 @@ void UKartLobbyWidget::SelectTrack(int32 Index)
 	{
 		Subsystem->SelectMap(FKartTrackCatalog::All()[Index].Id);
 	}
+}
+
+void UKartLobbyWidget::SelectGame(int32 Index)
+{
+	if (URoomHostSubsystem* Subsystem = Room())
+	{
+		Subsystem->SelectGame(Index == 0 ? TEXT("kart") : TEXT("bowling"));
+		Refresh();
+	}
+}
+
+void UKartLobbyWidget::HandleGame0Clicked()
+{
+	SelectGame(0);
+}
+
+void UKartLobbyWidget::HandleGame1Clicked()
+{
+	SelectGame(1);
 }
 
 void UKartLobbyWidget::HandleStartClicked()
