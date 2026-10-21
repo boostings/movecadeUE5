@@ -25,6 +25,9 @@ namespace
 	constexpr double GripComfort = 0.9;
 	/** How far (radians) the torso may lean in to reach the wheel. */
 	constexpr float MaxReachLean = 0.5f;
+	/** Cartoon proportions over the avatar4 body: a bigger head (hair, eyes and face come with it) and chunkier hands. */
+	constexpr double HeadScale = 1.14;
+	constexpr double HandScale = 1.2;
 
 	struct FRigWork
 	{
@@ -115,6 +118,22 @@ void FKartDriverAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 	TorsoRollVelocity += (Omega * Omega * (TargetRoll - TorsoRoll) - 2.f * Zeta * Omega * TorsoRollVelocity) * Dt;
 	TorsoRoll += TorsoRollVelocity * Dt;
 	HeadYaw = FMath::FInterpTo(HeadYaw, Input.Steer * 0.42f, Dt, 15.f);
+
+	// Hair: the airflow streams it back with speed and boosts, bumps toss it, corners and the head's turn
+	// swing it sideways. Lightly damped (ratio 0.22), so it bounces a couple of times before settling.
+	if (Dt > 0.f)
+	{
+		const float HeadTurnRate = (HeadYaw - LastHeadYaw) / Dt;
+		LastHeadYaw = HeadYaw;
+		const FVector2f Target(
+			0.10f * Input.Moving + 0.22f * Input.Boost - 0.45f * Input.Bounce + 0.5f * Input.JoltBack + 0.25f * Input.Cheer,
+			-0.35f * Input.LateralG - 0.45f * Input.JoltSide - 0.2f * Input.DriftSide - 0.04f * HeadTurnRate);
+		constexpr float HairOmega = 9.f, HairZeta = 0.22f;
+		HairSwingVelocity += (HairOmega * HairOmega * (Target - HairSwing) - 2.f * HairZeta * HairOmega * HairSwingVelocity) * Dt;
+		HairSwing += HairSwingVelocity * Dt;
+		HairSwing.X = FMath::Clamp(HairSwing.X, -0.6f, 0.8f);
+		HairSwing.Y = FMath::Clamp(HairSwing.Y, -0.6f, 0.6f);
+	}
 }
 
 const FKartDriverAnimProxy::FDriverBones& FKartDriverAnimProxy::CacheBones(const FBoneContainer& Bones)
@@ -146,6 +165,22 @@ const FKartDriverAnimProxy::FDriverBones& FKartDriverAnimProxy::CacheBones(const
 		{
 			B.Arm[Side][Joint] = Find(ArmNames[Side][Joint]);
 			B.Leg[Side][Joint] = Find(LegNames[Side][Joint]);
+		}
+	}
+	B.Hair.Reset();
+	B.Hem.Reset();
+	for (int32 MeshIndex = 0; MeshIndex < Ref.GetNum(); ++MeshIndex)
+	{
+		const FString Name = Ref.GetBoneName(MeshIndex).ToString();
+		const bool bHair = Name.StartsWith(TEXT("Spring_hair"), ESearchCase::IgnoreCase);
+		if (!bHair && !Name.StartsWith(TEXT("Spring_hem"), ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+		const FCompactPoseBoneIndex Index = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshIndex));
+		if (Index.IsValid())
+		{
+			(bHair ? B.Hair : B.Hem).Add(Index.GetInt()); // reference order puts parents first
 		}
 	}
 	CachedSerial = Bones.GetSerialNumber();
@@ -286,6 +321,20 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 	}
 	Rig.Rotate(Head, HeadDelta);
 
+	// Spring chains: each joint takes a share of the swing about the head's (hair) or hips' (hems) own axes,
+	// so the tips curl furthest.
+	const FQuat HeadFrame = HeadDelta * TorsoDelta;
+	auto Swing = [&Rig](const TArray<int32, TInlineAllocator<8>>& Chain, const FVector& Side, const FVector& Ahead, float Pitch, float RollAngle)
+	{
+		for (const int32 Bone : Chain)
+		{
+			Rig.Rotate(Bone, FQuat(Ahead, RollAngle) * FQuat(Side, -Pitch));
+		}
+	};
+	const float PerJoint = B.Hair.Num() > 0 ? 1.f / FMath::Sqrt(static_cast<float>(B.Hair.Num())) : 0.f;
+	Swing(B.Hair, HeadFrame.RotateVector(Right), HeadFrame.RotateVector(Forward), HairSwing.X * PerJoint, HairSwing.Y * PerJoint);
+	Swing(B.Hem, TorsoDelta.RotateVector(Right), TorsoDelta.RotateVector(Forward), 0.15f * HairSwing.X, HairSwing.Y * 0.3f);
+
 	// Arms: two-bone IK onto the grips, elbows out and down.
 	if (Input.bHasGrip)
 	{
@@ -330,6 +379,14 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 		}
 	}
 
+	Rig.Local[Head].SetScale3D(Rig.Local[Head].GetScale3D() * HeadScale);
+	for (int32 Side = 0; Side < 2; ++Side)
+	{
+		if (Arm[Side][2] != INDEX_NONE)
+		{
+			Rig.Local[Arm[Side][2]].SetScale3D(Rig.Local[Arm[Side][2]].GetScale3D() * HandScale);
+		}
+	}
 	for (int32 i = 0; i < Num; ++i)
 	{
 		Pose[FCompactPoseBoneIndex(i)] = Rig.Local[i];

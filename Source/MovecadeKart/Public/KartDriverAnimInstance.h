@@ -47,7 +47,8 @@ struct FKartDriverPoseInput
 /**
  * The seated driver pose for an avatar4 body (Docs/Port/03 §6.1, drivingExpression.ts): legs forward
  * under the cowl (or astride the moto), the torso reclined and rolling with the load, the head looking
- * into the turn, and both arms solved by two-bone IK onto the steering wheel's grip points. It runs
+ * into the turn, and both arms solved by two-bone IK onto the steering wheel's grip points. The rig's spring
+ * chains (hair, garment hems) swing on a bouncy spring after bumps, boosts, impacts and corners. It runs
  * natively in the animation proxy (no AnimBP asset), on the shared 26-joint skeleton.
  */
 UCLASS(Transient, NotBlueprintable)
@@ -80,6 +81,9 @@ private:
 		int32 Neck = INDEX_NONE;
 		int32 Arm[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
 		int32 Leg[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
+		/** The rig's spring chains (avatar4 "Spring_hair*", "Spring_hem*"), parents first. */
+		TArray<int32, TInlineAllocator<8>> Hair;
+		TArray<int32, TInlineAllocator<8>> Hem;
 	};
 	/** Looks the joints up by name only when the bone container changes (LOD, mesh swap), not every evaluation. */
 	const FDriverBones& CacheBones(const FBoneContainer& Bones);
@@ -93,6 +97,10 @@ private:
 	float TorsoRollVelocity = 0.f;
 	float HeadYaw = 0.f;
 	float DeltaTime = 0.f;
+	/** The hair's swing (pitch back, roll right; radians) on a bouncy spring, so it lags and overshoots the head. */
+	FVector2f HairSwing = FVector2f::ZeroVector;
+	FVector2f HairSwingVelocity = FVector2f::ZeroVector;
+	float LastHeadYaw = 0.f;
 };
 
 namespace MovecadeKart::DriverRig

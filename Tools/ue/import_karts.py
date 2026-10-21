@@ -6,6 +6,7 @@ Run headless from the project root, after `node Tools/art/decode.mjs` and the ve
     .\\Tools\\ue\\run.ps1 import_karts.py              (everything)
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'vehicles' }   (vehicles | drivers | outfits | materials)
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'kartmaterials' }   (vehicle masters + detail maps only)
+    .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'avatarmaterials' }   (avatar masters + shared eye instances)
 
 Layout:
     /Game/Karts/Materials      M_KartPaint (clear coat, metallic flake), M_KartTyre, M_VehiclePart (detail maps),
@@ -39,8 +40,12 @@ DETAIL = os.path.join(PROJECT, "Tools", "art", ".cache", "detail", "vehicles")
 DETAIL_TEXTURES = os.path.join(PROJECT, "Tools", "art", "detail", "textures")
 DETAIL_TEX = f"{KART_MATS}/Textures"
 
-with open(os.path.join(ART, "materials.json"), encoding="utf-8") as f:
-    MATERIAL_TABLE = json.load(f)
+# The decoded art's material table (Tools/art/decode.mjs). Only the GLB imports need it, so the material-only
+# stages also run on a machine without the decoded art.
+MATERIAL_TABLE = {}
+if os.path.exists(os.path.join(ART, "materials.json")):
+    with open(os.path.join(ART, "materials.json"), encoding="utf-8") as f:
+        MATERIAL_TABLE = json.load(f)
 
 
 def log(msg):
@@ -289,6 +294,23 @@ class Graph:
         n = self.node(unreal.MaterialExpressionDotProduct)
         self.link(a, "", n, "A")
         self.link(b, "", n, "B")
+        return n
+
+    def custom(self, code, inputs, out=unreal.CustomMaterialOutputType.CMOT_FLOAT3, desc="Custom"):
+        """A Custom HLSL node; inputs maps pin names to nodes (or (node, output) pairs)."""
+        n = self.node(unreal.MaterialExpressionCustom)
+        n.set_editor_property("code", code)
+        n.set_editor_property("output_type", out)
+        n.set_editor_property("description", desc)
+        pins = []
+        for name in inputs:
+            ci = unreal.CustomInput()
+            ci.set_editor_property("input_name", name)
+            pins.append(ci)
+        n.set_editor_property("inputs", pins)
+        for name, src in inputs.items():
+            src, src_out = src if isinstance(src, tuple) else (src, "")
+            self.link(src, src_out, n, name)
         return n
 
     def const(self, value):
@@ -547,12 +569,41 @@ def make_kart_masters():
     g.save()
 
 
+AVATAR_RIM = r"""
+float facing = saturate(dot(normalize(N), normalize(V)));
+return Tint * pow(1.0 - facing, Power) * Rim;
+"""
+
+# A stylised hair highlight: a soft ring where the normal sits between straight up and the view (it slides
+# over the crown as the head turns, like an anime sheen band), plus a rim so dark hair keeps its silhouette.
+HAIR_SHEEN = r"""
+float3 n = normalize(N);
+float3 v = normalize(V);
+float band = pow(saturate(dot(n, normalize(v + float3(0.0, 0.0, 1.3)))), 28.0);
+float rim = pow(1.0 - saturate(dot(n, v)), 3.0);
+float3 lifted = Tint * 2.2 + 0.06;
+return lifted * band * Sheen + Tint * rim * Rim;
+"""
+
+# Eyes: a catchlight from a light just above the camera, so they read alive in every shot.
+EYE_CATCHLIGHT = r"""
+float3 r = reflect(-normalize(V), normalize(N));
+float3 key = normalize(normalize(V) + float3(0.0, 0.0, 0.9));
+return pow(saturate(dot(r, key)), 220.0) * Catchlight;
+"""
+
+
 def make_avatar_masters():
     white, linear = default_tex("T_Default_White"), default_tex("T_Default_WhiteLinear")
 
-    def common(g, tint_default, rough, use_vertex_color=False, ao=True):
+    def common(g, tint_default, rough, use_vertex_color=False, ao=True, detail=1.0, ao_strength=1.0):
         tint = g.vector("Tint", tint_default)
-        base = g.mul(g.texture("BaseTex", white, SAMPLER_COLOR), tint, "RGB")
+        tex = g.texture("BaseTex", white, SAMPLER_COLOR)
+        if detail < 1.0:
+            # How much of the baked albedo shows under the tint (the atlas carries blush and seams).
+            base = g.mul(g.lerp(g.const(1.0), tex, g.scalar("AlbedoDetail", detail), "", "RGB"), tint, "", "RGB")
+        else:
+            base = g.mul(tex, tint, "RGB")
         if use_vertex_color:
             vc = g.node(unreal.MaterialExpressionVertexColor)
             base = g.mul(base, vc, "", "")
@@ -560,35 +611,55 @@ def make_avatar_masters():
         g.out(g.scalar("Roughness", rough), "Roughness")
         g.out(g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL), "Normal", "RGB")
         if ao:
-            g.out(g.texture("AOTex", linear, SAMPLER_MASKS), "AmbientOcclusion", "R")
+            occlusion = g.texture("AOTex", linear, SAMPLER_MASKS)
+            if ao_strength < 1.0:
+                # The 512 px atlas bakes heavy blobs into eye sockets and nostrils: only a share of it shows.
+                g.out(g.lerp(g.const(1.0), occlusion, g.scalar("AOStrength", ao_strength), "", "R"), "AmbientOcclusion")
+            else:
+                g.out(occlusion, "AmbientOcclusion", "R")
         return tint
 
-    # Skin: screen-space subsurface (the engine's default profile) over the albedo detail, vertex-colour
-    # warmth on cheeks and nose, a soft sheen.
+    def view(g):
+        return g.node(unreal.MaterialExpressionCameraVectorWS), g.node(unreal.MaterialExpressionVertexNormalWS)
+
+    # Skin: screen-space subsurface (the engine's default profile) over a softened albedo bake, vertex-colour
+    # warmth on cheeks and nose, and a faint warm rim so faces keep their shape in shadow.
     g = Graph(AVATAR_MATS, "M_AvatarSkin", unreal.MaterialShadingModel.MSM_SUBSURFACE_PROFILE)
-    common(g, (0.63, 0.25, 0.14), 0.5, use_vertex_color=True)
-    g.out(g.scalar("Specular", 0.35), "Specular")
+    tint = common(g, (0.63, 0.25, 0.14), 0.55, use_vertex_color=True, detail=0.7, ao_strength=0.35)
+    v, n = view(g)
+    g.out(g.custom(AVATAR_RIM, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.16), "Power": g.scalar("RimPower", 3.0)},
+                   desc="SkinRim"), "EmissiveColor")
+    g.out(g.scalar("Specular", 0.3), "Specular")
     g.save()
 
     g = Graph(AVATAR_MATS, "M_AvatarHair", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
-    common(g, (0.04, 0.018, 0.012), 0.42)
-    g.out(g.scalar("Specular", 0.3), "Specular")
+    tint = common(g, (0.04, 0.018, 0.012), 0.4, detail=0.5, ao_strength=0.45)
+    v, n = view(g)
+    g.out(g.custom(HAIR_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.35), "Rim": g.scalar("Rim", 0.5)},
+                   desc="HairSheen"), "EmissiveColor")
+    g.out(g.scalar("Specular", 0.45), "Specular")
     g.save()
 
     # Fabric: the cloth shading model (fuzz sheen at grazing angles) for jersey, pants, shoes and outfits.
     g = Graph(AVATAR_MATS, "M_AvatarCloth", unreal.MaterialShadingModel.MSM_CLOTH)
-    tint = common(g, (0.8, 0.8, 0.8), 0.82)
+    tint = common(g, (0.8, 0.8, 0.8), 0.82, ao_strength=0.6)
     fuzz = g.mul(g.add(tint, g.scalar("FuzzLift", 0.35)), g.scalar("FuzzScale", 0.55))
     g.out(fuzz, "SubsurfaceColor")
     g.out(g.scalar("Cloth", 0.6), "ClearCoat")
     g.save()
 
+    # Flat surfaces (eyes, mouth, teeth, glasses). Eyes add a catchlight and glow faintly in their own colour
+    # (Glow), so a shaded iris never goes dead.
     g = Graph(AVATAR_MATS, "M_AvatarSurface", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     tint = g.vector("Tint", (0.5, 0.5, 0.5))
     g.out(tint, "BaseColor")
     g.out(g.scalar("Roughness", 0.5), "Roughness")
     g.out(g.scalar("Specular", 0.5), "Specular")
     g.out(g.scalar("Metallic", 0.0), "Metallic")
+    v, n = view(g)
+    glint = g.custom(EYE_CATCHLIGHT, {"N": n, "V": v, "Catchlight": g.scalar("Catchlight", 0.0)},
+                     out=unreal.CustomMaterialOutputType.CMOT_FLOAT1, desc="Catchlight")
+    g.out(g.add(glint, g.mul(tint, g.scalar("Glow", 0.0), "RGB")), "EmissiveColor")
     g.save()
 
 
@@ -813,9 +884,9 @@ def shared_avatar_mis():
     cloth = ASSETS.load_asset(f"{AVATAR_MATS}/M_AvatarCloth")
     folder = f"{AVATAR_MATS}/Shared"
     return {
-        "eyeWhite": make_mi(folder, "MI_Avatar_EyeWhite", surface, {"Roughness": 0.18, "Specular": 0.6}, {"Tint": EYE_WHITE}),
-        "iris": make_mi(folder, "MI_Avatar_Iris", surface, {"Roughness": 0.08, "Specular": 0.7}, {"Tint": IRIS}),
-        "eyeDark": make_mi(folder, "MI_Avatar_EyeDark", surface, {"Roughness": 0.08, "Specular": 0.7}, {"Tint": EYE_DARK}),
+        "eyeWhite": make_mi(folder, "MI_Avatar_EyeWhite", surface, {"Roughness": 0.18, "Specular": 0.6, "Glow": 0.06}, {"Tint": EYE_WHITE}),
+        "iris": make_mi(folder, "MI_Avatar_Iris", surface, {"Roughness": 0.06, "Specular": 0.7, "Catchlight": 6.0, "Glow": 0.25}, {"Tint": IRIS}),
+        "eyeDark": make_mi(folder, "MI_Avatar_EyeDark", surface, {"Roughness": 0.06, "Specular": 0.7, "Catchlight": 6.0}, {"Tint": EYE_DARK}),
         "mouth": make_mi(folder, "MI_Avatar_Mouth", surface, {"Roughness": 0.6}, {"Tint": (0.038, 0.014, 0.014)}),
         "nostril": make_mi(folder, "MI_Avatar_Nostril", surface, {"Roughness": 0.7}, {"Tint": (0.141, 0.051, 0.033)}),
         "teeth": make_mi(folder, "MI_Avatar_Teeth", surface, {"Roughness": 0.35}, {"Tint": (0.799, 0.738, 0.631)}),
@@ -936,6 +1007,17 @@ def main():
         import_detail_textures()
         make_kart_masters()
         make_avatar_masters()
+    if STAGE == "avatarmaterials":
+        # Only the avatar masters and the shared eye and mouth instances (drivers keep their own instances).
+        make_writable(AVATAR_MATS)
+        make_avatar_masters()
+        # Update the shared instances in place: the driver meshes reference them, so they must not be recreated.
+        for name, scalars in (("EyeWhite", {"Glow": 0.06}), ("Iris", {"Roughness": 0.06, "Catchlight": 6.0, "Glow": 0.25}),
+                              ("EyeDark", {"Roughness": 0.06, "Catchlight": 6.0})):
+            mi = ASSETS.load_asset(f"{AVATAR_MATS}/Shared/MI_Avatar_{name}")
+            for key, value in scalars.items():
+                MEL.set_material_instance_scalar_parameter_value(mi, key, value)
+            ASSETS.save_loaded_asset(mi)
     if STAGE == "swaps":
         finish_swaps()
     if STAGE == "usage":

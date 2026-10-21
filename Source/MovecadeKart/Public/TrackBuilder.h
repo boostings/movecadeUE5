@@ -30,6 +30,8 @@ class USkyLightComponent;
  *   process volume with the grade (exposure, contrast, saturation, lift/gain, bloom, vignette) and Lumen.
  * Built in the editor too (OnConstruction). Run Tools/ue/import_track_assets.py after an export.
  *
+ * In game worlds BeginPlay also spawns the track's ATrackLife (grass, crowds, wind, fireworks; -KartNoLife: none).
+ *
  * -KartTrack=<id> on the command line swaps the track at BeginPlay (any level with a builder, or none:
  * AKartGameMode spawns one), so local play can pick a track that has no level of its own.
  */
@@ -66,6 +68,18 @@ public:
 
 	/** How many imported scenery components the last build made (0 when the assets aren't imported). */
 	int32 NumSceneryComponents() const { return SceneryCount; }
+
+	/** A material for a JSON-style hint ({shader, color, detail, ...}), from the same cache as the scenery's. */
+	UMaterialInterface* MaterialForHint(const TSharedPtr<class FJsonObject>& Hint) { return MaterialFor(Hint); }
+
+	/**
+	 * Hides a scenery prefab's instanced components (scenery.instances) and returns its instances' world
+	 * transforms, for ATrackLife to rebuild that prefab with more life in it (the grandstands' crowds).
+	 */
+	TArray<FTransform> TakeOverPrefab(const FString& Prefab);
+
+	/** Repoints the instanced plants (foliage prefabs) at M_TrackFoliageWind, swaying with ATrackLife's wind. */
+	void EnableFoliageWind();
 
 private:
 	bool Load();

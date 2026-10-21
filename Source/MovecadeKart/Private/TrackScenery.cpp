@@ -33,6 +33,7 @@ namespace
 			{ TEXT("surfaceWall"), TEXT("M_TrackSurfaceWall") },
 			{ TEXT("boostPad"), TEXT("M_TrackBoostPad") },
 			{ TEXT("foliage"), TEXT("M_TrackFoliage") },
+			{ TEXT("foliageWind"), TEXT("M_TrackFoliageWind") },
 			{ TEXT("crystal"), TEXT("M_TrackCrystal") },
 			{ TEXT("glass"), TEXT("M_TrackGlass") },
 			{ TEXT("water"), TEXT("M_TrackWater") },
@@ -765,5 +766,97 @@ void ATrackBuilder::TickMotion(double T)
 			}
 		}
 		C->SetRelativeTransform(ToUETransform(X, Rebase));
+	}
+}
+
+// ---- Hooks for ATrackLife ------------------------------------------------------------------------------------
+
+TArray<FTransform> ATrackBuilder::TakeOverPrefab(const FString& Prefab)
+{
+	TArray<FTransform> Out;
+	const TSharedPtr<FJsonObject> Def = Obj(Obj(Obj(Json, TEXT("scenery")), TEXT("prefabs")), *Prefab);
+	const UStaticMesh* Mesh = Def.IsValid() ? LoadAsset<UStaticMesh>(Str(Def, TEXT("ueAsset"))) : nullptr;
+	if (!Mesh)
+	{
+		return Out;
+	}
+	// Match by mesh, not by name or tag: a level saved by an older build keeps its own component names.
+	TArray<UInstancedStaticMeshComponent*> Groups;
+	GetComponents(Groups);
+	for (UInstancedStaticMeshComponent* Group : Groups)
+	{
+		if (Group->GetStaticMesh() != Mesh || !Group->ComponentTags.Contains(SceneryTag))
+		{
+			continue;
+		}
+		for (int32 i = 0; i < Group->GetInstanceCount(); ++i)
+		{
+			FTransform X;
+			if (Group->GetInstanceTransform(i, X, /*bWorldSpace*/ true))
+			{
+				Out.Add(X);
+			}
+		}
+		Group->SetVisibility(false);
+		Group->SetHiddenInGame(true);
+	}
+	return Out;
+}
+
+void ATrackBuilder::EnableFoliageWind()
+{
+	UMaterialInterface* Windy = LoadObject<UMaterialInterface>(nullptr, *MaterialPath(TEXT("foliageWind")), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	UMaterialInterface* Still = LoadObject<UMaterialInterface>(nullptr, *MaterialPath(TEXT("foliage")), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	if (!Windy || !Still || Windy == Still)
+	{
+		return;
+	}
+	TMap<TPair<UMaterialInterface*, int32>, UMaterialInstanceDynamic*> Made;
+	TArray<UInstancedStaticMeshComponent*> Groups;
+	GetComponents(Groups);
+	for (UInstancedStaticMeshComponent* Group : Groups)
+	{
+		if (!Group->ComponentTags.Contains(SceneryTag) || !Group->GetStaticMesh())
+		{
+			continue;
+		}
+		// Taller plants sway less per metre, so every crown tip travels a similar few centimetres.
+		const double HeightM = FMath::Max(Group->GetStaticMesh()->GetBoundingBox().Max.Z / 100.0, 0.4);
+		const double TipCm = HeightM > 2.0 ? 9.0 : 4.5;
+		const int32 Bucket = FMath::RoundToInt32(TipCm / HeightM * 4.0);
+		bool bWindy = false;
+		for (int32 Slot = 0; Slot < Group->GetNumMaterials(); ++Slot)
+		{
+			UMaterialInterface* Current = Group->GetMaterial(Slot);
+			if (!Current || Current->GetMaterial() != Still->GetMaterial())
+			{
+				continue;
+			}
+			UMaterialInstanceDynamic*& Mid = Made.FindOrAdd({ Current, Bucket });
+			if (!Mid)
+			{
+				Mid = UMaterialInstanceDynamic::Create(Windy, this);
+				if (UMaterialInstance* From = Cast<UMaterialInstance>(Current))
+				{
+					Mid->CopyParameterOverrides(From);
+				}
+				Mid->SetScalarParameterValue(TEXT("WindSway"), Bucket / 4.0);
+				Mid->SetScalarParameterValue(TEXT("WindFlutter"), HeightM > 2.0 ? 0.8 : 0.3);
+			}
+			Group->SetMaterial(Slot, Mid);
+			bWindy = true;
+		}
+		// M_TrackFoliageWind sways about each instance's origin, from custom data 0..2.
+		if (bWindy && Group->NumCustomDataFloats < 3)
+		{
+			Group->SetNumCustomDataFloats(3);
+			for (int32 i = 0; i < Group->GetInstanceCount(); ++i)
+			{
+				FTransform X;
+				Group->GetInstanceTransform(i, X, /*bWorldSpace*/ true);
+				const FVector O = X.GetLocation();
+				Group->SetCustomData(i, { static_cast<float>(O.X), static_cast<float>(O.Y), static_cast<float>(O.Z) }, i == Group->GetInstanceCount() - 1);
+			}
+		}
 	}
 }

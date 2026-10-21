@@ -103,6 +103,14 @@ namespace
 		return Lerp3(Skin, Rose, 0.42f) * 0.9f;
 	}
 
+	/** Each face its own eye colour (the web gave every driver the same brown): browns, hazel, green, blue. */
+	FLinearColor IrisColour(EKartFace Face)
+	{
+		static const FColor Irises[] = { FColor(0x6b, 0x44, 0x26), FColor(0x3d, 0x6e, 0x8c), FColor(0x4a, 0x2e, 0x1a),
+			FColor(0x5f, 0x7a, 0x3a), FColor(0x2e, 0x1c, 0x12), FColor(0x7a, 0x5a, 0x2e) };
+		return FLinearColor::FromSRGBColor(Irises[static_cast<int32>(Face) % UE_ARRAY_COUNT(Irises)]);
+	}
+
 	/** The jersey darkened: the waistband and headband (appearanceColors.ts detailHex). */
 	FLinearColor DetailColour(const FLinearColor& Jersey)
 	{
@@ -412,7 +420,7 @@ void AKartPawn::ApplyDriver()
 		DriverTints.Reset();
 		static const FName Tinted[] = { TEXT("skin"), TEXT("skin_body"), TEXT("lips"), TEXT("hair"), TEXT("hair_short"), TEXT("hair_bangs"),
 			TEXT("hair_puff"), TEXT("hair_tail"), TEXT("hair_crop"), TEXT("hair_curls"), TEXT("hair_bob"), TEXT("hair_bun"),
-			TEXT("jersey"), TEXT("pants"), TEXT("waist"), TEXT("shoes"), TEXT("acc_cap"), TEXT("acc_headband") };
+			TEXT("jersey"), TEXT("pants"), TEXT("waist"), TEXT("shoes"), TEXT("acc_cap"), TEXT("acc_headband"), TEXT("iris") };
 		for (const FName Slot : Tinted)
 		{
 			const int32 Index = Driver->GetMaterialIndex(Slot);
@@ -505,6 +513,7 @@ void AKartPawn::ApplyColours()
 	Tint(DriverTints, TEXT("acc_cap"), Jersey);
 	Tint(DriverTints, TEXT("acc_headband"), DetailColour(Jersey));
 	Tint(OutfitTints, TEXT("skin"), Look.Skin);
+	Tint(DriverTints, TEXT("iris"), IrisColour(Look.Face));
 }
 
 void AKartPawn::Tick(float DeltaSeconds)

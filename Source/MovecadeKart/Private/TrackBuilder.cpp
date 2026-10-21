@@ -21,6 +21,7 @@
 #include "ProceduralMeshComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Track/TrackLife.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTrackBuilder, Log, All);
@@ -556,6 +557,16 @@ void ATrackBuilder::BeginPlay()
 		ApplyLook(); // the look as the code has it now, even on a level saved earlier
 	}
 	GatherMotion();
+
+	if (GetWorld()->IsGameWorld() && Track.IsValid() && ATrackLife::IsEnabled())
+	{
+		FActorSpawnParameters Params;
+		Params.Owner = this;
+		if (ATrackLife* Life = GetWorld()->SpawnActor<ATrackLife>(Params))
+		{
+			Life->Init(this);
+		}
+	}
 
 	// Test hook: -KartTrackCam=x,y,z,lookX,lookY,lookZ holds the first viewport on a fixed camera.
 	FString CamText;
