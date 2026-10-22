@@ -24,6 +24,8 @@ namespace MovecadeKart::Arcade
 		int32 MaxLocal = 4;
 		/** Seconds of the game's own results before the "what next" bar slides in (a showcase can ask for more). */
 		double ResultsDelay = 2.0;
+		/** The lobby's line about what the phone does in this game. */
+		FText PhoneHint;
 	};
 
 	MOVECADEKART_API const TArray<FGameInfo>& Games();
