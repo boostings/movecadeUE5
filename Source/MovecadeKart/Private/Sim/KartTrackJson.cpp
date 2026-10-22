@@ -455,8 +455,18 @@ namespace MovecadeKart
 			}
 			if (const TSharedPtr<FJsonObject> Bounds = ObjectField(ObjectField(Root, TEXT("minimap")), TEXT("bounds")))
 			{
-				Out.MinimapBounds = FBox2D(FVector2D(NumberField(Bounds, TEXT("minX")), NumberField(Bounds, TEXT("minZ"))),
-					FVector2D(NumberField(Bounds, TEXT("maxX")), NumberField(Bounds, TEXT("maxZ"))));
+				const FVector2D Min(NumberField(Bounds, TEXT("minX")), NumberField(Bounds, TEXT("minZ")));
+				const FVector2D Max(NumberField(Bounds, TEXT("maxX")), NumberField(Bounds, TEXT("maxZ")));
+				// The HUD and the attract camera divide by the box's size: an inverted, empty or off-map box is left
+				// invalid (no minimap) rather than drawn as NaN.
+				if (IsTrackPoint(Min) && IsTrackPoint(Max) && Max.X >= Min.X && Max.Y >= Min.Y && Max != Min)
+				{
+					Out.MinimapBounds = FBox2D(Min, Max);
+				}
+				else
+				{
+					UE_LOG(LogKartTrack, Warning, TEXT("Ignoring minimap bounds (%g, %g)-(%g, %g)"), Min.X, Min.Y, Max.X, Max.Y);
+				}
 			}
 			const TSharedPtr<FJsonObject> Look = ObjectField(Root, TEXT("look"));
 			if (Look && ArrayField(Look, TEXT("sunDirection")).Num() == 3)

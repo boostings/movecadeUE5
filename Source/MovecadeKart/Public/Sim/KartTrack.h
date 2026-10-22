@@ -153,8 +153,15 @@ namespace MovecadeKart
 		TArray<FStaticCamera> StaticCameras;
 		/** Item box centres (three.js x, y, z). */
 		TArray<FVector> ItemBoxes;
-		/** Minimap bounds in metres: X = minX..maxX, Y = minZ..maxZ. */
+		/** Minimap bounds in metres: X = minX..maxX, Y = minZ..maxZ. Invalid when the file has none (or a bad one). */
 		FBox2D MinimapBounds = FBox2D(ForceInit);
+		/** MinimapBounds' longer side, at least MinMinimapSpan, so it is always safe to divide by. */
+		static constexpr double MinMinimapSpan = 1.0;
+		double MinimapSpan() const
+		{
+			const FVector2D Size = MinimapBounds.GetSize();
+			return FMath::Max(FMath::Max(Size.X, Size.Y), MinMinimapSpan);
+		}
 
 		TArray<FBoostPad> BoostPads;
 		double BoostMultiplier = 1.8;
