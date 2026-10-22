@@ -233,13 +233,15 @@ namespace MovecadeKart
 		{
 			return false;
 		}
-		const int32 Col = FMath::FloorToInt32((P.X - Min.X) / CellSize);
-		const int32 Row = FMath::FloorToInt32((P.Y - Min.Y) / CellSize);
-		if (Col < 0 || Row < 0 || Col >= Cols || Row >= Rows)
+		// Range-checked as doubles: a point far off the grid (or NaN) would overflow the int32 conversion.
+		const double Col = FMath::FloorToDouble((P.X - Min.X) / CellSize);
+		const double Row = FMath::FloorToDouble((P.Y - Min.Y) / CellSize);
+		if (!(Col >= 0.0 && Row >= 0.0 && Col < Cols && Row < Rows))
 		{
 			return false;
 		}
-		return Cells[Row * Cols + Col];
+		const int64 Index = static_cast<int64>(Row) * Cols + static_cast<int64>(Col);
+		return Index < Cells.Num() && Cells[static_cast<int32>(Index)];
 	}
 
 	// ---- FTrack ---------------------------------------------------------------------------------

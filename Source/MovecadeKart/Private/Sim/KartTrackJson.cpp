@@ -18,8 +18,11 @@ namespace MovecadeKart
 	{
 		/** How much closer than the wall offset a Harbor wall point may come to the centreline before it counts as folded. */
 		constexpr double FoldedWallTolerance = 0.25;
-		/** No real dirt raster comes near this (Violet's is 1885 x 1744); larger means a corrupt file. */
-		constexpr double MaxDirtGridCells = 1 << 26;
+		/** No real dirt raster comes near these (Violet's is 1885 x 1744 cells of 0.25 m, 471 x 436 m); past them the
+		 *  file is corrupt. */
+		constexpr int64 MaxDirtGridCells = 1 << 26;
+		constexpr double MaxDirtCellM = 10.0;
+		constexpr double MaxDirtGridSideM = 2000.0;
 		/** Integer fields' ranges: far past any real track, and small enough that nothing downstream overflows. */
 		constexpr int32 MaxLaps = 99;
 		constexpr int32 MaxRecoverySkipWaypoints = 1 << 16;
@@ -359,24 +362,31 @@ namespace MovecadeKart
 			}
 		}
 
-		/** The dirt raster: run-length rows of [row, firstCol, lastCol]. A grid too large to be real is ignored. */
+		/** The dirt raster: run-length rows of [row, firstCol, lastCol]. A grid that can't be real (too many cells,
+		 *  a cell size outside (0, 10] m, off the map, or larger than MaxDirtGridSideM) is ignored. */
 		void ParseDirtGrid(const TSharedPtr<FJsonObject>& Dirt, FDirtGrid& Grid)
 		{
-			const double Cols = NumberField(Dirt, TEXT("cols"));
-			const double Rows = NumberField(Dirt, TEXT("rows"));
-			if (!(Cols * Rows <= MaxDirtGridCells))
-			{
-				UE_LOG(LogKartTrack, Warning, TEXT("Ignoring a %.0f x %.0f dirt grid (limit %.0f cells)"), Cols, Rows, MaxDirtGridCells);
-				return;
-			}
-			Grid.CellSize = NumberField(Dirt, TEXT("cellM"));
-			Grid.Min = FVector2D(NumberField(Dirt, TEXT("minX")), NumberField(Dirt, TEXT("minZ")));
-			Grid.Cols = Json::ToInt32(Cols, 0, 0, MAX_int32);
-			Grid.Rows = Json::ToInt32(Rows, 0, 0, MAX_int32);
-			if (!Grid.IsValid())
+			const int32 Cols = Json::IntField(Dirt, TEXT("cols"), 0, 0, MAX_int32);
+			const int32 Rows = Json::IntField(Dirt, TEXT("rows"), 0, 0, MAX_int32);
+			if (Cols == 0 || Rows == 0)
 			{
 				return;
 			}
+			const double CellSize = NumberField(Dirt, TEXT("cellM"));
+			const FVector2D Min(NumberField(Dirt, TEXT("minX")), NumberField(Dirt, TEXT("minZ")));
+			// The lawn scatters over the whole raster in half-metre steps, so its extent bounds that work too.
+			const bool bCellSize = CellSize > 0.0 && CellSize <= MaxDirtCellM;
+			if (static_cast<int64>(Cols) * Rows > MaxDirtGridCells || !bCellSize || !IsTrackPoint(Min)
+				|| Cols * CellSize > MaxDirtGridSideM || Rows * CellSize > MaxDirtGridSideM)
+			{
+				UE_LOG(LogKartTrack, Warning, TEXT("Ignoring a %d x %d dirt grid of %g m cells at (%g, %g) (limits: %lld cells, %g m cells, %g m a side)"),
+					Cols, Rows, CellSize, Min.X, Min.Y, MaxDirtGridCells, MaxDirtCellM, MaxDirtGridSideM);
+				return;
+			}
+			Grid.CellSize = CellSize;
+			Grid.Min = Min;
+			Grid.Cols = Cols;
+			Grid.Rows = Rows;
 			Grid.Cells.Init(false, Grid.Cols * Grid.Rows);
 			FNumbers Run;
 			for (const TSharedPtr<FJsonValue>& Entry : ArrayField(Dirt, TEXT("runs")))
