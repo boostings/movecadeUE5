@@ -245,33 +245,50 @@ void UKartLobbyWidget::BuildTree()
 	SubtitleText = Text(TEXT("Phones are the controllers: scan the code, tilt to steer."), Font(EFont::Body, 26.f, 2.f), Color::White);
 	AddV(Right, SubtitleText, 24.f);
 
-	// The game: Kart Racer or a ported party game, as chunky pills.
+	// The game: a carousel over Kart Racer and every party game in the catalog (arrows, Up/Down, or a click on the card).
 	AddV(Right, Text(TEXT("GAME"), Font(EFont::Label, 22.f, 2.f), Color::Sun), 10.f);
 	UHorizontalBox* Games = WidgetTree->ConstructWidget<UHorizontalBox>();
-	TArray<FString> PillNames = { TEXT("Kart Racer") };
-	for (const MovecadeKart::Arcade::FGameInfo& G : MovecadeKart::Arcade::Games())
-	{
-		PillNames.Add(G.Name.ToString());
-	}
-	check(PillNames.Num() == 5); // one handler per pill below
-	for (const FString& Name : PillNames)
+	auto Arrow = [this, &Text](const TCHAR* Glyph)
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
 		Button->SetStyle(CardButtonStyle(30.f));
-		UTextBlock* Label = Text(*Name, Font(EFont::Title, 25.f), Color::Navy);
-		if (UButtonSlot* PillSlot = Cast<UButtonSlot>(Button->SetContent(Label)))
+		UTextBlock* Label = Text(Glyph, Font(EFont::Display, 34.f), Color::Navy);
+		if (UButtonSlot* ArrowSlot = Cast<UButtonSlot>(Button->SetContent(Label)))
 		{
-			PillSlot->SetPadding(FMargin(18.f, 10.f));
+			ArrowSlot->SetPadding(FMargin(20.f, 8.f));
 		}
 		Button->SetBackgroundColor(Color::Paper);
-		AddH(Games, Button, 10.f);
-		GameButtons.Add(Button);
+		return Button;
+	};
+	UButton* Prev = Arrow(TEXT("<"));
+	UButton* Next = Arrow(TEXT(">"));
+	UHorizontalBox* GameCard = WidgetTree->ConstructWidget<UHorizontalBox>();
+	GameAccent = Card(Color::Sun, 9.f, FMargin(0.f), nullptr);
+	AddH(GameCard, Sized(GameAccent, 18.f, 76.f), 18.f);
+	UVerticalBox* GameWords = WidgetTree->ConstructWidget<UVerticalBox>();
+	GameName = Text(TEXT("Kart Racer"), Font(EFont::Title, 34.f), Color::Navy);
+	AddV(GameWords, GameName, 0.f);
+	GameTagline = Text(TEXT(""), Font(EFont::Body, 17.f), Color::NavyDim);
+	GameTagline->SetAutoWrapText(true);
+	AddV(GameWords, GameTagline, 0.f);
+	AddH(GameCard, GameWords, 12.f, true);
+	GameCount = Text(TEXT(""), Font(EFont::Label, 18.f), Color::NavyDim);
+	AddH(GameCard, GameCount, 0.f)->SetVerticalAlignment(VAlign_Center);
+	UButton* CardButton = WidgetTree->ConstructWidget<UButton>();
+	CardButton->SetStyle(CardButtonStyle(24.f));
+	if (UButtonSlot* CardSlot = Cast<UButtonSlot>(CardButton->SetContent(GameCard)))
+	{
+		CardSlot->SetHorizontalAlignment(HAlign_Fill);
+		CardSlot->SetPadding(FMargin(18.f, 14.f));
 	}
-	GameButtons[0]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
-	GameButtons[1]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
-	GameButtons[2]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame2Clicked);
-	GameButtons[3]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame3Clicked);
-	GameButtons[4]->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame4Clicked);
+	CardButton->SetBackgroundColor(Color::Sun);
+	AddH(Games, Prev, 12.f)->SetVerticalAlignment(VAlign_Center);
+	AddH(Games, Sized(CardButton, 760.f, 0.f), 12.f);
+	AddH(Games, Next, 0.f)->SetVerticalAlignment(VAlign_Center);
+	GameButtons = { Prev, CardButton, Next };
+	Prev->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame0Clicked);
+	CardButton->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame1Clicked);
+	Next->OnClicked.AddDynamic(this, &UKartLobbyWidget::HandleGame2Clicked);
 	AddV(Right, Games, 26.f);
 
 	TrackSection = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -567,18 +584,15 @@ void UKartLobbyWidget::Refresh()
 	ConnectionText->SetColorAndOpacity(FSlateColor(ConnectionColor));
 
 	const bool bKart = Subsystem->GetGameId() == TEXT("kart");
-	for (int32 i = 0; i < GameButtons.Num(); ++i)
-	{
-		const bool bSelected = LobbyGames().IsValidIndex(i) && LobbyGames()[i] == Subsystem->GetGameId();
-		GameButtons[i]->SetBackgroundColor(bSelected ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f));
-		GameButtons[i]->SetRenderScale(bSelected ? FVector2D(1.04, 1.04) : FVector2D(1.0, 1.0));
-	}
+	const MovecadeKart::Arcade::FGameInfo* Info = MovecadeKart::Arcade::Find(Subsystem->GetGameId());
+	const int32 GameIndex = FMath::Max(0, LobbyGames().IndexOfByKey(Subsystem->GetGameId()));
+	GameName->SetText(Info ? Info->Name : FText::FromString(TEXT("Kart Racer")));
+	GameTagline->SetText(Info ? Info->Tagline : FText::FromString(TEXT("Race the harbour and the violet loop. Drift, boost and fire items.")));
+	GameAccent->SetBrushColor(Info ? Info->Accent : Color::Hot);
+	GameCount->SetText(FText::FromString(FString::Printf(TEXT("%d / %d"), GameIndex + 1, LobbyGames().Num())));
 	TrackSection->SetVisibility(bKart ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
-	SubtitleText->SetText(FText::FromString(bKart ? TEXT("Phones are the controllers: scan the code, tilt to steer.")
-		: Subsystem->GetGameId() == TEXT("bowling") ? TEXT("Phones are the ball: scan the code, swing and let go to bowl.")
-		: Subsystem->GetGameId() == TEXT("darts") ? TEXT("Phones are the darts: scan the code, aim, pinch and flick.")
-		: Subsystem->GetGameId() == TEXT("stacker") ? TEXT("Phones are your palm: scan the code, keep it level and tap DROP.")
-		: TEXT("Phones are katanas: scan the code, then swing through the fruit.")));
+	SubtitleText->SetText(bKart ? FText::FromString(TEXT("Phones are the controllers: scan the code, tilt to steer."))
+		: Info && !Info->PhoneHint.IsEmpty() ? Info->PhoneHint : FText::FromString(TEXT("Phones are the controllers: scan the code to join.")));
 
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
 	for (int32 i = 0; i < TrackButtons.Num() && i < Catalog.Num(); ++i)
@@ -667,30 +681,31 @@ void UKartLobbyWidget::SelectGame(int32 Index)
 	}
 }
 
+void UKartLobbyWidget::StepGame(int32 Step)
+{
+	if (const URoomHostSubsystem* RoomHost = Room())
+	{
+		const int32 Current = FMath::Max(0, LobbyGames().IndexOfByKey(RoomHost->GetGameId()));
+		SelectGame((Current + Step + LobbyGames().Num()) % LobbyGames().Num());
+	}
+}
+
 void UKartLobbyWidget::HandleGame0Clicked()
 {
-	SelectGame(0);
+	StepGame(-1);
 }
 
 void UKartLobbyWidget::HandleGame1Clicked()
 {
-	SelectGame(1);
+	StepGame(1);
 }
 
 void UKartLobbyWidget::HandleGame2Clicked()
 {
-	SelectGame(2);
+	StepGame(1);
 }
 
-void UKartLobbyWidget::HandleGame3Clicked()
-{
-	SelectGame(3);
-}
 
-void UKartLobbyWidget::HandleGame4Clicked()
-{
-	SelectGame(4);
-}
 
 void UKartLobbyWidget::HandleStartClicked()
 {

@@ -205,6 +205,16 @@ public:
 	/** A host game-event to every phone; DataJson is a JSON value (Net::QuoteJson for strings). */
 	void SendGameEvent(const FString& Event, const FString& DataJson);
 
+	/**
+	 * The motion pad's prompt (Docs/Agents/BRIEF.md "The motion pad contract"): what PlayerId's phone shows, big.
+	 * A / B are the button labels (empty hides that button), AccentHex "#rrggbb", Mode tilt | swing | aim | flick
+	 * (the phone's hint animation). PlayerId Net::PadPromptEveryone ("*") addresses every phone. Send it after the
+	 * turn or phase changes it describes; a phone that (re)joins mid-match shows the game's defaults until the next one.
+	 * The answers arrive as OnGameEvent pad:press / pad:release with {button}; read them with Net::ReadPadButton.
+	 */
+	void SendPadPrompt(const FString& PlayerId, const FString& Title, const FString& Subtitle, const FString& A,
+		const FString& B, const FString& AccentHex, const FString& Mode);
+
 	/** play:feedback for one player's phone (toast and haptic); see Net::Msg::PlayFeedback. */
 	void SendPlayFeedback(const FString& PlayerId, const FString& Title, const FString& Detail, const FString& Tone, const FString& Haptic = FString(), bool bMajor = false);
 

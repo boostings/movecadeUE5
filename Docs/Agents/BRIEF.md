@@ -17,8 +17,8 @@ The bar is **commercial AAA-casual quality**: polished, juicy, readable, fast. V
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Make small, coherent commits as you go.
 
 ## Build, test, run (PowerShell; `$p` = your worktree root)
-- Build: `& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" MyProjectEditor Win64 Development "-Project=$p\MyProject.uproject" -WaitMutex -NoHotReloadFromIDE`
-  (UBT serialises builds across worktrees, so you may wait for the mutex. The first build in a fresh worktree is a
+- Build: `& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" MyProjectEditor Win64 Development "-Project=$p\MyProject.uproject" -NoMutex -NoHotReloadFromIDE`
+  (-NoMutex: worktrees have separate Intermediate dirs, and the global UBT mutex would otherwise block every editor launch. The first build in a fresh worktree is a
   full module build.) Filter the output: `| Select-String -Pattern "error|Result:"`.
 - Tests: `.\Tools\ue\test.ps1` (automation tests). **All tests must pass** before you finish: 70 today, plus yours.
 - Play and screenshot: `.\Tools\ue\play.ps1 -Map L_X -Shots '5,20' -QuitAfter 25 -NoAutoDrive -Extra '-FooPlayers=0 -FooBots=3'`.
