@@ -46,6 +46,9 @@ struct FKartDebugFlags
 	 *  is empty for the whole tour, one of the beats, or "items" for every item mesh in a row. */
 	bool bFxShowcase = false;
 	FString FxShowcaseBeat;
+	/** -KartStepTrace: the race logs a fingerprint of every kart's sim state and inputs once a second of race time,
+	 *  so two runs can be compared step for step (Tools/ue/race_repeat.ps1). */
+	bool bStepTrace = false;
 
 	/** The process command line's flags, parsed on first use. */
 	static const FKartDebugFlags& Get();

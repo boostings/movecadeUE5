@@ -9,13 +9,17 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "KartCoords.h"
+#include "KartDebugFlags.h"
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Race/KartItemPresenter.h"
 #include "Race/SKartRaceOverlay.h"
+#include "Misc/Crc.h"
 #include "Store/KartStoreSubsystem.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogKartRace, Log, All);
 
 using namespace MovecadeKart;
 
@@ -51,6 +55,7 @@ AKartRaceManager::AKartRaceManager()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickGroup = TG_PrePhysics;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	bStepTrace = FKartDebugFlags::Get().bStepTrace;
 }
 
 AKartRaceManager* AKartRaceManager::Get(const UObject* WorldContext)
@@ -551,6 +556,7 @@ void AKartRaceManager::StepRace()
 		{
 			Input = FKartInput();
 		}
+		TraceInput(Input);
 		Racer.Kart->GetKartMovement()->StepOnce(Input, Contexts[i]);
 		EmitStepEvents(Racer);
 
@@ -569,6 +575,7 @@ void AKartRaceManager::StepRace()
 	DispatchItemEvents(ItemEvents);
 	UpdateAudioStatus(ItemTime);
 	RecordLaps(RaceMs);
+	TraceStep();
 
 	if (Phase == EKartRacePhase::Racing)
 	{
@@ -578,6 +585,34 @@ void AKartRaceManager::StepRace()
 			EndRace();
 		}
 	}
+}
+
+void AKartRaceManager::TraceInput(const FKartInput& Input)
+{
+	if (!bStepTrace)
+	{
+		return;
+	}
+	const uint8 Buttons = (Input.bLeft ? 1 : 0) | (Input.bRight ? 2 : 0) | (Input.bForward ? 4 : 0) | (Input.bBackward ? 8 : 0)
+		| (Input.bJump ? 16 : 0) | (Input.bUseItem ? 32 : 0);
+	TraceInputs = FCrc::MemCrc32(&Input.SteeringX, sizeof(Input.SteeringX), TraceInputs);
+	TraceInputs = FCrc::MemCrc32(&Buttons, sizeof(Buttons), TraceInputs);
+}
+
+void AKartRaceManager::TraceStep() const
+{
+	if (!bStepTrace || RaceSteps % static_cast<int64>(StepsPerSecond) != 0)
+	{
+		return;
+	}
+	uint32 State = 0;
+	for (const FKartRacer& Racer : Racers)
+	{
+		const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+		const double Values[] = { S.Pos.X, S.Pos.Y, S.Yaw, S.Speed };
+		State = FCrc::MemCrc32(Values, sizeof(Values), State);
+	}
+	UE_LOG(LogKartRace, Log, TEXT("KartStepTrace step %lld state %08x inputs %08x"), RaceSteps, State, TraceInputs);
 }
 
 void AKartRaceManager::RecordLaps(double RaceMs)

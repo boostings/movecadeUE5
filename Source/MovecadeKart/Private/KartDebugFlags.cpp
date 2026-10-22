@@ -81,6 +81,7 @@ FKartDebugFlags FKartDebugFlags::Parse(const TCHAR* Cmd)
 	FString Beat;
 	Flags.bFxShowcase = FParse::Param(Cmd, TEXT("KartFxShowcase")) || FParse::Value(Cmd, TEXT("KartFxShowcase="), Beat);
 	Flags.FxShowcaseBeat = Beat.ToLower();
+	Flags.bStepTrace = FParse::Param(Cmd, TEXT("KartStepTrace"));
 #endif
 	return Flags;
 }

@@ -238,6 +238,9 @@ private:
 	MovecadeKart::FKartRaceContext MakeContext(const FKartRacer& Racer) const;
 	MovecadeKart::FKartInput RocketAutopilot(const FKartRacer& Racer) const;
 	void RecordLaps(double RaceMs);
+	/** -KartStepTrace: folds this step's input into the trace, and logs the fingerprint once a second. */
+	void TraceInput(const MovecadeKart::FKartInput& Input);
+	void TraceStep() const;
 	void EndRace();
 	void HandleHostKeys();
 
@@ -293,6 +296,8 @@ private:
 	TArray<MovecadeKart::FKartItemRacer> StepItemRacers;
 	TArray<MovecadeKart::FKartItemEvent> StepItemEvents;
 	int32 RaceNumber = 0;
+	bool bStepTrace = false;
+	uint32 TraceInputs = 0;
 
 	UPROPERTY()
 	TObjectPtr<class AKartItemPresenter> ItemPresenter;
