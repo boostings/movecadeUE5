@@ -21,6 +21,17 @@ namespace
 	constexpr double OneButtonWidth = 520.0;
 	/** How far above the card's bottom edge the buttons' centres sit. */
 	constexpr double ButtonRise = 82.0;
+	/** The text column, top to bottom: the slot chip, the title, then the price (Confirm) or the spinner (Waiting). */
+	constexpr float SlotChipHeight = 34.f;
+	constexpr double SlotChipAdvance = 52.0;
+	constexpr float TitleSize = 46.f;
+	constexpr double TitleAdvance = 64.0;
+	constexpr float PriceSize = 52.f;
+	constexpr double PriceAdvance = 70.0;
+	constexpr float SpinnerRadius = 22.f;
+	constexpr double SpinnerAdvance = 64.0;
+	constexpr float BodySize = 21.f;
+	constexpr double LineGap = 10.0;
 
 	double NowSeconds()
 	{
@@ -128,25 +139,25 @@ void FKartStorePurchaseDialog::Paint(const FKartPainter& P, const FKartScreenFra
 	const double TX = Art.X + ArtSize.X + DialogPadding;
 	const double TW = Pos.X + Size.X - DialogPadding - TX;
 	double Y = Pos.Y + DialogTop;
-	PaintChip(D, FVector2D(TX, Y), SlotName(Item->Slot), Accent, 34.f);
-	Y += 52.0;
-	D.Text(DialogTitle(Phase, *Item), Font(EFont::Display, 46.f), FVector2D(TX, Y), Color::Navy);
-	Y += 64.0;
+	PaintChip(D, FVector2D(TX, Y), SlotName(Item->Slot), Accent, SlotChipHeight);
+	Y += SlotChipAdvance;
+	D.Text(DialogTitle(Phase, *Item), Font(EFont::Display, TitleSize), FVector2D(TX, Y), Color::Navy);
+	Y += TitleAdvance;
 	if (Phase == EDialogPhase::Confirm)
 	{
-		D.Text(S ? S->GetPriceText(DefId) : FText::GetEmpty(), Font(EFont::Display, 52.f, 2.f), FVector2D(TX, Y), Color::Hot);
-		Y += 70.0;
+		D.Text(S ? S->GetPriceText(DefId) : FText::GetEmpty(), Font(EFont::Display, PriceSize, 2.f), FVector2D(TX, Y), Color::Hot);
+		Y += PriceAdvance;
 	}
 	else if (Phase == EDialogPhase::Waiting)
 	{
-		PaintSpinner(D, FVector2D(TX + 26.0, Y + 26.0), 22.f, Frame.Now, Color::Sky);
-		Y += 64.0;
+		PaintSpinner(D, FVector2D(TX + 26.0, Y + 26.0), SpinnerRadius, Frame.Now, Color::Sky);
+		Y += SpinnerAdvance;
 	}
 	for (const FText& Line : DialogLines(Phase, S, *Item, Detail))
 	{
 		if (!Line.IsEmpty())
 		{
-			Y += D.TextWrapped(Line, Font(EFont::Body, 21.f), FVector2D(TX, Y), TW, Color::NavyDim).Y + 10.0;
+			Y += D.TextWrapped(Line, Font(EFont::Body, BodySize), FVector2D(TX, Y), TW, Color::NavyDim).Y + LineGap;
 		}
 	}
 	PaintButtons(P, D, Frame, Pos, Size);

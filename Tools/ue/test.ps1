@@ -17,8 +17,14 @@ if (-not $NoBuild -and -not (Invoke-KartBuild)) {
 }
 
 $log = "$KartLogs\Tests.log"
+# A stale log from an earlier run must never read as this run's results.
+if (Test-Path $log) { Remove-Item $log }
 $testArgs = @("`"$KartUProject`"", "`"-ExecCmds=Automation RunTests $Filter; Quit`"", '-unattended', '-nullrhi', '-nosplash', '-nosound', "`"-abslog=$log`"")
 Invoke-KartEditor -Exe $KartEditorCmd -Arguments $testArgs -TimeoutSeconds $TimeoutSeconds -Hidden
+if (-not (Test-Path $log)) {
+    Write-Output "No test log at ${log}: the editor didn't start."
+    exit 1
+}
 
 $results = Select-String -Path $log -Pattern 'Test Completed\. Result=\{(\w+)\}.*Path=\{([^}]*)\}' |
     ForEach-Object { [pscustomobject]@{ Result = $_.Matches[0].Groups[1].Value; Test = $_.Matches[0].Groups[2].Value } }

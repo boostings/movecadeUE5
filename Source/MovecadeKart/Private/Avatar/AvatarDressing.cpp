@@ -1,5 +1,6 @@
 #include "Avatar/AvatarDressing.h"
 
+#include "Algo/Find.h"
 #include "Avatar/AvatarProps.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -79,6 +80,10 @@ namespace MovecadeKart::Avatar
 
 	EDressResult FDressing::Dress(USkeletalMeshComponent* Driver, USkeletalMeshComponent* Outfit, const FKartLook& Look)
 	{
+		if (!ensureMsgf(Driver, TEXT("FDressing::Dress needs the driver mesh component")))
+		{
+			return EDressResult::Missing;
+		}
 		EDressResult Result = EDressResult::Unchanged;
 		const FString Key = FString::Printf(TEXT("%s_%s"), FKartLook::FaceId(Look.Face), FKartLook::BodyId(Look.Body));
 		if (BuiltDriver != Key)
@@ -253,13 +258,14 @@ namespace MovecadeKart::Avatar
 
 		// The player's rim colour on the clothes and hair (a faint edge on the skin), so the avatar reads at a glance.
 		const FLinearColor Rim = RimColour(Look);
+		static const FName SkinSlots[] = { TEXT("skin"), TEXT("skin_body"), TEXT("lips") };
+		static const FName IrisSlot(TEXT("iris"));
 		for (const TPair<FName, TWeakObjectPtr<UMaterialInstanceDynamic>>& Pair : DriverTints)
 		{
 			if (UMaterialInstanceDynamic* Mid = Pair.Value.Get())
 			{
-				const FString Slot = Pair.Key.ToString();
-				const bool bSkin = Slot.StartsWith(TEXT("skin")) || Slot == TEXT("lips");
-				const bool bEye = Slot == TEXT("iris");
+				const bool bSkin = Algo::Find(SkinSlots, Pair.Key) != nullptr;
+				const bool bEye = Pair.Key == IrisSlot;
 				Mid->SetVectorParameterValue(TEXT("RimColor"), Rim);
 				Mid->SetScalarParameterValue(TEXT("RimBoost"), bEye ? 0.f : (bSkin ? 0.05f : 0.22f));
 			}

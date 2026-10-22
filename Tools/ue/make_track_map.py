@@ -1,8 +1,9 @@
 """Creates (or rebuilds) a playable level for one exported track.
 
-Run inside the editor:
+    .\\Tools\\ue\\run.ps1 make_track_map.py @{ KART_TRACK = 'sunset-harbor'; KART_MAP = 'L_SunsetHarbor' }
+
+or inside the editor:
     py "<project>/Tools/ue/make_track_map.py" <track-id> <MapName> [--quit]
-or headless from a shell, with the arguments in KART_TRACK / KART_MAP / KART_QUIT=1 (see Tools/ue/run.ps1).
 
 The level holds one ATrackBuilder (which builds the graybox and lighting from Data/Tracks/<id>.track.json)
 and uses AKartGameMode, so Play drops a kart on the grid.

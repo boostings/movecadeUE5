@@ -20,6 +20,37 @@ namespace
 	constexpr float ReactionStartLevel = 0.05f;
 	constexpr float ReactionRetriggerSeconds = 0.4f;
 
+	// The secondary motion's springs: natural frequency (rad/s) and damping ratio (under 1 overshoots). The reactions'
+	// ratios are at full Secondary; at Secondary 0 they settle without overshoot (ratio 1).
+	constexpr float CheerOmega = 11.f;
+	constexpr float CheerZeta = 0.42f;
+	constexpr float SlumpOmega = 7.f;
+	constexpr float SlumpZeta = 0.6f;
+	constexpr float EmoteOmega = 13.f;
+	constexpr float EmoteZeta = 0.6f;
+	constexpr float GazeOmega = 16.f;
+	constexpr float GazeZeta = 0.85f;
+	constexpr float HairOmega = 8.5f;
+	constexpr float HairZeta = 0.24f;
+	constexpr float HemOmega = 11.f;
+	constexpr float HemZeta = 0.32f;
+	constexpr float LandOmega = 15.f;
+	constexpr float LandZeta = 0.45f;
+	/** How far the hair and hems may trail (cm, per axis). */
+	constexpr double HairMaxLagCm = 40.0;
+	constexpr double HemMaxLagCm = 30.0;
+
+	/** Idle glances: how far the eyes wander (radians), how long a glance holds and the gap to the next (seconds). */
+	constexpr float GlanceMaxYaw = 0.75f;
+	constexpr float GlanceMaxPitch = 0.18f;
+	constexpr float GlanceHoldMin = 0.5f;
+	constexpr float GlanceHoldRange = 0.9f;
+	constexpr float GlanceGapMin = 2.2f;
+	constexpr float GlanceGapRange = 4.f;
+
+	// The pose layers below key their shapes inline (radians of bend, shares of an arm's reach): each number is read
+	// with its neighbours as one hand-tuned pose, so they stay where the pose is built.
+
 	/** A small deterministic hash to [0, 1). */
 	float Hash01(uint32 A, uint32 B)
 	{
@@ -119,10 +150,10 @@ void FArcadeAvatarProxy::StepReactions(float Secondary)
 	CheerAge += Dt;
 	SlumpAge += Dt;
 	// Secondary 0 settles the reactions without overshoot; 1 lets them bounce.
-	const float Bouncy = FMath::Lerp(1.f, 0.42f, FMath::Min(Secondary, 1.f));
-	CheerSpring.Step(CheerIn, 11.f, Bouncy, Dt);
-	SlumpSpring.Step(SlumpIn, 7.f, FMath::Lerp(1.f, 0.6f, FMath::Min(Secondary, 1.f)), Dt);
-	EmoteSpring.Step(Input.Emote == EArcadeEmote::None ? 0.f : FMath::Clamp(Input.EmoteWeight, 0.f, 1.f), 13.f, 0.6f, Dt);
+	const float Bouncy = FMath::Lerp(1.f, CheerZeta, FMath::Min(Secondary, 1.f));
+	CheerSpring.Step(CheerIn, CheerOmega, Bouncy, Dt);
+	SlumpSpring.Step(SlumpIn, SlumpOmega, FMath::Lerp(1.f, SlumpZeta, FMath::Min(Secondary, 1.f)), Dt);
+	EmoteSpring.Step(Input.Emote == EArcadeEmote::None ? 0.f : FMath::Clamp(Input.EmoteWeight, 0.f, 1.f), EmoteOmega, EmoteZeta, Dt);
 }
 
 void FArcadeAvatarProxy::StepGaze()
@@ -132,11 +163,11 @@ void FArcadeAvatarProxy::StepGaze()
 	if (T >= NextGlance)
 	{
 		const uint32 Beat = static_cast<uint32>(NextGlance * 7.f);
-		const float Yaw = (Hash01(Motion.Seed, Beat) * 2.f - 1.f) * 0.75f;
-		const float Pitch = (Hash01(Motion.Seed ^ 0xabcdu, Beat) * 2.f - 1.f) * 0.18f;
+		const float Yaw = (Hash01(Motion.Seed, Beat) * 2.f - 1.f) * GlanceMaxYaw;
+		const float Pitch = (Hash01(Motion.Seed ^ 0xabcdu, Beat) * 2.f - 1.f) * GlanceMaxPitch;
 		Glance = FVector(FMath::Cos(Yaw), -FMath::Sin(Yaw), Pitch).GetSafeNormal();
-		GlanceUntil = T + 0.5f + 0.9f * Hash01(Beat, Motion.Seed);
-		NextGlance = T + 2.2f + 4.f * Hash01(Beat ^ 0x1234u, Motion.Seed);
+		GlanceUntil = T + GlanceHoldMin + GlanceHoldRange * Hash01(Beat, Motion.Seed);
+		NextGlance = T + GlanceGapMin + GlanceGapRange * Hash01(Beat ^ 0x1234u, Motion.Seed);
 	}
 	if (NextGlance - T > 12.f)
 	{
@@ -165,7 +196,7 @@ void FArcadeAvatarProxy::StepGaze()
 		GazeSpring.Snap(Gaze);
 		bGazeInit = true;
 	}
-	GazeSpring.Step(Gaze, 16.f, 0.85f, Dt);
+	GazeSpring.Step(Gaze, GazeOmega, GazeZeta, Dt);
 }
 
 void FArcadeAvatarProxy::StepHairAndHems(float Secondary, float LiftVelocity)
@@ -174,10 +205,10 @@ void FArcadeAvatarProxy::StepHairAndHems(float Secondary, float LiftVelocity)
 	// a jump lifts them. The lag (cm, avatar frame) runs on lightly damped springs, so they bounce and settle.
 	const FVector Drive = -(Motion.Velocity + FVector(0.0, Motion.YawRate * 35.0, LiftVelocity)) * 0.07;
 	const FVector Sway(0.0, FMath::Sin(Input.Time * 1.3f) * 1.5f * Input.Idle, 0.0);
-	HairLag.Step((Drive + Sway) * Secondary, 8.5f, 0.24f, Dt);
-	HemLag.Step(Drive * 0.7 * Secondary, 11.f, 0.32f, Dt);
-	HairLag.Value = HairLag.Value.BoundToCube(40.0);
-	HemLag.Value = HemLag.Value.BoundToCube(30.0);
+	HairLag.Step((Drive + Sway) * Secondary, HairOmega, HairZeta, Dt);
+	HemLag.Step(Drive * 0.7 * Secondary, HemOmega, HemZeta, Dt);
+	HairLag.Value = HairLag.Value.BoundToCube(HairMaxLagCm);
+	HemLag.Value = HemLag.Value.BoundToCube(HemMaxLagCm);
 }
 
 void FArcadeAvatarProxy::StepLanding(float Secondary, float LiftVelocity)
@@ -188,7 +219,7 @@ void FArcadeAvatarProxy::StepLanding(float Secondary, float LiftVelocity)
 		Land.Velocity += FMath::Min(-LiftVelocity, 400.f) * 0.012f * Secondary;
 	}
 	LastLift = Input.Lift;
-	Land.Step(0.f, 15.f, 0.45f, Dt);
+	Land.Step(0.f, LandOmega, LandZeta, Dt);
 	Land.Value = FMath::Clamp(Land.Value, -0.2f, 0.6f);
 }
 
@@ -633,11 +664,11 @@ void FArcadeAvatarProxy::SwingSpringChains(const FBones& B, const FBodyFrame& Bo
 		}
 	};
 	const FQuat HeadFrame = Head.Turn * Torso.Delta;
-	const FVector& HL = HairLag.Value;
-	const FVector& ML = HemLag.Value;
+	const FVector& HairCm = HairLag.Value;
+	const FVector& HemCm = HemLag.Value;
 	Swing(B.Hair, HeadFrame.RotateVector(Body.Right), HeadFrame.RotateVector(Body.Forward),
-		FMath::Clamp(static_cast<float>(-HL.X * 0.018 - HL.Z * 0.01) + 0.05f * L.Cheer, -0.6f, 0.8f), FMath::Clamp(static_cast<float>(HL.Y * 0.018), -0.6f, 0.6f));
+		FMath::Clamp(static_cast<float>(-HairCm.X * 0.018 - HairCm.Z * 0.01) + 0.05f * L.Cheer, -0.6f, 0.8f), FMath::Clamp(static_cast<float>(HairCm.Y * 0.018), -0.6f, 0.6f));
 	const float StrideFlap = 0.12f * Input.Step * FMath::Sin(Input.StepPhase * 2.f) + 0.1f * L.Lunge;
 	Swing(B.Hem, Torso.Delta.RotateVector(Body.Right), Torso.Delta.RotateVector(Body.Forward),
-		FMath::Clamp(static_cast<float>(-ML.X * 0.012 - ML.Z * 0.008) + StrideFlap, -0.5f, 0.5f), FMath::Clamp(static_cast<float>(ML.Y * 0.01), -0.4f, 0.4f));
+		FMath::Clamp(static_cast<float>(-HemCm.X * 0.012 - HemCm.Z * 0.008) + StrideFlap, -0.5f, 0.5f), FMath::Clamp(static_cast<float>(HemCm.Y * 0.01), -0.4f, 0.4f));
 }
