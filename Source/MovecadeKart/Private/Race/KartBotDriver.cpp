@@ -1,5 +1,19 @@
 #include "Race/KartBotDriver.h"
 
+namespace
+{
+	/** PickBox: a box is worth a detour from MinBoxAhead to MaxBoxAhead metres ahead and within MaxBoxOffset of where
+	 *  the racing line will be there. */
+	constexpr double MinBoxAhead = 4.0;
+	constexpr double MaxBoxAhead = 28.0;
+	constexpr double MaxBoxOffset = 7.0;
+	/** A cautious bot lifts in tight bends only above LiftMinSpeed and coasts only above CoastMinSpeed (SU). */
+	constexpr double LiftMinSpeed = 22.0;
+	constexpr double CoastMinSpeed = 28.0;
+	/** kartPilot.ts send-on-change: a steering change smaller than this holds the last input. */
+	constexpr double SteeringResend = 0.04;
+}
+
 namespace MovecadeKart
 {
 	FKartBotDriver::FPathCursor FKartBotDriver::Locate(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path)
@@ -80,12 +94,12 @@ namespace MovecadeKart
 		TConstArrayView<FVector2D> Boxes, FVector2D& OutBox)
 	{
 		const FVector2D Facing(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
-		double BestOffset = 7.0;
+		double BestOffset = MaxBoxOffset;
 		bool bFound = false;
 		for (const FVector2D& Box : Boxes)
 		{
 			const double Ahead = FVector2D::DotProduct(Box - Position, Facing);
-			if (Ahead < 4.0 || Ahead > 28.0)
+			if (Ahead < MinBoxAhead || Ahead > MaxBoxAhead)
 			{
 				continue;
 			}
@@ -143,11 +157,11 @@ namespace MovecadeKart
 			}
 			Wheel(Demand, Drift, WheelSteering, WheelDrift, Tuning.DriftEnter);
 			// A cautious bot lifts in the tight bends, unless it's drifting (a drift needs the gas).
-			const bool bLift = Tuning.LiftDemand > 0.0 && WheelDrift == 0 && FMath::Abs(Demand) > Tuning.LiftDemand && FMath::Abs(State.Speed) > 22.0;
-			const bool bCoast = Tuning.CoastEvery > 0 && WheelDrift == 0 && Ticks % Tuning.CoastEvery == 0 && FMath::Abs(State.Speed) > 28.0;
+			const bool bLift = Tuning.LiftDemand > 0.0 && WheelDrift == 0 && FMath::Abs(Demand) > Tuning.LiftDemand && FMath::Abs(State.Speed) > LiftMinSpeed;
+			const bool bCoast = Tuning.CoastEvery > 0 && WheelDrift == 0 && Ticks % Tuning.CoastEvery == 0 && FMath::Abs(State.Speed) > CoastMinSpeed;
 			bGas = !bLift && !bCoast;
 		}
-		if (bGas != bAccelerating || WheelDrift != Drift || FMath::Abs(WheelSteering - Steering) > 0.04 || Step - SentAtStep >= FMath::RoundToInt64(RefreshSeconds / FKartSim::StepSeconds))
+		if (bGas != bAccelerating || WheelDrift != Drift || FMath::Abs(WheelSteering - Steering) > SteeringResend || Step - SentAtStep >= FMath::RoundToInt64(RefreshSeconds / FKartSim::StepSeconds))
 		{
 			Steering = WheelSteering;
 			Drift = WheelDrift;

@@ -2,6 +2,14 @@
 
 #include "KartCoords.h"
 
+namespace
+{
+	/** The web clamps a frame to 1/30 s before stepping (MultiplayerKart.tsx:84,705). */
+	constexpr double MaxFrameSeconds = 1.0 / 30.0;
+	/** The sim's velocity is metres per second in (x, z); the component's is cm/s in UE axes. */
+	constexpr double MetresToCm = 100.0;
+}
+
 UKartMovementComponent::UKartMovementComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -43,7 +51,7 @@ void UKartMovementComponent::StepOnce(const MovecadeKart::FKartInput& StepInput,
 		PrevYaw = Sim.State().Yaw;
 	}
 	const FVector2D Delta = (Sim.State().Pos - PrevPos) / MovecadeKart::FKartSim::StepSeconds;
-	Velocity = FVector(-Delta.Y, Delta.X, 0.0) * 100.0;
+	Velocity = FVector(-Delta.Y, Delta.X, 0.0) * MetresToCm;
 }
 
 void UKartMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -54,9 +62,8 @@ void UKartMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		return;
 	}
 
-	// The web clamps a frame to 1/30 s (MultiplayerKart.tsx:84,705); steps are a fixed 1/60 s.
 	constexpr double Step = MovecadeKart::FKartSim::StepSeconds;
-	Accumulator += FMath::Min(static_cast<double>(DeltaTime), 1.0 / 30.0);
+	Accumulator += FMath::Min(static_cast<double>(DeltaTime), MaxFrameSeconds);
 	int32 Steps = 0;
 	while (Accumulator >= Step && Steps < MaxStepsPerFrame)
 	{

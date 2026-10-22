@@ -145,6 +145,11 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnKartRaceResults, const TArray<FKartResult
  * racing, then results. Every kart's sim steps here in lockstep at 60 Hz, with the race context
  * (position, leader gap, kart ahead, other karts) the web build computes from its store.
  * The race ends when everyone has finished or at min(5 min, leader + 30 s).
+ *
+ * AKartGameMode spawns one and calls Setup with the seats; the manager spawns the karts, the item presenter and the
+ * race overlay, and broadcasts cues, haptics and results for the HUD, audio, the room and the track life.
+ * KartRaceManager.cpp holds the race flow and the step, KartRaceSignals.cpp the cues, haptics and sounds, and
+ * KartRacePresentation.cpp the intro, results and per-viewport cameras.
  */
 UCLASS()
 class MOVECADEKART_API AKartRaceManager : public AActor
@@ -166,7 +171,7 @@ public:
 	double GetPhaseSeconds() const { return PhaseSeconds; }
 	/** 5..1 during the countdown, else 0. */
 	int32 GetCountdownValue() const;
-	double GetRaceMs() const { return RaceSteps * 1000.0 / 60.0; }
+	double GetRaceMs() const { return RaceSteps * 1000.0 / StepsPerSecond; }
 	double GetDeadlineMs() const;
 	int32 GetLeadLap() const;
 	const TArray<FKartRacer>& GetRacers() const { return Racers; }
@@ -178,7 +183,7 @@ public:
 	double ProgressScore(const FKartRacer& Racer) const;
 	const MovecadeKart::FKartItemWorld& GetItems() const { return Items; }
 	/** The item world's clock (race seconds). */
-	double GetItemTime() const { return RaceSteps / 60.0; }
+	double GetItemTime() const { return RaceSteps / StepsPerSecond; }
 	/** Item events since the last call (for presentation); clears the queue. */
 	TArray<MovecadeKart::FKartItemEvent> ConsumeItemEvents() { return MoveTemp(PendingItemEvents); }
 
@@ -217,22 +222,46 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
+	// Race flow and the step (KartRaceManager.cpp).
+	void SpawnRacers(const TArray<FKartSeatSpec>& Seats, const TArray<APlayerController*>& Viewers);
 	void SetPhase(EKartRacePhase NewPhase);
+	void UpdateCountdown();
 	void BeginRacing();
+	void AdvanceSim(double Dt);
 	void StepRace();
 	/** Ranks the racers (Standings, each Place) from their current state, kept in StepStandings for MakeContext. */
 	void UpdateStandings();
 	MovecadeKart::FKartInput GatherInput(FKartRacer& Racer, bool bRacing);
+	/** Whether a bot (or the -KartAutoDrive autopilot) drives this racer. */
+	bool IsBotDriven(const FKartRacer& Racer) const;
 	/** What Racer sees this step, from the last UpdateStandings. */
 	MovecadeKart::FKartRaceContext MakeContext(const FKartRacer& Racer) const;
+	MovecadeKart::FKartInput RocketAutopilot(const FKartRacer& Racer) const;
+	void RecordLaps(double RaceMs);
+	/** -KartStepTrace: folds this step's input into the trace, and logs the fingerprint once a second. */
+	void TraceInput(const MovecadeKart::FKartInput& Input);
+	void TraceStep() const;
+	void EndRace();
+	void HandleHostKeys();
+
+	// Cues, haptics and sounds (KartRaceSignals.cpp).
 	void EmitStepEvents(FKartRacer& Racer);
 	void DispatchItemEvents(const TArray<MovecadeKart::FKartItemEvent>& Events);
-	MovecadeKart::FKartInput RocketAutopilot(const FKartRacer& Racer) const;
-	void EndRace();
+	void PlayItemSounds(const TArray<MovecadeKart::FKartItemEvent>& Events);
+	void UpdateAudioStatus(double ItemTime);
+	void SetAudioPhase(EKartRacePhase NewPhase);
+
+	// Cameras (KartRacePresentation.cpp).
+	void SpawnCameras();
 	void UpdateCameras(float DeltaSeconds);
+	void UpdateIntroCameras();
+	void UpdateResultsCamera(float DeltaSeconds);
 	void UpdateOccluders();
 	void UseRaceViews();
-	void HandleHostKeys();
+	void CutToResults();
+
+	/** The race clock: whole sim steps (FKartSim::StepSeconds each). */
+	static constexpr double StepsPerSecond = 60.0;
 
 	TSharedPtr<const MovecadeKart::FTrack> Track;
 
@@ -267,6 +296,8 @@ private:
 	TArray<MovecadeKart::FKartItemRacer> StepItemRacers;
 	TArray<MovecadeKart::FKartItemEvent> StepItemEvents;
 	int32 RaceNumber = 0;
+	bool bStepTrace = false;
+	uint32 TraceInputs = 0;
 
 	UPROPERTY()
 	TObjectPtr<class AKartItemPresenter> ItemPresenter;

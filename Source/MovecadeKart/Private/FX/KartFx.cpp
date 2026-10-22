@@ -32,6 +32,40 @@ namespace MovecadeKart::Fx
 		return FLinearColor::FromSRGBColor(HexToColor(Value));
 	}
 
+	namespace
+	{
+		/** A single particle that holds still and changes size and colour over its life (rings and flash stars). */
+		FKartFxEmit SingleParticle(EField Field, const FVector& Cm, double LifeSeconds, double SizeMetres, double SizeEnd,
+			const FLinearColor& Color, const FLinearColor& ColorEnd, double Intensity, const FVector& InheritCm)
+		{
+			FKartFxEmit Emit;
+			Emit.Field = Field;
+			Emit.Position = Cm;
+			Emit.Count = 1;
+			Emit.Speed = { 0.0, 0.0 };
+			Emit.Life = { LifeSeconds, LifeSeconds };
+			Emit.Size = { SizeMetres, SizeMetres };
+			Emit.SizeEnd = SizeEnd;
+			Emit.Color = Color;
+			Emit.ColorEnd = ColorEnd;
+			Emit.Intensity = Intensity;
+			Emit.InheritCm = InheritCm;
+			return Emit;
+		}
+	}
+
+	FKartFxEmit ShockRing(const FVector& Cm, double LifeSeconds, double SizeMetres, double SizeEnd,
+		const FLinearColor& Color, const FLinearColor& ColorEnd, double Intensity, const FVector& InheritCm)
+	{
+		return SingleParticle(EField::Ring, Cm, LifeSeconds, SizeMetres, SizeEnd, Color, ColorEnd, Intensity, InheritCm);
+	}
+
+	FKartFxEmit FlashStar(const FVector& Cm, double LifeSeconds, double SizeMetres, double SizeEnd,
+		const FLinearColor& Color, const FLinearColor& ColorEnd, double Intensity, const FVector& InheritCm)
+	{
+		return SingleParticle(EField::Flare, Cm, LifeSeconds, SizeMetres, SizeEnd, Color, ColorEnd, Intensity, InheritCm);
+	}
+
 	const FImpactProfile& ImpactProfile(EImpact Kind)
 	{
 		// kartFxBus.ts:31-37.
@@ -103,19 +137,9 @@ namespace MovecadeKart::Fx
 			Fire.Jitter = 0.4;
 			Out.Add(Fire);
 
-			FKartFxEmit Ring;
-			Ring.Field = EField::Ring;
-			Ring.Position = GroundCm + FVector(0.0, 0.0, 8.0);
-			Ring.Count = 1;
-			Ring.Speed = { 0.0, 0.0 };
-			Ring.Life = { 0.45, 0.45 };
-			Ring.Size = { 1.2, 1.2 };
 			// sizeEnd is a multiplier on the 1.2 m start (ParticleField: size * mix(1, sizeEnd, sqrt(t))).
-			Ring.SizeEnd = RingEndMetres > 0.0 ? RingEndMetres : (Kind == EImpact::Explosion ? 9.0 : 5.0);
-			Ring.Color = Hex(TEXT("ffcf8a"));
-			Ring.ColorEnd = Hex(TEXT("ff6a2a"));
-			Ring.Intensity = 1.8;
-			Out.Add(Ring);
+			const double RingEnd = RingEndMetres > 0.0 ? RingEndMetres : (Kind == EImpact::Explosion ? 9.0 : 5.0);
+			Out.Add(ShockRing(GroundCm + FVector(0.0, 0.0, 8.0), 0.45, 1.2, RingEnd, Hex(TEXT("ffcf8a")), Hex(TEXT("ff6a2a")), 1.8));
 		}
 	}
 
@@ -125,18 +149,7 @@ namespace MovecadeKart::Fx
 		const FVector Core = GroundCm + FVector(0.0, 0.0, 90.0);
 
 		// Frame-one flash: one big white-gold star that pops and is gone.
-		FKartFxEmit Flash;
-		Flash.Field = EField::Flare;
-		Flash.Position = Core + FVector(0.0, 0.0, 40.0);
-		Flash.Count = 1;
-		Flash.Speed = { 0.0, 0.0 };
-		Flash.Life = { 0.22, 0.22 };
-		Flash.Size = { R * 1.6, R * 1.6 };
-		Flash.SizeEnd = 1.5;
-		Flash.Color = Hex(TEXT("fff6d8"));
-		Flash.ColorEnd = Hex(TEXT("ffb347"));
-		Flash.Intensity = 6.0;
-		Out.Add(Flash);
+		Out.Add(FlashStar(Core + FVector(0.0, 0.0, 40.0), 0.22, R * 1.6, 1.5, Hex(TEXT("fff6d8")), Hex(TEXT("ffb347")), 6.0));
 
 		// Bloom core: a few big additive glows under the puffs.
 		FKartFxEmit Glow;
@@ -216,17 +229,7 @@ namespace MovecadeKart::Fx
 		Out.Add(Debris);
 
 		// Shock rings: a fast bright one to the blast radius, a slower soft one inside it.
-		FKartFxEmit Ring;
-		Ring.Field = EField::Ring;
-		Ring.Position = GroundCm + FVector(0.0, 0.0, 10.0);
-		Ring.Count = 1;
-		Ring.Speed = { 0.0, 0.0 };
-		Ring.Life = { 0.4, 0.4 };
-		Ring.Size = { 1.2, 1.2 };
-		Ring.SizeEnd = R * 2.0 / 1.2;
-		Ring.Color = Hex(TEXT("fff0c8"));
-		Ring.ColorEnd = Hex(TEXT("ff7a2a"));
-		Ring.Intensity = 2.6;
+		FKartFxEmit Ring = ShockRing(GroundCm + FVector(0.0, 0.0, 10.0), 0.4, 1.2, R * 2.0 / 1.2, Hex(TEXT("fff0c8")), Hex(TEXT("ff7a2a")), 2.6);
 		Out.Add(Ring);
 		Ring.Life = { 0.7, 0.7 };
 		Ring.SizeEnd = R * 1.3 / 1.2;

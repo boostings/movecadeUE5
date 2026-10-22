@@ -84,6 +84,17 @@ namespace MovecadeKart::Fx
 	[[nodiscard]] MOVECADEKART_API FLinearColor Hex(FStringView Value);
 
 	/**
+	 * One ground shock ring at Cm: it grows from SizeMetres to SizeMetres * SizeEnd over LifeSeconds, fading from
+	 * Color to ColorEnd. The building block of every hit, pickup and boost ring.
+	 */
+	[[nodiscard]] MOVECADEKART_API FKartFxEmit ShockRing(const FVector& Cm, double LifeSeconds, double SizeMetres, double SizeEnd,
+		const FLinearColor& Color, const FLinearColor& ColorEnd, double Intensity, const FVector& InheritCm = FVector::ZeroVector);
+
+	/** One flash star at Cm that pops at SizeMetres and shrinks (or swells) to SizeEnd over LifeSeconds. */
+	[[nodiscard]] MOVECADEKART_API FKartFxEmit FlashStar(const FVector& Cm, double LifeSeconds, double SizeMetres, double SizeEnd,
+		const FLinearColor& Color, const FLinearColor& ColorEnd, double Intensity, const FVector& InheritCm = FVector::ZeroVector);
+
+	/**
 	 * KartFxLayer.tsx onKartFx burst: sparks 34*burst, smoke 12*burst, and for heavy kinds (explosion,
 	 * projectile-hit) fire 18*burst plus one ground ring. Center is the ground point under the event (UE);
 	 * the burst sits 0.6 m above it. RingEndMetres overrides the ring's final size (9 explosion / 5 hit).

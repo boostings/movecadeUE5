@@ -17,6 +17,8 @@ class UKartMovementComponent;
 class UKartAudioComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
+struct FKartDriverPoseInput;
+namespace MovecadeKart { struct FKartState; }
 
 /** Item-driven presentation for one kart (set by AKartItemPresenter each frame). */
 struct FKartItemVisual
@@ -30,10 +32,77 @@ struct FKartItemVisual
 };
 
 /**
- * A kart: a sphere root that only carries the sim pose, a visual body with the web build's
- * presentation layers (slip yaw, body yaw, lean, hop), and the chase camera (Docs/Port/01 §9, §10).
- * The body is the shipped vehicle art (kart.glb or a moto/coupe/truck mount) with separate wheels that
- * steer and spin, a skinned avatar4 driver holding the wheel, and a name plate (SetLook).
+ * The chase camera (Docs/Port/01 §10.2, HostCameraFollow with the x/z mismatch fixed: it chases on both axes).
+ * Distances and heights are metres behind, ahead of and over the kart; field of view is vertical, in degrees.
+ * The single view widens with speed; split-screen keeps the web's fixed rig (SplitScreenRenderer).
+ */
+USTRUCT()
+struct FKartChaseCameraTuning
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double EyeHeight = 4.105;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double LookHeight = 2.105;
+
+	/** The web lerps with alpha = rate * frame dt, the frame dt capped at 1/30 s. */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double FollowRate = 8.0;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double ChaseDistance = 5.4;
+
+	/** Extra chase distance per unit of speed (SU), up to ChaseSpeedMax. */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double ChasePerSpeed = 0.018;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double ChaseSpeedMax = 1.35;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double LookAhead = 7.2;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double LookAheadPerSpeed = 0.045;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double LookAheadSpeedMax = 2.2;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double Fov = 72.0;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double FovPerSpeed = 0.05;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	double FovSpeedMax = 8.0;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Split Screen")
+	double SplitChaseDistance = 6.0;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Split Screen")
+	double SplitLookAhead = 8.0;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Split Screen")
+	double SplitFov = 75.0;
+
+	/** Split-screen views get this share of the feel's FOV kick. */
+	UPROPERTY(EditAnywhere, Category = "Camera|Split Screen")
+	double SplitFovKickScale = 0.6;
+};
+
+/**
+ * A kart: a sphere root that only carries the sim pose, a visual body with the web build's presentation layers (slip
+ * yaw, body yaw, lean, hop), and the chase camera (Docs/Port/01 §9, §10). The body is the shipped vehicle art
+ * (kart.glb or a moto/coupe/truck mount) with separate wheels that steer and spin, a skinned avatar driver holding the
+ * wheel, and a name plate. AKartRaceManager spawns one per seat and steps its UKartMovementComponent; everything here
+ * only reads the sim.
+ *
+ * Source files: KartPawn.cpp (components, the frame, the race hooks), KartPawnLook.cpp (vehicle, driver, paint, name
+ * plate), KartPawnVisuals.cpp (the pose layers, chassis feel, wheels, steering wheel), KartPawnDriver.cpp (grip,
+ * moods, glances, face) and KartPawnCamera.cpp (chase rig, swoop, finish orbit, look behind, shots).
  */
 UCLASS()
 class MOVECADEKART_API AKartPawn : public APawn
@@ -74,24 +143,49 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Kart")
 	FLinearColor PaintColor = FLinearColor(0.871f, 0.084f, 0.270f); // #f0508e, the v2 "pink" paint
 
+	UPROPERTY(EditAnywhere, Category = "Kart")
+	FKartChaseCameraTuning ChaseCamera;
+
 protected:
 	virtual void BeginPlay() override;
 
 private:
-	void UpdateVisual(float DeltaSeconds);
-	void UpdateDriver(float DeltaSeconds);
-	/** The driver's acting on top of the grip pose: moods, glances, whiplash. Fills the anim input. */
-	void UpdateDriverMood(float DeltaSeconds, struct FKartDriverPoseInput& In);
-	/** Blends and writes the face morphs from the moods. */
-	void UpdateFace(float DeltaSeconds);
-	void UpdateNamePlate();
-	void UpdateCamera(float DeltaSeconds);
-	void UpdateFeel(float DeltaSeconds);
-	/** Propagates the slip/body/chassis pivots' directly set transforms once (see UpdateVisual). */
-	void PoseVehicle();
+	// Look (KartPawnLook.cpp).
 	void ApplyVehicle();
 	void ApplyDriver();
 	void ApplyColours();
+	void ApplyNamePlate();
+	void UpdateNamePlate();
+
+	// Pose (KartPawnVisuals.cpp).
+	void UpdateFeel(float DeltaSeconds);
+	/** This frame's new wall hit or kart bump for the chassis feel, and the driver's whiplash from it. */
+	void ReadImpacts(const MovecadeKart::FKartState& S, MovecadeKart::FKartFeelInput& In);
+	void UpdateVisual(float DeltaSeconds);
+	/** Propagates the slip/body/chassis pivots' directly set transforms once (see UpdateVisual). */
+	void PoseVehicle();
+	void UpdatePaint();
+	void UpdateWheels(float DeltaSeconds);
+
+	// Driver (KartPawnDriver.cpp).
+	void UpdateDriver(float DeltaSeconds);
+	void UpdateGripTargets(FKartDriverPoseInput& In) const;
+	void UpdateBlink();
+	/** The driver's acting on top of the grip pose: moods, glances, whiplash. Fills the anim input. */
+	void UpdateDriverMood(float DeltaSeconds, FKartDriverPoseInput& In);
+	void UpdateGlance(float DeltaSeconds, bool bWaiting);
+	/** Blends and writes the face morphs from the moods. */
+	void UpdateFace(float DeltaSeconds);
+
+	// Camera (KartPawnCamera.cpp).
+	void UpdateCamera(float DeltaSeconds);
+	/** Chase follow, feel offsets and shake: the eye and the view, before the special shots. */
+	void FollowChase(float DeltaSeconds, FVector& OutEye, FRotator& OutView);
+	/** Countdown crane and finish orbit over the chase view; returns the FOV offset they add. */
+	double ApplyTransitions(FVector& Eye, FRotator& View);
+	/** -KartCinematic and -KartCloseCam orbit shots; true if one framed this kart. */
+	bool ApplyOrbitShot();
+	void ApplyFieldOfView(double FovOffset);
 
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<USphereComponent> Root;
@@ -178,12 +272,15 @@ private:
 	double WheelSpin = 0.0;
 	double RimTurn = 0.0;
 	double NextBlink = 2.0;
+	double BlinkStart = -10.0;
 	/** 0..1, eases in once this kart has finished. */
 	double Cheer = 0.0;
 	double ItemThrowStart = -1000.0;
 	int32 FinishPlace = 0;
 	float GridRev = 0.f;
 	uint32 SeenDriftBoosts = 0;
+	uint32 SeenBarrierEvents = 0;
+	uint32 SeenBumpEvents = 0;
 
 	// Camera transitions (UpdateCamera).
 	double SwoopStart = -1000.0;
@@ -196,6 +293,10 @@ private:
 	double RespawnPopStart = -1000.0;
 	/** The lightning shrink, eased. */
 	double ShrinkScale = 1.0;
+	FVector CameraPos = FVector::ZeroVector;
+	FVector CameraLook = FVector::ZeroVector;
+	double ShakePeak = 0.0;
+	double ShakeStart = -1000.0;
 
 	/** The driver's moods, eased (see UpdateDriverMood). */
 	struct FDriverMood
@@ -222,26 +323,10 @@ private:
 	/** Whiplash springs, kicked by impacts: torso thrown back, and sideways. */
 	MovecadeKart::FFeelSpring JoltBack;
 	MovecadeKart::FFeelSpring JoltSide;
-	double BlinkStart = -10.0;
 
 	bool bSplitScreenCamera = false;
 	FKartItemVisual ItemVisual;
-	double ShakePeak = 0.0;
-	double ShakeStart = -1000.0;
 
 	/** Chassis and camera juice on top of the sim's presentation layers (-KartWebFeel turns it off). */
 	MovecadeKart::FKartFeel Feel;
-
-	uint32 SeenBarrierEvents = 0;
-	uint32 SeenBumpEvents = 0;
-	bool bDebugGrip = false;
-	/** -KartCinematic: trailer camera coverage instead of the chase rig. */
-	bool bCinematic = false;
-	/** -KartCloseCam: yaw, distance and height of an orbit shot, and its rate; Y <= 0 means off. */
-	FVector4 CloseCam = FVector4(0, -1, 0, 0);
-
-	FVector CameraPos = FVector::ZeroVector;
-	FVector CameraLook = FVector::ZeroVector;
-	int32 LoggedLaps = 0;
-	double LastLapTime = 0.0;
 };
