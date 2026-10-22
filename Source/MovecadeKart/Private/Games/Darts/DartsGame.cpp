@@ -50,7 +50,6 @@ namespace
 	/** The coach marks show once per session (play again and next game don't repeat them). */
 	bool DartsGCoachDone = false;
 
-	const FName DartsNameOpacity(TEXT("Opacity"));
 	const FName DartsNameColor(TEXT("Color"));
 	const FName DartsNameRightHand(TEXT("rightHand"));
 	const FName DartsCueRelease(TEXT("darts.release"));
@@ -1107,32 +1106,20 @@ void ADartsGame::UpdateBoard(float Dt)
 		Pivot->SetRelativeRotation(FRotator(FMath::RadiansToDegrees(RotX), 0.0, FMath::RadiansToDegrees(RotZ)));
 	}
 	// The called shot: the visit's bounty wedge, pulsing, with its outline brighter.
-	if (UStaticMeshComponent* Wedge = Pub->GetBountyWedge())
+	const FDartsPlayer* Active = Match.ActivePlayer();
+	if (Stage != EDartsStage::Match || !Active)
 	{
-		const FDartsPlayer* Active = Match.ActivePlayer();
-		const bool bShow = Stage == EDartsStage::Match && Active;
-		Wedge->SetVisibility(bShow);
-		if (bShow)
-		{
-			const int32 Visit = FMath::Min((Active->DartsThrown - Match.TurnDarts) / DartsPerRound, RoundCount - 1);
-			const int32 Bounty = BountyForRound(Visit);
-			int32 Index = 0;
-			while (Index < SectorCount && Sectors()[Index] != Bounty)
-			{
-				++Index;
-			}
-			Wedge->SetRelativeRotation(FQuat(FVector::ForwardVector, SectorCenterAngle(Index) - UE_DOUBLE_PI / 2.0));
-			const float Pulse = static_cast<float>(0.5 + 0.5 * FMath::Sin(Clock * 4.0));
-			if (UMaterialInstanceDynamic* M = Pub->GetBountyMaterial())
-			{
-				M->SetScalarParameterValue(DartsNameOpacity, 0.26f + 0.2f * Pulse);
-			}
-			if (UMaterialInstanceDynamic* M = Pub->GetBountyEdgeMaterial())
-			{
-				M->SetScalarParameterValue(DartsNameOpacity, 0.7f + 0.3f * Pulse);
-			}
-		}
+		Pub->HideBounty();
+		return;
 	}
+	const int32 Visit = FMath::Min((Active->DartsThrown - Match.TurnDarts) / DartsPerRound, RoundCount - 1);
+	const int32 Bounty = BountyForRound(Visit);
+	int32 Index = 0;
+	while (Index < SectorCount && Sectors()[Index] != Bounty)
+	{
+		++Index;
+	}
+	Pub->ShowBounty(Index, static_cast<float>(0.5 + 0.5 * FMath::Sin(Clock * 4.0)));
 }
 
 bool ADartsGame::GetReticle(FVector2D& OutAim) const
