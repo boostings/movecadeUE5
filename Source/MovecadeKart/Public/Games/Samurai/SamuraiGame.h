@@ -248,6 +248,7 @@ private:
 	void UpdateMood(float RealDt);
 	void FeedbackForMisses(FLane& Lane, int32 Index);
 	bool IsHuman(int32 LaneIndex) const;
+	bool LaneCalloutActive(int32 LaneIndex) const;
 	void ReleaseSlot(int32 Slot);
 	void ResetPresentation();
 	FVector KamaeDirection(double LaneX) const;

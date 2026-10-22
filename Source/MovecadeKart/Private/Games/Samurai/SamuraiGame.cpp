@@ -538,11 +538,20 @@ void ASamuraiGame::FeedbackForMisses(FLane& Lane, int32 Index)
 		Note(W(TargetCentre(*Touched, LaneCount()) + FVector(0.0, 0.5, 0.0)), NSLOCTEXT("Samurai", "TooSlow", "Swing faster!"), MovecadeKart::Art::Hex(TEXT("#ffd477")), 1.1, 0.8f);
 		Cues.Play(this, TEXT("samurai.miss"), 0.25f, 1.6f);
 	}
-	else if (bSweepEnded && !Lane.bSweepHit && Nearest)
+	else if (bSweepEnded && !Lane.bSweepHit && Nearest && !LaneCalloutActive(Index))
 	{
 		Lane.HintAt = Clock;
 		Note(W(TargetCentre(*Nearest, LaneCount()) + FVector(0.0, 0.5, 0.0)), NSLOCTEXT("Samurai", "Whiff", "Missed"), FLinearColor(0.78f, 0.8f, 0.86f), 0.8, 0.7f);
 	}
+}
+
+bool ASamuraiGame::LaneCalloutActive(int32 LaneIndex) const
+{
+	// The rules' own word on a miss or a bomb is on screen in this lane: don't talk over it.
+	return Match.Effects.ContainsByPredicate([LaneIndex](const FEffect& E)
+	{
+		return E.LaneIndex == LaneIndex && (E.Kind == EEffectKind::Miss || E.Kind == EEffectKind::Bomb) && E.DurationMs - E.TtlMs < 700.0;
+	});
 }
 
 bool ASamuraiGame::IsHuman(int32 LaneIndex) const
@@ -1141,7 +1150,7 @@ void ASamuraiGame::ReleaseSlot(int32 Index)
 {
 	FTargetSlot& Slot = Slots[Index];
 	// A fruit that fell out of a human's lane uncut: the rules only speak up when it breaks a combo.
-	if (Slot.LastProgress > 0.97 && Slot.Kind != EKind::Bomb && IsHuman(Slot.Lane) && Stage == ESamuraiStage::Match && Match.Phase == EMatchPhase::Playing)
+	if (Slot.LastProgress > 0.97 && Slot.Kind != EKind::Bomb && IsHuman(Slot.Lane) && Stage == ESamuraiStage::Match && Match.Phase == EMatchPhase::Playing && !LaneCalloutActive(Slot.Lane))
 	{
 		Note(Slot.LastAt + FVector(0.0, 0.0, 40.0), NSLOCTEXT("Samurai", "Dropped", "Dropped"), MovecadeKart::Art::Hex(TEXT("#ff8a8a")), 0.8, 0.7f);
 	}
