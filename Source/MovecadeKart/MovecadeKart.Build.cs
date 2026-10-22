@@ -37,6 +37,12 @@ public class MovecadeKart : ModuleRules
 			"StaticMeshDescription",
 		});
 
+		// Net/: the saved room's host token is sealed with DPAPI (CryptProtectData). Other platforms keep it in plaintext.
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			PublicSystemLibraries.Add("Crypt32.lib");
+		}
+
 		// Store/: the Steam Inventory backend (the engine's Steamworks SDK, no plugin). A Shipping game always has it:
 		// without Steam the store can't sell and nothing confirms what a player owns. Development builds add it only
 		// with MOVECADE_STEAM=1 in the environment, so the editor and tests need no Steam. UBT doesn't notice an

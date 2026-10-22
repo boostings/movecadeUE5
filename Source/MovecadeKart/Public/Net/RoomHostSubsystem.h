@@ -39,9 +39,11 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FMcSensorFrameEvent, int32, const MovecadeK
  * Settings come from [/Script/MovecadeKart.RoomHostSubsystem] in DefaultGame.ini, then the command
  * line: -RoomLocal (127.0.0.1:1999 and http://localhost:5173), -RoomServer=host[:port] -RoomSecure/-RoomInsecure
  * (a local server defaults to plain ws, anything else to wss) -RoomJoinBase=<url> -RoomOrigin=...
- * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling. Test hooks (not in Shipping):
+ * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling. Shipping ignores the server settings in
+ * both places and always uses production over wss (F-09; Net::ResolveServerSettings). Test hooks (not in Shipping):
  * -RoomAutoStart[=Seconds], -RoomShots=6,20 (UI screenshots), -RoomSelfTest (plays the race layer's part after
- * each start: phases, haptics, live scores, results, restart).
+ * each start: phases, haptics, live scores, results, restart), -RoomLogJoinUrl (the join URL with its token in the log,
+ * which is otherwise redacted, for the phone simulator).
  * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -RoomOpen.
  *
  * Everything runs on the game thread (UE fires WebSocket events there); only the saved-room file write is async.
@@ -65,14 +67,14 @@ public:
 	 * UE's libwebsockets tries ::1 for "localhost" and `partykit dev` listens on IPv4 only.
 	 */
 	UPROPERTY(Config)
-	FString PartyHost = TEXT("party.movecade.com");
+	FString PartyHost = MovecadeKart::Net::ProductionPartyHost;
 
 	UPROPERTY(Config)
 	bool bSecure = true;
 
 	/** The web app phones open; it must talk to the same party server. Production: movecade.com. */
 	UPROPERTY(Config)
-	FString JoinBaseUrl = TEXT("https://movecade.com");
+	FString JoinBaseUrl = MovecadeKart::Net::ProductionJoinBaseUrl;
 
 	/** True for a room server on this machine (`npm run dev:party`), which speaks plain ws. */
 	static bool IsLocalPartyHost(const FString& Host);
@@ -330,6 +332,8 @@ private:
 		bool bSelfTest = false;
 		/** -RoomShots=t1,t2: UI screenshots (RoomHost_N.png) at these seconds after startup, ascending. */
 		TArray<double> ShotTimes;
+		/** -RoomLogJoinUrl: also log the join URL with its token, for Tools/net-sim/phone-sim.mjs --from-log. */
+		bool bLogJoinUrl = false;
 
 		static FDebugFlags Parse(const TCHAR* CommandLine);
 	};
@@ -364,6 +368,8 @@ private:
 	void HandleBinary(const void* Data, SIZE_T Size, bool bIsLastFragment);
 	void HandleSensorFrame(const uint8* Data, int32 Size);
 	void ApplyState(const FJsonObject& State, bool bFromWelcome);
+	/** A state frame ParseRoomState had to clean up: a warning the first time on each connection. */
+	void ReportStateIssues(const MovecadeKart::Net::FRoomStateIssues& Issues, int64 StateVersion);
 	void OnStateApplied(const FMcRoomState& Previous);
 	/** Logs joins, leaves and readiness and resets the input of seats that changed hands. True if the lobby must redraw. */
 	bool ApplySeatChanges(const FMcRoomState& Previous);
@@ -413,6 +419,8 @@ private:
 	FString LastError;
 	int64 HighestStateVersion = -1;
 	FMcRoomState Room;
+	/** ReportStateIssues has warned on this connection. */
+	bool bReportedStateIssues = false;
 	uint32 LobbyRevision = 0;
 
 	UPROPERTY()

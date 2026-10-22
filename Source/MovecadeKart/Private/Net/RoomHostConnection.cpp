@@ -71,6 +71,7 @@ void URoomHostSubsystem::Connect()
 {
 	CloseSocket(TEXT("reconnecting"));
 	bWelcomed = false;
+	bReportedStateIssues = false;
 	BinaryAccumulator.Reset();
 	const FString Url = FString::Printf(TEXT("%s://%s/parties/main/%s"), bSecure ? TEXT("wss") : TEXT("ws"), *PartyHost, *RoomIdForCode(Code));
 	TMap<FString, FString> Headers;
@@ -148,7 +149,7 @@ void URoomHostSubsystem::HandleSocketClosed(int32 Status, const FString& Reason,
 	}
 	if (LastError.IsEmpty())
 	{
-		LastError = FString::Printf(TEXT("Room server closed the connection (%d %s)"), Status, *Reason);
+		LastError = FString::Printf(TEXT("Room server closed the connection (%d %s)"), Status, *SanitizeServerText(Reason));
 	}
 	MarkLobbyChanged();
 	bWantOpen = false;

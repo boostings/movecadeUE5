@@ -55,7 +55,7 @@ void URoomHostSubsystem::HandleText(const FString& Text)
 	{
 		FString Reason;
 		Message->TryGetStringField(TEXT("reason"), Reason);
-		LastError = FString::Printf(TEXT("Room closed: %s"), *Reason);
+		LastError = FString::Printf(TEXT("Room closed: %s"), *SanitizeServerText(Reason));
 		MarkLobbyChanged();
 		UE_LOG(LogRoomHost, Warning, TEXT("%s"), *LastError);
 		break;
@@ -117,7 +117,8 @@ void URoomHostSubsystem::HandleError(const FJsonObject& Message)
 	Message.TryGetStringField(TEXT("message"), Text);
 	bool bFatal = false;
 	Message.TryGetBoolField(TEXT("fatal"), bFatal);
-	LastError = FString::Printf(TEXT("%s: %s"), *ErrorCode, *Text);
+	// The lobby shows this line as it is.
+	LastError = FString::Printf(TEXT("%s: %s"), *SanitizeServerText(ErrorCode), *SanitizeServerText(Text));
 	MarkLobbyChanged();
 	UE_LOG(LogRoomHost, Warning, TEXT("Server error %s%s"), *LastError, bFatal ? TEXT(" (fatal)") : TEXT(""));
 	if (ErrorCode.Equals(ErrorUnauthorizedOrigin, ESearchCase::CaseSensitive))
@@ -307,9 +308,14 @@ void URoomHostSubsystem::HandleSensorFrame(const uint8* Data, int32 Size)
 void URoomHostSubsystem::ApplyState(const FJsonObject& State, bool bFromWelcome)
 {
 	FMcRoomState Next;
-	if (!ParseRoomState(State, Next))
+	FRoomStateIssues Issues;
+	if (!ParseRoomState(State, Next, &Issues))
 	{
 		return;
+	}
+	if (Issues.HasAny())
+	{
+		ReportStateIssues(Issues, Next.StateVersion);
 	}
 	if (!bFromWelcome && Next.StateVersion < HighestStateVersion)
 	{
@@ -327,6 +333,19 @@ void URoomHostSubsystem::ApplyState(const FJsonObject& State, bool bFromWelcome)
 		Code = Room.JoinCode;
 	}
 	OnStateApplied(Previous);
+}
+
+void URoomHostSubsystem::ReportStateIssues(const FRoomStateIssues& Issues, int64 StateVersion)
+{
+	// An honest server never gets here, and a hostile one may say it in every frame: one warning per connection.
+	if (bReportedStateIssues)
+	{
+		UE_LOG(LogRoomHost, Verbose, TEXT("State %lld from the room server was cleaned up again"), StateVersion);
+		return;
+	}
+	bReportedStateIssues = true;
+	UE_LOG(LogRoomHost, Warning, TEXT("State %lld from the room server broke the protocol's limits and was cleaned up: %d roster entries unread, "
+		"%d skipped, %d strings sanitised"), StateVersion, Issues.UnreadEntries, Issues.SkippedEntries, Issues.CleanedStrings);
 }
 
 void URoomHostSubsystem::OnStateApplied(const FMcRoomState& Previous)

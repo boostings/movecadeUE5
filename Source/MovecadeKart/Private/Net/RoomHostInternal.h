@@ -39,6 +39,22 @@ namespace MovecadeKart::Net::RoomHost
 	constexpr int32 CloseRoomGone = 4100;
 	constexpr int32 CloseNormal = 1000;
 
+	/**
+	 * The saved room's host token at rest (NET-03): it reclaims the room, so it isn't left readable to other users of
+	 * the PC. On Windows it is sealed with DPAPI for the current user (CryptProtectData) under hostTokenSealed; a
+	 * plaintext hostToken from an older build is still read and is replaced by the sealed one on the next save.
+	 * Other platforms have no equivalent wired up yet and keep writing the plaintext hostToken, as before.
+	 */
+	constexpr bool bCanSealSecrets = PLATFORM_WINDOWS;
+	/** DPAPI-sealed, base64; false where bCanSealSecrets is false or the OS refuses. */
+	bool SealSecret(const FString& Plain, FString& OutSealed);
+	/** The other way; false for anything this user did not seal (another account, another PC, tampered). */
+	bool UnsealSecret(const FString& Sealed, FString& OutPlain);
+	/** hostTokenSealed when it unseals, else the legacy plaintext hostToken, else empty. */
+	FString ReadSavedHostToken(const FJsonObject& Saved);
+	/** hostTokenSealed where it can be sealed; plaintext hostToken only where bCanSealSecrets is false. */
+	void WriteSavedHostToken(FJsonObject& Saved, const FString& HostToken);
+
 	int64 UnixMs();
 	TSharedPtr<FJsonObject> ParseObject(const FString& Text);
 	/** `seat 2 p3 "Name"`, for the log. */

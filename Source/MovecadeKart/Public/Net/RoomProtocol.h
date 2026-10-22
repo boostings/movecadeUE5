@@ -212,14 +212,95 @@ namespace MovecadeKart::Net
 	MOVECADEKART_API FString BuildJoinUrl(const FString& BaseUrl, const FString& Code, const FString& JoinToken);
 	/** application/x-www-form-urlencoded, as URLSearchParams.toString() writes it. */
 	MOVECADEKART_API FString FormEncode(const FString& Value);
+	/** A join URL for the log: the fragment's t= (the join token) reads `<redacted>` (F-10). */
+	MOVECADEKART_API FString RedactJoinUrl(const FString& Url);
+
+	/**
+	 * True when a host (or URL) names this machine: exactly localhost, 127.0.0.1, ::1 or a *.localhost name once the
+	 * scheme, user info, port and path are stripped. localhost.example.com and 127.0.0.1.example.com are not local.
+	 */
+	MOVECADEKART_API bool IsLocalHost(const FString& HostOrUrl);
+
+	// The room server and the web app phones join.
+	constexpr const TCHAR* ProductionPartyHost = TEXT("party.movecade.com");
+	constexpr const TCHAR* ProductionJoinBaseUrl = TEXT("https://movecade.com");
+	/** `npm run dev:party` and `npm run dev` on this machine (-RoomLocal). */
+	constexpr const TCHAR* LocalPartyHost = TEXT("127.0.0.1:1999");
+	constexpr const TCHAR* LocalJoinBaseUrl = TEXT("http://localhost:5173");
+
+	struct FRoomServerSettings
+	{
+		/** host[:port] of the room server. */
+		FString PartyHost = ProductionPartyHost;
+		FString JoinBaseUrl = ProductionJoinBaseUrl;
+		/** An extra Origin upgrade header; empty sends none. */
+		FString Origin;
+		bool bSecure = true;
+	};
+
+	/** Whether the ini and the command line may point the host away from production. */
+	enum class EServerOverrides : uint8
+	{
+		/** Development: the ini, then -RoomLocal, -RoomServer=, -RoomJoinBase=, -RoomOrigin=, -RoomSecure, -RoomInsecure. */
+		Allowed,
+		/** Shipping (F-09): production over TLS, whatever the ini or the command line say. */
+		Pinned,
+	};
+
+	/**
+	 * The room server to use: Configured (the ini) with the command line on top, or production when Pinned. A server on
+	 * this machine speaks plain ws and is joined from the local web app unless told otherwise; anything else is TLS.
+	 */
+	MOVECADEKART_API FRoomServerSettings ResolveServerSettings(const FRoomServerSettings& Configured, const TCHAR* CommandLine, EServerOverrides Overrides);
 
 	/** A lower-case v4 UUID (the server's identity regex requires v4). */
 	MOVECADEKART_API FString MakeIdentity();
 	MOVECADEKART_API bool IsV4Uuid(const FString& Value);
 
-	// Room state.
+	// Room state. The server is trusted for the game, not for what it puts on screen or how much of it: a compromised
+	// server is not bound by the web app's own validation, so the host applies the same limits again (NET-01, NET-02).
+	/** The roster entries ParseRoomState looks at; an honest roster never has more than MaxPlayers. */
+	constexpr int32 MaxRosterEntries = 4 * MaxPlayers;
+	/** Player ids are p<N> (messages.ts PLAYER_ID_RE); anything this long is not one. */
+	constexpr int32 MaxPlayerIdLength = 16;
+	/** sanitizePlayerName's cut (validate.ts). */
+	constexpr int32 MaxPlayerNameLength = 20;
+	/** UTF-16 units. The server's MAX_EMOJI_LENGTH is 8; the headroom keeps any emoji the phone can pick. */
+	constexpr int32 MaxEmojiLength = 16;
+	/** Screen, avatar and pause-reason ids (join, kart, mira, player-disconnected); a longer one is dropped, not cut. */
+	constexpr int32 MaxSeatIdLength = 32;
+	/** Server error messages and room-closed reasons, as the lobby shows them. */
+	constexpr int32 MaxServerTextLength = 120;
+
+	/** What ParseRoomState had to drop or clean up in a state frame. An honest server never causes any of it. */
+	struct FRoomStateIssues
+	{
+		/** Roster entries never looked at: past MaxRosterEntries, or after MaxPlayers seats were kept. */
+		int32 UnreadEntries = 0;
+		/** Entries looked at and skipped: not a seat, a duplicate seat or id, or an id over MaxPlayerIdLength. */
+		int32 SkippedEntries = 0;
+		/** Strings that were sanitised or dropped (name, emoji, screen, avatar ids, pause reason and player). */
+		int32 CleanedStrings = 0;
+
+		bool HasAny() const { return UnreadEntries > 0 || SkippedEntries > 0 || CleanedStrings > 0; }
+	};
+
 	MOVECADEKART_API EMcRoomStatus ParseStatus(const FString& Status);
-	MOVECADEKART_API bool ParseRoomState(const FJsonObject& State, FMcRoomState& Out);
+	/**
+	 * protocol RoomState into Out. False (Out untouched) without a roomId and stateVersion. The roster is truncated, not
+	 * refused: at most MaxRosterEntries entries are read and the first MaxPlayers distinct seats kept, and every seat
+	 * string is bounded (see the limits above). OutIssues, when given, says what was dropped.
+	 */
+	MOVECADEKART_API bool ParseRoomState(const FJsonObject& State, FMcRoomState& Out, FRoomStateIssues* OutIssues = nullptr);
+	/**
+	 * validate.ts sanitizePlayerName, step for step: control characters become spaces, only [A-Za-z0-9 _-] and
+	 * whitespace survive, whitespace runs collapse to one space, then a cut to 20 and a trim. A name the server already
+	 * sanitised comes back unchanged.
+	 */
+	MOVECADEKART_API FString SanitizePlayerName(const FString& Name);
+	/** Server-written text for the lobby (error messages, room-closed reasons): control and bidi characters removed,
+	 *  cut to MaxServerTextLength. */
+	MOVECADEKART_API FString SanitizeServerText(const FString& Text);
 	/** Kart paint primary (games/avatar/appearanceColors.ts), else the seat colour (games/render/palette.ts). */
 	MOVECADEKART_API FLinearColor PaintColor(const FString& KartPaint, int32 Seat);
 

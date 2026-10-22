@@ -1,0 +1,284 @@
+// The host's own defences against a hostile or compromised room server (Party Mode pentest findings NET-01..04,
+// F-09, F-10). The fuzz side lives in NetFuzzTests.cpp; these pin each fix's exact behaviour.
+
+#include "Dom/JsonObject.h"
+#include "Misc/AutomationTest.h"
+#include "Misc/Base64.h"
+#include "Net/RoomHostInternal.h"
+#include "Net/RoomProtocol.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+
+#if WITH_DEV_AUTOMATION_TESTS
+
+using namespace MovecadeKart;
+using namespace MovecadeKart::Net;
+
+namespace
+{
+	constexpr EAutomationTestFlags HardeningTestFlags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter;
+
+	TSharedPtr<FJsonObject> ParseJson(const FString& Text)
+	{
+		TSharedPtr<FJsonObject> Object;
+		FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Object);
+		return Object;
+	}
+
+	/** A state frame around the given players array (JSON text). */
+	bool ParseRoster(const FString& PlayersJson, FMcRoomState& Out, FRoomStateIssues& Issues)
+	{
+		const TSharedPtr<FJsonObject> State = ParseJson(FString::Printf(TEXT("{\"roomId\":\"r-x\",\"stateVersion\":3,\"players\":[%s]}"), *PlayersJson));
+		return State.IsValid() && ParseRoomState(*State, Out, &Issues);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningRosterTest, "MovecadeKart.Net.Hardening.RosterBounds", HardeningTestFlags)
+bool FNetHardeningRosterTest::RunTest(const FString&)
+{
+	// An honest four-seat room with an eliminated seat comes through whole and clean.
+	{
+		FMcRoomState Room;
+		FRoomStateIssues Issues;
+		TestTrue(TEXT("honest roster parses"), ParseRoster(TEXT(
+			"{\"id\":\"p3\",\"seat\":3,\"name\":\"Cy\",\"eliminated\":true},{\"id\":\"p1\",\"seat\":1,\"name\":\"Ann\"},"
+			"{\"id\":\"p2\",\"seat\":2,\"name\":\"Bo\"},{\"id\":\"p4\",\"seat\":4,\"name\":\"Di\",\"bot\":true}"), Room, Issues));
+		TestEqual(TEXT("all four seats kept"), Room.Players.Num(), 4);
+		TestFalse(TEXT("an honest roster reports no issues"), Issues.HasAny());
+		TestTrue(TEXT("sorted by seat, the eliminated seat kept"), Room.Players.Num() == 4 && Room.Players[0].Seat == 1 && Room.Players[2].bEliminated);
+	}
+	// Duplicate seats and ids: the first one wins; an over-long id is no seat at all.
+	{
+		FMcRoomState Room;
+		FRoomStateIssues Issues;
+		TestTrue(TEXT("hostile roster parses"), ParseRoster(TEXT(
+			"{\"id\":\"p1\",\"seat\":1,\"name\":\"First\"},{\"id\":\"p9\",\"seat\":1,\"name\":\"SameSeat\"},"
+			"{\"id\":\"p1\",\"seat\":2,\"name\":\"SameId\"},{\"id\":\"p12345678901234567\",\"seat\":3},{\"id\":\"p3\",\"seat\":3}"), Room, Issues));
+		TestEqual(TEXT("two distinct seats kept"), Room.Players.Num(), 2);
+		TestEqual(TEXT("seat 1 is the first claim"), Room.FindBySeat(1) ? Room.FindBySeat(1)->Name : FString(), FString(TEXT("First")));
+		TestTrue(TEXT("seat 3 is p3, not the 18-char id"), Room.FindBySeat(3) && Room.FindBySeat(3)->PlayerId == TEXT("p3"));
+		TestEqual(TEXT("three entries skipped"), Issues.SkippedEntries, 3);
+		TestEqual(TEXT("nothing unread"), Issues.UnreadEntries, 0);
+	}
+	// Reading stops after MaxPlayers seats, and never goes past MaxRosterEntries.
+	{
+		FString Players;
+		for (int32 i = 0; i < 10; ++i)
+		{
+			Players += FString::Printf(TEXT("%s{\"id\":\"p%d\",\"seat\":%d}"), i ? TEXT(",") : TEXT(""), i + 1, i % MaxPlayers + 1);
+		}
+		FMcRoomState Room;
+		FRoomStateIssues Issues;
+		TestTrue(TEXT("ten-entry roster parses"), ParseRoster(Players, Room, Issues));
+		TestEqual(TEXT("four seats"), Room.Players.Num(), MaxPlayers);
+		TestEqual(TEXT("the six after the fourth seat are not read"), Issues.UnreadEntries, 6);
+
+		FString Junk;
+		for (int32 i = 0; i < 100; ++i)
+		{
+			Junk += i ? TEXT(",null") : TEXT("null");
+		}
+		Junk += TEXT(",{\"id\":\"p1\",\"seat\":1}");
+		FMcRoomState JunkRoom;
+		FRoomStateIssues JunkIssues;
+		TestTrue(TEXT("junk roster parses"), ParseRoster(Junk, JunkRoom, JunkIssues));
+		TestEqual(TEXT("a seat past MaxRosterEntries is never reached"), JunkRoom.Players.Num(), 0);
+		TestEqual(TEXT("MaxRosterEntries junk entries skipped"), JunkIssues.SkippedEntries, MaxRosterEntries);
+		TestEqual(TEXT("the rest unread"), JunkIssues.UnreadEntries, 101 - MaxRosterEntries);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningNameTest, "MovecadeKart.Net.Hardening.PlayerNames", HardeningTestFlags)
+bool FNetHardeningNameTest::RunTest(const FString&)
+{
+	// Expected values are movecade-v2 protocol/src/validate.ts sanitizePlayerName run under node on the same inputs.
+	struct FCase
+	{
+		const TCHAR* In;
+		const TCHAR* Out;
+	};
+	const FCase Cases[] = {
+		{ TEXT("Jimmy"), TEXT("Jimmy") },
+		{ TEXT("Player_1"), TEXT("Player_1") },
+		{ TEXT("a-b c"), TEXT("a-b c") },
+		{ TEXT("  Jo\tAnn  "), TEXT("Jo Ann") },
+		{ TEXT("Zoë"), TEXT("Zo") },
+		{ TEXT("a b"), TEXT("a b") },
+		{ TEXT("a ! b"), TEXT("a b") },
+		{ TEXT("a!b"), TEXT("ab") },
+		{ TEXT("abcdefghijklmnopqrs tuv"), TEXT("abcdefghijklmnopqrs") },
+		{ TEXT("abcdefghijklmnopqrstuvwxyz"), TEXT("abcdefghijklmnopqrst") },
+		{ TEXT("‮GAME OVER\u0007"), TEXT("GAME OVER") },
+		{ TEXT("\U0001F600Ace"), TEXT("Ace") },
+		{ TEXT("a 　b"), TEXT("a b") },
+		{ TEXT(""), TEXT("") },
+		{ TEXT("   "), TEXT("") },
+		{ TEXT("A​B"), TEXT("AB") },
+		{ TEXT("line1\nline2\rline3"), TEXT("line1 line2 line3") },
+		{ TEXT("a\u0085b"), TEXT("a b") },
+	};
+	for (const FCase& Case : Cases)
+	{
+		const FString Sanitized = SanitizePlayerName(Case.In);
+		TestEqual(FString::Printf(TEXT("sanitizePlayerName parity for \"%s\""), Case.Out), Sanitized, FString(Case.Out));
+		TestEqual(TEXT("a sanitised name is a fixed point"), SanitizePlayerName(Sanitized), Sanitized);
+	}
+	// A control character in the middle is a space, never a NUL that ends the string early.
+	const FString WithNul = FString::ConstructFromPtrSize(TEXT("x\0y"), 3);
+	TestEqual(TEXT("NUL becomes a space"), SanitizePlayerName(WithNul), FString(TEXT("x y")));
+
+	// The other seat strings: bounded, dropped (not cut) when too long or carrying control characters.
+	const FString Long33 = FString::ChrN(MaxSeatIdLength + 1, TEXT('k'));
+	const TSharedPtr<FJsonObject> State = ParseJson(FString::Printf(TEXT("{\"roomId\":\"r-x\",\"stateVersion\":1,\"players\":["
+		"{\"id\":\"p1\",\"seat\":1,\"name\":\"Ann\",\"emoji\":\"%s\",\"screen\":\"%s\",\"avatar\":{\"kartPaint\":\"cyan\",\"vehicle\":\"%s\",\"face\":\"mi\\u0007ra\"}},"
+		"{\"id\":\"p2\",\"seat\":2,\"name\":\"Bo\",\"emoji\":\"\\ud83c\\udfce\\ufe0f\",\"screen\":\"ready\"}],"
+		"\"game\":{\"status\":\"paused\",\"pauseReason\":\"%s\",\"pausedForPlayerId\":\"p2\"}}"),
+		*FString::ChrN(MaxEmojiLength + 1, TEXT('e')), *Long33, *Long33, *Long33));
+	FMcRoomState Room;
+	FRoomStateIssues Issues;
+	TestTrue(TEXT("state parses"), State.IsValid() && ParseRoomState(*State, Room, &Issues));
+	const FMcSeat* Ann = Room.FindBySeat(1);
+	const FMcSeat* Bo = Room.FindBySeat(2);
+	if (TestTrue(TEXT("both seats"), Ann && Bo))
+	{
+		TestTrue(TEXT("over-long emoji, screen and vehicle dropped"), Ann->Emoji.IsEmpty() && Ann->Screen.IsEmpty() && Ann->Vehicle.IsEmpty());
+		TestTrue(TEXT("a face id with a control character dropped"), Ann->Face.IsEmpty());
+		TestEqual(TEXT("a clean paint id kept"), Ann->KartPaint, FString(TEXT("cyan")));
+		TestEqual(TEXT("a real emoji kept as it is"), Bo->Emoji, FString(TEXT("\U0001F3CE️")));
+		TestEqual(TEXT("a real screen kept"), Bo->Screen, FString(TEXT("ready")));
+	}
+	TestTrue(TEXT("an over-long pause reason dropped, the player kept"), Room.PauseReason.IsEmpty() && Room.PausedForPlayerId == TEXT("p2"));
+	TestEqual(TEXT("five strings cleaned"), Issues.CleanedStrings, 5);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningServerTextTest, "MovecadeKart.Net.Hardening.ServerText", HardeningTestFlags)
+bool FNetHardeningServerTextTest::RunTest(const FString&)
+{
+	TestEqual(TEXT("plain text unchanged"), SanitizeServerText(TEXT("Room is full")), FString(TEXT("Room is full")));
+	TestEqual(TEXT("control characters become spaces, bidi overrides go"), SanitizeServerText(TEXT("‮bad\nnews\u0007")), FString(TEXT("bad news")));
+	TestEqual(TEXT("cut to MaxServerTextLength"), SanitizeServerText(FString::ChrN(100000, TEXT('Z'))).Len(), MaxServerTextLength);
+	// A surrogate pair straddling the cut is dropped whole.
+	const FString Straddle = FString::ChrN(MaxServerTextLength - 1, TEXT('a')) + TEXT("\U0001F600");
+	TestEqual(TEXT("no half surrogate at the cut"), SanitizeServerText(Straddle), FString::ChrN(MaxServerTextLength - 1, TEXT('a')));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningLocalHostTest, "MovecadeKart.Net.Hardening.LocalHost", HardeningTestFlags)
+bool FNetHardeningLocalHostTest::RunTest(const FString&)
+{
+	// NET-04: "local" switches the socket to plain ws, so only names that can't leave this machine count.
+	for (const TCHAR* Local : { TEXT("localhost"), TEXT("LocalHost"), TEXT("localhost:1999"), TEXT("127.0.0.1"), TEXT("127.0.0.1:1999"),
+		TEXT("::1"), TEXT("[::1]"), TEXT("[::1]:1999"), TEXT("http://localhost:5173"), TEXT("http://localhost:5173/join/ABCDEF#v=2"),
+		TEXT("app.localhost"), TEXT("https://app.localhost:8443/x"), TEXT("ws://127.0.0.1:1999/parties/main") })
+	{
+		TestTrue(FString::Printf(TEXT("%s is local"), Local), IsLocalHost(Local));
+	}
+	for (const TCHAR* Remote : { TEXT("localhost.evil.com"), TEXT("localhost.evil.com:1999"), TEXT("127.0.0.1.evil.com"),
+		TEXT("127.0.0.1.evil.com:1999"), TEXT("http://localhost.evil.com/"), TEXT("http://localhost@evil.com"), TEXT("http://evil.com/localhost"),
+		TEXT("http://evil.com?h=localhost"), TEXT("[::1].evil.com"), TEXT("[::1]evil.com:1999"), TEXT("127.0.0.2"), TEXT("0.0.0.0"),
+		TEXT("evil-localhost"), TEXT("xlocalhost"), TEXT(".localhost"), TEXT("party.movecade.com"), TEXT("") })
+	{
+		TestFalse(FString::Printf(TEXT("%s is not local"), Remote), IsLocalHost(Remote));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningServerSettingsTest, "MovecadeKart.Net.Hardening.ServerSettings", HardeningTestFlags)
+bool FNetHardeningServerSettingsTest::RunTest(const FString&)
+{
+	const FRoomServerSettings Production;
+	FRoomServerSettings Ini;
+	Ini.PartyHost = TEXT("rooms.example.test");
+	Ini.JoinBaseUrl = TEXT("https://join.example.test");
+	Ini.Origin = TEXT("https://join.example.test");
+	const TCHAR* Hostile = TEXT("-RoomServer=evil.example:80 -RoomJoinBase=http://evil.example -RoomInsecure -RoomOrigin=http://evil.example -RoomLocal");
+
+	// F-09: Shipping pins production over TLS, whatever the ini and the command line say.
+	const FRoomServerSettings Pinned = ResolveServerSettings(Ini, Hostile, EServerOverrides::Pinned);
+	TestEqual(TEXT("pinned: production server"), Pinned.PartyHost, FString(ProductionPartyHost));
+	TestEqual(TEXT("pinned: production join base"), Pinned.JoinBaseUrl, FString(ProductionJoinBaseUrl));
+	TestTrue(TEXT("pinned: wss, no extra Origin"), Pinned.bSecure && Pinned.Origin.IsEmpty());
+	TestTrue(TEXT("pinned: the join base is https"), Pinned.JoinBaseUrl.StartsWith(TEXT("https://")));
+
+	// Development keeps every flag.
+	const FRoomServerSettings Dev = ResolveServerSettings(Ini, Hostile, EServerOverrides::Allowed);
+	TestEqual(TEXT("dev: -RoomServer"), Dev.PartyHost, FString(TEXT("evil.example:80")));
+	TestEqual(TEXT("dev: -RoomJoinBase"), Dev.JoinBaseUrl, FString(TEXT("http://evil.example")));
+	TestEqual(TEXT("dev: -RoomOrigin"), Dev.Origin, FString(TEXT("http://evil.example")));
+	TestFalse(TEXT("dev: -RoomInsecure"), Dev.bSecure);
+	TestTrue(TEXT("dev: the ini alone is used as it is"), ResolveServerSettings(Ini, TEXT(""), EServerOverrides::Allowed).PartyHost == Ini.PartyHost);
+
+	const FRoomServerSettings Local = ResolveServerSettings(Production, TEXT("-RoomLocal"), EServerOverrides::Allowed);
+	TestTrue(TEXT("dev: -RoomLocal is the local server over ws"), Local.PartyHost == LocalPartyHost && Local.JoinBaseUrl == LocalJoinBaseUrl && !Local.bSecure);
+	const FRoomServerSettings LocalServer = ResolveServerSettings(Production, TEXT("-RoomServer=127.0.0.1:2899"), EServerOverrides::Allowed);
+	TestTrue(TEXT("dev: a local -RoomServer joins from the local web app"), LocalServer.JoinBaseUrl == LocalJoinBaseUrl && !LocalServer.bSecure);
+	const FRoomServerSettings LookAlike = ResolveServerSettings(Production, TEXT("-RoomServer=localhost.evil.com"), EServerOverrides::Allowed);
+	TestTrue(TEXT("dev: a look-alike local name stays on TLS"), LookAlike.bSecure && LookAlike.JoinBaseUrl == ProductionJoinBaseUrl);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningJoinUrlLogTest, "MovecadeKart.Net.Hardening.JoinUrlRedaction", HardeningTestFlags)
+bool FNetHardeningJoinUrlLogTest::RunTest(const FString&)
+{
+	// F-10: the log line never carries the join token; the QR payload (BuildJoinUrl) still does.
+	const FString Url = BuildJoinUrl(TEXT("https://movecade.com"), TEXT("ABCDEF"), TEXT("s3cr3t+token/=="));
+	TestTrue(TEXT("the join URL carries the token"), Url.Contains(TEXT("&t=s3cr3t")));
+	const FString Logged = RedactJoinUrl(Url);
+	TestEqual(TEXT("token redacted, the rest kept"), Logged, FString(TEXT("https://movecade.com/join/ABCDEF#v=2&t=<redacted>")));
+	TestEqual(TEXT("t= first in the fragment"), RedactJoinUrl(TEXT("http://x/join/A#t=abc&v=2")), FString(TEXT("http://x/join/A#t=<redacted>&v=2")));
+	TestEqual(TEXT("no token, unchanged"), RedactJoinUrl(BuildJoinUrl(TEXT("https://movecade.com"), TEXT("ABCDEF"), FString())),
+		FString(TEXT("https://movecade.com/join/ABCDEF#v=2")));
+	TestEqual(TEXT("a t= outside the fragment is not the token"), RedactJoinUrl(TEXT("http://x/join/A?t=1")), FString(TEXT("http://x/join/A?t=1")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningHostTokenTest, "MovecadeKart.Net.Hardening.HostTokenAtRest", HardeningTestFlags)
+bool FNetHardeningHostTokenTest::RunTest(const FString&)
+{
+	using namespace MovecadeKart::Net::RoomHost;
+	const FString Token = TEXT("host-token-é+/==");
+
+	// A legacy saved room (plaintext hostToken) still reclaims.
+	const TSharedPtr<FJsonObject> Legacy = ParseJson(TEXT("{\"identity\":\"x\",\"code\":\"ABCDEF\",\"hostToken\":\"legacy-token\"}"));
+	TestEqual(TEXT("legacy plaintext token read"), ReadSavedHostToken(*Legacy), FString(TEXT("legacy-token")));
+
+	// What a save writes now.
+	const TSharedRef<FJsonObject> Saved = MakeShared<FJsonObject>();
+	WriteSavedHostToken(*Saved, Token);
+	FString Json;
+	FJsonSerializer::Serialize(Saved, TJsonWriterFactory<>::Create(&Json));
+	TestEqual(TEXT("the token reads back"), ReadSavedHostToken(*Saved), Token);
+	if (bCanSealSecrets)
+	{
+		// NET-03: sealed, and the plaintext is nowhere in the file.
+		TestFalse(TEXT("no plaintext hostToken field"), Saved->HasField(TEXT("hostToken")));
+		TestTrue(TEXT("a sealed hostTokenSealed field"), Saved->HasTypedField<EJson::String>(TEXT("hostTokenSealed")));
+		TestFalse(TEXT("the file never holds the token"), Json.Contains(TEXT("host-token")));
+
+		FString Sealed;
+		FString Plain;
+		TestTrue(TEXT("seal"), SealSecret(Token, Sealed));
+		TestTrue(TEXT("unseal round trip"), UnsealSecret(Sealed, Plain) && Plain == Token);
+		// One flipped byte, or junk, does not unseal; a legacy token next to a broken seal is still used.
+		TArray<uint8> Bytes;
+		FBase64::Decode(Sealed, Bytes);
+		Bytes.Last() ^= 0x5A;
+		TestFalse(TEXT("tampered seal refused"), UnsealSecret(FBase64::Encode(Bytes), Plain));
+		TestFalse(TEXT("junk refused"), UnsealSecret(TEXT("not base64 !"), Plain));
+		const TSharedPtr<FJsonObject> Broken = ParseJson(TEXT("{\"hostTokenSealed\":\"AAAA\",\"hostToken\":\"legacy-token\"}"));
+		TestEqual(TEXT("a broken seal falls back to the legacy token"), ReadSavedHostToken(*Broken), FString(TEXT("legacy-token")));
+	}
+	else
+	{
+		// Documented: no OS keystore wired up off Windows, so the token stays plaintext as before.
+		TestTrue(TEXT("plaintext elsewhere"), Saved->HasField(TEXT("hostToken")));
+	}
+	const TSharedRef<FJsonObject> NoToken = MakeShared<FJsonObject>();
+	WriteSavedHostToken(*NoToken, FString());
+	TestEqual(TEXT("no token, no field"), NoToken->Values.Num(), 0);
+	return true;
+}
+
+#endif // WITH_DEV_AUTOMATION_TESTS

@@ -1,7 +1,9 @@
 #include "Net/RoomProtocol.h"
 
+#include "Algo/NoneOf.h"
 #include "Dom/JsonObject.h"
 #include "Misc/Guid.h"
+#include "Misc/Parse.h"
 
 namespace MovecadeKart::Net
 {
@@ -73,6 +75,139 @@ namespace MovecadeKart::Net
 			}
 			return true;
 		}
+
+		/** Unicode Cc: what sanitizePlayerName turns into spaces (Go's unicode.IsControl). */
+		bool IsControlCharacter(TCHAR C)
+		{
+			return C <= 0x1F || (C >= 0x7F && C <= 0x9F);
+		}
+
+		/** JavaScript's \s: ECMA-262 WhiteSpace and LineTerminator. */
+		bool IsJsWhitespace(TCHAR C)
+		{
+			switch (C)
+			{
+			case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D: case 0x20: case 0xA0: case 0x1680:
+			case 0x2028: case 0x2029: case 0x202F: case 0x205F: case 0x3000: case 0xFEFF:
+				return true;
+			default:
+				return C >= 0x2000 && C <= 0x200A;
+			}
+		}
+
+		/** The bidi marks, embeddings, overrides and isolates: they reorder the text drawn after them. */
+		bool IsBidiControl(TCHAR C)
+		{
+			return C == 0x200E || C == 0x200F || (C >= 0x202A && C <= 0x202E) || (C >= 0x2066 && C <= 0x2069);
+		}
+
+		/** sanitizePlayerName's whitelist, less \s: [a-zA-Z0-9_-]. */
+		bool IsNameCharacter(TCHAR C)
+		{
+			return (C >= TEXT('a') && C <= TEXT('z')) || (C >= TEXT('A') && C <= TEXT('Z')) || (C >= TEXT('0') && C <= TEXT('9'))
+				|| C == TEXT('_') || C == TEXT('-');
+		}
+
+		/** Value when it is at most MaxLength UTF-16 units with no control character, else empty (an id is never cut). */
+		FString BoundedField(const FString& Value, int32 MaxLength)
+		{
+			const bool bClean = Value.Len() <= MaxLength && Algo::NoneOf(Value, [](TCHAR C) { return IsControlCharacter(C) || IsBidiControl(C); });
+			return bClean ? Value : FString();
+		}
+
+		/** A string from the server, bounded (BoundedField); counts it in CleanedStrings when that changed it. */
+		FString ReadBoundedString(const FJsonObject& Object, const TCHAR* Key, int32 MaxLength, int32& CleanedStrings)
+		{
+			const FString Raw = GetString(Object, Key);
+			FString Bounded = BoundedField(Raw, MaxLength);
+			CleanedStrings += Bounded.Len() == Raw.Len() ? 0 : 1;
+			return Bounded;
+		}
+
+		/** Everything about a seat but its id and number, from one roster entry. */
+		void ReadSeatDetails(const FJsonObject& Player, FMcSeat& Seat, int32& CleanedStrings)
+		{
+			const FString RawName = GetString(Player, TEXT("name"));
+			Seat.Name = SanitizePlayerName(RawName);
+			CleanedStrings += Seat.Name.Equals(RawName, ESearchCase::CaseSensitive) ? 0 : 1;
+			Seat.Emoji = ReadBoundedString(Player, TEXT("emoji"), MaxEmojiLength, CleanedStrings);
+			Seat.bReady = GetBool(Player, TEXT("ready"));
+			Seat.bCalibrated = GetBool(Player, TEXT("calibrated"));
+			Seat.bConnected = GetBool(Player, TEXT("connected"));
+			Seat.bEliminated = GetBool(Player, TEXT("eliminated"));
+			Seat.bBot = GetBool(Player, TEXT("bot"));
+			Seat.GraceRemainingMs = GetInt32(Player, TEXT("graceRemainingMs"));
+			Seat.Score = GetInt32(Player, TEXT("score"));
+			Seat.Screen = ReadBoundedString(Player, TEXT("screen"), MaxSeatIdLength, CleanedStrings);
+			const TSharedPtr<FJsonObject>* Avatar = nullptr;
+			if (Player.TryGetObjectField(TEXT("avatar"), Avatar))
+			{
+				Seat.KartPaint = ReadBoundedString(**Avatar, TEXT("kartPaint"), MaxSeatIdLength, CleanedStrings);
+				Seat.Vehicle = ReadBoundedString(**Avatar, TEXT("vehicle"), MaxSeatIdLength, CleanedStrings);
+				Seat.Face = ReadBoundedString(**Avatar, TEXT("face"), MaxSeatIdLength, CleanedStrings);
+				Seat.Body = ReadBoundedString(**Avatar, TEXT("body"), MaxSeatIdLength, CleanedStrings);
+			}
+			Seat.PaintColor = PaintColor(Seat.KartPaint, Seat.Seat);
+		}
+	}
+
+	FString SanitizePlayerName(const FString& Name)
+	{
+		// validate.ts in one pass: (1) control characters become spaces; (2) only [a-zA-Z0-9\s\-_] survives;
+		// (3) whitespace runs collapse to one space, none at either end (which also covers its leading trim);
+		// (4) the cut to 20; (5) the final trim. Past 20 kept characters the rest can't change the result.
+		FString Out;
+		bool bPendingSpace = false;
+		for (const TCHAR C : Name)
+		{
+			if (IsControlCharacter(C) || IsJsWhitespace(C))
+			{
+				bPendingSpace = !Out.IsEmpty();
+				continue;
+			}
+			if (!IsNameCharacter(C))
+			{
+				continue;
+			}
+			if (bPendingSpace)
+			{
+				Out.AppendChar(TEXT(' '));
+				bPendingSpace = false;
+			}
+			Out.AppendChar(C);
+			if (Out.Len() > MaxPlayerNameLength)
+			{
+				break;
+			}
+		}
+		Out.LeftInline(MaxPlayerNameLength);
+		Out.TrimEndInline();
+		return Out;
+	}
+
+	FString SanitizeServerText(const FString& Text)
+	{
+		// Control characters become spaces so "a\nb" stays two words; bidi controls go, so nothing reorders the line.
+		FString Out;
+		Out.Reserve(FMath::Min(Text.Len(), MaxServerTextLength));
+		for (const TCHAR C : Text)
+		{
+			if (Out.Len() == MaxServerTextLength)
+			{
+				break;
+			}
+			if (!IsBidiControl(C))
+			{
+				Out.AppendChar(IsControlCharacter(C) ? TEXT(' ') : C);
+			}
+		}
+		// Never end on half of a surrogate pair.
+		if (Out.Len() > 0 && StringConv::IsHighSurrogate(Out[Out.Len() - 1]))
+		{
+			Out.LeftChopInline(1);
+		}
+		Out.TrimStartAndEndInline();
+		return Out;
 	}
 
 	const TCHAR* LexToString(ESensorError Error)
@@ -333,6 +468,95 @@ namespace MovecadeKart::Net
 		return Url;
 	}
 
+	bool IsLocalHost(const FString& HostOrUrl)
+	{
+		FString Host = HostOrUrl.TrimStartAndEnd();
+		if (const int32 SchemeEnd = Host.Find(TEXT("://")); SchemeEnd != INDEX_NONE)
+		{
+			Host.RightChopInline(SchemeEnd + 3);
+		}
+		// The authority ends at the path, query or fragment; user info before an @ is not where the socket goes.
+		if (const int32 AuthorityEnd = Host.GetCharArray().IndexOfByPredicate([](TCHAR C) { return C == TEXT('/') || C == TEXT('?') || C == TEXT('#'); });
+			AuthorityEnd != INDEX_NONE)
+		{
+			Host.LeftInline(AuthorityEnd);
+		}
+		if (int32 At = INDEX_NONE; Host.FindLastChar(TEXT('@'), At))
+		{
+			Host.RightChopInline(At + 1);
+		}
+		if (Host.StartsWith(TEXT("[")))
+		{
+			// [v6]:port. Anything after the bracket other than a port is not an address.
+			const int32 Close = Host.Find(TEXT("]"));
+			if (Close == INDEX_NONE || (Close + 1 < Host.Len() && Host[Close + 1] != TEXT(':')))
+			{
+				return false;
+			}
+			Host = Host.Mid(1, Close - 1);
+		}
+		else
+		{
+			// host:port. A bare v6 address (::1) has more than one colon and keeps them.
+			int32 FirstColon = INDEX_NONE;
+			int32 LastColon = INDEX_NONE;
+			if (Host.FindChar(TEXT(':'), FirstColon) && Host.FindLastChar(TEXT(':'), LastColon) && FirstColon == LastColon)
+			{
+				Host.LeftInline(FirstColon);
+			}
+		}
+		Host.ToLowerInline();
+		static constexpr int32 LocalhostSuffixLength = 10; // ".localhost"
+		return Host == TEXT("localhost") || Host == TEXT("127.0.0.1") || Host == TEXT("::1")
+			|| (Host.Len() > LocalhostSuffixLength && Host.EndsWith(TEXT(".localhost")));
+	}
+
+	FRoomServerSettings ResolveServerSettings(const FRoomServerSettings& Configured, const TCHAR* CommandLine, EServerOverrides Overrides)
+	{
+		if (Overrides == EServerOverrides::Pinned)
+		{
+			return FRoomServerSettings();
+		}
+		FRoomServerSettings Settings = Configured;
+		if (FParse::Param(CommandLine, TEXT("RoomLocal")))
+		{
+			Settings.PartyHost = LocalPartyHost;
+			Settings.JoinBaseUrl = LocalJoinBaseUrl;
+		}
+		const bool bServerGiven = FParse::Value(CommandLine, TEXT("RoomServer="), Settings.PartyHost);
+		const bool bJoinBaseGiven = FParse::Value(CommandLine, TEXT("RoomJoinBase="), Settings.JoinBaseUrl);
+		FParse::Value(CommandLine, TEXT("RoomOrigin="), Settings.Origin);
+		if (IsLocalHost(Settings.PartyHost))
+		{
+			Settings.bSecure = false;
+			if (bServerGiven && !bJoinBaseGiven && !IsLocalHost(Settings.JoinBaseUrl))
+			{
+				Settings.JoinBaseUrl = LocalJoinBaseUrl;
+			}
+		}
+		Settings.bSecure = (Settings.bSecure || FParse::Param(CommandLine, TEXT("RoomSecure"))) && !FParse::Param(CommandLine, TEXT("RoomInsecure"));
+		return Settings;
+	}
+
+	FString RedactJoinUrl(const FString& Url)
+	{
+		// The token is the fragment's t= parameter (BuildJoinUrl); the fragment never reaches a server, the log might.
+		const int32 Fragment = Url.Find(TEXT("#"));
+		if (Fragment == INDEX_NONE)
+		{
+			return Url;
+		}
+		FString Out = Url.Left(Fragment + 1);
+		TArray<FString> Params;
+		Url.RightChop(Fragment + 1).ParseIntoArray(Params, TEXT("&"), /*bCullEmpty*/ false);
+		for (int32 i = 0; i < Params.Num(); ++i)
+		{
+			Out += i ? TEXT("&") : TEXT("");
+			Out += Params[i].StartsWith(TEXT("t="), ESearchCase::CaseSensitive) ? FString(TEXT("t=<redacted>")) : Params[i];
+		}
+		return Out;
+	}
+
 	FString MakeIdentity()
 	{
 		FGuid Guid = FGuid::NewGuid();
@@ -478,8 +702,9 @@ namespace MovecadeKart::Net
 		return Hex(SeatColors[FMath::Clamp(Seat - 1, 0, 3)]);
 	}
 
-	bool ParseRoomState(const FJsonObject& State, FMcRoomState& Out)
+	bool ParseRoomState(const FJsonObject& State, FMcRoomState& Out, FRoomStateIssues* OutIssues)
 	{
+		FRoomStateIssues Issues;
 		FMcRoomState R;
 		R.RoomId = GetString(State, TEXT("roomId"));
 		R.JoinCode = GetString(State, TEXT("joinCode"));
@@ -498,42 +723,32 @@ namespace MovecadeKart::Net
 		const TArray<TSharedPtr<FJsonValue>>* Players = nullptr;
 		if (State.TryGetArrayField(TEXT("players"), Players))
 		{
-			for (const TSharedPtr<FJsonValue>& Value : *Players)
+			// NET-01: a bounded look at the roster, first come first seated. Truncated rather than refused: the room
+			// must stay playable, and an honest roster (eliminated seats included) never reaches either limit.
+			const int32 Readable = FMath::Min(Players->Num(), MaxRosterEntries);
+			int32 Index = 0;
+			for (; Index < Readable && R.Players.Num() < MaxPlayers; ++Index)
 			{
-				const TSharedPtr<FJsonObject>* P = nullptr;
-				if (!Value.IsValid() || !Value->TryGetObject(P))
+				const TSharedPtr<FJsonValue>& Value = (*Players)[Index];
+				const TSharedPtr<FJsonObject>* Player = nullptr;
+				if (!Value.IsValid() || !Value->TryGetObject(Player))
 				{
+					++Issues.SkippedEntries;
 					continue;
 				}
-				const FJsonObject& Player = **P;
 				FMcSeat Seat;
-				Seat.PlayerId = GetString(Player, TEXT("id"));
-				Seat.Seat = GetInt32(Player, TEXT("seat"));
-				Seat.Name = GetString(Player, TEXT("name"));
-				Seat.Emoji = GetString(Player, TEXT("emoji"));
-				Seat.bReady = GetBool(Player, TEXT("ready"));
-				Seat.bCalibrated = GetBool(Player, TEXT("calibrated"));
-				Seat.bConnected = GetBool(Player, TEXT("connected"));
-				Seat.bEliminated = GetBool(Player, TEXT("eliminated"));
-				Seat.bBot = GetBool(Player, TEXT("bot"));
-				Seat.GraceRemainingMs = GetInt32(Player, TEXT("graceRemainingMs"));
-				Seat.Score = GetInt32(Player, TEXT("score"));
-				Seat.Screen = GetString(Player, TEXT("screen"));
-				const TSharedPtr<FJsonObject>* Avatar = nullptr;
-				if (Player.TryGetObjectField(TEXT("avatar"), Avatar))
+				Seat.PlayerId = GetString(**Player, TEXT("id"));
+				Seat.Seat = GetInt32(**Player, TEXT("seat"));
+				if (Seat.PlayerId.IsEmpty() || Seat.PlayerId.Len() > MaxPlayerIdLength || Seat.Seat < 1 || Seat.Seat > MaxPlayers
+					|| R.FindBySeat(Seat.Seat) || R.FindByPlayerId(Seat.PlayerId))
 				{
-					Seat.KartPaint = GetString(**Avatar, TEXT("kartPaint"));
-					Seat.Vehicle = GetString(**Avatar, TEXT("vehicle"));
-					Seat.Face = GetString(**Avatar, TEXT("face"));
-					Seat.Body = GetString(**Avatar, TEXT("body"));
-				}
-				Seat.PaintColor = PaintColor(Seat.KartPaint, Seat.Seat);
-				if (Seat.PlayerId.IsEmpty() || Seat.Seat < 1 || Seat.Seat > MaxPlayers)
-				{
+					++Issues.SkippedEntries;
 					continue;
 				}
-				R.Players.Add(Seat);
+				ReadSeatDetails(**Player, Seat, Issues.CleanedStrings);
+				R.Players.Add(MoveTemp(Seat));
 			}
+			Issues.UnreadEntries = Players->Num() - Index;
 			R.Players.Sort([](const FMcSeat& A, const FMcSeat& B) { return A.Seat < B.Seat; });
 		}
 
@@ -544,8 +759,9 @@ namespace MovecadeKart::Net
 			R.Phase = GetString(**Game, TEXT("phase"));
 			R.MatchNumber = GetInt32(**Game, TEXT("matchNumber"));
 			R.StartedAt = GetInt64(**Game, TEXT("startedAt"));
-			R.PauseReason = GetString(**Game, TEXT("pauseReason"));
-			R.PausedForPlayerId = GetString(**Game, TEXT("pausedForPlayerId"));
+			// Both go out through OnPauseChanged to the games' pause overlays.
+			R.PauseReason = ReadBoundedString(**Game, TEXT("pauseReason"), MaxSeatIdLength, Issues.CleanedStrings);
+			R.PausedForPlayerId = ReadBoundedString(**Game, TEXT("pausedForPlayerId"), MaxPlayerIdLength, Issues.CleanedStrings);
 		}
 		const TSharedPtr<FJsonObject>* Countdown = nullptr;
 		if (State.TryGetObjectField(TEXT("countdown"), Countdown))
@@ -558,6 +774,10 @@ namespace MovecadeKart::Net
 			return false;
 		}
 		Out = MoveTemp(R);
+		if (OutIssues)
+		{
+			*OutIssues = Issues;
+		}
 		return true;
 	}
 
