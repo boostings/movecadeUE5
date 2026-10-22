@@ -121,6 +121,26 @@ namespace MovecadeKart::Net
 	 */
 	MOVECADEKART_API bool ReadPracticeAction(const FJsonObject& Data, const FString& GameId, FString& OutActionId);
 
+	// The motion pad (Docs/Agents/BRIEF.md "The motion pad contract", server patch Docs/Port/server/0002): the generic
+	// phone controller for new motion games. Phones send pad:press / pad:release {button:"a"|"b"}; the host sends
+	// pad:prompt {playerId, title, subtitle, a, b, accent, mode} (host-only on the server).
+	constexpr const TCHAR* PadPressEvent = TEXT("pad:press");
+	constexpr const TCHAR* PadReleaseEvent = TEXT("pad:release");
+	constexpr const TCHAR* PadPromptEvent = TEXT("pad:prompt");
+	/** pad:prompt playerId that addresses every phone (a player's own, newer prompt still wins on that phone). */
+	constexpr const TCHAR* PadPromptEveryone = TEXT("*");
+	/** pad:press / pad:release data. True with OutButton 'a' or 'b'; any other shape is refused. */
+	MOVECADEKART_API bool ReadPadButton(const FJsonObject& Data, TCHAR& OutButton);
+	/** True for a hint animation the phone knows: tilt, swing, aim, flick. */
+	MOVECADEKART_API bool IsPadMode(const FString& Mode);
+	/**
+	 * pad:prompt data, the JSON object the phone reads (motionPad.ts readMotionPadPrompt). Title <= 80, Subtitle <= 160,
+	 * A / B labels <= 16 characters (empty hides that button). AccentHex is "#rrggbb" and Mode one of IsPadMode; either
+	 * is left out when it is not, and the phone then uses the game's own accent and hint.
+	 */
+	MOVECADEKART_API FString PadPromptData(const FString& PlayerId, const FString& Title, const FString& Subtitle,
+		const FString& A, const FString& B, const FString& AccentHex, const FString& Mode);
+
 	// Room codes and the QR join URL (roomCode.ts).
 	/** generateRoomCode: 6 chars, uniform rejection sampling over the 31-glyph alphabet. */
 	MOVECADEKART_API FString GenerateRoomCode(TFunctionRef<void(uint8* Bytes, int32 Count)> RandomBytes);

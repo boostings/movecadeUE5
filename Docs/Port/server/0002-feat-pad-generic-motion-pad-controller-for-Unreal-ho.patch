@@ -1,0 +1,1616 @@
+From 4041ca7f4d0ec3882194b5f2937bf0174e4c5e58 Mon Sep 17 00:00:00 2001
+From: unrent <76983160+boostings@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 17:24:00 -0500
+Subject: [PATCH] feat(pad): generic motion pad controller for Unreal-hosted
+ motion games
+
+New motion games hosted by the Movecade Kart PC game (sumo, derby, fishing)
+have no web canvas and no bespoke phone screen. They get one generic phone
+controller, the motion pad, and the room server accepts their ids.
+
+Protocol (protocol/src/motionPad.ts): MOTION_PAD_GAMES is the one list.
+An entry makes the id a known room game (normalizeGameId, the host
+handshake, configure-room), puts it in the free / premium / simultaneous
+lists and the score ceilings, lets a phone calibrate for it
+(isMotionGame, its own grip text), and maps it to the pad on the phone.
+The web catalog stays as it is, so these games stay out of the web
+picker, SEO, leaderboards, iOS and Go catalogs.
+- sumo and fishing are simultaneous; derby is turn-based (one batter at a
+  time, named with advance-turn like bowling).
+- All three are premium, like every game but bowling. Premium gates
+  nothing unless ENABLE_MONETIZATION=true, which local dev and current
+  production leave off.
+- pad:prompt is host-only (HOST_ONLY_GAME_EVENTS).
+
+Phone (app/src/games/pad): findGame falls back to the pad plugins. The
+pad shows the host's pad:prompt for this player (or "*") big, one or two
+big buttons sending pad:press / pad:release {button} on pointer down /
+up with a buzz (keyboard too, released on hide, unmount, or a button the
+host removes), and a per-mode hint animation (tilt, swing, aim, flick)
+that respects reduced motion. The shell streams calibrated frames at
+the game's sendHz (100 Hz for swings and flicks, 60 for tilt) while
+active, as for samurai. Prompts are collected from the moment the room
+is a pad room, so one that lands just before the turn flips is shown.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ app/src/controller/ControllerSurface.test.tsx |  31 ++-
+ app/src/controller/ControllerSurface.tsx      |  10 +-
+ app/src/debug/PlayReview.tsx                  |   3 +-
+ app/src/games/pad/MotionPadCanvas.tsx         |  19 ++
+ .../games/pad/MotionPadController.test.tsx    | 224 +++++++++++++++++
+ app/src/games/pad/MotionPadController.tsx     | 231 ++++++++++++++++++
+ app/src/games/pad/index.ts                    |  34 +++
+ app/src/games/pad/motion-pad.css              | 185 ++++++++++++++
+ app/src/games/pad/padPrompts.ts               |  75 ++++++
+ app/src/games/registry.ts                     |   5 +-
+ partykit/src/engine.motionPad.test.ts         | 153 ++++++++++++
+ protocol/src/constants.ts                     |   3 +
+ protocol/src/index.ts                         |   1 +
+ protocol/src/motionCalibration.ts             |   9 +-
+ protocol/src/motionPad.test.ts                | 109 +++++++++
+ protocol/src/motionPad.ts                     | 179 ++++++++++++++
+ protocol/src/scoring.test.ts                  |   7 +-
+ protocol/src/scoring.ts                       |  29 ++-
+ 18 files changed, 1292 insertions(+), 15 deletions(-)
+ create mode 100644 app/src/games/pad/MotionPadCanvas.tsx
+ create mode 100644 app/src/games/pad/MotionPadController.test.tsx
+ create mode 100644 app/src/games/pad/MotionPadController.tsx
+ create mode 100644 app/src/games/pad/index.ts
+ create mode 100644 app/src/games/pad/motion-pad.css
+ create mode 100644 app/src/games/pad/padPrompts.ts
+ create mode 100644 partykit/src/engine.motionPad.test.ts
+ create mode 100644 protocol/src/motionPad.test.ts
+ create mode 100644 protocol/src/motionPad.ts
+
+diff --git a/app/src/controller/ControllerSurface.test.tsx b/app/src/controller/ControllerSurface.test.tsx
+index f19c9f8c..8a99a6ab 100644
+--- a/app/src/controller/ControllerSurface.test.tsx
++++ b/app/src/controller/ControllerSurface.test.tsx
+@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
+ import { ControllerSurface } from './ControllerSurface';
+ import { ReconnectingScreen } from './screens';
+ import { createFakeSession, makePlayer, makeRoom } from '../../test/fakeSession';
+-import { isRecord, isString } from '@v2/protocol';
++import { isRecord, isString, type JsonValue } from '@v2/protocol';
+ 
+ function renderController() {
+   vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
+@@ -319,6 +319,35 @@ describe('ControllerSurface', () => {
+     ).toBeInTheDocument();
+   });
+ 
++  it('gives a motion pad room the motion pad, with the prompt that arrived before the turn', async () => {
++    const session = renderController();
++    act(() =>
++      session.setState({
++        status: 'open',
++        screen: 'between-turns',
++        playerId: 'p1',
++        room: makeRoom({
++          gameId: 'derby',
++          players: [makePlayer(), makePlayer({ id: 'p2', seat: 2, name: 'Alex' })],
++          game: { status: 'in-progress', activePlayerId: 'p2' },
++        }),
++      })
++    );
++    // The host names the batter and prompts them in the same breath; the
++    // prompt can land before this phone's screen flips to active.
++    // SAFETY: test-only access to the fake client's private listener set.
++    const opaqueClient: unknown = session.client;
++    // SAFETY: the opaque value is the real fake SessionClient.
++    const listeners = (opaqueClient as { eventListeners: Set<(e: string, d: JsonValue | undefined, f: string | null) => void> }).eventListeners;
++    act(() => listeners.forEach((listener) => listener('pad:prompt', { playerId: 'p1', title: 'Batter up', subtitle: 'Swing!', a: '', b: '', mode: 'swing' }, null)));
++
++    act(() => session.setState({ screen: 'active',
++        calibration: {alpha:0,beta:0,gamma:0,screenOrientation:0,capturedAt:0,motion:{version:1,id:'id',sessionId:'11111111-1111-4111-8111-111111111111',gameId:'derby',hand:'right',quaternion:{x:0,y:0,z:0,w:1},gravity:{x:0,y:0,z:9.81},accelBias:{x:0,y:0,z:0},noise:0,samples:41}},
++    }));
++    expect(await screen.findByTestId('motion-pad', undefined, { timeout: 5_000 })).toHaveAttribute('data-mode', 'swing');
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Batter up');
++  });
++
+   it('shows the grace countdown while reconnecting', () => {
+     const session = renderController();
+     act(() =>
+diff --git a/app/src/controller/ControllerSurface.tsx b/app/src/controller/ControllerSurface.tsx
+index 9f237e52..a433acf0 100644
+--- a/app/src/controller/ControllerSurface.tsx
++++ b/app/src/controller/ControllerSurface.tsx
+@@ -1,6 +1,7 @@
+ import { ControllerPlayFrame } from '../games/feedback/FeedbackSurfaces';
+ import { assistActionFor } from './assistActions';
+-import { createCalibrationCapture, isMotionGame, type ErrorCodeValue } from '@v2/protocol';
++import { createCalibrationCapture, isMotionGame, isMotionPadGame, type ErrorCodeValue } from '@v2/protocol';
++import { watchPadPrompts } from '../games/pad/padPrompts';
+ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { setPartyActivity } from '../services/updateGate';
+ import { analytics } from '../services/analytics';
+@@ -154,6 +155,13 @@ export function ControllerSurface({ fallbackGame }: { fallbackGame?: GamePlugin
+   const plugin = findGame(room?.gameId) ?? fallbackGame ?? null;
+   const game = plugin?.manifest ?? null;
+ 
++  // A motion pad room's host prompts a phone around the moment it turns
++  // active, so prompts are collected from the room on, not from the pad's mount.
++  const padRoom = isMotionPadGame(room?.gameId);
++  useEffect(() => {
++    if (padRoom) watchPadPrompts(client);
++  }, [client, padRoom]);
++
+   // A game may ship its own active-turn surface. It is code-split per game, so
+   // a phone playing bowling never downloads samurai's controller.
+   const GameController = useMemo(() => {
+diff --git a/app/src/debug/PlayReview.tsx b/app/src/debug/PlayReview.tsx
+index df7bef70..0caa05d6 100644
+--- a/app/src/debug/PlayReview.tsx
++++ b/app/src/debug/PlayReview.tsx
+@@ -2,6 +2,7 @@ import { Suspense, lazy, useMemo, useState } from 'react';
+ import { createRoot } from 'react-dom/client';
+ import { createFakeSession, makePlayer, makeRoom, noSampleFeed } from '../../test/fakeSession';
+ import { findGame, GAMES } from '../games/registry';
++import { MOTION_PAD_PLUGINS } from '../games/pad';
+ import { ControllerPlayFrame } from '../games/feedback/FeedbackSurfaces';
+ import '../design/tokens.css';
+ import '../controller/controller.css';
+@@ -13,7 +14,7 @@ function Review() {
+   const Controller = useMemo(() => plugin?.loadController ? lazy(async () => ({default:await plugin.loadController!()})) : null, [plugin]);
+   const me = makePlayer({name:'James',score:48,ready:true,calibrated:true});
+   const room = makeRoom({gameId,players:[me],game:{status:'in-progress',activePlayerId:me.id}});
+-  return <><label>Controller preview · simulated motion <select value={gameId} onChange={e=>setGameId(e.target.value)}>{GAMES.map(g=><option key={g.manifest.id} value={g.manifest.id}>{g.manifest.name}</option>)}</select></label>
++  return <><label>Controller preview · simulated motion <select value={gameId} onChange={e=>setGameId(e.target.value)}>{[...GAMES, ...MOTION_PAD_PLUGINS].map(g=><option key={g.manifest.id} value={g.manifest.id}>{g.manifest.name}</option>)}</select></label>
+     <Suspense fallback={<p>Loading controller…</p>}><ControllerPlayFrame client={session.client} gameId={gameId} playerId={me.id} score={me.score} streaming>
+       {Controller ? <Controller key={gameId} client={session.client} room={room} me={me} isActive subscribeSamples={noSampleFeed} sample={{alpha:0,beta:0,gamma:0,gyro:{x:0,y:0,z:0},accel:{x:0,y:0,z:0},gravity:{x:0,y:0,z:-9.81},screenOrientation:gameId==='kart'?1:0,dtMs:16}}/> : null}
+     </ControllerPlayFrame></Suspense></>;
+diff --git a/app/src/games/pad/MotionPadCanvas.tsx b/app/src/games/pad/MotionPadCanvas.tsx
+new file mode 100644
+index 00000000..970ab7a9
+--- /dev/null
++++ b/app/src/games/pad/MotionPadCanvas.tsx
+@@ -0,0 +1,19 @@
++import { findMotionPadGame } from '@v2/protocol';
++import type { GameCanvasProps } from '../types';
++
++/**
++ * A motion pad game has no web scene: another program is the TV. A browser
++ * that somehow hosts one (an old link, a hand-typed URL) says so instead of
++ * rendering nothing.
++ */
++export function MotionPadCanvas({ room }: GameCanvasProps) {
++  const game = findMotionPadGame(room.gameId);
++  return (
++    <div className="grid h-full w-full place-items-center p-8 text-center" data-testid="motion-pad-canvas">
++      <div>
++        <p className="font-display text-4xl text-ink">{game?.name ?? 'This game'}</p>
++        <p className="mt-3 text-lg text-ink-muted">This game is played on the Movecade Kart PC game. Phones still join here.</p>
++      </div>
++    </div>
++  );
++}
+diff --git a/app/src/games/pad/MotionPadController.test.tsx b/app/src/games/pad/MotionPadController.test.tsx
+new file mode 100644
+index 00000000..330dcdec
+--- /dev/null
++++ b/app/src/games/pad/MotionPadController.test.tsx
+@@ -0,0 +1,224 @@
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import { act, fireEvent, render, screen } from '@testing-library/react';
++import { ScreenOrientation, type JsonValue } from '@v2/protocol';
++import { MotionPadController, leanFrom } from './MotionPadController';
++import { watchPadPrompts } from './padPrompts';
++import { findGame, GAMES } from '../registry';
++import { createFakeSession, makePlayer, makeRoom, noSampleFeed } from '../../../test/fakeSession';
++import type { ControllerMotionSample } from '../types';
++
++function sample(overrides: Partial<ControllerMotionSample> = {}): ControllerMotionSample {
++  return {
++    alpha: 0,
++    beta: 0,
++    gamma: 0,
++    gyro: { x: 0, y: 0, z: 0 },
++    accel: { x: 0, y: 0, z: 0 },
++    gravity: { x: 0, y: -9.8, z: 0 },
++    screenOrientation: ScreenOrientation.Portrait,
++    dtMs: 10,
++    ...overrides,
++  };
++}
++
++type Session = ReturnType<typeof createFakeSession>;
++
++/** Deliver a frame as the server relays it (host frames have no fromPlayerId). */
++function deliver(session: Session, event: string, data: JsonValue, fromPlayerId: string | null = null) {
++  // SAFETY: the fake SessionClient exposes its private listener set only in
++  // this test helper; production code never reaches through that boundary.
++  const opaqueClient: unknown = session.client;
++  // SAFETY: the opaque value is the real fake SessionClient described above.
++  const testClient = opaqueClient as {
++    eventListeners: Set<(event: string, data: JsonValue | undefined, fromPlayerId: string | null) => void>;
++  };
++  act(() => testClient.eventListeners.forEach((listener) => listener(event, data, fromPlayerId)));
++}
++
++function play(gameId = 'sumo', { isActive = true, matchNumber = 1 } = {}) {
++  const session = createFakeSession('controller');
++  const me = makePlayer({ id: 'p1', score: 0, screen: 'active' });
++  const room = makeRoom({ gameId, players: [me], game: { status: 'in-progress', matchNumber } });
++  session.setState({ room });
++  const props = { client: session.client, room, me, isActive, sample: sample(), subscribeSamples: noSampleFeed };
++  const view = render(session.wrap(<MotionPadController {...props} />));
++  return { session, view, props };
++}
++
++function padEvents(session: Session) {
++  return session.sent.filter((message) => message.t === 'game-event');
++}
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++});
++
++describe('motion pad plugin', () => {
++  it('serves the pad for the motion pad games without listing them in the web picker', () => {
++    for (const id of ['sumo', 'derby', 'fishing']) {
++      const plugin = findGame(id);
++      expect(plugin?.manifest.id).toBe(id);
++      expect(plugin?.loadController).toBeDefined();
++      expect(GAMES.map((game) => game.manifest.id)).not.toContain(id);
++    }
++    expect(findGame('derby')?.manifest.simultaneous).toBe(false);
++    expect(findGame('sumo')?.manifest.simultaneous).toBe(true);
++    // Swings stream at samurai's 100 Hz.
++    expect(findGame('derby')?.manifest.sendHz).toBe(100);
++  });
++});
++
++describe('MotionPadController', () => {
++  it('shows the game defaults before the host prompts', () => {
++    play('sumo');
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Tilt');
++    expect(screen.getByTestId('motion-pad-a')).toHaveTextContent('DASH');
++    expect(screen.queryByTestId('motion-pad-b')).toBeNull();
++    expect(screen.getByTestId('motion-pad')).toHaveAttribute('data-mode', 'tilt');
++  });
++
++  it('shows the host prompt for this player only', () => {
++    const { session } = play('sumo');
++    deliver(session, 'pad:prompt', { playerId: 'p2', title: 'Not you', subtitle: '', a: 'NO', b: '', accent: '#000000', mode: 'aim' });
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Tilt');
++
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'Shove!', subtitle: 'Red is close', a: 'DASH', b: 'BLOCK', accent: '#ff0000', mode: 'flick' });
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Shove!');
++    expect(screen.getByTestId('motion-pad-subtitle')).toHaveTextContent('Red is close');
++    expect(screen.getByTestId('motion-pad-b')).toHaveTextContent('BLOCK');
++    expect(screen.getByTestId('motion-pad')).toHaveAttribute('data-mode', 'flick');
++    expect(screen.getByTestId('motion-pad-hint')).toHaveAttribute('data-mode', 'flick');
++  });
++
++  it('ignores a prompt that did not come from the host', () => {
++    const { session } = play('sumo');
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'Forged', a: 'X' }, 'p2');
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Tilt');
++  });
++
++  it('takes an everyone prompt, and the newer of that and its own', () => {
++    const { session } = play('fishing');
++    deliver(session, 'pad:prompt', { playerId: '*', title: 'Get ready', a: '' });
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Get ready');
++    expect(screen.queryByTestId('motion-pad-a')).toBeNull();
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'Cast!', a: 'REEL' });
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Cast!');
++  });
++
++  it('remembers a prompt that arrived before the pad mounted', () => {
++    const session = createFakeSession('controller');
++    const me = makePlayer({ id: 'p1', screen: 'active' });
++    const room = makeRoom({ gameId: 'derby', players: [me], game: { status: 'in-progress', matchNumber: 1 } });
++    session.setState({ room });
++    watchPadPrompts(session.client);
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'You are up', subtitle: 'Swing!', a: '', b: '', mode: 'swing' });
++    render(session.wrap(
++      <MotionPadController client={session.client} room={room} me={me} isActive sample={sample()} subscribeSamples={noSampleFeed} />
++    ));
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('You are up');
++    expect(screen.queryByRole('button')).toBeNull();
++  });
++
++  it('forgets last match prompts', () => {
++    const session = createFakeSession('controller');
++    const me = makePlayer({ id: 'p1', screen: 'active' });
++    const first = makeRoom({ gameId: 'sumo', players: [me], game: { status: 'in-progress', matchNumber: 1 } });
++    session.setState({ room: first });
++    watchPadPrompts(session.client);
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'Old news', a: 'DASH' });
++    const second = makeRoom({ gameId: 'sumo', players: [me], game: { status: 'in-progress', matchNumber: 2 } });
++    session.setState({ room: second });
++    render(session.wrap(
++      <MotionPadController client={session.client} room={second} me={me} isActive sample={sample()} subscribeSamples={noSampleFeed} />
++    ));
++    expect(screen.getByTestId('motion-pad-title')).toHaveTextContent('Tilt');
++  });
++
++  it('sends pad:press on finger down and pad:release on finger up, with a buzz', () => {
++    const vibrate = vi.fn(() => true);
++    vi.stubGlobal('navigator', { ...globalThis.navigator, vibrate });
++    const { session } = play('sumo');
++    session.sent.length = 0;
++    const a = screen.getByTestId('motion-pad-a');
++
++    fireEvent.pointerDown(a, { pointerId: 1 });
++    expect(a).toHaveAttribute('data-down', 'true');
++    expect(padEvents(session)).toEqual([expect.objectContaining({ event: 'pad:press', data: { button: 'a' } })]);
++    expect(vibrate).toHaveBeenCalled();
++
++    // A second down without an up is not a second press.
++    fireEvent.pointerDown(a, { pointerId: 1 });
++    fireEvent.pointerUp(a, { pointerId: 1 });
++    expect(a).toHaveAttribute('data-down', 'false');
++    expect(padEvents(session)).toEqual([
++      expect.objectContaining({ event: 'pad:press', data: { button: 'a' } }),
++      expect.objectContaining({ event: 'pad:release', data: { button: 'a' } }),
++    ]);
++  });
++
++  it('drives button b on its own', () => {
++    const { session } = play('sumo');
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'Two', a: 'DASH', b: 'BLOCK' });
++    session.sent.length = 0;
++    const b = screen.getByTestId('motion-pad-b');
++    fireEvent.pointerDown(b, { pointerId: 2 });
++    fireEvent.pointerCancel(b, { pointerId: 2 });
++    expect(padEvents(session)).toEqual([
++      expect.objectContaining({ event: 'pad:press', data: { button: 'b' } }),
++      expect.objectContaining({ event: 'pad:release', data: { button: 'b' } }),
++    ]);
++  });
++
++  it('works from the keyboard and assistive tech', () => {
++    const { session } = play('sumo');
++    session.sent.length = 0;
++    const a = screen.getByRole('button', { name: 'DASH' });
++    fireEvent.keyDown(a, { key: ' ' });
++    fireEvent.keyUp(a, { key: ' ' });
++    expect(padEvents(session).map((message) => message.event)).toEqual(['pad:press', 'pad:release']);
++  });
++
++  it('releases a held button when the page hides or the pad goes away', () => {
++    const { session, view } = play('sumo');
++    session.sent.length = 0;
++    fireEvent.pointerDown(screen.getByTestId('motion-pad-a'), { pointerId: 1 });
++    act(() => {
++      document.dispatchEvent(new Event('visibilitychange'));
++    });
++    expect(padEvents(session).map((message) => message.event)).toEqual(['pad:press', 'pad:release']);
++
++    fireEvent.pointerDown(screen.getByTestId('motion-pad-a'), { pointerId: 1 });
++    view.unmount();
++    expect(padEvents(session).map((message) => message.event)).toEqual(['pad:press', 'pad:release', 'pad:press', 'pad:release']);
++  });
++
++  it('releases a held button the host takes away', () => {
++    const { session } = play('sumo');
++    session.sent.length = 0;
++    fireEvent.pointerDown(screen.getByTestId('motion-pad-a'), { pointerId: 1 });
++    deliver(session, 'pad:prompt', { playerId: 'p1', title: 'Wait', a: '', b: '' });
++    expect(padEvents(session).map((message) => message.event)).toEqual(['pad:press', 'pad:release']);
++    expect(screen.queryByRole('button')).toBeNull();
++  });
++
++  it('sends nothing while the pad is not live', () => {
++    const { session } = play('sumo', { isActive: false });
++    session.sent.length = 0;
++    fireEvent.pointerDown(screen.getByTestId('motion-pad-a'), { pointerId: 1 });
++    expect(padEvents(session)).toHaveLength(0);
++  });
++
++  it('keeps big touch targets in portrait', () => {
++    play('sumo');
++    const a = screen.getByTestId('motion-pad-a');
++    expect(a.className).toContain('motion-pad-button');
++    expect(a).toHaveAttribute('type', 'button');
++  });
++
++  it('leans the live dot from the captured neutral', () => {
++    expect(leanFrom(null)).toBeNull();
++    expect(leanFrom(sample({ gamma: 45, beta: -90 }))).toEqual({ x: 1, y: -1 });
++    expect(leanFrom(sample({ gamma: 10, beta: 100 }), { beta: 90, gamma: 10 })).toEqual({ x: 0, y: 10 / 45 });
++    expect(leanFrom(sample({ gamma: 179 }), { beta: 0, gamma: -179 })).toEqual({ x: -2 / 45, y: 0 });
++  });
++});
+diff --git a/app/src/games/pad/MotionPadController.tsx b/app/src/games/pad/MotionPadController.tsx
+new file mode 100644
+index 00000000..2301eec0
+--- /dev/null
++++ b/app/src/games/pad/MotionPadController.tsx
+@@ -0,0 +1,231 @@
++import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
++import {
++  PAD_PRESS_EVENT,
++  PAD_RELEASE_EVENT,
++  findMotionPadGame,
++  type MotionPadButton,
++  type MotionPadMode,
++  type MotionPadPrompt,
++} from '@v2/protocol';
++import { HAPTIC, buzz } from '../../hooks/haptics';
++import { Screen } from '../../ui';
++import { cssVarStyle } from '../../lib/cssVars';
++import type { ControllerSurfaceProps } from '../types';
++import { currentPadPrompt, subscribePadPrompts } from './padPrompts';
++import './motion-pad.css';
++
++/**
++ * The motion pad: the generic phone controller for games another program hosts.
++ *
++ * The host is authoritative and the game is on the TV. The phone does three
++ * things, and the shell does the fourth (it streams the calibrated sensor
++ * frames at the game's `sendHz` while this screen is up):
++ *  - shows the host's latest `pad:prompt` for this player, big;
++ *  - offers one or two big buttons, which send `pad:press` / `pad:release`
++ *    with `{ button }` on finger down / up, with a buzz on every press;
++ *  - animates how to move the phone for the prompt's `mode`.
++ *
++ * Portrait first: the prompt sits on top and the buttons fill the bottom,
++ * where a thumb reaches. Landscape puts them side by side. Every target is at
++ * least 96 px tall.
++ */
++
++const MODE_LABEL = {
++  tilt: 'Tilt your phone',
++  swing: 'Swing your phone',
++  aim: 'Point your phone',
++  flick: 'Flick your phone',
++} as const satisfies Record<MotionPadMode, string>;
++
++/** Before the host's first prompt: the game's own words, from the protocol list. */
++function defaultPrompt(gameId: string | null, playerId: string): MotionPadPrompt {
++  const game = findMotionPadGame(gameId);
++  return {
++    playerId,
++    title: game?.controls.verb ?? 'Get ready',
++    subtitle: game?.controls.hint ?? 'Watch the TV.',
++    a: game?.buttons.a ?? '',
++    b: game?.buttons.b ?? '',
++    accent: game?.accent ?? null,
++    mode: game?.mode ?? null,
++  };
++}
++
++export function MotionPadController({ client, room, me, isActive, sample }: ControllerSurfaceProps) {
++  const game = findMotionPadGame(room.gameId);
++  const hostPrompt = useSyncExternalStore(
++    useCallback((listener: () => void) => subscribePadPrompts(client, listener), [client]),
++    () => currentPadPrompt(client, me.id),
++    () => null,
++  );
++  const prompt = hostPrompt ?? defaultPrompt(room.gameId, me.id);
++  const mode: MotionPadMode = prompt.mode ?? game?.mode ?? 'tilt';
++  const accent = prompt.accent ?? game?.accent ?? '#6d8bff';
++
++  // The readout is raw; the dot leans from the captured neutral, as Kart's wheel does.
++  const neutralBeta = useSyncExternalStore(
++    (listener) => client.store.subscribe(listener),
++    () => client.store.getState().calibration?.beta ?? 0,
++    () => 0,
++  );
++  const neutralGamma = useSyncExternalStore(
++    (listener) => client.store.subscribe(listener),
++    () => client.store.getState().calibration?.gamma ?? 0,
++    () => 0,
++  );
++  const neutral = { beta: neutralBeta, gamma: neutralGamma };
++
++  const [down, setDown] = useState<Record<MotionPadButton, boolean>>({ a: false, b: false });
++  const downRef = useRef<Record<MotionPadButton, boolean>>({ a: false, b: false });
++
++  const setButton = useCallback(
++    (button: MotionPadButton, next: boolean) => {
++      if (downRef.current[button] === next) return;
++      // A press while the pad is not live is dropped; a release always goes,
++      // so the host never holds a button the player has let go of.
++      if (next && !isActive) return;
++      downRef.current = { ...downRef.current, [button]: next };
++      setDown(downRef.current);
++      client.sendGameEvent(next ? PAD_PRESS_EVENT : PAD_RELEASE_EVENT, { button });
++      if (next) buzz(HAPTIC.press);
++    },
++    [client, isActive],
++  );
++
++  const releaseAll = useCallback(() => {
++    setButton('a', false);
++    setButton('b', false);
++  }, [setButton]);
++
++  // A button that vanishes from the prompt, the page hiding, or the pad
++  // unmounting all let go: the browser may never send the pointerup.
++  useEffect(() => {
++    if (!isActive) releaseAll();
++  }, [isActive, releaseAll]);
++  useEffect(() => {
++    if (!prompt.a) setButton('a', false);
++    if (!prompt.b) setButton('b', false);
++  }, [prompt.a, prompt.b, setButton]);
++  useEffect(() => {
++    const onHide = () => releaseAll();
++    document.addEventListener('visibilitychange', onHide);
++    window.addEventListener('pagehide', onHide);
++    return () => {
++      document.removeEventListener('visibilitychange', onHide);
++      window.removeEventListener('pagehide', onHide);
++      releaseAll();
++    };
++  }, [releaseAll]);
++
++  // A new prompt is news: a short buzz so a player watching the TV feels it.
++  const lastPromptKey = useRef<string | null>(null);
++  useEffect(() => {
++    if (!hostPrompt) return;
++    const key = `${hostPrompt.title}|${hostPrompt.subtitle}|${hostPrompt.a}|${hostPrompt.b}|${hostPrompt.mode}`;
++    if (lastPromptKey.current !== null && lastPromptKey.current !== key) buzz(HAPTIC.gesture);
++    lastPromptKey.current = key;
++  }, [hostPrompt]);
++
++  const buttons = (['a', 'b'] as const).filter((button) => prompt[button].length > 0);
++  const motionMissing = sample !== null && sample.gyro === null;
++  // The live dot only moves for the modes that are about attitude.
++  const lean = mode === 'tilt' || mode === 'aim' ? leanFrom(sample, neutral) : null;
++
++  return (
++    <Screen center={false} className="mc-game-controller mc-game-controller--pad select-none touch-none">
++      <div
++        className="motion-pad"
++        data-testid="motion-pad"
++        data-mode={mode}
++        data-game={room.gameId ?? ''}
++        style={cssVarStyle({ '--pad-accent': accent })}
++      >
++        <div className="motion-pad-prompt" role="status" aria-live="polite" aria-atomic="true">
++          <h1 className="motion-pad-title" data-testid="motion-pad-title">{prompt.title}</h1>
++          {prompt.subtitle ? (
++            <p className="motion-pad-subtitle" data-testid="motion-pad-subtitle">{prompt.subtitle}</p>
++          ) : null}
++        </div>
++
++        <div className="motion-pad-hint" aria-hidden>
++          <div className="motion-pad-hint-stage" data-testid="motion-pad-hint" data-mode={mode}>
++            <span className="motion-pad-phone" />
++            {lean ? (
++              <span
++                className="motion-pad-dot"
++                data-testid="motion-pad-dot"
++                style={{ transform: `translate(${Math.round(lean.x * 44)}px, ${Math.round(lean.y * 44)}px)` }}
++              />
++            ) : null}
++          </div>
++          <p className="motion-pad-hint-label">{MODE_LABEL[mode]}</p>
++        </div>
++
++        {motionMissing ? (
++          <p className="motion-pad-warning" data-testid="motion-pad-no-gyro">
++            This phone has no gyroscope, so movement is read from tilt only. Move a little bigger.
++          </p>
++        ) : null}
++
++        {buttons.length > 0 ? (
++          <div className="motion-pad-buttons" data-count={buttons.length}>
++            {buttons.map((button) => (
++              <button
++                key={button}
++                type="button"
++                data-testid={`motion-pad-${button}`}
++                data-down={down[button] ? 'true' : 'false'}
++                aria-pressed={down[button]}
++                aria-label={prompt[button]}
++                disabled={!isActive}
++                className={['motion-pad-button mc-pressable', `motion-pad-button--${button}`, down[button] ? 'is-down' : ''].join(' ')}
++                onPointerDown={(event) => {
++                  event.preventDefault();
++                  // jsdom and some embedded browsers have no pointer capture.
++                  event.currentTarget.setPointerCapture?.(event.pointerId);
++                  setButton(button, true);
++                }}
++                onPointerUp={() => setButton(button, false)}
++                onPointerCancel={() => setButton(button, false)}
++                onLostPointerCapture={() => setButton(button, false)}
++                onContextMenu={(event) => event.preventDefault()}
++                onKeyDown={(event) => {
++                  if (event.repeat || (event.key !== ' ' && event.key !== 'Enter')) return;
++                  event.preventDefault();
++                  setButton(button, true);
++                }}
++                onKeyUp={(event) => {
++                  if (event.key === ' ' || event.key === 'Enter') setButton(button, false);
++                }}
++                onBlur={() => setButton(button, false)}
++              >
++                {prompt[button]}
++              </button>
++            ))}
++          </div>
++        ) : (
++          <p className="motion-pad-nobuttons">No buttons. It is all in the motion.</p>
++        )}
++      </div>
++    </Screen>
++  );
++}
++
++/**
++ * -1..1 on each axis away from the neutral pose: gamma (roll) left/right,
++ * beta (pitch) toward/away. 45 degrees from neutral is the edge of the ring.
++ */
++export function leanFrom(
++  sample: ControllerSurfaceProps['sample'],
++  neutral: { beta: number; gamma: number } = { beta: 0, gamma: 0 },
++): { x: number; y: number } | null {
++  if (!sample) return null;
++  const axis = (value: number, zero: number) => {
++    if (!Number.isFinite(value)) return 0;
++    let delta = (value - (Number.isFinite(zero) ? zero : 0)) % 360;
++    if (delta > 180) delta -= 360;
++    if (delta <= -180) delta += 360;
++    return Math.max(-1, Math.min(1, delta / 45));
++  };
++  return { x: axis(sample.gamma, neutral.gamma), y: axis(sample.beta, neutral.beta) };
++}
+diff --git a/app/src/games/pad/index.ts b/app/src/games/pad/index.ts
+new file mode 100644
+index 00000000..971c7e04
+--- /dev/null
++++ b/app/src/games/pad/index.ts
+@@ -0,0 +1,34 @@
++import { MOTION_PAD_GAMES, type MotionPadGame } from '@v2/protocol';
++import type { GamePlugin } from '../types';
++
++/**
++ * Plugins for the motion pad games (`protocol/src/motionPad.ts`).
++ *
++ * These games are hosted by another program (the Movecade Kart PC game), so
++ * they are deliberately NOT in `GAMES`: the web picker, the homepage and the
++ * catalogue conformance test only list games this app can host. `findGame`
++ * falls back to this list so a phone that joins such a room gets the motion
++ * pad, the right calibration grip and the right stream rate.
++ */
++export function motionPadPlugin(game: MotionPadGame): GamePlugin {
++  return {
++    manifest: {
++      id: game.id,
++      name: game.name,
++      tagline: game.tagline,
++      tier: game.tier,
++      emoji: '🎮',
++      minPlayers: game.players.min,
++      maxPlayers: game.players.max,
++      simultaneous: game.playMode === 'simultaneous',
++      tone: 'accent',
++      scoreLabel: game.scoreLabel,
++      controls: { verb: game.controls.verb, hint: game.controls.hint },
++      sendHz: game.sendHz,
++    },
++    loadCanvas: async () => (await import('./MotionPadCanvas')).MotionPadCanvas,
++    loadController: async () => (await import('./MotionPadController')).MotionPadController,
++  };
++}
++
++export const MOTION_PAD_PLUGINS: readonly GamePlugin[] = MOTION_PAD_GAMES.map(motionPadPlugin);
+diff --git a/app/src/games/pad/motion-pad.css b/app/src/games/pad/motion-pad.css
+new file mode 100644
+index 00000000..60055a64
+--- /dev/null
++++ b/app/src/games/pad/motion-pad.css
+@@ -0,0 +1,185 @@
++.mc-game-controller--pad {
++  max-width: none;
++  padding: 0;
++}
++
++.motion-pad {
++  --pad-accent: #6d8bff;
++  display: flex;
++  flex: 1;
++  min-height: 100%;
++  flex-direction: column;
++  align-items: stretch;
++  gap: 1rem;
++  padding: 1rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
++  text-align: center;
++}
++
++.motion-pad-prompt {
++  padding-top: 0.5rem;
++}
++
++.motion-pad-title {
++  font-family: var(--font-display);
++  font-size: clamp(2.25rem, 11vw, 3.75rem);
++  line-height: 1.05;
++  color: var(--color-ink, inherit);
++  overflow-wrap: anywhere;
++}
++
++.motion-pad-subtitle {
++  margin-top: 0.6rem;
++  font-size: clamp(1.15rem, 5vw, 1.5rem);
++  line-height: 1.3;
++  color: var(--color-ink-muted, inherit);
++}
++
++.motion-pad-hint {
++  display: grid;
++  flex: 1;
++  place-items: center;
++  align-content: center;
++  gap: 0.75rem;
++  min-height: 9rem;
++}
++
++.motion-pad-hint-stage {
++  position: relative;
++  display: grid;
++  width: 9rem;
++  height: 9rem;
++  place-items: center;
++  border-radius: 999px;
++  background: radial-gradient(circle, color-mix(in oklab, var(--pad-accent) 22%, transparent) 0 60%, transparent 61%);
++  box-shadow: inset 0 0 0 3px color-mix(in oklab, var(--pad-accent) 55%, transparent);
++}
++
++.motion-pad-phone {
++  width: 2.6rem;
++  height: 4.6rem;
++  border-radius: 0.6rem;
++  border: 3px solid var(--pad-accent);
++  background: color-mix(in oklab, var(--pad-accent) 18%, #10141c);
++  box-shadow: 0 0.4rem 1.2rem color-mix(in oklab, var(--pad-accent) 35%, transparent);
++  transform-origin: 50% 90%;
++}
++
++.motion-pad-dot {
++  position: absolute;
++  width: 1rem;
++  height: 1rem;
++  border-radius: 999px;
++  background: #fff;
++  box-shadow: 0 0 0 3px var(--pad-accent);
++  transition: transform 90ms linear;
++}
++
++.motion-pad-hint-label {
++  font-size: 1.1rem;
++  font-weight: 600;
++  color: var(--color-ink-muted, inherit);
++}
++
++.motion-pad-hint-stage[data-mode='tilt'] .motion-pad-phone { animation: motion-pad-tilt 2.4s ease-in-out infinite; transform-origin: 50% 50%; }
++.motion-pad-hint-stage[data-mode='swing'] .motion-pad-phone { animation: motion-pad-swing 1.8s cubic-bezier(0.5, 0, 0.2, 1) infinite; }
++.motion-pad-hint-stage[data-mode='aim'] .motion-pad-phone { animation: motion-pad-aim 3.2s ease-in-out infinite; transform-origin: 50% 50%; }
++.motion-pad-hint-stage[data-mode='flick'] .motion-pad-phone { animation: motion-pad-flick 1.6s cubic-bezier(0.3, 0, 0.1, 1) infinite; }
++
++@keyframes motion-pad-tilt {
++  0%, 100% { transform: perspective(20rem) rotateY(0deg) rotateX(0deg); }
++  25% { transform: perspective(20rem) rotateY(-32deg) rotateX(8deg); }
++  75% { transform: perspective(20rem) rotateY(32deg) rotateX(-8deg); }
++}
++
++@keyframes motion-pad-swing {
++  0%, 15% { transform: rotate(-70deg); }
++  45% { transform: rotate(80deg); }
++  60%, 100% { transform: rotate(-70deg); }
++}
++
++@keyframes motion-pad-aim {
++  0%, 100% { transform: translate(0, 0) rotate(0deg); }
++  30% { transform: translate(-0.6rem, -0.3rem) rotate(-6deg); }
++  65% { transform: translate(0.5rem, 0.35rem) rotate(5deg); }
++}
++
++@keyframes motion-pad-flick {
++  0%, 30% { transform: rotate(-35deg); }
++  42% { transform: rotate(40deg); }
++  55%, 100% { transform: rotate(-35deg); }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .motion-pad-hint-stage .motion-pad-phone { animation: none !important; }
++  .motion-pad-dot { transition: none; }
++}
++
++.motion-pad-warning,
++.motion-pad-nobuttons {
++  font-size: 1rem;
++  color: var(--color-ink-muted, inherit);
++}
++
++.motion-pad-buttons {
++  margin-top: auto;
++  display: grid;
++  grid-template-columns: 1fr;
++  gap: 0.85rem;
++}
++
++.motion-pad-buttons[data-count='2'] {
++  grid-template-columns: 1fr 1fr;
++}
++
++/* Two classes: the shell's `.mc-game-controller button` would otherwise shrink these to 44 px. */
++.motion-pad .motion-pad-button {
++  min-height: max(6rem, 22vh);
++  border: 0;
++  border-radius: 1.6rem;
++  font-family: var(--font-display);
++  font-size: clamp(1.6rem, 8vw, 2.4rem);
++  letter-spacing: 0.04em;
++  color: #fff;
++  background: var(--pad-accent);
++  box-shadow: 0 0.45rem 0 color-mix(in oklab, var(--pad-accent) 60%, black);
++  touch-action: none;
++  user-select: none;
++  -webkit-user-select: none;
++  -webkit-touch-callout: none;
++  transition: transform 60ms ease-out, box-shadow 60ms ease-out, filter 60ms ease-out;
++}
++
++.motion-pad .motion-pad-button--b {
++  background: color-mix(in oklab, var(--pad-accent) 45%, #2a3142);
++}
++
++.motion-pad .motion-pad-button.is-down {
++  transform: translateY(0.35rem) scale(0.98);
++  box-shadow: 0 0.1rem 0 color-mix(in oklab, var(--pad-accent) 60%, black);
++  filter: brightness(1.12);
++}
++
++.motion-pad-button:focus-visible {
++  outline: 4px solid #fff;
++  outline-offset: 3px;
++}
++
++.motion-pad-button:disabled {
++  opacity: 0.5;
++}
++
++@media (orientation: landscape) and (max-height: 32rem) {
++  .motion-pad {
++    display: grid;
++    grid-template-columns: 1.2fr 1fr;
++    grid-template-rows: auto 1fr auto;
++    align-items: center;
++  }
++  .motion-pad-prompt { grid-column: 1; grid-row: 1; }
++  .motion-pad-hint { grid-column: 1; grid-row: 2; min-height: 0; }
++  .motion-pad-buttons,
++  .motion-pad-nobuttons { grid-column: 2; grid-row: 1 / span 3; }
++  .motion-pad-warning { grid-column: 1; grid-row: 3; }
++  .motion-pad-buttons { grid-template-columns: 1fr; height: 100%; }
++  .motion-pad .motion-pad-button { min-height: 6rem; height: 100%; }
++}
+diff --git a/app/src/games/pad/padPrompts.ts b/app/src/games/pad/padPrompts.ts
+new file mode 100644
+index 00000000..06e34e5d
+--- /dev/null
++++ b/app/src/games/pad/padPrompts.ts
+@@ -0,0 +1,75 @@
++import { PAD_PROMPT_EVENT, readMotionPadPrompt, type MotionPadPrompt } from '@v2/protocol';
++import type { SessionClient } from '@v2/client-core';
++
++/**
++ * The latest `pad:prompt` per player, remembered per session client.
++ *
++ * The pad screen only exists while the server says the phone is `active`, but
++ * the host's prompt can land a moment before that flip (a turn-based game
++ * names the batter and prompts them in the same breath), and the screen
++ * remounts between turns and matches. So prompts are collected from the
++ * moment the shell knows this is a motion pad room, and the pad reads the
++ * latest one when it mounts. A prompt belongs to the match it arrived in.
++ *
++ * `playerId: "*"` addresses every phone; a player's own prompt wins over it.
++ */
++interface Remembered {
++  prompt: MotionPadPrompt;
++  matchNumber: number | null;
++  /** Arrival order, so the newer of "mine" and "everyone's" wins. */
++  order: number;
++}
++
++interface Watch {
++  prompts: Map<string, Remembered>;
++  listeners: Set<() => void>;
++  stop: () => void;
++}
++
++export const PAD_PROMPT_EVERYONE = '*';
++
++const watches = new WeakMap<SessionClient, Watch>();
++let arrivals = 0;
++
++function matchNumberOf(client: SessionClient): number | null {
++  return client.store.getState().room?.game.matchNumber ?? null;
++}
++
++/** Start remembering prompts for this client. Idempotent; the watch lives as long as the client. */
++export function watchPadPrompts(client: SessionClient): void {
++  if (watches.has(client)) return;
++  const watch: Watch = { prompts: new Map(), listeners: new Set(), stop: () => {} };
++  watch.stop = client.onGameEvent((event, data, fromPlayerId) => {
++    // Host frames carry no fromPlayerId; the server also refuses this event from phones.
++    if (event !== PAD_PROMPT_EVENT || fromPlayerId) return;
++    const prompt = readMotionPadPrompt(data);
++    if (!prompt) return;
++    arrivals += 1;
++    watch.prompts.set(prompt.playerId, { prompt, matchNumber: matchNumberOf(client), order: arrivals });
++    for (const listener of watch.listeners) listener();
++  });
++  watches.set(client, watch);
++}
++
++/** The prompt this player should see now, or null when the host has not prompted them this match. */
++export function currentPadPrompt(client: SessionClient, playerId: string): MotionPadPrompt | null {
++  const watch = watches.get(client);
++  if (!watch) return null;
++  const match = matchNumberOf(client);
++  const fresh = (entry: Remembered | undefined) =>
++    entry && (entry.matchNumber === null || match === null || entry.matchNumber === match) ? entry : null;
++  const mine = fresh(watch.prompts.get(playerId));
++  const everyone = fresh(watch.prompts.get(PAD_PROMPT_EVERYONE));
++  if (mine && everyone) return (mine.order > everyone.order ? mine : everyone).prompt;
++  return (mine ?? everyone)?.prompt ?? null;
++}
++
++/** Called after every remembered prompt. Returns an unsubscribe. */
++export function subscribePadPrompts(client: SessionClient, listener: () => void): () => void {
++  watchPadPrompts(client);
++  const watch = watches.get(client);
++  watch?.listeners.add(listener);
++  return () => {
++    watch?.listeners.delete(listener);
++  };
++}
+diff --git a/app/src/games/registry.ts b/app/src/games/registry.ts
+index 9fe6a8b3..79c02741 100644
+--- a/app/src/games/registry.ts
++++ b/app/src/games/registry.ts
+@@ -4,6 +4,7 @@ import { dartsPlugin } from './darts';
+ import { kartRacePlugin } from './kart';
+ import { samuraiPlugin } from './samurai';
+ import { stackerPlugin } from './stacker';
++import { MOTION_PAD_PLUGINS } from './pad';
+ 
+ /**
+  * The shipped game catalogue. Adding a game means adding a plugin here — the
+@@ -19,7 +20,9 @@ export const GAMES: readonly GamePlugin[] = [
+ 
+ export function findGame(id: string | undefined | null): GamePlugin | null {
+   if (!id) return null;
+-  return GAMES.find((game) => game.manifest.id === id) ?? null;
++  // Motion pad games are hosted elsewhere, so they are not in GAMES, but a
++  // phone in one of their rooms still needs the plugin (see games/pad).
++  return GAMES.find((game) => game.manifest.id === id) ?? MOTION_PAD_PLUGINS.find((game) => game.manifest.id === id) ?? null;
+ }
+ 
+ export type { GamePlugin };
+diff --git a/partykit/src/engine.motionPad.test.ts b/partykit/src/engine.motionPad.test.ts
+new file mode 100644
+index 00000000..ff8739a9
+--- /dev/null
++++ b/partykit/src/engine.motionPad.test.ts
+@@ -0,0 +1,153 @@
++import { describe, expect, it } from 'vitest';
++import { ErrorCode, MOTION_PAD_GAMES, MOTION_PAD_GAME_IDS, type JsonObject } from '@v2/protocol';
++import { connect, createTestEngine, flushMicrotasks, sendMessage, type TestEngine } from './testKit.js';
++
++/**
++ * The motion pad games (protocol/src/motionPad.ts) are hosted by the Unreal
++ * game, with the generic motion pad on the phones. The room must take them
++ * exactly like a catalogue game: configure, calibrate, start, turns, scores,
++ * and the pad's events.
++ */
++
++/** A phone's motion neutral as it goes on the wire; the server's validator is what is under test. */
++function motionCalibration(gameId: string): JsonObject {
++  return {
++    version: 1,
++    id: `cal-${gameId}`,
++    sessionId: 'motion-1',
++    gameId,
++    hand: 'right',
++    quaternion: { x: 0, y: 0, z: 0, w: 1 },
++    gravity: { x: 0, y: -9.8, z: 0 },
++    accelBias: { x: 0, y: 0, z: 0 },
++    noise: 0.01,
++    samples: 40,
++  };
++}
++
++async function readyRoom(kit: TestEngine, gameId: string, players = ['p1']): Promise<void> {
++  connect(kit.engine, 'host', 'host');
++  for (const id of players) {
++    connect(kit.engine, id, 'controller');
++    sendMessage(kit.engine, id, { t: 'join-player', name: id.toUpperCase() });
++  }
++  sendMessage(kit.engine, 'host', { t: 'configure-room', gameId });
++  await kit.engine.whenCommandsIdle();
++  for (const id of players) {
++    sendMessage(kit.engine, id, {
++      t: 'calibrate', alpha: 0, beta: 0, gamma: 0, screenOrientation: 0, motion: motionCalibration(gameId),
++    });
++    sendMessage(kit.engine, id, { t: 'set-ready', ready: true });
++  }
++  await flushMicrotasks();
++}
++
++function errorCodes(kit: TestEngine, sessionId: string): string[] {
++  return kit.framesFor(sessionId, 'error').map((frame) => (frame.t === 'error' ? frame.code : ''));
++}
++
++describe('motion pad games in a room', () => {
++  it.each(MOTION_PAD_GAME_IDS)('configures, calibrates and starts %s', async (gameId) => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    await readyRoom(kit, gameId, ['p1', 'p2']);
++    expect(kit.engine.snapshotState().gameId).toBe(gameId);
++    // The motion neutral was kept, so the phone is on the ready screen, not calibrate.
++    expect(kit.engine.playerById('p1')?.calibration?.motion?.gameId).toBe(gameId);
++
++    sendMessage(kit.engine, 'host', { t: 'start-game' });
++    await kit.engine.whenCommandsIdle();
++    expect(errorCodes(kit, 'host')).toEqual([]);
++    const state = kit.engine.snapshotState();
++    expect(state.game.status).toBe('in-progress');
++    const game = MOTION_PAD_GAMES.find((entry) => entry.id === gameId)!;
++    // Simultaneous games never name a player; turn-based ones start with seat 1.
++    expect(state.game.activePlayerId).toBe(game.playMode === 'simultaneous' ? null : 'p1');
++  });
++
++  it('runs derby one batter at a time through advance-turn, like bowling', async () => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    await readyRoom(kit, 'derby', ['p1', 'p2']);
++    sendMessage(kit.engine, 'host', { t: 'start-game' });
++    await kit.engine.whenCommandsIdle();
++    const screens = () => Object.fromEntries(kit.engine.snapshotState().players.map((p) => [p.id, p.screen]));
++    expect(screens()).toEqual({ p1: 'active', p2: 'between-turns' });
++
++    sendMessage(kit.engine, 'host', { t: 'advance-turn', activePlayerId: 'p2', turnNumber: 2, roundNumber: 1, phase: 'active' });
++    await flushMicrotasks();
++    expect(kit.engine.snapshotState().game.activePlayerId).toBe('p2');
++    expect(screens()).toEqual({ p1: 'between-turns', p2: 'active' });
++  });
++
++  it('keeps every sumo phone active (no turns)', async () => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    await readyRoom(kit, 'sumo', ['p1', 'p2']);
++    sendMessage(kit.engine, 'host', { t: 'start-game' });
++    await kit.engine.whenCommandsIdle();
++    expect(kit.engine.snapshotState().players.map((p) => p.screen)).toEqual(['active', 'active']);
++  });
++
++  it.each(MOTION_PAD_GAME_IDS)('accepts live scores for %s up to its ceiling', async (gameId) => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    await readyRoom(kit, gameId);
++    sendMessage(kit.engine, 'host', { t: 'start-game' });
++    await kit.engine.whenCommandsIdle();
++    sendMessage(kit.engine, 'host', { t: 'score-update', scores: [{ playerId: 'p1', score: 1234 }] });
++    await flushMicrotasks();
++    expect(kit.engine.playerById('p1')?.score).toBe(1234);
++  });
++
++  it('relays pad:press and pad:release from a phone to the host with the player id', async () => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    await readyRoom(kit, 'sumo');
++    sendMessage(kit.engine, 'host', { t: 'start-game' });
++    await kit.engine.whenCommandsIdle();
++
++    sendMessage(kit.engine, 'p1', { t: 'game-event', event: 'pad:press', data: { button: 'a' } });
++    sendMessage(kit.engine, 'p1', { t: 'game-event', event: 'pad:release', data: { button: 'a' } });
++    const relayed = kit.framesFor('host', 'game-event');
++    expect(relayed).toEqual([
++      expect.objectContaining({ event: 'pad:press', data: { button: 'a' }, fromPlayerId: 'p1' }),
++      expect.objectContaining({ event: 'pad:release', data: { button: 'a' }, fromPlayerId: 'p1' }),
++    ]);
++  });
++
++  it('delivers the host pad:prompt to phones and refuses one forged by a phone', async () => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    await readyRoom(kit, 'fishing', ['p1', 'p2']);
++    sendMessage(kit.engine, 'host', { t: 'start-game' });
++    await kit.engine.whenCommandsIdle();
++
++    const prompt = { playerId: 'p1', title: 'Cast!', subtitle: 'Flick forward', a: 'REEL', b: '', accent: '#2bc4a8', mode: 'flick' };
++    sendMessage(kit.engine, 'host', { t: 'game-event', event: 'pad:prompt', data: prompt });
++    expect(kit.framesFor('p1', 'game-event')).toContainEqual(
++      expect.objectContaining({ event: 'pad:prompt', data: prompt, fromPlayerId: null })
++    );
++
++    sendMessage(kit.engine, 'p2', { t: 'game-event', event: 'pad:prompt', data: { ...prompt, title: 'Give up' } });
++    expect(errorCodes(kit, 'p2')).toContain(ErrorCode.HOST_ONLY);
++    expect(kit.framesFor('p1', 'game-event').filter((frame) => frame.t === 'game-event' && frame.event === 'pad:prompt')).toHaveLength(1);
++  });
++
++  it('still refuses an unknown game id', async () => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    connect(kit.engine, 'host', 'host');
++    sendMessage(kit.engine, 'host', { t: 'configure-room', gameId: 'curling' });
++    await kit.engine.whenCommandsIdle();
++    expect(errorCodes(kit, 'host')).toContain(ErrorCode.MALFORMED_MESSAGE);
++  });
++
++  it('takes a pad game named on the host handshake', async () => {
++    const kit = createTestEngine();
++    await kit.engine.start();
++    connect(kit.engine, 'host', 'host', { gameId: 'derby' });
++    await kit.engine.whenCommandsIdle();
++    expect(kit.engine.snapshotState().gameId).toBe('derby');
++  });
++});
+diff --git a/protocol/src/constants.ts b/protocol/src/constants.ts
+index b9603e9d..89254c54 100644
+--- a/protocol/src/constants.ts
++++ b/protocol/src/constants.ts
+@@ -156,6 +156,9 @@ export const HOST_ONLY_GAME_EVENTS: ReadonlySet<string> = new Set([
+   'bowling:replay-outcome',
+   'practice:ack',
+   'match:highlights',
++  // The motion pad's on-screen instructions (motionPad.ts). A controller that
++  // could send one would rewrite what another player's phone tells them to do.
++  'pad:prompt',
+ ]);
+ 
+ /* ── Bots ───────────────────────────────────────────────────────────────── */
+diff --git a/protocol/src/index.ts b/protocol/src/index.ts
+index fb67397d..ce40e92e 100644
+--- a/protocol/src/index.ts
++++ b/protocol/src/index.ts
+@@ -14,3 +14,4 @@ export * from './entitlements.js';
+ export * from './motionCalibration.js';
+ export * from './maps.js';
+ export * from './launch.js';
++export * from './motionPad.js';
+diff --git a/protocol/src/motionCalibration.ts b/protocol/src/motionCalibration.ts
+index 75124c2b..f1c168ea 100644
+--- a/protocol/src/motionCalibration.ts
++++ b/protocol/src/motionCalibration.ts
+@@ -1,7 +1,9 @@
+ import { isRecord, isFiniteNumber, isBoundedString, isIntegerInRange } from './validate.js';
+ import type { Quaternion, Vector3, ScreenOrientationValue } from './sensor.js';
+ 
+-export type MotionGame = 'bowling' | 'kart' | 'samurai' | 'stacker' | 'darts';
++import { findMotionPadGame, isMotionPadGame, type MotionPadGameId } from './motionPad.js';
++
++export type MotionGame = 'bowling' | 'kart' | 'samurai' | 'stacker' | 'darts' | MotionPadGameId;
+ export type MotionHand = 'left' | 'right';
+ export interface MotionCalibration {
+   version: 1;
+@@ -30,7 +32,8 @@ export interface CalibrationSample {
+ export const CALIBRATION_HOLD_MS = 800;
+ export const CALIBRATION_FRESH_MS = 180;
+ export function isMotionGame<T>(value:T):value is T & MotionGame {
+-  return value === 'bowling' || value === 'kart' || value === 'samurai' || value === 'stacker' || value === 'darts';
++  return value === 'bowling' || value === 'kart' || value === 'samurai' || value === 'stacker' || value === 'darts' ||
++    isMotionPadGame(value);
+ }
+ function finiteVector<T>(v:T):v is T & Vector3 {
+   return isRecord(v) && isFiniteNumber(v.x) && isFiniteNumber(v.y) && isFiniteNumber(v.z) && Math.max(Math.abs(v.x),Math.abs(v.y),Math.abs(v.z)) < 100;
+@@ -135,6 +138,8 @@ export function palmLevel(gravity: Vector3): PalmLevel {
+ }
+ 
+ export function motionGripInstructions(game: string, hand: MotionHand) {
++  const pad = findMotionPadGame(game);
++  if (pad) return pad.grip;
+   switch(game) {
+     case 'bowling': return {title:'Hold the ball beside your hip',steps:['Sit or stand with room beside your arm.','Rest the phone in your palm, top edge toward the TV.','Hold the pad to grip; lift your thumb on the forward swing to release.']};
+     case 'samurai': return {title:'Hold your sword at chest level',steps:['Point the top edge up, with the screen facing you.',`Keep your ${hand} hand at chest level, elbow comfortably bent.`,'Sweep your arm to cut. Small adjustments only aim the blade.']};
+diff --git a/protocol/src/motionPad.test.ts b/protocol/src/motionPad.test.ts
+new file mode 100644
+index 00000000..61fed2a1
+--- /dev/null
++++ b/protocol/src/motionPad.test.ts
+@@ -0,0 +1,109 @@
++import { describe, expect, it } from 'vitest';
++import {
++  FREE_GAME_IDS,
++  GAME_MAX_SCORE,
++  GAME_MIN_SIGNED_SCORE,
++  HOST_ONLY_GAME_EVENTS,
++  LAUNCH_GAME_IDS,
++  MOTION_PAD_GAMES,
++  MOTION_PAD_GAME_IDS,
++  PAD_PROMPT_EVENT,
++  PREMIUM_GAME_IDS,
++  SIMULTANEOUS_GAME_IDS,
++  findMotionPadGame,
++  isFreeGame,
++  isMotionGame,
++  isMotionPadGame,
++  isSimultaneousGame,
++  motionGripInstructions,
++  normalizeGameId,
++  readMotionPadPrompt,
++  validMotionCalibration,
++} from './index.js';
++
++describe('motion pad game list', () => {
++  it('lists the Unreal-hosted motion games once', () => {
++    expect(MOTION_PAD_GAME_IDS).toEqual(['sumo', 'derby', 'fishing']);
++    expect(new Set(MOTION_PAD_GAME_IDS).size).toBe(MOTION_PAD_GAME_IDS.length);
++  });
++
++  it('makes every pad id a known room game', () => {
++    for (const id of MOTION_PAD_GAME_IDS) {
++      expect(normalizeGameId(id)).toBe(id);
++      expect(normalizeGameId(` ${id.toUpperCase()} `)).toBe(id);
++      expect(isMotionGame(id)).toBe(true);
++      expect(isMotionPadGame(id)).toBe(true);
++      expect(GAME_MAX_SCORE[id]).toBe(999_999);
++      expect(GAME_MIN_SIGNED_SCORE[id]).toBe(0);
++    }
++    expect(isMotionPadGame('bowling')).toBe(false);
++    expect(normalizeGameId('curling')).toBeNull();
++  });
++
++  it('keeps them premium (bowling stays the only free game) and out of the web launch lineup', () => {
++    expect(FREE_GAME_IDS).toEqual(['bowling']);
++    for (const id of MOTION_PAD_GAME_IDS) {
++      expect(isFreeGame(id)).toBe(false);
++      expect(PREMIUM_GAME_IDS).toContain(id);
++      expect(LAUNCH_GAME_IDS).not.toContain(id);
++    }
++  });
++
++  it('runs sumo and fishing simultaneously and derby turn by turn', () => {
++    expect(isSimultaneousGame('sumo')).toBe(true);
++    expect(isSimultaneousGame('fishing')).toBe(true);
++    expect(isSimultaneousGame('derby')).toBe(false);
++    expect(SIMULTANEOUS_GAME_IDS).toEqual(expect.arrayContaining(['sumo', 'fishing']));
++    expect(SIMULTANEOUS_GAME_IDS).not.toContain('derby');
++  });
++
++  it('accepts a phone neutral captured for a pad game', () => {
++    expect(validMotionCalibration({
++      version: 1, id: 'c1', sessionId: 's1', gameId: 'fishing', hand: 'left',
++      quaternion: { x: 0, y: 0, z: 0, w: 1 }, gravity: { x: 0, y: -9.8, z: 0 }, accelBias: { x: 0, y: 0, z: 0 },
++      noise: 0.01, samples: 40,
++    })).toBe(true);
++  });
++
++  it('gives each pad game its own calibration grip', () => {
++    for (const game of MOTION_PAD_GAMES) {
++      expect(motionGripInstructions(game.id, 'right')).toBe(game.grip);
++      expect(game.grip.steps.length).toBeGreaterThan(0);
++    }
++    expect(findMotionPadGame('nope')).toBeNull();
++  });
++
++  it('reserves pad:prompt for the host', () => {
++    expect(HOST_ONLY_GAME_EVENTS.has(PAD_PROMPT_EVENT)).toBe(true);
++    expect(HOST_ONLY_GAME_EVENTS.has('pad:press')).toBe(false);
++    expect(HOST_ONLY_GAME_EVENTS.has('pad:release')).toBe(false);
++  });
++});
++
++describe('readMotionPadPrompt', () => {
++  it('reads the full contract', () => {
++    expect(readMotionPadPrompt({
++      playerId: 'p1', title: 'Your bat', subtitle: 'Swing when it is close', a: '', b: 'BUNT', accent: '#3fa7ff', mode: 'swing',
++    })).toEqual({ playerId: 'p1', title: 'Your bat', subtitle: 'Swing when it is close', a: '', b: 'BUNT', accent: '#3fa7ff', mode: 'swing' });
++  });
++
++  it('drops what it does not understand instead of showing it', () => {
++    expect(readMotionPadPrompt({ playerId: 'p1', title: 7, a: { x: 1 }, accent: 'red', mode: 'dance' })).toEqual({
++      playerId: 'p1', title: '', subtitle: '', a: '', b: '', accent: null, mode: null,
++    });
++  });
++
++  it('bounds the text', () => {
++    const prompt = readMotionPadPrompt({ playerId: 'p1', title: 'x'.repeat(200), subtitle: 'y'.repeat(400), a: 'z'.repeat(40) });
++    expect(prompt?.title).toHaveLength(80);
++    expect(prompt?.subtitle).toHaveLength(160);
++    expect(prompt?.a).toHaveLength(16);
++  });
++
++  it('refuses a prompt for nobody', () => {
++    expect(readMotionPadPrompt({ title: 'Hi' })).toBeNull();
++    expect(readMotionPadPrompt({ playerId: '' })).toBeNull();
++    expect(readMotionPadPrompt('p1')).toBeNull();
++    expect(readMotionPadPrompt(null)).toBeNull();
++  });
++});
+diff --git a/protocol/src/motionPad.ts b/protocol/src/motionPad.ts
+new file mode 100644
+index 00000000..e5ed8dbd
+--- /dev/null
++++ b/protocol/src/motionPad.ts
+@@ -0,0 +1,179 @@
++import { isBoundedString, isRecord, isString } from './validate.js';
++
++/**
++ * The motion pad: one generic phone controller for games hosted somewhere
++ * other than this web app (the Movecade Kart PC game hosts these rooms).
++ *
++ * Such a game has no web canvas and no bespoke phone screen. The phone shows
++ * whatever the host prompts it with (`pad:prompt`), one or two big buttons
++ * (`pad:press` / `pad:release`), and streams the same calibrated sensor frames
++ * every motion game streams while the match is in progress.
++ *
++ * `MOTION_PAD_GAMES` is the one list. Adding an entry here makes the room
++ * server accept the id (configure-room, the host handshake, scores, signing),
++ * puts it in the free / premium / simultaneous lists, lets a phone calibrate
++ * for it, and maps it to the motion pad on the phone. Nothing else changes:
++ * the web catalog (`game-manifest/catalog.json`) is for games this app can
++ * host itself, so these ids stay out of its picker, SEO and leaderboards.
++ */
++
++/** Which hold-the-phone hint the pad animates. */
++export const MOTION_PAD_MODES = ['tilt', 'swing', 'aim', 'flick'] as const;
++export type MotionPadMode = (typeof MOTION_PAD_MODES)[number];
++
++export const MOTION_PAD_BUTTONS = ['a', 'b'] as const;
++export type MotionPadButton = (typeof MOTION_PAD_BUTTONS)[number];
++
++/** Phone to host: a pad button went down / came up. Data `{ button }`. */
++export const PAD_PRESS_EVENT = 'pad:press';
++export const PAD_RELEASE_EVENT = 'pad:release';
++/** Host to phone (host-only): what this player should do now. See `MotionPadPrompt`. */
++export const PAD_PROMPT_EVENT = 'pad:prompt';
++
++export interface MotionPadGame {
++  id: string;
++  name: string;
++  tagline: string;
++  /**
++   * Same meaning as the catalog's tier. Premium only gates anything when the
++   * deployment runs with `ENABLE_MONETIZATION=true`; local dev and today's
++   * production leave it off, so every game here is playable there.
++   */
++  tier: 'free' | 'premium';
++  /** Turn-based games get `activePlayerId` from the host's advance-turn; the others never have a turn. */
++  playMode: 'simultaneous' | 'turn-based';
++  players: { min: number; max: number };
++  scoreLabel: string;
++  scoring: { mode: 'highest' | 'lowest'; min: number; max: number; format: 'score' };
++  /** The hint shown before the host's first prompt arrives. */
++  mode: MotionPadMode;
++  /** Sensor frames per second while active. Samurai streams 100; swings want the same. */
++  sendHz: number;
++  controls: { verb: string; hint: string };
++  /** Button labels before the first prompt; an empty `b` shows one button. */
++  buttons: { a: string; b: string };
++  accent: string;
++  /** The calibrate screen's grip: how to hold the phone while the neutral is captured. */
++  grip: { title: string; steps: readonly string[] };
++}
++
++export const MOTION_PAD_GAMES = [
++  {
++    id: 'sumo',
++    name: 'Sumo Smash',
++    tagline: 'Tilt to roll. Dash to shove them out.',
++    tier: 'premium',
++    playMode: 'simultaneous',
++    players: { min: 1, max: 4 },
++    scoreLabel: 'Points',
++    scoring: { mode: 'highest', min: 0, max: 999_999, format: 'score' },
++    mode: 'tilt',
++    sendHz: 60,
++    controls: { verb: 'Tilt', hint: 'Hold your phone flat and tilt it to roll. Tap DASH to shove.' },
++    buttons: { a: 'DASH', b: '' },
++    accent: '#ff6b4a',
++    grip: {
++      title: 'Hold it flat like a tray',
++      steps: ['Hold the phone flat in front of you, screen up.', 'Tilt it the way you want to roll.', 'Tap DASH with your thumb to shove.'],
++    },
++  },
++  {
++    id: 'derby',
++    name: 'Home Run Derby',
++    tagline: 'Swing your phone like a bat. Send it out of the park.',
++    tier: 'premium',
++    // One batter at a time: the host names the batter with advance-turn, the
++    // way bowling names the bowler, and everyone else waits between turns.
++    playMode: 'turn-based',
++    players: { min: 1, max: 4 },
++    scoreLabel: 'Runs',
++    scoring: { mode: 'highest', min: 0, max: 999_999, format: 'score' },
++    mode: 'swing',
++    sendHz: 100,
++    controls: { verb: 'Swing', hint: 'Hold your phone like a bat and swing when the pitch arrives.' },
++    buttons: { a: '', b: '' },
++    accent: '#3fa7ff',
++    grip: {
++      title: 'Hold it like a bat',
++      steps: ['Grip the bottom of the phone in both hands, screen facing you.', 'Take your stance with the phone over your back shoulder.', 'Swing through when the pitch arrives. Keep a tight grip.'],
++    },
++  },
++  {
++    id: 'fishing',
++    name: 'Gone Fishing',
++    tagline: 'Flick to cast. Jerk to hook. Roll your wrist to reel.',
++    tier: 'premium',
++    playMode: 'simultaneous',
++    players: { min: 1, max: 4 },
++    scoreLabel: 'Points',
++    scoring: { mode: 'highest', min: 0, max: 999_999, format: 'score' },
++    mode: 'flick',
++    sendHz: 100,
++    controls: { verb: 'Flick', hint: 'Flick your phone forward to cast, jerk it up to hook, roll your wrist to reel.' },
++    buttons: { a: 'REEL', b: '' },
++    accent: '#2bc4a8',
++    grip: {
++      title: 'Hold it like a rod',
++      steps: ['Hold the phone upright in front of you, like the handle of a rod.', 'Flick it forward to cast, jerk it up when a fish bites.', 'Roll your wrist in circles to reel in.'],
++    },
++  },
++] as const satisfies readonly MotionPadGame[];
++
++export type MotionPadGameId = (typeof MOTION_PAD_GAMES)[number]['id'];
++
++export const MOTION_PAD_GAME_IDS: readonly MotionPadGameId[] = MOTION_PAD_GAMES.map((game) => game.id);
++
++export function isMotionPadGame<T>(value: T): value is T & MotionPadGameId {
++  return MOTION_PAD_GAME_IDS.some((id) => id === value);
++}
++
++export function findMotionPadGame(id: string | null | undefined): MotionPadGame | null {
++  return MOTION_PAD_GAMES.find((game) => game.id === id) ?? null;
++}
++
++export function isMotionPadMode<T>(value: T): value is T & MotionPadMode {
++  return MOTION_PAD_MODES.some((mode) => mode === value);
++}
++
++export function isMotionPadButton<T>(value: T): value is T & MotionPadButton {
++  return MOTION_PAD_BUTTONS.some((button) => button === value);
++}
++
++/** `pad:prompt` data. Empty `a` / `b` hides that button. */
++export interface MotionPadPrompt {
++  playerId: string;
++  title: string;
++  subtitle: string;
++  a: string;
++  b: string;
++  /** `#rrggbb`, or null when the host sent none (the game's accent is used). */
++  accent: string | null;
++  mode: MotionPadMode | null;
++}
++
++const ACCENT_RE = /^#[0-9a-fA-F]{6}$/;
++const PROMPT_TITLE_MAX = 80;
++const PROMPT_SUBTITLE_MAX = 160;
++const PROMPT_LABEL_MAX = 16;
++
++function text<T>(value: T, max: number): string {
++  return isString(value) ? value.slice(0, max) : '';
++}
++
++/**
++ * Reads `pad:prompt` data defensively: it is relayed verbatim from the host,
++ * so anything the phone does not understand is dropped rather than shown.
++ * Returns null without a player id (a prompt for nobody).
++ */
++export function readMotionPadPrompt<T>(data: T): MotionPadPrompt | null {
++  if (!isRecord(data) || !isBoundedString(data.playerId, 64) || data.playerId.length === 0) return null;
++  return {
++    playerId: data.playerId,
++    title: text(data.title, PROMPT_TITLE_MAX),
++    subtitle: text(data.subtitle, PROMPT_SUBTITLE_MAX),
++    a: text(data.a, PROMPT_LABEL_MAX),
++    b: text(data.b, PROMPT_LABEL_MAX),
++    accent: isString(data.accent) && ACCENT_RE.test(data.accent) ? data.accent : null,
++    mode: isMotionPadMode(data.mode) ? data.mode : null,
++  };
++}
+diff --git a/protocol/src/scoring.test.ts b/protocol/src/scoring.test.ts
+index 07572676..d8fa4d5a 100644
+--- a/protocol/src/scoring.test.ts
++++ b/protocol/src/scoring.test.ts
+@@ -285,7 +285,8 @@ describe('free vs premium catalogue', () => {
+     expect(isFreeGame('samurai')).toBe(false);
+     expect(isFreeGame(null)).toBe(false);
+     expect(FREE_GAME_IDS).toEqual(['bowling']);
+-    expect([...PREMIUM_GAME_IDS]).toEqual(['darts', 'kart', 'samurai', 'stacker']);
++    // The motion pad games (motionPad.ts) are premium too.
++    expect([...PREMIUM_GAME_IDS]).toEqual(['darts', 'derby', 'fishing', 'kart', 'samurai', 'stacker', 'sumo']);
+   });
+ });
+ 
+@@ -297,7 +298,9 @@ describe('simultaneous catalogue', () => {
+     // watching the same lane. The catalogue is what decides this.
+     expect(isSimultaneousGame('darts')).toBe(false);
+     expect(isSimultaneousGame(null)).toBe(false);
+-    expect([...SIMULTANEOUS_GAME_IDS].sort()).toEqual(['kart', 'samurai', 'stacker']);
++    // Derby, a motion pad game, bats one player at a time like bowling.
++    expect(isSimultaneousGame('derby')).toBe(false);
++    expect([...SIMULTANEOUS_GAME_IDS].sort()).toEqual(['fishing', 'kart', 'samurai', 'stacker', 'sumo']);
+   });
+ });
+ 
+diff --git a/protocol/src/scoring.ts b/protocol/src/scoring.ts
+index 2eaa9448..a71c9dec 100644
+--- a/protocol/src/scoring.ts
++++ b/protocol/src/scoring.ts
+@@ -1,11 +1,25 @@
+ import { MAX_SCORE, SCORE_SIGNATURE_VERSION } from './constants.js';
+ import { isString, sanitizePlayerName } from './validate.js';
++import { MOTION_PAD_GAMES, isMotionPadGame } from './motionPad.js';
+ // Keep the canonical authored catalog import valid in both bundlers and the
+ // native Node ESM loader used by Playwright's test discovery. Without the JSON
+ // import attribute, Node 24 rejects the protocol barrel before any E2E test can
+ // start even though Vite and Vitest accept the same source.
+ import gameCatalog from '../game-manifest/catalog.json' with { type: 'json' };
+ 
++/**
++ * Every game a room can run: the web catalogue plus the motion pad games
++ * (`motionPad.ts`), which are hosted elsewhere and have no web manifest. The
++ * lists below read only the fields both share, so adding a motion pad game is
++ * one entry in `MOTION_PAD_GAMES`.
++ */
++const ROOM_GAMES: ReadonlyArray<{
++  id: string;
++  tier: string;
++  playMode: string;
++  scoring: { mode: string; min: number; max: number; format: string };
++}> = [...gameCatalog.games, ...MOTION_PAD_GAMES];
++
+ /**
+  * Score signing, wire-compatible with the existing Go verifier
+  * (`backend/security.go: verifyScoreSignature` + `validateMatchSummary`).
+@@ -22,11 +36,11 @@ import gameCatalog from '../game-manifest/catalog.json' with { type: 'json' };
+ 
+ /** Per-game score ceilings, read from the canonical protocol catalogue. */
+ export const GAME_MAX_SCORE: Record<string, number> = Object.fromEntries(
+-  gameCatalog.games.map((game) => [game.id, game.scoring.max])
++  ROOM_GAMES.map((game) => [game.id, game.scoring.max])
+ );
+ 
+ /** Games whose leaderboard ranks the lowest score first (a race time). */
+-export const LOWEST_WINS_GAME_IDS = gameCatalog.games
++export const LOWEST_WINS_GAME_IDS = ROOM_GAMES
+   .filter((game) => game.scoring.mode === 'lowest')
+   .map((game) => game.id);
+ 
+@@ -47,16 +61,16 @@ export const MIN_SIGNED_TIME_MS = 10_000;
+ 
+ /** Per-game score floors for signing: the time floor for time-ms games, 0 otherwise. */
+ export const GAME_MIN_SIGNED_SCORE: Record<string, number> = Object.fromEntries(
+-  gameCatalog.games.map((game) => [
++  ROOM_GAMES.map((game) => [
+     game.id,
+     Math.max(game.scoring.min, game.scoring.format === 'time-ms' ? MIN_SIGNED_TIME_MS : 0),
+   ])
+ );
+ 
+ /** Always playable. PartyKit and Go must agree with the game manifests. */
+-export const FREE_GAME_IDS = gameCatalog.games.filter((game) => game.tier === 'free').map((game) => game.id);
++export const FREE_GAME_IDS = ROOM_GAMES.filter((game) => game.tier === 'free').map((game) => game.id);
+ /** Premium catalogue, lexicographic order — the rotating-free input. */
+-export const PREMIUM_GAME_IDS = gameCatalog.games
++export const PREMIUM_GAME_IDS = ROOM_GAMES
+   .filter((game) => game.tier === 'premium')
+   .map((game) => game.id)
+   .sort();
+@@ -67,7 +81,7 @@ export function isFreeGame(gameId: string | null | undefined): boolean {
+ }
+ 
+ /** Games where every seated controller drives at once. */
+-export const SIMULTANEOUS_GAME_IDS = gameCatalog.games
++export const SIMULTANEOUS_GAME_IDS = ROOM_GAMES
+   .filter((game) => game.playMode === 'simultaneous')
+   .map((game) => game.id);
+ 
+@@ -101,7 +115,8 @@ export function normalizeGameId<T>(value: T): string | null {
+   for (const [alias, gameId] of Object.entries(GAME_ALIASES)) {
+     if (alias === key) return gameId;
+   }
+-  return null;
++  // Motion pad games are known by their id alone.
++  return isMotionPadGame(key) ? key : null;
+ }
+ 
+ export interface MatchSummaryPlayer {
+-- 
+2.47.1.windows.2
+
