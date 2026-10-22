@@ -455,7 +455,7 @@ void SFishingHud::PaintStandings(const FKartPainter& P, const AFishingGame& G, f
 	{
 		const FAngler& A = *Order[i];
 		const float In = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>((Age - 0.6 - i * 0.18) / 0.4), 0.f, 1.f));
-		const FVector2D Size(720.f * S, 84.f * S);
+		const FVector2D Size(900.f * S, 84.f * S);
 		const FVector2D Pos(P.Size().X / 2.f - Size.X / 2.f, P.Size().Y * 0.18f + i * 96.f * S);
 		const FKartPainter Row = F.Transformed(Pos + Size / 2.f, FMath::Max(0.01f, In));
 		const bool bWinner = G.GetMatch().WinnerIds.Contains(A.PlayerId);
