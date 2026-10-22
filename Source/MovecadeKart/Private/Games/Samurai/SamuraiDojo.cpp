@@ -34,6 +34,9 @@ ASamuraiDojo::ASamuraiDojo()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	// The venue doesn't move: static geometry (cached shadows, no per-frame transform work). The lights, the sky
+	// and the lantern pivots stay Movable children.
+	RootComponent->SetMobility(EComponentMobility::Static);
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
@@ -50,7 +53,8 @@ ASamuraiDojo::ASamuraiDojo()
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
 	SkyLight->SetupAttachment(RootComponent);
 	SkyLight->SetMobility(EComponentMobility::Movable);
-	SkyLight->bRealTimeCapture = true;
+	// Captured once after each build (RecaptureSky), not every frame.
+	SkyLight->bRealTimeCapture = false;
 	SkyDome = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SkyDome"));
 	SkyDome->SetupAttachment(RootComponent);
 	SkyDome->SetStaticMesh(SphereMesh.Object);
@@ -81,13 +85,19 @@ void ASamuraiDojo::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 	SetActorTransform(FTransform::Identity);
+	if (GetWorld() && GetWorld()->IsGameWorld())
+	{
+		// The round sets its lane count right after spawning: build once, then.
+		bBuildPending = true;
+		return;
+	}
 	Build();
 }
 
 void ASamuraiDojo::SetLanes(int32 LaneCount)
 {
 	LaneCount = FMath::Clamp(LaneCount, 1, 4);
-	if (LaneCount != Lanes)
+	if (LaneCount != Lanes || bBuildPending || !bBuilt)
 	{
 		Lanes = LaneCount;
 		Build();
@@ -117,6 +127,7 @@ UInstancedStaticMeshComponent* ASamuraiDojo::Group(UStaticMesh* Mesh, UMaterialI
 	C->SetStaticMesh(Mesh);
 	C->SetMaterial(0, Material);
 	C->SetupAttachment(RootComponent);
+	C->SetMobility(EComponentMobility::Static);
 	C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	C->SetCastShadow(bShadows);
 	C->ComponentTags.Add(DojoTag);
@@ -141,8 +152,8 @@ UStaticMeshComponent* ASamuraiDojo::Part(UStaticMesh* Mesh, const FTransform& Wo
 	UStaticMeshComponent* C = NewObject<UStaticMeshComponent>(this, MakeUniqueObjectName(this, UStaticMeshComponent::StaticClass(), TEXT("DojoPart")));
 	C->SetStaticMesh(Mesh);
 	C->SetupAttachment(RootComponent);
+	C->SetMobility(EComponentMobility::Static);
 	C->SetRelativeTransform(World);
-	C->SetMobility(EComponentMobility::Movable);
 	C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	C->SetCastShadow(bShadows);
 	C->ComponentTags.Add(DojoTag);
@@ -151,8 +162,47 @@ UStaticMeshComponent* ASamuraiDojo::Part(UStaticMesh* Mesh, const FTransform& Wo
 	return C;
 }
 
+UMaterialInterface* ASamuraiDojo::PlainC(const FLinearColor& Color, double Roughness, double Metallic, double Emissive)
+{
+	const FString Key = FString::Printf(TEXT("P%s|%g|%g|%g"), *Color.ToString(), Roughness, Metallic, Emissive);
+	if (const TObjectPtr<UMaterialInterface>* Found = Materials.Find(Key))
+	{
+		return *Found;
+	}
+	UMaterialInterface* M = MovecadeKart::Art::Plain (this, Color, Roughness, Metallic, Emissive);
+	Materials.Add(Key, M);
+	return M;
+}
+
+UMaterialInterface* ASamuraiDojo::SurfaceC(const MovecadeKart::Art::FSurfaceLook& L)
+{
+	const FString Key = FString::Printf(TEXT("S%s|%s|%g|%g|%g|%g|%g|%g|%g|%d|%g"), *L.Color.ToString(), *L.Detail.ToString(), L.TileM, L.Albedo, L.Normal, L.Rough,
+		L.Roughness, L.Metallic, L.Emissive, L.bTriplanar ? 1 : 0, L.Desaturate);
+	if (const TObjectPtr<UMaterialInterface>* Found = Materials.Find(Key))
+	{
+		return *Found;
+	}
+	UMaterialInterface* M = MovecadeKart::Art::Surface (this, L);
+	Materials.Add(Key, M);
+	return M;
+}
+
+UMaterialInterface* ASamuraiDojo::GlowC(const FLinearColor& Color)
+{
+	const FString Key = FString::Printf(TEXT("G%s"), *Color.ToString());
+	if (const TObjectPtr<UMaterialInterface>* Found = Materials.Find(Key))
+	{
+		return *Found;
+	}
+	UMaterialInterface* M = MovecadeKart::Art::Glow (this, Color);
+	Materials.Add(Key, M);
+	return M;
+}
+
 void ASamuraiDojo::Build()
 {
+	bBuildPending = false;
+	bBuilt = true;
 	Clear();
 	using MovecadeKart::FMeshBuilder;
 	if (!LanternMesh)
@@ -242,7 +292,12 @@ void ASamuraiDojo::Build()
 			KasagiMesh = B.Build(this, TEXT("DojoKasagi"));
 		}
 	}
-	BuildLook();
+	if (!bLookBuilt)
+	{
+		// The lights, sky, fog and grade don't depend on the lanes.
+		bLookBuilt = true;
+		BuildLook();
+	}
 	BuildGround();
 	BuildStage();
 	BuildTorii();
@@ -250,6 +305,7 @@ void ASamuraiDojo::Build()
 	BuildGarden();
 	BuildDistance();
 	BuildLanterns();
+	SkyLight->RecaptureSky();
 }
 
 void ASamuraiDojo::BuildLook()
@@ -301,7 +357,6 @@ void ASamuraiDojo::BuildLook()
 		Sky->SetVectorParameterValue(TEXT("CloudShade"), FMath::Lerp(Horizon, Top, 0.4f) * 0.8f);
 		SkyDome->SetMaterial(0, Sky);
 	}
-	SkyLight->RecaptureSky();
 	// Haze from 22 m, in the horizon's peach; the sun side scatters warmer.
 	Fog->SetStartDistance(2200.f);
 	Fog->SetFogDensity(0.05f);
@@ -323,13 +378,13 @@ void ASamuraiDojo::BuildLook()
 void ASamuraiDojo::BuildGround()
 {
 	using namespace MovecadeKart::Art;
-	UMaterialInterface* Earth = Surface(this, { Hex(TEXT("#4a3c2c")), TEXT("gravelly_sand"), 2.0, 0.5, 0.6, 0.4, 0.95, 0.0, 0.0, false, 0.4 });
-	UMaterialInterface* Gravel = Surface(this, { Hex(TEXT("#b5aa95")), TEXT("gravelly_sand"), 0.8, 0.6, 0.8, 0.45, 0.92, 0.0, 0.0, false, 0.7 });
-	UMaterialInterface* Moss = Surface(this, { Hex(TEXT("#3d5a33")), TEXT("leafy_grass"), 1.2, 0.5, 0.6, 0.4, 0.95, 0.0, 0.0, false, 0.2 });
+	UMaterialInterface* Earth = SurfaceC({ Hex(TEXT("#4a3c2c")), TEXT("gravelly_sand"), 2.0, 0.5, 0.6, 0.4, 0.95, 0.0, 0.0, false, 0.4 });
+	UMaterialInterface* Gravel = SurfaceC({ Hex(TEXT("#b5aa95")), TEXT("gravelly_sand"), 0.8, 0.6, 0.8, 0.45, 0.92, 0.0, 0.0, false, 0.7 });
+	UMaterialInterface* Moss = SurfaceC({ Hex(TEXT("#3d5a33")), TEXT("leafy_grass"), 1.2, 0.5, 0.6, 0.4, 0.95, 0.0, 0.0, false, 0.2 });
 	Box(Earth, FVector(0.0, -0.24, -6.0), FVector(90.0, 0.2, 40.0), 0.0, false);
 	Box(Gravel, FVector(0.0, -0.13, -12.0), FVector(StageWidth() + 6.0, 0.02, 9.0), 0.0, false);
 	// Raked lines across the gravel.
-	UMaterialInterface* Rake = Surface(this, { Hex(TEXT("#9a907e")), TEXT("gravelly_sand"), 0.8, 0.6, 0.8, 0.45, 0.95, 0.0, 0.0, false, 0.7 });
+	UMaterialInterface* Rake = SurfaceC({ Hex(TEXT("#9a907e")), TEXT("gravelly_sand"), 0.8, 0.6, 0.8, 0.45, 0.95, 0.0, 0.0, false, 0.7 });
 	for (int32 i = 0; i < 12; ++i)
 	{
 		Box(Rake, FVector(0.0, -0.118, -8.2 - i * 0.62), FVector(StageWidth() + 5.0, 0.01, 0.07), 0.0, false);
@@ -343,13 +398,13 @@ void ASamuraiDojo::BuildGround()
 void ASamuraiDojo::BuildStage()
 {
 	using namespace MovecadeKart::Art;
-	UMaterialInterface* Cedar = Surface(this, { Hex(TEXT("#8a5a3a")), TEXT("dark_wooden_planks"), 1.2, 0.5, 0.65, 0.4, 0.55, 0.0, 0.0, false });
-	UMaterialInterface* CedarSide = Surface(this, { Hex(TEXT("#5e3a22")), TEXT("dark_wooden_planks"), 0.8, 0.4, 0.6, 0.4, 0.6 });
+	UMaterialInterface* Cedar = SurfaceC({ Hex(TEXT("#8a5a3a")), TEXT("dark_wooden_planks"), 1.2, 0.5, 0.65, 0.4, 0.55, 0.0, 0.0, false });
+	UMaterialInterface* CedarSide = SurfaceC({ Hex(TEXT("#5e3a22")), TEXT("dark_wooden_planks"), 0.8, 0.4, 0.6, 0.4, 0.6 });
 	UMaterialInterface* Tatami[] = {
-		Surface(this, { Hex(TEXT("#c9b77e")), TEXT("leafy_grass"), 0.45, 0.35, 0.5, 0.3, 0.8, 0.0, 0.0, false, 1.0 }),
-		Surface(this, { Hex(TEXT("#bfae74")), TEXT("leafy_grass"), 0.45, 0.35, 0.5, 0.3, 0.8, 0.0, 0.0, false, 1.0 }),
+		SurfaceC({ Hex(TEXT("#c9b77e")), TEXT("leafy_grass"), 0.45, 0.35, 0.5, 0.3, 0.8, 0.0, 0.0, false, 1.0 }),
+		SurfaceC({ Hex(TEXT("#bfae74")), TEXT("leafy_grass"), 0.45, 0.35, 0.5, 0.3, 0.8, 0.0, 0.0, false, 1.0 }),
 	};
-	UMaterialInterface* Binding[] = { Plain(this, Hex(TEXT("#1f3b2b")), 0.6), Plain(this, Hex(TEXT("#2b1d33")), 0.6) };
+	UMaterialInterface* Binding[] = { PlainC(Hex(TEXT("#1f3b2b")), 0.6), PlainC(Hex(TEXT("#2b1d33")), 0.6) };
 	const double W = StageWidth();
 	// The floor: a raised cedar stage, its front edge toward the camera.
 	Box(Cedar, FVector(0.0, -0.075, 0.3), FVector(W, 0.15, 8.0));
@@ -368,8 +423,8 @@ void ASamuraiDojo::BuildStage()
 void ASamuraiDojo::BuildTorii()
 {
 	using namespace MovecadeKart::Art;
-	UMaterialInterface* Vermilion = Plain(this, Hex(TEXT("#d23c2a")), 0.42);
-	UMaterialInterface* Lacquer = Plain(this, Hex(TEXT("#16120f")), 0.3, 0.1);
+	UMaterialInterface* Vermilion = PlainC(Hex(TEXT("#d23c2a")), 0.42);
+	UMaterialInterface* Lacquer = PlainC(Hex(TEXT("#16120f")), 0.3, 0.1);
 	const double Half = Lanes * 1.8 + 0.55;
 	for (const double Side : { -1.0, 1.0 })
 	{
@@ -388,9 +443,9 @@ void ASamuraiDojo::BuildTorii()
 void ASamuraiDojo::BuildWall()
 {
 	using namespace MovecadeKart::Art;
-	UMaterialInterface* Cedar = Surface(this, { Hex(TEXT("#6e4428")), TEXT("dark_wooden_planks"), 0.9, 0.45, 0.6, 0.4, 0.6 });
-	UMaterialInterface* Paper = Plain(this, Hex(TEXT("#f3e6c8")), 0.9, 0.0, 0.18);
-	UMaterialInterface* Kumiko = Plain(this, Hex(TEXT("#3b2414")), 0.6);
+	UMaterialInterface* Cedar = SurfaceC({ Hex(TEXT("#6e4428")), TEXT("dark_wooden_planks"), 0.9, 0.45, 0.6, 0.4, 0.6 });
+	UMaterialInterface* Paper = PlainC(Hex(TEXT("#f3e6c8")), 0.9, 0.0, 0.18);
+	UMaterialInterface* Kumiko = PlainC(Hex(TEXT("#3b2414")), 0.6);
 	const double W = StageWidth();
 	// The beam over the wall, and posts every 2.4 m that leave the middle open onto the garden.
 	Box(Cedar, FVector(0.0, 5.55, WallZ), FVector(W + 1.0, 0.34, 0.36));
@@ -429,12 +484,12 @@ void ASamuraiDojo::BuildWall()
 void ASamuraiDojo::BuildGarden()
 {
 	using namespace MovecadeKart::Art;
-	UMaterialInterface* Stone = Surface(this, { Hex(TEXT("#7d7a72")), TEXT("rock_face"), 0.6, 0.6, 0.9, 0.45, 0.9 });
-	UMaterialInterface* StoneDark = Surface(this, { Hex(TEXT("#5d5a54")), TEXT("rock_face"), 0.5, 0.6, 0.9, 0.45, 0.9 });
-	UMaterialInterface* Glow = MovecadeKart::Art::Glow(this, Hex(TEXT("#ffb35c")) * 3.f);
-	UMaterialInterface* Bamboo = Plain(this, Hex(TEXT("#5fa357")), 0.45);
-	UMaterialInterface* BambooNode = Plain(this, Hex(TEXT("#3f7a3a")), 0.5);
-	UMaterialInterface* Leaf = Plain(this, Hex(TEXT("#4b8f44")), 0.6);
+	UMaterialInterface* Stone = SurfaceC({ Hex(TEXT("#7d7a72")), TEXT("rock_face"), 0.6, 0.6, 0.9, 0.45, 0.9 });
+	UMaterialInterface* StoneDark = SurfaceC({ Hex(TEXT("#5d5a54")), TEXT("rock_face"), 0.5, 0.6, 0.9, 0.45, 0.9 });
+	UMaterialInterface* Glow = GlowC(Hex(TEXT("#ffb35c")) * 3.f);
+	UMaterialInterface* Bamboo = PlainC(Hex(TEXT("#5fa357")), 0.45);
+	UMaterialInterface* BambooNode = PlainC(Hex(TEXT("#3f7a3a")), 0.5);
+	UMaterialInterface* Leaf = PlainC(Hex(TEXT("#4b8f44")), 0.6);
 	const double W = StageWidth();
 	// Stepping stones through the gravel, both sides of the open middle.
 	for (const double Side : { -1.0, 1.0 })
@@ -490,8 +545,8 @@ void ASamuraiDojo::BuildGarden()
 		for (int32 i = 0; i < 2; ++i)
 		{
 			UStaticMeshComponent* P = Part(PineMesh, FTransform(FRotator(0.0, i * 70.0 + (Side > 0 ? 20.0 : 0.0), 0.0), ToWorld(FVector(Side * (W * 0.37 + i * 2.2), -0.13, -5.2 - i * 3.0)), FVector(1.15 - i * 0.2)));
-			P->SetMaterial(0, Plain(this, Hex(TEXT("#4a3426")), 0.85));
-			P->SetMaterial(1, Plain(this, Hex(TEXT("#2f4a32")), 0.85));
+			P->SetMaterial(0, PlainC(Hex(TEXT("#4a3426")), 0.85));
+			P->SetMaterial(1, PlainC(Hex(TEXT("#2f4a32")), 0.85));
 		}
 	}
 }
@@ -505,16 +560,16 @@ void ASamuraiDojo::BuildDistance()
 	{
 		const double Z = -32.0 - i * 18.0;
 		UStaticMeshComponent* R = Part(RidgeMesh, FTransform(FRotator(0.0, 0.0, 0.0), ToWorld(FVector(i * 9.0 - 9.0, -0.5, Z)), FVector(1.0, 1.0 + i * 0.25, 0.75 + i * 0.35)), false);
-		R->SetMaterial(0, Plain(this, Hex(Colors[i]), 0.95));
+		R->SetMaterial(0, PlainC(Hex(Colors[i]), 0.95));
 	}
 }
 
 void ASamuraiDojo::BuildLanterns()
 {
 	using namespace MovecadeKart::Art;
-	UMaterialInterface* Paper = Plain(this, Hex(TEXT("#e23d33")), 0.8, 0.0, 0.9);
-	UMaterialInterface* Cap = Plain(this, Hex(TEXT("#141110")), 0.4);
-	UMaterialInterface* Cord = Plain(this, Hex(TEXT("#141110")), 0.8);
+	UMaterialInterface* Paper = PlainC(Hex(TEXT("#e23d33")), 0.8, 0.0, 0.9);
+	UMaterialInterface* Cap = PlainC(Hex(TEXT("#141110")), 0.4);
+	UMaterialInterface* Cord = PlainC(Hex(TEXT("#141110")), 0.8);
 	const double W = StageWidth();
 	const double Xs[] = { -W * 0.3, 0.0, W * 0.3 };
 	for (int32 i = 0; i < 3; ++i)
@@ -532,8 +587,11 @@ void ASamuraiDojo::BuildLanterns()
 		L->SetMaterial(0, Paper);
 		L->SetMaterial(1, Cap);
 		L->SetupAttachment(Pivot);
+		L->SetMobility(EComponentMobility::Movable);
 		L->SetRelativeLocation(FVector(0.0, 0.0, -(5.55 - LanternY) * 100.0));
 		L->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		// Swaying casters would invalidate their shadow pages every frame.
+		L->SetCastShadow(false);
 		L->ComponentTags.Add(DojoTag);
 		AddInstanceComponent(L);
 		L->RegisterComponent();
@@ -541,6 +599,7 @@ void ASamuraiDojo::BuildLanterns()
 		Line->SetStaticMesh(Cylinder);
 		Line->SetMaterial(0, Cord);
 		Line->SetupAttachment(Pivot);
+		Line->SetMobility(EComponentMobility::Movable);
 		Line->SetRelativeLocation(FVector(0.0, 0.0, -25.0));
 		Line->SetRelativeScale3D(FVector(0.015, 0.015, 0.5));
 		Line->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -565,6 +624,10 @@ void ASamuraiDojo::BuildLanterns()
 void ASamuraiDojo::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (bBuildPending)
+	{
+		Build();
+	}
 	Clock += DeltaSeconds;
 	// The lanterns sway on their cords, each on its own beat.
 	for (int32 i = 0; i < Lanterns.Num(); ++i)
@@ -594,8 +657,10 @@ void ASamuraiDojo::Tick(float DeltaSeconds)
 			E.Life = FVector2D(3.5, 5.0);
 			E.Size = FVector2D(0.035, 0.05);
 			E.SizeEnd = 0.9;
-			E.Color = MovecadeKart::Art::Hex(TEXT("#f6b6c8"));
-			E.ColorEnd = MovecadeKart::Art::Hex(TEXT("#f8d3dd"));
+			static const FLinearColor PetalFrom = MovecadeKart::Art::Hex(TEXT("#f6b6c8"));
+			static const FLinearColor PetalTo = MovecadeKart::Art::Hex(TEXT("#f8d3dd"));
+			E.Color = PetalFrom;
+			E.ColorEnd = PetalTo;
 			Out.Add(E);
 		}
 		if (Out.Num() > 0)

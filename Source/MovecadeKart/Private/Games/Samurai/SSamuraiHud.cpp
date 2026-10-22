@@ -13,17 +13,38 @@ using KartUI::EFont;
 
 namespace
 {
-	void Heart(const FKartPainter& P, const FVector2D& C, float R, const FLinearColor& Fill)
+	void Heart(const FKartPainter& P, const FVector2D& C, float R, const FLinearColor& Fill, TArray<FVector2D>& Scratch)
 	{
 		P.Circle(C + FVector2D(-R * 0.5f, -R * 0.2f), R * 0.58f, Fill);
 		P.Circle(C + FVector2D(R * 0.5f, -R * 0.2f), R * 0.58f, Fill);
-		P.Polygon({ C + FVector2D(-R * 1.05f, -R * 0.05f), C + FVector2D(R * 1.05f, -R * 0.05f), C + FVector2D(0.f, R * 1.05f) }, Fill);
+		Scratch.Reset();
+		Scratch.Add(C + FVector2D(-R * 1.05f, -R * 0.05f));
+		Scratch.Add(C + FVector2D(R * 1.05f, -R * 0.05f));
+		Scratch.Add(C + FVector2D(0.f, R * 1.05f));
+		P.Polygon(Scratch, Fill);
 	}
+}
+
+const FString& SSamuraiHud::FCachedNumber::Get(int32 V, const TCHAR* Format)
+{
+	if (V != Value)
+	{
+		Value = V;
+		Text = Format ? FString::Printf(TEXT("%dx"), V) : FString::FromInt(V);
+	}
+	return Text;
 }
 
 void SSamuraiHud::Construct(const FArguments& InArgs)
 {
 	Game = InArgs._Game;
+	if (const ASamuraiGame* G = Game.Get())
+	{
+		for (const FSamuraiSeat& Seat : G->GetSeats())
+		{
+			Names += (Names.IsEmpty() ? TEXT("") : TEXT("   ·   ")) + Seat.Name;
+		}
+	}
 	SetVisibility(EVisibility::HitTestInvisible);
 }
 
@@ -38,6 +59,7 @@ int32 SSamuraiHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
 	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	View = G->MakeView();
 	switch (G->GetStage())
 	{
 	case ESamuraiStage::Intro:
@@ -65,9 +87,15 @@ void SSamuraiHud::PaintClock(const FKartPainter& P, const ASamuraiGame& G, float
 	const bool bLate = Seconds <= 10 && M.Phase == EMatchPhase::Playing;
 	const float Pulse = bLate ? 1.f + 0.06f * FMath::Abs(FMath::Sin(static_cast<float>(G.GetClock()) * 6.f)) : 1.f;
 	P.Card(Top - FVector2D(110.f, 0.f) * S, FVector2D(220.f, 112.f) * S, KC::WithAlpha(KC::Night, 0.8f), 26.f * S, 6.f * S, bLate ? KC::Hot : KC::Sun, 3.f * S);
-	P.Transformed(Top + FVector2D(0.f, 46.f * S), Pulse).Text(FString::FromInt(Seconds), KartUI::Font(EFont::Display, 64.f * S, 3.f * S, KC::Night), Top + FVector2D(0.f, 46.f * S),
+	P.Transformed(Top + FVector2D(0.f, 46.f * S), Pulse).Text(SecondsText.Get(Seconds), KartUI::Font(EFont::Display, 64.f * S, 3.f * S, KC::Night), Top + FVector2D(0.f, 46.f * S),
 		bLate ? KC::Hot : KC::White, FVector2D(0.5, 0.5), 4.f * S);
-	P.Text(FString::Printf(TEXT("WAVE %d / %d"), WaveNumber(M.ElapsedMs), WaveCount), KartUI::Font(EFont::Label, 18.f * S), Top + FVector2D(0.f, 94.f * S), KC::Sun, FVector2D(0.5, 0.5));
+	const int32 WaveNow = WaveNumber(M.ElapsedMs);
+	if (WaveNow != Wave.Value)
+	{
+		Wave.Value = WaveNow;
+		Wave.Text = FString::Printf(TEXT("WAVE %d / %d"), WaveNow, WaveCount);
+	}
+	P.Text(Wave.Text, KartUI::Font(EFont::Label, 18.f * S), Top + FVector2D(0.f, 94.f * S), KC::Sun, FVector2D(0.5, 0.5));
 }
 
 void SSamuraiHud::PaintLanes(const FKartPainter& P, const ASamuraiGame& G, float S) const
@@ -75,13 +103,15 @@ void SSamuraiHud::PaintLanes(const FKartPainter& P, const ASamuraiGame& G, float
 	const FMatch& M = G.GetMatch();
 	const int32 N = M.Players.Num();
 	const float Width = FMath::Min(520.f * S, (P.Size().X * 0.9f) / FMath::Max(1, N) - 24.f * S);
+	LaneTexts.SetNum(N);
 	for (const FPlayer& Player : M.Players)
 	{
-		const FSamuraiSeat* Seat = G.SeatOf(Player.Id);
+		const FSamuraiSeat* Seat = G.GetSeats().IsValidIndex(Player.LaneIndex) ? &G.GetSeats()[Player.LaneIndex] : nullptr;
+		FLaneTexts& Texts = LaneTexts[FMath::Clamp(Player.LaneIndex, 0, N - 1)];
 		const FLinearColor Color = Seat ? Seat->Color : KC::Sky;
 		// Under each lane: where the swordsman stands, projected; the panels keep to the bottom of the frame.
 		FVector2D At01(0.5, 0.9);
-		if (G.ScreenOf(ASamuraiGame::W(FVector(LaneX(Player.LaneIndex, N), 0.0, 1.15)), At01))
+		if (View.Project(ASamuraiGame::W(FVector(LaneX(Player.LaneIndex, N), 0.0, 1.15)), At01))
 		{
 			At01.X = FMath::Clamp(At01.X, 0.12, 0.88);
 		}
@@ -90,16 +120,16 @@ void SSamuraiHud::PaintLanes(const FKartPainter& P, const ASamuraiGame& G, float
 		P.Card(Pos, FVector2D(Width, 118.f * S), KC::WithAlpha(KC::Night, Player.bEliminated ? 0.5f : 0.84f), 22.f * S, 6.f * S, bFocus ? KC::Sun : Color, (bFocus ? 4.f : 2.f) * S);
 		P.Circle(Pos + FVector2D(30.f * S, 32.f * S), 11.f * S, Color, KC::Night, 2.f * S);
 		P.Text(Player.Name, KartUI::Font(EFont::Title, 26.f * S), Pos + FVector2D(52.f * S, 32.f * S), KC::White, FVector2D(0.0, 0.5));
-		P.Text(FString::FromInt(Player.Score), KartUI::Font(EFont::Display, 50.f * S), Pos + FVector2D(Width - 22.f * S, 40.f * S), KC::White, FVector2D(1.0, 0.5), 3.f * S);
+		P.Text(Texts.Score.Get(Player.Score), KartUI::Font(EFont::Display, 50.f * S), Pos + FVector2D(Width - 22.f * S, 40.f * S), KC::White, FVector2D(1.0, 0.5), 3.f * S);
 		// Lives.
 		for (int32 i = 0; i < StartingLives; ++i)
 		{
-			Heart(P, Pos + FVector2D((32.f + i * 34.f) * S, 82.f * S), 11.f * S, i < Player.Lives ? KC::Hot : KC::WithAlpha(KC::White, 0.18f));
+			Heart(P, Pos + FVector2D((32.f + i * 34.f) * S, 82.f * S), 11.f * S, i < Player.Lives ? KC::Hot : KC::WithAlpha(KC::White, 0.18f), Scratch);
 		}
 		// Combo.
 		if (Player.Combo >= 2)
 		{
-			P.Text(FString::Printf(TEXT("%dx"), Player.Combo), KartUI::Font(EFont::Display, 34.f * S), Pos + FVector2D(150.f * S, 82.f * S), Player.Combo >= 6 ? KC::Sun : KC::Mint,
+			P.Text(Texts.Combo.Get(Player.Combo, TEXT("x")), KartUI::Font(EFont::Display, 34.f * S), Pos + FVector2D(150.f * S, 82.f * S), Player.Combo >= 6 ? KC::Sun : KC::Mint,
 				FVector2D(0.0, 0.5), 3.f * S);
 		}
 		// Focus: three pips charge it; while it burns, a gold bar counts its six seconds down.
@@ -144,7 +174,7 @@ void SSamuraiHud::PaintCallouts(const FKartPainter& P, const ASamuraiGame& G, fl
 			Web = TargetCentre(E.Struck[0], N) + FVector(0.0, 0.35, 0.0);
 		}
 		FVector2D At01;
-		if (!G.ScreenOf(ASamuraiGame::W(Web), At01))
+		if (!View.Project(ASamuraiGame::W(Web), At01))
 		{
 			continue;
 		}
@@ -199,11 +229,6 @@ void SSamuraiHud::PaintIntro(const FKartPainter& P, const ASamuraiGame& G, float
 	const FKartPainter F = P.Faded(A);
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.44f);
 	F.Text(NSLOCTEXT("Samurai", "Title", "SAMURAI SLICE"), KartUI::Font(EFont::Display, 140.f * S, 7.f * S), Centre - FVector2D(0.f, 60.f * S), KC::Hot, FVector2D(0.5, 0.5), 9.f * S);
-	FString Names;
-	for (const FSamuraiSeat& Seat : G.GetSeats())
-	{
-		Names += (Names.IsEmpty() ? TEXT("") : TEXT("   ·   ")) + Seat.Name;
-	}
 	F.Text(Names, KartUI::Font(EFont::Title, 34.f * S, 2.f * S), Centre + FVector2D(0.f, 50.f * S), KC::White, FVector2D(0.5, 0.5), 4.f * S);
 	F.Text(NSLOCTEXT("Samurai", "Rules", "Cut the fruit. Never the bombs. Three precise cuts: Focus, double points."), KartUI::Font(EFont::Body, 24.f * S),
 		Centre + FVector2D(0.f, 100.f * S), KC::WithAlpha(KC::White, 0.88f), FVector2D(0.5, 0.5), 3.f * S);
@@ -211,19 +236,25 @@ void SSamuraiHud::PaintIntro(const FKartPainter& P, const ASamuraiGame& G, float
 
 void SSamuraiHud::PaintStandings(const FKartPainter& P, const ASamuraiGame& G, float S) const
 {
-	TArray<const FPlayer*> Order;
-	for (const FPlayer& Player : G.GetMatch().Players)
+	const TArray<FPlayer>& Players = G.GetMatch().Players;
+	const double FinishedAt = G.GetClock() - G.GetStageAge();
+	if (OrderFor != FinishedAt || Order.Num() != Players.Num())
 	{
-		Order.Add(&Player);
+		OrderFor = FinishedAt;
+		Order.Reset();
+		for (int32 i = 0; i < Players.Num(); ++i)
+		{
+			Order.Add(i);
+		}
+		Algo::StableSortBy(Order, [&Players](int32 i) { return -Players[i].Score; });
 	}
-	Algo::StableSortBy(Order, [](const FPlayer* X) { return -X->Score; });
 	const double Age = G.GetFinishedAge();
 	const FKartPainter F = P.Faded(FMath::Clamp(static_cast<float>(Age / 0.5), 0.f, 1.f));
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.2f);
 	F.Text(NSLOCTEXT("Samurai", "Final", "FINAL SCORES"), KartUI::Font(EFont::Display, 96.f * S, 5.f * S), Centre, KC::Sun, FVector2D(0.5, 0.5), 7.f * S);
 	for (int32 i = 0; i < Order.Num(); ++i)
 	{
-		const FPlayer& Player = *Order[i];
+		const FPlayer& Player = Players[Order[i]];
 		const FSamuraiSeat* Seat = G.SeatOf(Player.Id);
 		const float In = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>((Age - 0.3 - i * 0.18) / 0.4), 0.f, 1.f));
 		const FVector2D Pos(P.Size().X / 2.f - 400.f * S, P.Size().Y * 0.3f + i * 104.f * S);

@@ -7,6 +7,7 @@
 #include "Games/Samurai/SamuraiBlade.h"
 #include "Games/Samurai/SamuraiRules.h"
 #include "KartLook.h"
+#include "ProceduralMeshComponent.h"
 #include "SamuraiGame.generated.h"
 
 class ASamuraiDojo;
@@ -39,6 +40,18 @@ enum class ESwordKind : uint8
 	/** A phone is the hilt: its attitude is the blade, its sweep the intent. */
 	Phone,
 	Bot,
+};
+
+/** The viewer's projection, built once per HUD paint (rather than per projected point). */
+struct FSamuraiView
+{
+	FMatrix ViewProjection = FMatrix::Identity;
+	FIntRect Rect;
+	FVector2D ViewportSize = FVector2D::ZeroVector;
+	bool bValid = false;
+
+	/** World (UE cm) to 0..1 of the viewport; false behind the camera. */
+	bool Project(const FVector& World, FVector2D& Out01) const;
 };
 
 USTRUCT()
@@ -87,6 +100,8 @@ public:
 	const TArray<FSamuraiSeat>& GetSeats() const { return Seats; }
 	const FSamuraiSeat* SeatOf(const FString& Id) const;
 	bool ScreenOf(const FVector& World, FVector2D& Out01) const;
+	/** The viewer's projection now (one GetProjectionData for a whole paint). */
+	FSamuraiView MakeView() const;
 	/** Web world to UE cm. */
 	static FVector W(const FVector& Web);
 	double GetFinishedAge() const { return Stage == ESamuraiStage::Finished ? GetStageAge() : -1.0; }
@@ -137,6 +152,7 @@ private:
 		// Presentation.
 		TArray<TPair<FVector, FVector>> Trail;
 		double TrailAt = -10.0;
+		bool bTrailShown = false;
 		double LastCutAt = -10.0;
 		double Energy = 0.0;
 	};
@@ -145,12 +161,25 @@ private:
 	{
 		MovecadeKart::Samurai::EVariant Variant = MovecadeKart::Samurai::EVariant::Apple;
 		bool bPlus = true;
+		bool bLive = false;
 		FVector Origin = FVector::ZeroVector;
 		FQuat Rotation = FQuat::Identity;
 		FVector Normal = FVector::ZeroVector;
 		double Scale = 1.0;
 		double BornAt = 0.0;
 		double SpinSign = 1.0;
+	};
+
+	/** A pooled target component, held by one target id from launch to removal (dressed once). */
+	struct FTargetSlot
+	{
+		int32 TargetId = INDEX_NONE;
+		FQuat Spin = FQuat::Identity;
+		uint32 Stamp = 0;
+		double LastProgress = 0.0;
+		MovecadeKart::Samurai::EKind Kind = MovecadeKart::Samurai::EKind::Fruit;
+		int32 Lane = 0;
+		FVector LastAt = FVector::ZeroVector;
 	};
 
 	void SetStage(ESamuraiStage Next);
@@ -163,6 +192,9 @@ private:
 	void UpdateSwordsmen(float Dt);
 	void UpdateTrails();
 	void UpdateCamera(float Dt);
+	void SpawnPiece(const MovecadeKart::Samurai::FTarget& Target, const FVector& At, const FQuat& Rotation, bool bPlus);
+	void ReleaseSlot(int32 Slot);
+	void ResetPresentation();
 	FVector KamaeDirection(double LaneX) const;
 	int32 LaneCount() const { return Lanes.Num(); }
 
@@ -220,9 +252,24 @@ private:
 	MovecadeKart::Samurai::FMatch Match;
 	uint32 MatchSeed = MovecadeKart::Samurai::DefaultSeed;
 	TArray<int32> MaterialStart;
-	TMap<int32, FQuat> TargetSpin;
-	TSet<int32> SeenEffects;
+	/** Target id to its slot in TargetPool (and Slots). */
+	TMap<int32, int32> TargetSlots;
+	TArray<FTargetSlot> Slots;
+	uint32 SlotStamp = 0;
+	/** The material each halo wears now (set only on change). */
+	TArray<TObjectPtr<UMaterialInterface>> HaloWorn;
+	/** Effect ids are monotonic (the rules' NextId): everything above this is new. */
+	int32 LastSeenEffectId = 0;
+	TSet<int32> HitScratch;
+	/** A ring over PiecePool: slot i is Pieces[i]. */
 	TArray<FPiece> Pieces;
+	int32 NextPiece = 0;
+	// The trail ribbons' fixed topology, reused every frame.
+	TArray<FVector> TrailVerts;
+	TArray<FVector> TrailNormals;
+	TArray<FVector2D> TrailUVs;
+	TArray<FLinearColor> TrailColors;
+	TArray<FProcMeshTangent> TrailTangents;
 	FRandomStream BotRng;
 	MovecadeKart::Games::FCuePlayer Cues;
 

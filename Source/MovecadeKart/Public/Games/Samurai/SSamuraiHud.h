@@ -2,8 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Widgets/SLeafWidget.h"
+#include "Games/Samurai/SamuraiGame.h"
 
-class ASamuraiGame;
 class FKartPainter;
 
 /**
@@ -34,5 +34,30 @@ private:
 	void PaintIntro(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintStandings(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 
+	/** A number's text, rebuilt only when the number changes. */
+	struct FCachedNumber
+	{
+		int32 Value = TNumericLimits<int32>::Min();
+		FString Text;
+		const FString& Get(int32 V, const TCHAR* Format = nullptr);
+	};
+
+	struct FLaneTexts
+	{
+		FCachedNumber Score;
+		FCachedNumber Combo;
+	};
+
 	TWeakObjectPtr<ASamuraiGame> Game;
+	/** The intro's roll call, built once. */
+	FString Names;
+	mutable FCachedNumber SecondsText;
+	mutable FCachedNumber Wave;
+	mutable TArray<FLaneTexts> LaneTexts;
+	/** The final order, sorted once when the round ends (keyed by that stage's start). */
+	mutable TArray<int32> Order;
+	mutable double OrderFor = -1.0;
+	/** This paint's projection. */
+	mutable FSamuraiView View;
+	mutable TArray<FVector2D> Scratch;
 };

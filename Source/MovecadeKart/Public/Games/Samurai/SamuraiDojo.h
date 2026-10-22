@@ -12,6 +12,7 @@ class UPostProcessComponent;
 class USkyLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
+namespace MovecadeKart::Art { struct FSurfaceLook; }
 
 /**
  * Samurai Slice's dojo (movecade-v2 samurai/{DojoEnvironment,SamuraiSky,samuraiStage}.tsx, Docs/Port/08-samurai.md
@@ -58,12 +59,19 @@ private:
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
 	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
 	UStaticMeshComponent* Part(UStaticMesh* Mesh, const FTransform& World, bool bShadows = true);
+	/** Materials, made once per distinct look and kept across rebuilds (SetLanes rebuilds the geometry only). */
+	UMaterialInterface* PlainC(const FLinearColor& Color, double Roughness = 0.6, double Metallic = 0.0, double Emissive = 0.0);
+	UMaterialInterface* SurfaceC(const MovecadeKart::Art::FSurfaceLook& Look);
+	UMaterialInterface* GlowC(const FLinearColor& Color);
 
 	UPROPERTY(EditAnywhere, Category = "Dojo")
 	int32 Lanes = 1;
 
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UMaterialInterface>> Materials;
 
 	/** The swaying paper lanterns, by their hanging point. */
 	UPROPERTY(Transient)
@@ -112,6 +120,10 @@ private:
 	TObjectPtr<UPostProcessComponent> Grade;
 
 	double Clock = 0.0;
+	/** In a game world the first build waits for SetLanes (or the first tick), so the dojo isn't built twice. */
+	bool bBuildPending = false;
+	bool bBuilt = false;
+	bool bLookBuilt = false;
 	double PetalCarry = 0.0;
 	FRandomStream PetalRng;
 };

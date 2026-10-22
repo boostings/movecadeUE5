@@ -6,6 +6,9 @@
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/LocalPlayer.h"
+#include "SceneView.h"
+#include "UnrealClient.h"
 #include "FX/KartFx.h"
 #include "FX/KartFxSubsystem.h"
 #include "GameFramework/PlayerController.h"
@@ -31,6 +34,7 @@ namespace
 	constexpr int32 TargetPoolSize = 20;
 	constexpr int32 PiecePoolSize = 32;
 	constexpr double PieceSeconds = 0.65;
+	constexpr int32 TrailSamples = 12;
 	/** The swordsman's arm, shoulder to palm, at the rig's .64 (Docs/Port/05 §3 rig). */
 	constexpr double ArmLength = 0.525;
 
@@ -122,10 +126,13 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 	{
 		TargetPool.Add(MakeMesh(TEXT("Target"), nullptr));
 	}
+	Slots.SetNum(TargetPoolSize);
+	// The halves live 0.65 s: no shadows (52 shadowed multi-section casters otherwise).
 	for (int32 i = 0; i < PiecePoolSize; ++i)
 	{
-		PiecePool.Add(MakeMesh(TEXT("Piece"), nullptr));
+		PiecePool.Add(MakeMesh(TEXT("Piece"), nullptr, false));
 	}
+	Pieces.SetNum(PiecePoolSize);
 	using namespace MovecadeKart::Art;
 	UStaticMesh* Octagon = Art::RingMesh(this, 98.0, 116.0, 8, true);
 	UStaticMesh* HaloRing = Art::RingMesh(this, 70.0, 128.0, 40);
@@ -140,10 +147,28 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 		T->SetMaterial(0, TelegraphMaterial);
 		TelegraphPool.Add(T);
 		HaloPool.Add(MakeMesh(TEXT("Halo"), HaloRing, false));
+		HaloWorn.Add(nullptr);
 	}
 	TrailMaterial = Glow(this, FLinearColor(0.95f, 0.98f, 1.f) * 2.4f);
 	if (TrailMaterial) TrailMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.55f);
 
+	// The trail ribbon's topology: TrailSamples pairs, both faces; created once, then only its vertices move.
+	TArray<int32> TrailTris;
+	for (int32 k = 0; k < TrailSamples; ++k)
+	{
+		const double A = static_cast<double>(k) / (TrailSamples - 1);
+		TrailVerts.Add(FVector::ZeroVector);
+		TrailVerts.Add(FVector::ZeroVector);
+		TrailNormals.Add(FVector(-1, 0, 0));
+		TrailNormals.Add(FVector(-1, 0, 0));
+		TrailUVs.Add(FVector2D(A, 0));
+		TrailUVs.Add(FVector2D(A, 1));
+		if (k > 0)
+		{
+			const int32 a = (k - 1) * 2, b = a + 1, c = k * 2 + 1, d = k * 2;
+			TrailTris.Append({ a, b, c, a, c, d, a, c, b, a, d, c });
+		}
+	}
 	UStaticMesh* Katana = Art::KatanaMesh(this);
 	const TArray<UMaterialInterface*> KatanaMats = Art::KatanaMaterials(this);
 	for (int32 i = 0; i < N; ++i)
@@ -165,7 +190,11 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 		Trail->SetupAttachment(RootComponent);
 		Trail->SetCastShadow(false);
 		Trail->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Trail->bUseAsyncCooking = true;
 		Trail->RegisterComponent();
+		Trail->CreateMeshSection_LinearColor(0, TrailVerts, TrailTris, TrailNormals, TrailUVs, TrailColors, TrailTangents, false);
+		Trail->SetMaterial(0, TrailMaterial);
+		Trail->SetMeshSectionVisible(0, false);
 		Trails.Add(Trail);
 	}
 
@@ -192,6 +221,11 @@ void ASamuraiGame::EndPlay(const EEndPlayReason::Type Reason)
 			Viewport->RemoveViewportWidgetContent(Hud.ToSharedRef());
 		}
 		Hud.Reset();
+	}
+	if (Camera)
+	{
+		Camera->Destroy();
+		Camera = nullptr;
 	}
 	Super::EndPlay(Reason);
 }
@@ -220,6 +254,42 @@ bool ASamuraiGame::ScreenOf(const FVector& World, FVector2D& Out01) const
 		return false;
 	}
 	Out01 = Pixels / FVector2D(X, Y);
+	return true;
+}
+
+FSamuraiView ASamuraiGame::MakeView() const
+{
+	FSamuraiView View;
+	const ULocalPlayer* LP = Viewer ? Viewer->GetLocalPlayer() : nullptr;
+	if (!LP || !LP->ViewportClient || !LP->ViewportClient->Viewport)
+	{
+		return View;
+	}
+	FSceneViewProjectionData Projection;
+	if (!LP->GetProjectionData(LP->ViewportClient->Viewport, Projection))
+	{
+		return View;
+	}
+	const FIntPoint Size = LP->ViewportClient->Viewport->GetSizeXY();
+	if (Size.X <= 0 || Size.Y <= 0)
+	{
+		return View;
+	}
+	View.ViewProjection = Projection.ComputeViewProjectionMatrix();
+	View.Rect = Projection.GetConstrainedViewRect();
+	View.ViewportSize = FVector2D(Size.X, Size.Y);
+	View.bValid = true;
+	return View;
+}
+
+bool FSamuraiView::Project(const FVector& World, FVector2D& Out01) const
+{
+	FVector2D Pixels;
+	if (!bValid || !FSceneView::ProjectWorldToScreen(World, Rect, ViewProjection, Pixels))
+	{
+		return false;
+	}
+	Out01 = Pixels / ViewportSize;
 	return true;
 }
 
@@ -366,7 +436,8 @@ void ASamuraiGame::StepFixed(double DtMs, double Dt)
 		}
 		Lane.TrailAt = Clock;
 		// bladeContact.ts on the sim clock: whatever the blade passed through since the last step.
-		TSet<int32> Hits;
+		TSet<int32>& Hits = HitScratch;
+		Hits.Reset();
 		for (const FTarget& T : Match.Targets)
 		{
 			if (T.PlayerId == Lane.PlayerId && SweptBladeHits(Lane.Previous.Base, Lane.Previous.Tip, Lane.Blade.Base, Lane.Blade.Tip, TargetCentre(T, LaneCount()), ContactRadius(T)))
@@ -382,9 +453,9 @@ void ASamuraiGame::StepFixed(double DtMs, double Dt)
 	}
 	for (const FEffect& E : Match.Effects)
 	{
-		if (!SeenEffects.Contains(E.Id))
+		if (E.Id > LastSeenEffectId)
 		{
-			SeenEffects.Add(E.Id);
+			LastSeenEffectId = E.Id;
 			PresentEffect(E);
 			if (OnEffect && E.Kind != EEffectKind::Slash)
 			{
@@ -421,21 +492,10 @@ void ASamuraiGame::PresentEffect(const FEffect& E)
 		for (const FTarget& T : E.Struck)
 		{
 			const FVector At = W(TargetCentre(T, LaneCount()));
-			const FQuat* Spin = TargetSpin.Find(T.Id);
-			const FQuat Rot = Spin ? *Spin : FQuat::Identity;
-			const FVector Normal = Rot.RotateVector(FVector(0, 1, 0));
-			for (const bool bPlus : { true, false })
-			{
-				FPiece& Piece = Pieces.AddDefaulted_GetRef();
-				Piece.Variant = T.Variant;
-				Piece.bPlus = bPlus;
-				Piece.Origin = At;
-				Piece.Rotation = Rot;
-				Piece.Normal = bPlus ? Normal : -Normal;
-				Piece.Scale = T.Radius * 0.75;
-				Piece.BornAt = Clock;
-				Piece.SpinSign = bPlus ? 1.0 : -1.0;
-			}
+			const int32* Slot = TargetSlots.Find(T.Id);
+			const FQuat Rot = Slot ? Slots[*Slot].Spin : FQuat::Identity;
+			SpawnPiece(T, At, Rot, true);
+			SpawnPiece(T, At, Rot, false);
 			// Juice and pulp in the fruit's colour, a flash of light on a precise cut.
 			if (FxSys)
 			{
@@ -589,30 +649,48 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 
 void ASamuraiGame::UpdateTargets(float Dt)
 {
-	int32 Used = 0, Telegraphs = 0, Halos = 0;
-	TSet<int32> Live;
+	int32 Telegraphs = 0, Halos = 0;
+	++SlotStamp;
 	for (const FTarget& T : Match.Targets)
 	{
-		if (Used >= TargetPool.Num())
+		// Stable slots: a target keeps its component from launch to removal, dressed once.
+		int32 SlotIndex = INDEX_NONE;
+		if (const int32* Found = TargetSlots.Find(T.Id))
 		{
-			break;
+			SlotIndex = *Found;
 		}
-		Live.Add(T.Id);
+		else
+		{
+			SlotIndex = Slots.IndexOfByPredicate([](const FTargetSlot& S) { return S.TargetId == INDEX_NONE; });
+			if (SlotIndex == INDEX_NONE)
+			{
+				continue;
+			}
+			FTargetSlot& Fresh = Slots[SlotIndex];
+			Fresh.TargetId = T.Id;
+			Fresh.Spin = FQuat(FVector::UpVector, T.Id * 0.7);
+			Fresh.Kind = T.Kind;
+			Fresh.Lane = T.LaneIndex;
+			TargetSlots.Add(T.Id, SlotIndex);
+			const int32 V = static_cast<int32>(T.Variant);
+			UStaticMeshComponent* Dress = TargetPool[SlotIndex];
+			Dress->SetStaticMesh(TargetMeshes[V * 3]);
+			for (int32 m = MaterialStart[V]; m < MaterialStart[V + 1]; ++m)
+			{
+				Dress->SetMaterial(m - MaterialStart[V], TargetMaterials[m]);
+			}
+			Dress->SetVisibility(true);
+		}
+		FTargetSlot& Slot = Slots[SlotIndex];
+		Slot.Stamp = SlotStamp;
+		Slot.LastProgress = T.Progress;
 		// Spin on two axes (SamuraiScene.tsx): about up at 1.8x, about across at 1.08x the target's spin.
-		FQuat& Q = TargetSpin.FindOrAdd(T.Id, FQuat(FVector::UpVector, T.Id * 0.7));
-		Q = FQuat(FVector::UpVector, T.Spin * 1.8 * Dt) * FQuat(FVector::RightVector, T.Spin * 1.08 * Dt) * Q;
-		const int32 V = static_cast<int32>(T.Variant);
-		UStaticMeshComponent* C = TargetPool[Used++];
-		C->SetStaticMesh(TargetMeshes[V * 3]);
-		for (int32 m = MaterialStart[V]; m < MaterialStart[V + 1]; ++m)
-		{
-			C->SetMaterial(m - MaterialStart[V], TargetMaterials[m]);
-		}
+		Slot.Spin = FQuat(FVector::UpVector, T.Spin * 1.8 * Dt) * FQuat(FVector::RightVector, T.Spin * 1.08 * Dt) * Slot.Spin;
 		const FVector At = W(TargetCentre(T, LaneCount()));
+		Slot.LastAt = At;
 		const double Scale = T.Radius * 0.75;
-		C->SetWorldTransform(FTransform(Q, At, FVector(Scale)));
-		C->SetVisibility(true);
-		const FPlayer* Thrower = Match.FindPlayer(T.PlayerId);
+		TargetPool[SlotIndex]->SetWorldTransform(FTransform(Slot.Spin, At, FVector(Scale)));
+		const FPlayer* Thrower = Match.Players.IsValidIndex(T.LaneIndex) ? &Match.Players[T.LaneIndex] : nullptr;
 		const bool bFocus = Thrower && Thrower->FocusRemainingMs > 0.0;
 		if (T.Kind == EKind::Bomb && Telegraphs < TelegraphPool.Num())
 		{
@@ -625,53 +703,86 @@ void ASamuraiGame::UpdateTargets(float Dt)
 		else if (T.Kind != EKind::Bomb && Halos < HaloPool.Num() && (T.Kind == EKind::Bonus || bFocus || CutQuality(T.Progress) >= 0.85))
 		{
 			// The halo: a scroll, a Focus lane, or the precise moment to cut.
-			UStaticMeshComponent* H = HaloPool[Halos++];
-			H->SetMaterial(0, T.Kind == EKind::Bonus || bFocus ? FocusHaloMaterial : HaloMaterial);
+			const int32 h = Halos++;
+			UStaticMeshComponent* H = HaloPool[h];
+			UMaterialInterface* Want = T.Kind == EKind::Bonus || bFocus ? FocusHaloMaterial : HaloMaterial;
+			if (HaloWorn[h] != Want)
+			{
+				HaloWorn[h] = Want;
+				H->SetMaterial(0, Want);
+			}
 			H->SetWorldTransform(FTransform(FRotator::ZeroRotator, At + FVector(Scale * 60.0, 0.0, 0.0), FVector(Scale)));
 			H->SetVisibility(true);
 		}
 	}
-	for (int32 i = Used; i < TargetPool.Num(); ++i) TargetPool[i]->SetVisibility(false);
-	for (int32 i = Telegraphs; i < TelegraphPool.Num(); ++i) TelegraphPool[i]->SetVisibility(false);
-	for (int32 i = Halos; i < HaloPool.Num(); ++i) HaloPool[i]->SetVisibility(false);
-	for (auto It = TargetSpin.CreateIterator(); It; ++It)
+	for (int32 i = 0; i < Slots.Num(); ++i)
 	{
-		if (!Live.Contains(It.Key()) && TargetSpin.Num() > 64)
+		if (Slots[i].TargetId != INDEX_NONE && Slots[i].Stamp != SlotStamp)
 		{
-			It.RemoveCurrent();
+			ReleaseSlot(i);
 		}
 	}
+	for (int32 i = Telegraphs; i < TelegraphPool.Num(); ++i) TelegraphPool[i]->SetVisibility(false);
+	for (int32 i = Halos; i < HaloPool.Num(); ++i) HaloPool[i]->SetVisibility(false);
+}
+
+void ASamuraiGame::ReleaseSlot(int32 Index)
+{
+	FTargetSlot& Slot = Slots[Index];
+	TargetSlots.Remove(Slot.TargetId);
+	Slot.TargetId = INDEX_NONE;
+	TargetPool[Index]->SetVisibility(false);
+}
+
+void ASamuraiGame::SpawnPiece(const FTarget& T, const FVector& At, const FQuat& Rotation, bool bPlus)
+{
+	// A ring over the pool: the oldest half gives way; each half is dressed once, at birth.
+	const int32 Index = NextPiece;
+	NextPiece = (NextPiece + 1) % Pieces.Num();
+	FPiece& Piece = Pieces[Index];
+	Piece.Variant = T.Variant;
+	Piece.bPlus = bPlus;
+	Piece.bLive = true;
+	Piece.Origin = At;
+	Piece.Rotation = Rotation;
+	const FVector Normal = Rotation.RotateVector(FVector(0, 1, 0));
+	Piece.Normal = bPlus ? Normal : -Normal;
+	Piece.Scale = T.Radius * 0.75;
+	Piece.BornAt = Clock;
+	Piece.SpinSign = bPlus ? 1.0 : -1.0;
+	const int32 V = static_cast<int32>(T.Variant);
+	UStaticMeshComponent* C = PiecePool[Index];
+	C->SetStaticMesh(TargetMeshes[V * 3 + (bPlus ? 1 : 2)]);
+	for (int32 m = MaterialStart[V]; m < MaterialStart[V + 1]; ++m)
+	{
+		C->SetMaterial(m - MaterialStart[V], TargetMaterials[m]);
+	}
+	C->SetWorldTransform(FTransform(Rotation, At, FVector(Piece.Scale)));
+	C->SetVisibility(true);
 }
 
 void ASamuraiGame::UpdatePieces()
 {
 	// cutEffects.ts: the halves part along the cut's normal, arc and spin, and shrink away at the end.
-	Pieces.RemoveAll([this](const FPiece& P) { return Clock - P.BornAt > PieceSeconds; });
-	while (Pieces.Num() > PiecePool.Num())
+	for (int32 i = 0; i < Pieces.Num(); ++i)
 	{
-		Pieces.RemoveAt(0);
-	}
-	for (int32 i = 0; i < PiecePool.Num(); ++i)
-	{
-		UStaticMeshComponent* C = PiecePool[i];
-		if (!Pieces.IsValidIndex(i))
+		FPiece& P = Pieces[i];
+		if (!P.bLive)
 		{
-			C->SetVisibility(false);
 			continue;
 		}
-		const FPiece& P = Pieces[i];
+		UStaticMeshComponent* C = PiecePool[i];
 		const double T = Clock - P.BornAt;
-		const int32 V = static_cast<int32>(P.Variant);
-		C->SetStaticMesh(TargetMeshes[V * 3 + (P.bPlus ? 1 : 2)]);
-		for (int32 m = MaterialStart[V]; m < MaterialStart[V + 1]; ++m)
+		if (T > PieceSeconds)
 		{
-			C->SetMaterial(m - MaterialStart[V], TargetMaterials[m]);
+			P.bLive = false;
+			C->SetVisibility(false);
+			continue;
 		}
 		const FVector Pos = P.Origin + P.Normal * (1.4 * T * 100.0) + FVector(0.0, 0.0, (0.7 * T - 1.6 * T * T) * 100.0);
 		const FQuat Spin(P.Rotation.GetForwardVector(), P.SpinSign * 2.0 * T);
 		const double Fade = 1.0 - Smooth(PieceSeconds - 0.18, PieceSeconds, T);
 		C->SetWorldTransform(FTransform(Spin * P.Rotation, Pos, FVector(P.Scale * FMath::Max(0.01, Fade))));
-		C->SetVisibility(true);
 	}
 }
 
@@ -739,6 +850,8 @@ void ASamuraiGame::UpdateSwordsmen(float Dt)
 void ASamuraiGame::UpdateTrails()
 {
 	// bladeTrail.tsx: a ribbon over the last dozen blade samples while the sweep is meant, fading 100 ms after.
+	// The section's topology is fixed (TrailSamples pairs): only the vertices move, and a short trail repeats its
+	// oldest sample (degenerate quads) rather than rebuilding the section.
 	for (int32 i = 0; i < Lanes.Num(); ++i)
 	{
 		FLane& Lane = Lanes[i];
@@ -746,9 +859,9 @@ void ASamuraiGame::UpdateTrails()
 		if (bLive)
 		{
 			Lane.Trail.Add(TPair<FVector, FVector>(W(FMath::Lerp(Lane.Blade.Base, Lane.Blade.Tip, 0.3)), W(Lane.Blade.Tip)));
-			while (Lane.Trail.Num() > 12)
+			if (Lane.Trail.Num() > TrailSamples)
 			{
-				Lane.Trail.RemoveAt(0);
+				Lane.Trail.RemoveAt(0, Lane.Trail.Num() - TrailSamples, EAllowShrinking::No);
 			}
 		}
 		else if (Lane.Trail.Num() > 0 && Clock - Lane.TrailAt > 0.12)
@@ -756,36 +869,31 @@ void ASamuraiGame::UpdateTrails()
 			Lane.Trail.Reset();
 		}
 		UProceduralMeshComponent* Mesh = Trails[i];
-		if (Lane.Trail.Num() < 2)
+		const int32 Num = Lane.Trail.Num();
+		if (Num < 2)
 		{
-			Mesh->ClearAllMeshSections();
+			if (Lane.bTrailShown)
+			{
+				Mesh->SetMeshSectionVisible(0, false);
+				Lane.bTrailShown = false;
+			}
 			continue;
 		}
-		TArray<FVector> Verts;
-		TArray<int32> Tris;
-		TArray<FVector> Normals;
-		TArray<FVector2D> UVs;
-		TArray<FLinearColor> Colors;
-		TArray<FProcMeshTangent> Tangents;
-		for (int32 k = 0; k < Lane.Trail.Num(); ++k)
+		const int32 Pad = TrailSamples - Num;
+		for (int32 k = 0; k < TrailSamples; ++k)
 		{
 			// Thinner toward the old end.
-			const double A = static_cast<double>(k) / (Lane.Trail.Num() - 1);
-			const FVector Base = FMath::Lerp(Lane.Trail[k].Value, Lane.Trail[k].Key, A);
-			Verts.Add(Base);
-			Verts.Add(Lane.Trail[k].Value);
-			Normals.Add(FVector(-1, 0, 0));
-			Normals.Add(FVector(-1, 0, 0));
-			UVs.Add(FVector2D(A, 0));
-			UVs.Add(FVector2D(A, 1));
-			if (k > 0)
-			{
-				const int32 a = (k - 1) * 2, b = a + 1, c = k * 2 + 1, d = k * 2;
-				Tris.Append({ a, b, c, a, c, d, a, c, b, a, d, c });
-			}
+			const int32 j = FMath::Max(0, k - Pad);
+			const double A = static_cast<double>(j) / (Num - 1);
+			TrailVerts[k * 2] = FMath::Lerp(Lane.Trail[j].Value, Lane.Trail[j].Key, A);
+			TrailVerts[k * 2 + 1] = Lane.Trail[j].Value;
 		}
-		Mesh->CreateMeshSection_LinearColor(0, Verts, Tris, Normals, UVs, Colors, Tangents, false);
-		Mesh->SetMaterial(0, TrailMaterial);
+		Mesh->UpdateMeshSection_LinearColor(0, TrailVerts, TrailNormals, TrailUVs, TrailColors, TrailTangents, false);
+		if (!Lane.bTrailShown)
+		{
+			Mesh->SetMeshSectionVisible(0, true);
+			Lane.bTrailShown = true;
+		}
 	}
 }
 
@@ -841,6 +949,23 @@ void ASamuraiGame::UpdateCamera(float Dt)
 	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HFov));
 }
 
+void ASamuraiGame::ResetPresentation()
+{
+	LastSeenEffectId = 0;
+	for (int32 i = 0; i < Slots.Num(); ++i)
+	{
+		if (Slots[i].TargetId != INDEX_NONE)
+		{
+			ReleaseSlot(i);
+		}
+	}
+	for (int32 i = 0; i < Pieces.Num(); ++i)
+	{
+		Pieces[i].bLive = false;
+		PiecePool[i]->SetVisibility(false);
+	}
+}
+
 void ASamuraiGame::Rematch()
 {
 	TArray<FSeed> MatchSeeds;
@@ -849,9 +974,7 @@ void ASamuraiGame::Rematch()
 		MatchSeeds.Add({ Seat.Id, Seat.Name });
 	}
 	Match = CreateMatch(MatchSeeds, ++MatchSeed);
-	SeenEffects.Reset();
-	TargetSpin.Reset();
-	Pieces.Reset();
+	ResetPresentation();
 	Accumulator = 0.0;
 	for (FLane& Lane : Lanes)
 	{
