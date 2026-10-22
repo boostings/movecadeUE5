@@ -698,7 +698,7 @@ void ADerbyBallpark::FireworkSpots(TArray<FVector>& Out) const
 {
 	for (const double A : { -32.0, -14.0, 0.0, 14.0, 32.0 })
 	{
-		Out.Add(Ground(A, FenceAt(A) + 30.0, 48.0 + FMath::Abs(A) * 0.2));
+		Out.Add(Ground(A, FenceAt(A) + 16.0, 34.0 + FMath::Abs(A) * 0.15));
 	}
 }
 

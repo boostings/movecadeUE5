@@ -566,7 +566,7 @@ void ADerbyGame::Tick(float DeltaSeconds)
 		return;
 	}
 	// The pitch clock must keep pace with real time even at a low frame rate: a phone's swing is timed in real time.
-	float Dt = FMath::Min(DeltaSeconds, 0.25f);
+	float Dt = FMath::Min(DeltaSeconds, 0.5f);
 	// Hit-stop: the frame of contact holds a beat.
 	if (HitStop > 0.0)
 	{
@@ -719,15 +719,15 @@ void ADerbyGame::Tick(float DeltaSeconds)
 		Fx::FKartFxEmit Burst;
 		Burst.Field = Fx::EField::Sparks;
 		Burst.Position = At;
-		Burst.Count = 90;
+		Burst.Count = 140;
 		Burst.Spread = PI;
-		Burst.Speed = FVector2D(9.0, 15.0);
+		Burst.Speed = FVector2D(12.0, 19.0);
 		Burst.Life = FVector2D(1.1, 1.9);
-		Burst.Size = FVector2D(0.35, 0.6);
+		Burst.Size = FVector2D(1.0, 1.6);
 		Burst.SizeEnd = 0.25;
 		Burst.Color = FMath::Lerp(FireworkColor(Hue), FLinearColor::White, 0.35f);
 		Burst.ColorEnd = FireworkColor(Hue + 1);
-		Burst.Intensity = 7.0;
+		Burst.Intensity = 14.0;
 		Burst.Jitter = 0.6;
 		Out.Add(Burst);
 		Fx::FKartFxEmit Flash;
@@ -735,7 +735,7 @@ void ADerbyGame::Tick(float DeltaSeconds)
 		Flash.Position = At;
 		Flash.Speed = FVector2D::ZeroVector;
 		Flash.Life = FVector2D(0.3, 0.3);
-		Flash.Size = FVector2D(14.0, 14.0);
+		Flash.Size = FVector2D(26.0, 26.0);
 		Flash.SizeEnd = 0.3;
 		Flash.Color = FLinearColor::White;
 		Flash.ColorEnd = FireworkColor(Hue);
@@ -744,15 +744,15 @@ void ADerbyGame::Tick(float DeltaSeconds)
 		Fx::FKartFxEmit Glitter;
 		Glitter.Field = Fx::EField::Flare;
 		Glitter.Position = At;
-		Glitter.Count = 26;
+		Glitter.Count = 40;
 		Glitter.Spread = PI;
 		Glitter.Speed = FVector2D(4.0, 8.0);
 		Glitter.Life = FVector2D(1.4, 2.4);
-		Glitter.Size = FVector2D(0.5, 0.9);
+		Glitter.Size = FVector2D(1.6, 2.6);
 		Glitter.SizeEnd = 0.1;
 		Glitter.Color = FLinearColor::White;
 		Glitter.ColorEnd = FireworkColor(Hue + 2);
-		Glitter.Intensity = 4.0;
+		Glitter.Intensity = 8.0;
 		Glitter.Jitter = 2.0;
 		Out.Add(Glitter);
 		if (UKartFxSubsystem* FxSys = UKartFxSubsystem::Get(this))
