@@ -80,6 +80,14 @@ namespace MovecadeKart
 		constexpr double ExplodeProtectSeconds = 2.2;
 		constexpr double ExplodeFlashSeconds = 0.5;
 
+		// ---- Odds brackets (store.ts getPositionBasedItem:2003-2091), by race position 0 (first) .. 1 (last) ----
+		constexpr double FrontBracketMaxRatio = 0.2;
+		constexpr double MidBracketMaxRatio = 0.55;
+		/** A mid-pack kart this far behind the leader draws from the back pool instead. */
+		constexpr double MidBracketMaxTrailing = 0.55;
+		/** A lone kart rolls as if mid-pack. */
+		constexpr double SoloPositionRatio = 0.5;
+
 		// ---- Boxes and bots ----
 		/** Score gap to the leader at which a kart counts as fully trailing for the odds. */
 		constexpr double TrailingScoreRange = 120.0;
@@ -284,9 +292,10 @@ namespace MovecadeKart
 	{
 		// store.ts getPositionBasedItem:2003-2091: the top fifth draws from the front pool, the middle (unless far
 		// behind) from the mid pool, the rest from the back pool; small lobbies use smaller pools.
-		const double Ratio = KartCount > 1 ? static_cast<double>(InPosition - 1) / (KartCount - 1) : 0.5;
+		const double Ratio = KartCount > 1 ? static_cast<double>(InPosition - 1) / (KartCount - 1) : SoloPositionRatio;
 		enum class EBracket { Front, Mid, Back };
-		EBracket Bracket = Ratio <= 0.2 ? EBracket::Front : (Ratio <= 0.55 && TrailingFactor < 0.55) ? EBracket::Mid : EBracket::Back;
+		EBracket Bracket = Ratio <= FrontBracketMaxRatio ? EBracket::Front
+			: (Ratio <= MidBracketMaxRatio && TrailingFactor < MidBracketMaxTrailing) ? EBracket::Mid : EBracket::Back;
 		if (InPosition == 1 && KartCount <= 2)
 		{
 			Bracket = EBracket::Front;
