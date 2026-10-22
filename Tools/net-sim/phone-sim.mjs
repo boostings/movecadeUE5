@@ -133,6 +133,7 @@ const rock = (t) => {
 let fishingAct = { kind: 'idle', at: 0 };
 let fishingCasts = 0;
 let fishingPromptAt = 0;
+let fishingTitle = '';
 let padStartedAt = Date.now();
 const fishingNow = () => (Date.now() - padStartedAt) / 1000;
 const fishingPose = (t) => {
@@ -145,6 +146,7 @@ const fishingPose = (t) => {
 };
 function fishingPrompt(title) {
   fishingPromptAt = fishingNow();
+  fishingTitle = title;
   if (title.startsWith('CAST')) {
     fishingCasts += 1;
     if (fishingCasts % 2 === 1) {
@@ -177,6 +179,8 @@ function startPad() {
   log(`pad: streaming attitude at ${padProfile.hz} Hz, A every ${padProfile.pressEvery} s`);
   const started = Date.now();
   padStartedAt = started;
+  // fishing: a cast or a hook that didn't take (the countdown, a missed window) is tried again after 5 s.
+  if (game === 'fishing') setInterval(() => { if (fishingNow() - fishingPromptAt > 5 && /^(CAST|BITE)/.test(fishingTitle)) fishingPrompt(fishingTitle); }, 1000);
   let sent = 0;
   let pressAt = padProfile.pressEvery;
   let releaseAt = -1;

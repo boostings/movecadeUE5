@@ -242,6 +242,7 @@ private:
 	double Shake = 0.0;
 	bool bResultsCommitted = false;
 	bool bDemo = false;
+	bool bPlayingSeen = false;
 
 	FVector CamPos = FVector::ZeroVector;
 	FVector CamLook = FVector::ZeroVector;

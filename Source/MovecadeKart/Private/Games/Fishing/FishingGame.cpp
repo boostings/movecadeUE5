@@ -592,9 +592,16 @@ void AFishingGame::DrainEffects()
 			}
 		}
 	}
+	// The horn: everyone hears their prompt again now that a cast counts.
+	const bool bHorn = !bPlayingSeen && Match.Phase == EMatchPhase::Playing;
+	bPlayingSeen |= bHorn;
 	for (int32 i = 0; i < Lanes.Num(); ++i)
 	{
 		const FAngler& A = Match.Anglers[i];
+		if (bHorn && A.State == Lanes[i].Shown && OnAnglerState)
+		{
+			OnAnglerState(A);
+		}
 		if (A.State != Lanes[i].Shown)
 		{
 			Lanes[i].Shown = A.State;
@@ -1295,6 +1302,7 @@ void AFishingGame::Rematch()
 		Lanes[i] = Fresh;
 	}
 	SeenEffects.Reset();
+	bPlayingSeen = false;
 	Accumulator = 0.0;
 	bResultsCommitted = false;
 	bCamPlaced = false;
