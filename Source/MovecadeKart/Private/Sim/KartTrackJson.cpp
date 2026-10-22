@@ -23,13 +23,35 @@ namespace MovecadeKart
 		/** Integer fields' ranges: far past any real track, and small enough that nothing downstream overflows. */
 		constexpr int32 MaxLaps = 99;
 		constexpr int32 MaxRecoverySkipWaypoints = 1 << 16;
+		/** No track coordinate comes near this (both are within 350 m of the origin): wall points beyond it are
+		 *  dropped, as the wall grid's cell walk must stay bounded. */
+		constexpr double MaxTrackCoordinate = 1e5;
+		/** The kart disc and sweep step the sim can run: the sweep query box is 8 radii wide, and a substep below
+		 *  the floor would multiply the sweep's per-step work without changing the result. */
+		constexpr double MaxKartRadius = 10.0;
+		constexpr double MinSweepSubstep = 0.01;
+
+		bool IsTrackPoint(const FVector2D& P)
+		{
+			return FMath::Abs(P.X) <= MaxTrackCoordinate && FMath::Abs(P.Y) <= MaxTrackCoordinate; // false for NaN
+		}
 
 		// Field readers that tolerate a null object or a missing or mistyped field, returning the default.
 
+		/** O[Key], or Default when it is missing, not a number, or not finite (a JSON 1e999 parses as infinity). */
 		double NumberField(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, double Default = 0.0)
 		{
 			double V = Default;
-			return O.IsValid() && O->TryGetNumberField(Key, V) ? V : Default;
+			if (!O.IsValid() || !O->TryGetNumberField(Key, V))
+			{
+				return Default;
+			}
+			if (!FMath::IsFinite(V))
+			{
+				UE_LOG(LogKartTrack, Warning, TEXT("\"%s\" is not a finite number; using %g"), Key, Default);
+				return Default;
+			}
+			return V;
 		}
 
 		/** The object's { x, z } as a point on the three.js ground plane. */
@@ -59,7 +81,7 @@ namespace MovecadeKart
 
 		using FNumbers = TArray<double, TInlineAllocator<8>>;
 
-		/** The numbers in an array entry; false unless it is an array of at least Min numbers. */
+		/** The numbers in an array entry; false unless it is an array of at least Min finite numbers. */
 		bool NumbersOf(const TSharedPtr<FJsonValue>& V, int32 Min, FNumbers& Out)
 		{
 			Out.Reset();
@@ -69,7 +91,7 @@ namespace MovecadeKart
 			}
 			for (const TSharedPtr<FJsonValue>& E : V->AsArray())
 			{
-				if (!E.IsValid() || E->Type != EJson::Number)
+				if (!E.IsValid() || E->Type != EJson::Number || !FMath::IsFinite(E->AsNumber()))
 				{
 					return false;
 				}
@@ -188,6 +210,11 @@ namespace MovecadeKart
 			}
 		}
 
+		void WarnOutOfRange(int32 Dropped)
+		{
+			UE_CLOG(Dropped > 0, LogKartTrack, Warning, TEXT("Dropped %d wall segments with a point beyond %.0f m"), Dropped, MaxTrackCoordinate);
+		}
+
 		/** Mesh walls (Violet): explicit [ax, az, bx, bz, nx, nz] segments with the face normal the web's raycast
 		 *  reports, for the sweep ("sweep"), the probe rays ("probe") or both (no role). */
 		void AddMeshWall(const TSharedPtr<FJsonObject>& Wall, const TArray<TSharedPtr<FJsonValue>>& Entries,
@@ -195,15 +222,22 @@ namespace MovecadeKart
 		{
 			const FString Role = StringField(Wall, TEXT("role"));
 			FNumbers Numbers;
+			int32 OutOfRange = 0;
 			for (const TSharedPtr<FJsonValue>& Entry : Entries)
 			{
 				if (!NumbersOf(Entry, 6, Numbers))
 				{
 					continue;
 				}
+				const FVector2D End(Numbers[2], Numbers[3]);
 				FWallSegment Segment;
 				Segment.Start = FVector2D(Numbers[0], Numbers[1]);
-				Segment.Delta = FVector2D(Numbers[2], Numbers[3]) - Segment.Start;
+				if (!IsTrackPoint(Segment.Start) || !IsTrackPoint(End))
+				{
+					++OutOfRange;
+					continue;
+				}
+				Segment.Delta = End - Segment.Start;
 				Segment.LengthSq = Segment.Delta.SizeSquared();
 				Segment.FaceNormal = FVector2D(Numbers[4], Numbers[5]);
 				if (Segment.LengthSq <= 0.0)
@@ -219,6 +253,7 @@ namespace MovecadeKart
 					OutProbe.Add(Segment);
 				}
 			}
+			WarnOutOfRange(OutOfRange);
 		}
 
 		/** B14: where a bend is tighter than the wall offset, the inner offset curve folds back on itself and leaves
@@ -253,11 +288,18 @@ namespace MovecadeKart
 				}
 			}
 			const int32 Count = bClosed ? Line.Num() : Line.Num() - 1;
+			int32 OutOfRange = 0;
 			for (int32 i = 0; i < Count; ++i)
 			{
+				const FVector2D& End = Line[(i + 1) % Line.Num()];
+				if (!IsTrackPoint(Line[i]) || !IsTrackPoint(End))
+				{
+					++OutOfRange;
+					continue;
+				}
 				FWallSegment Segment;
 				Segment.Start = Line[i];
-				Segment.Delta = Line[(i + 1) % Line.Num()] - Segment.Start;
+				Segment.Delta = End - Segment.Start;
 				Segment.LengthSq = Segment.Delta.SizeSquared();
 				if (Segment.LengthSq <= 0.0 || IsFoldedBack(Track, Segment.Start, Segment.Start + Segment.Delta))
 				{
@@ -267,6 +309,7 @@ namespace MovecadeKart
 				Segment.FaceNormal = Right * Side;
 				OutSweep.Add(Segment);
 			}
+			WarnOutOfRange(OutOfRange);
 		}
 
 		/** The wall sets, in the web build's order: the left wall's segments before the right wall's. */
@@ -426,10 +469,13 @@ namespace MovecadeKart
 			{
 				OutError = TEXT("Track needs at least one lap");
 			}
-			else if (!(Track.SweepSubstep > 0.0) || !(Track.KartRadius > 0.0))
+			else if (!(FMath::IsFinite(Track.SweepSubstep) && Track.SweepSubstep >= MinSweepSubstep)
+				|| !(Track.KartRadius > 0.0 && Track.KartRadius <= MaxKartRadius))
 			{
-				// The wall sweep divides by the substep; a zero or NaN here never terminates.
-				OutError = FString::Printf(TEXT("sweepSubstep (%f) and kartRadius (%f) must be positive"), Track.SweepSubstep, Track.KartRadius);
+				// The wall sweep divides by the substep (a zero or NaN never terminates), and its query box and the
+				// cells it walks grow with the radius.
+				OutError = FString::Printf(TEXT("substepM (%f) must be at least %g and kartRadiusM (%f) in (0, %g]"),
+					Track.SweepSubstep, MinSweepSubstep, Track.KartRadius, MaxKartRadius);
 			}
 			return OutError.IsEmpty();
 		}

@@ -25,11 +25,15 @@ namespace MovecadeKart
 	};
 
 	/** 2D wall segments, bucketed in a grid. Queries return segment indices in source order, so
-	 *  sequential push-outs resolve exactly as the web build's full loop over every segment. */
+	 *  sequential push-outs resolve exactly as the web build's full loop over every segment.
+	 *  Each segment is filed under the cells it crosses; one out of range, absurdly long, or past the grid's total
+	 *  budget is left out (with a warning), and a query box too large to walk finds nothing. */
 	class MOVECADEKART_API FWallSet
 	{
 	public:
-		void Reset(TArray<FWallSegment>&& InSegments, double InCellSize = 8.0);
+		static constexpr double DefaultCellSize = 8.0;
+
+		void Reset(TArray<FWallSegment>&& InSegments, double InCellSize = DefaultCellSize);
 		/** Segment indices near a box, sorted and unique. Inline storage sized for Violet's densest wall queries
 		 *  (a sweep box there gathers up to ~400 raw indices), so the sim's hot path never touches the heap. */
 		using FCandidates = TArray<int32, TInlineAllocator<512>>;
@@ -40,13 +44,17 @@ namespace MovecadeKart
 		const TArray<FWallSegment>& Segments() const { return WallSegments; }
 
 	private:
+		using FCellList = TArray<FIntPoint, TInlineAllocator<16>>;
+
 		FIntPoint CellOf(const FVector2D& P) const;
-		/** The cells covering a box, or false (with an ensure) for a box too far out to walk. */
+		/** The cells covering a box, or false for a box too far out (an ensure) or too large (a warning) to walk. */
 		bool CellRange(const FVector2D& Min, const FVector2D& Max, FIntPoint& OutC0, FIntPoint& OutC1) const;
+		/** The cells a segment crosses (a few edge cells extra), or false (and none) when it is out of range or too long. */
+		bool CrossedCells(const FWallSegment& Segment, FCellList& Out) const;
 
 		TArray<FWallSegment> WallSegments;
 		TMap<FIntPoint, TArray<int32>> Grid;
-		double CellSize = 8.0;
+		double CellSize = DefaultCellSize;
 	};
 
 	/** Where the first floor under the kart is a dirt mesh (Violet: Object_11 "ground dirt"), rasterised offline. */
