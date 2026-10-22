@@ -732,14 +732,16 @@ namespace
 			KartWidgets::Header(P, Frame, LOCTEXT("ArcadeTitle", "Arcade"), LOCTEXT("ArcadeSub", "Pick a game, then who's playing."), Color::Sun);
 
 			const double Top = Frame.SafeMin.Y + 190.0;
-			const FVector2D ButtonSize(600.0, 84.0);
+			// The game list tightens as the catalog grows, so the two option rows under it stay on screen.
+			const double Step = FMath::Clamp((Frame.SafeMax.Y - Top - 200.0) / FMath::Max(1, Games.Num()), 64.0, 100.0);
+			const FVector2D ButtonSize(600.0, Step - 14.0);
 			{
 			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Games.Num(); ++i)
 			{
 				Group.Next();
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
-				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + 16.0));
+				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * Step);
 				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Games[i].Name, Focus.State(i, Frame.Now, Games[i].Map != nullptr), Games[i].Accent, i);
 				if (!Games[i].Map)
 				{
@@ -760,7 +762,7 @@ namespace
 				Values[1] = Pick.House == 0 ? LOCTEXT("NoHouse", "None") : FText::Format(LOCTEXT("HouseN", "{0} {0}|plural(one=bot,other=bots)"), Pick.House);
 			}
 			const FVector2D RowSize(600.0, 76.0);
-			const double OptTop = Top + Games.Num() * (ButtonSize.Y + 16.0) + 24.0;
+			const double OptTop = Top + Games.Num() * Step + 20.0;
 			const FKartPaintGroup Rows(P);
 			for (int32 i = 0; i < 2; ++i)
 			{
