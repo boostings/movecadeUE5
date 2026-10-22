@@ -593,8 +593,8 @@ bool FKartVioletWallTest::RunTest(const FString&)
 			double Clearance = TNumericLimits<double>::Max();
 			for (const FWallSegment& W : Track.Walls.Segments())
 			{
-				const double U = FMath::Clamp(FVector2D::DotProduct(P - W.A, W.D) / W.LengthSq, 0.0, 1.0);
-				Clearance = FMath::Min(Clearance, FVector2D::Distance(P, W.A + W.D * U));
+				const double U = FMath::Clamp(FVector2D::DotProduct(P - W.Start, W.Delta) / W.LengthSq, 0.0, 1.0);
+				Clearance = FMath::Min(Clearance, FVector2D::Distance(P, W.Start + W.Delta * U));
 			}
 			WorstOverlap = FMath::Max(WorstOverlap, Track.KartRadius - Clearance);
 			if (!bCollided || bTunnelled)

@@ -932,7 +932,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 		case EKartItem::Bomb:
 		{
 			// Tumble x += 5, z += 3 rad/s; glow pulse 1 + sin(t * (3 + 2t)) * 0.3 (MultiplayerItems.tsx:528-537).
-			At = Coords::ToUE(P.Pos, P.Y);
+			At = Coords::ToUE(P.Pos, P.Height);
 			const FRotator Tumble(FMath::RadiansToDegrees(3.0 * P.Age), 0.0, FMath::RadiansToDegrees(5.0 * P.Age));
 			const double Pulse = 1.0 + FMath::Sin(P.Age * (3.0 + 2.0 * P.Age)) * 0.3;
 			BatchFor(P.Type).Add(FTransform(Tumble, At, FVector(1.0)), static_cast<float>(1.0 + (Pulse - 0.7) * 6.0));
@@ -942,7 +942,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 		}
 		case EKartItem::SkySeeker:
 			// Altitude y + 0.5, roll wobble sin(t*10)*0.1, glow 1.5x pulsing 1 + sin(t*8)*0.2.
-			At = Coords::ToUE(P.Pos, P.Y + 0.5);
+			At = Coords::ToUE(P.Pos, P.Height + 0.5);
 			BatchFor(P.Type).Add(FTransform(FRotator(0.0, Coords::YawToUE(Yaw), FMath::RadiansToDegrees(0.1 * FMath::Sin(Time * 10.0))), At, FVector(1.15)));
 			GlowBatch.Add(FTransform(FQuat::Identity, At, FVector(0.9 * (1.0 + 0.2 * FMath::Sin(Time * 8.0)))));
 			TrailAt = At;
@@ -974,7 +974,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 				TrailComponents.Add(T.Sparks);
 			}
 		}
-		const FVector Vel = Coords::ToUE(P.Vel, 0.0) + FVector(0.0, 0.0, P.VY * 100.0);
+		const FVector Vel = Coords::ToUE(P.Vel, 0.0) + FVector(0.0, 0.0, P.VerticalSpeed * 100.0);
 		if (T.Trail)
 		{
 			T.Trail->SetWorldLocation(TrailAt);

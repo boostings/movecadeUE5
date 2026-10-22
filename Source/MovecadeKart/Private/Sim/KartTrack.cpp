@@ -25,9 +25,9 @@ namespace MovecadeKart
 		for (int32 i = 0; i < WallSegments.Num(); ++i)
 		{
 			const FWallSegment& Segment = WallSegments[i];
-			const FVector2D B = Segment.A + Segment.D;
-			const FIntPoint C0 = CellOf(FVector2D(FMath::Min(Segment.A.X, B.X), FMath::Min(Segment.A.Y, B.Y)));
-			const FIntPoint C1 = CellOf(FVector2D(FMath::Max(Segment.A.X, B.X), FMath::Max(Segment.A.Y, B.Y)));
+			const FVector2D B = Segment.Start + Segment.Delta;
+			const FIntPoint C0 = CellOf(FVector2D(FMath::Min(Segment.Start.X, B.X), FMath::Min(Segment.Start.Y, B.Y)));
+			const FIntPoint C1 = CellOf(FVector2D(FMath::Max(Segment.Start.X, B.X), FMath::Max(Segment.Start.Y, B.Y)));
 			for (int32 X = C0.X; X <= C1.X; ++X)
 			{
 				for (int32 Y = C0.Y; Y <= C1.Y; ++Y)
@@ -109,13 +109,13 @@ namespace MovecadeKart
 					{
 						const FWallSegment& Segment = WallSegments[Index];
 						// Solve Origin + RayT * Dir = A + SegmentU * D.
-						const double Denom = Dir.X * Segment.D.Y - Dir.Y * Segment.D.X;
+						const double Denom = Dir.X * Segment.Delta.Y - Dir.Y * Segment.Delta.X;
 						if (FMath::Abs(Denom) < ParallelEpsilon)
 						{
 							continue;
 						}
-						const FVector2D AO = Segment.A - Origin;
-						const double RayT = (AO.X * Segment.D.Y - AO.Y * Segment.D.X) / Denom;
+						const FVector2D AO = Segment.Start - Origin;
+						const double RayT = (AO.X * Segment.Delta.Y - AO.Y * Segment.Delta.X) / Denom;
 						const double SegmentU = (AO.X * Dir.Y - AO.Y * Dir.X) / Denom;
 						if (RayT >= 0.0 && RayT <= Far && SegmentU >= 0.0 && SegmentU <= 1.0
 							&& (RayT < Best || (RayT == Best && BestIndex != INDEX_NONE && Index < BestIndex)))
@@ -163,17 +163,17 @@ namespace MovecadeKart
 		FCentreSegment MakeCentreSegment(const FVector2D& A, const FVector2D& B)
 		{
 			FCentreSegment S;
-			S.A = A;
-			S.D = B - A;
-			S.LengthSq = S.D.SizeSquared();
+			S.Start = A;
+			S.Delta = B - A;
+			S.LengthSq = S.Delta.SizeSquared();
 			return S;
 		}
 
 		/** The closest point Q of a centre segment to P and its squared distance: NearestCentre's per-segment maths. */
 		FORCEINLINE double DistSqToSegment(const FVector2D& P, const FCentreSegment& S, FVector2D& OutQ)
 		{
-			const double T = S.LengthSq > 0.0 ? FMath::Clamp(FVector2D::DotProduct(P - S.A, S.D) / S.LengthSq, 0.0, 1.0) : 0.0;
-			OutQ = S.A + S.D * T;
+			const double T = S.LengthSq > 0.0 ? FMath::Clamp(FVector2D::DotProduct(P - S.Start, S.Delta) / S.LengthSq, 0.0, 1.0) : 0.0;
+			OutQ = S.Start + S.Delta * T;
 			return FVector2D::DistSquared(P, OutQ);
 		}
 
@@ -217,7 +217,7 @@ namespace MovecadeKart
 				BestSq = DistSq;
 				OutPoint = Q;
 				// Right of travel is (-dz, dx) on the three.js ground plane.
-				const FVector2D Right = S.LengthSq > 0.0 ? FVector2D(-S.D.Y, S.D.X) / FMath::Sqrt(S.LengthSq) : FVector2D::ZeroVector;
+				const FVector2D Right = S.LengthSq > 0.0 ? FVector2D(-S.Delta.Y, S.Delta.X) / FMath::Sqrt(S.LengthSq) : FVector2D::ZeroVector;
 				OutOffset = FVector2D::DotProduct(P - Q, Right);
 			}
 		}

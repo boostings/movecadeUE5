@@ -266,8 +266,8 @@ namespace MovecadeKart
 			for (const int32 Index : Candidates)
 			{
 				const FWallSegment& Wall = TrackData->Walls.Segments()[Index];
-				const double U = FMath::Clamp(FVector2D::DotProduct(P - Wall.A, Wall.D) / Wall.LengthSq, 0.0, 1.0);
-				const FVector2D Proj = Wall.A + Wall.D * U;
+				const double U = FMath::Clamp(FVector2D::DotProduct(P - Wall.Start, Wall.Delta) / Wall.LengthSq, 0.0, 1.0);
+				const FVector2D Proj = Wall.Start + Wall.Delta * U;
 				const FVector2D V = P - Proj;
 				const double DistSq = V.SizeSquared();
 				if (DistSq >= Radius * Radius)
@@ -283,7 +283,7 @@ namespace MovecadeKart
 					continue;
 				}
 				// harborBoundary.ts: out along the segment normal, on the side the substep came from.
-				FVector2D Normal = FVector2D(-Wall.D.Y, Wall.D.X) / FMath::Sqrt(Wall.LengthSq);
+				FVector2D Normal = FVector2D(-Wall.Delta.Y, Wall.Delta.X) / FMath::Sqrt(Wall.LengthSq);
 				if (FVector2D::DotProduct(Old - Proj, Normal) < 0.0)
 				{
 					Normal = -Normal;

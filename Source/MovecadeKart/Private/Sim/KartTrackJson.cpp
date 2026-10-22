@@ -231,9 +231,9 @@ namespace MovecadeKart
 							continue;
 						}
 						FWallSegment S;
-						S.A = FVector2D(E[0], E[1]);
-						S.D = FVector2D(E[2], E[3]) - S.A;
-						S.LengthSq = S.D.SizeSquared();
+						S.Start = FVector2D(E[0], E[1]);
+						S.Delta = FVector2D(E[2], E[3]) - S.Start;
+						S.LengthSq = S.Delta.SizeSquared();
 						S.FaceNormal = FVector2D(E[4], E[5]);
 						if (S.LengthSq <= 0.0)
 						{
@@ -267,14 +267,14 @@ namespace MovecadeKart
 				for (int32 i = 0; i < Count; ++i)
 				{
 					FWallSegment S;
-					S.A = Line[i];
-					S.D = Line[(i + 1) % Line.Num()] - S.A;
-					S.LengthSq = S.D.SizeSquared();
-					if (S.LengthSq <= 0.0 || Folded(S.A, S.A + S.D))
+					S.Start = Line[i];
+					S.Delta = Line[(i + 1) % Line.Num()] - S.Start;
+					S.LengthSq = S.Delta.SizeSquared();
+					if (S.LengthSq <= 0.0 || Folded(S.Start, S.Start + S.Delta))
 					{
 						continue;
 					}
-					const FVector2D Right = FVector2D(-S.D.Y, S.D.X) / FMath::Sqrt(S.LengthSq);
+					const FVector2D Right = FVector2D(-S.Delta.Y, S.Delta.X) / FMath::Sqrt(S.LengthSq);
 					S.FaceNormal = Right * Side;
 					Segments.Add(S);
 				}
