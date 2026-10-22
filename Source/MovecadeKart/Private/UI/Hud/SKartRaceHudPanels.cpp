@@ -204,7 +204,16 @@ void SKartRaceHud::PaintCountdown(const FKartPainter& P, const AKartRaceManager&
 		const float Ring = static_cast<float>(FMath::Min(1.0, T / RingBurstSeconds));
 		P.Faded((1.f - Ring) * Motion).Box(C - FVector2D(140.0 + Ring * 160.0), FVector2D(280.0 + Ring * 320.0), FLinearColor::Transparent, 300.f, Fill, 14.f * (1.f - Ring));
 		const FKartPainter N = P.Transformed(C, Scale, Spin).Faded(1.f - Out);
-		N.Text(FString::FromInt(Value), Font(EFont::Display, 300.f, 16.f), C + FVector2D(0.0, 10.0), Fill, FVector2D(0.5, 0.5), 14.f);
+		static const FString Digits[] = { TEXT("0"), TEXT("1"), TEXT("2"), TEXT("3"), TEXT("4"), TEXT("5") };
+		const FSlateFontInfo DigitFont = Font(EFont::Display, 300.f, 16.f);
+		if (Value >= 0 && Value < UE_ARRAY_COUNT(Digits))
+		{
+			N.Text(Digits[Value], DigitFont, C + FVector2D(0.0, 10.0), Fill, FVector2D(0.5, 0.5), 14.f);
+		}
+		else
+		{
+			N.Text(FString::FromInt(Value), DigitFont, C + FVector2D(0.0, 10.0), Fill, FVector2D(0.5, 0.5), 14.f);
+		}
 		return;
 	}
 	// GO!: rays spin behind it while it punches in, then it fades over the first second of racing.
@@ -241,8 +250,12 @@ void SKartRaceHud::PaintIntro(const FKartPainter& P, const AKartRaceManager& Rac
 	const double BandH = IntroBandHeight;
 	P.Polygon({ FVector2D(Slide - 40.0, Y), FVector2D(Slide + BandW + 40.0, Y), FVector2D(Slide + BandW, Y + BandH), FVector2D(Slide - 40.0, Y + BandH) }, Accent);
 	P.Polygon({ FVector2D(Slide + BandW + 52.0, Y), FVector2D(Slide + BandW + 76.0, Y), FVector2D(Slide + BandW + 36.0, Y + BandH), FVector2D(Slide + BandW + 12.0, Y + BandH) }, Color::White);
-	const FText Name = Info ? Info->Name : FText::FromString(Track->Name);
-	P.Text(Name.ToUpper(), Font(EFont::Display, 104.f, 6.f), FVector2D(Slide + Margin.X, Y + 66.0), Color::White, FVector2D(0.0, 0.5), 6.f);
+	if (IntroNameTrack != Track)
+	{
+		IntroNameTrack = Track;
+		IntroName = (Info ? Info->Name : FText::FromString(Track->Name)).ToUpper();
+	}
+	P.Text(IntroName, Font(EFont::Display, 104.f, 6.f), FVector2D(Slide + Margin.X, Y + 66.0), Color::White, FVector2D(0.0, 0.5), 6.f);
 	const double Slide2 = (1.0 - Ease::OutBack(static_cast<float>((T - IntroTaglineInAt) / IntroInSeconds), 1.4f)) * -900.0 - Out * 1200.0;
 	if (Info)
 	{

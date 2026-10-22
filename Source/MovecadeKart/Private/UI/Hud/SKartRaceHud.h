@@ -128,7 +128,9 @@ private:
 	mutable FText ClockText;
 	mutable int32 WarnSecond = -1;
 	mutable FText WarnText;
-	/** The intro card's "3 LAPS · 8 RACERS", rebuilt when either count changes. */
+	/** The intro card's track name (upper case) and "3 LAPS · 8 RACERS", rebuilt when the track or the counts change. */
+	mutable const void* IntroNameTrack = nullptr;
+	mutable FText IntroName;
 	mutable FString IntroFacts;
 	mutable int32 IntroFactsKey = -1;
 	double RaceFinishedAt = -10.0;

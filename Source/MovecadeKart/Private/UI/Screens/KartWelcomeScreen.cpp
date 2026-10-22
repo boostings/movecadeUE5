@@ -12,6 +12,12 @@ using namespace KartUI;
 
 namespace
 {
+	/** The three cards: their spacing, largest size, where they start, and the room kept under them for the button. */
+	constexpr double CardGap = 36.0;
+	constexpr double MaxCardSize = 520.0;
+	constexpr double CardsTop = 170.0;
+	constexpr double CardRoomBelow = 380.0;
+
 	/** A phone with a QR code on its screen, tilting like a steering wheel. */
 	void PhoneIcon(const FKartPainter& P, const FVector2D& C, float S, double Now)
 	{
@@ -134,12 +140,12 @@ namespace
 				{ LOCTEXT("BotsTitle", "House players fill in"),
 					LOCTEXT("BotsBody", "Short on players? Bots take the empty seats in every race and party game, from easy to hard."), Color::Mint },
 			};
-			const double Gap = 36.0;
-			const double CardW = FMath::Min(520.0, (Frame.SafeSize().X - Gap * 2.0) / 3.0);
-			const double CardH = FMath::Min(520.0, Frame.SafeSize().Y - 380.0);
+			const double Gap = CardGap;
+			const double CardW = FMath::Min(MaxCardSize, (Frame.SafeSize().X - Gap * 2.0) / 3.0);
+			const double CardH = FMath::Min(MaxCardSize, Frame.SafeSize().Y - CardRoomBelow);
 			const double Total = CardW * 3.0 + Gap * 2.0;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
-			const double Top = Frame.SafeMin.Y + 170.0;
+			const double Top = Frame.SafeMin.Y + CardsTop;
 			const FSlateFontInfo TitleFont = Font(EFont::Title, 36.f);
 			const FSlateFontInfo BodyFont = Font(EFont::Body, 23.f);
 			for (int32 i = 0; i < UE_ARRAY_COUNT(Panels); ++i)
@@ -154,7 +160,8 @@ namespace
 				Card.Gradient(ArtPos, ArtSize, Panels[i].Accent, FMath::Lerp(Panels[i].Accent, Color::Night, 0.35f), true, Metric::Radius);
 				// The step number on the art.
 				Card.Circle(ArtPos + FVector2D(34.0, 34.0), 22.f, Color::White, Color::Navy, 3.f);
-				Card.Text(FString::FromInt(i + 1), Font(EFont::Display, 26.f), ArtPos + FVector2D(34.0, 35.0), Color::Navy, FVector2D(0.5, 0.5));
+				static const FString StepNumbers[] = { TEXT("1"), TEXT("2"), TEXT("3") };
+				Card.Text(StepNumbers[i], Font(EFont::Display, 26.f), ArtPos + FVector2D(34.0, 35.0), Color::Navy, FVector2D(0.5, 0.5));
 				const FVector2D Art = ArtPos + ArtSize * 0.5;
 				const float S = static_cast<float>(FMath::Min(ArtSize.Y * 0.62, ArtSize.X * 0.4));
 				switch (i)
