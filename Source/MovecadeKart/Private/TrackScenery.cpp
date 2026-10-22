@@ -393,6 +393,10 @@ void ATrackBuilder::BuildPrefabInstances()
 	const double Rebase = Track->SuggestedRebaseY;
 	// One instanced component per prefab, tint and variant (trees by foliage swatch, banners by face).
 	TMap<FString, UInstancedStaticMeshComponent*> Groups;
+	TMap<UInstancedStaticMeshComponent*, double> GroupScale; // the largest instance scale per group
+	// Bounds radii (cm) under which a prop casts no shadow / is distance culled.
+	constexpr double SmallPropShadowRadius = 60.0;
+	constexpr double SmallPropCullRadius = 160.0;
 	for (const TSharedPtr<FJsonValue>& V : Arr(Scenery, TEXT("instances")))
 	{
 		const TSharedPtr<FJsonObject> I = V->AsObject();
@@ -443,6 +447,30 @@ void ATrackBuilder::BuildPrefabInstances()
 		// Placement yaw turns the prefab's local +Z toward the road (trackside.ts:145-148).
 		const FTransform Local = Three(FVector(Num(I, TEXT("x")), Num(I, TEXT("y")), Num(I, TEXT("z"))), Euler(0.0, Num(I, TEXT("yaw")), 0.0), Scale);
 		Group->AddInstance(ToUETransform(Local, Rebase), false);
+		double& Largest = GroupScale.FindOrAdd(Group);
+		Largest = FMath::Max(Largest, Scale.GetAbsMax());
+	}
+
+	// Small props: no shadow, and culled (dithered out where the material allows) at a distance that grows
+	// with their size. Large pieces (buildings, cliffs, ships) keep drawing and casting.
+	for (const TPair<UInstancedStaticMeshComponent*, double>& Pair : GroupScale)
+	{
+		UInstancedStaticMeshComponent* Group = Pair.Key;
+		const UStaticMesh* Mesh = Group->GetStaticMesh();
+		if (!Mesh)
+		{
+			continue;
+		}
+		const double Radius = Mesh->GetBounds().SphereRadius * Pair.Value;
+		if (Radius < SmallPropShadowRadius)
+		{
+			Group->SetCastShadow(false);
+		}
+		if (Radius < SmallPropCullRadius)
+		{
+			const int32 End = static_cast<int32>(FMath::Clamp(Radius * 120.0, 6000.0, 20000.0));
+			Group->SetCullDistances(static_cast<int32>(End * 0.8), End);
+		}
 	}
 }
 
@@ -489,6 +517,9 @@ void ATrackBuilder::BuildLights()
 		// Many small lights across four split-screen views: no shadows, no volumetric scattering.
 		Light->SetCastShadows(false);
 		Light->SetVolumetricScatteringIntensity(0.f);
+		// Fade out far away: a small light's pool isn't readable beyond ~4x its reach (but always to 60 m).
+		Light->MaxDrawDistance = FMath::Max(6000.f, Light->AttenuationRadius * 4.f);
+		Light->MaxDistanceFadeRange = Light->MaxDrawDistance * 0.2f;
 		Light->ComponentTags.Add(SceneryTag);
 		AddInstanceComponent(Light);
 		Light->RegisterComponent();
@@ -574,7 +605,9 @@ void ATrackBuilder::BuildMotion()
 		}
 		UStaticMeshComponent* C = AddMeshComponent(Part, Mesh, FTransform::Identity, Material, TEXT("Motion"));
 		C->ComponentTags.Add(*FString::Printf(TEXT("%s:%d:%d"), *Part, Index, Entry));
-		C->SetCastShadow(!Part.Contains(TEXT("beam")) && !Part.Contains(TEXT("wake")) && !Part.Contains(TEXT("smoke")) && !Part.Contains(TEXT("fountain")));
+		// Only the big movers cast: the ferris wheel and the ships. Gulls, jet skis, buoys and gondolas are small or
+		// far out on the water, and every moving caster re-renders its shadow each frame.
+		C->SetCastShadow(Part == TEXT("ferris_frame") || Part == TEXT("ferris_wheel") || Part == TEXT("ferry") || Part == TEXT("cargo_ship"));
 	};
 	const TArray<TSharedPtr<FJsonValue>>& Animated = Arr(Scenery, TEXT("animated"));
 	for (int32 E = 0; E < Animated.Num(); ++E)
@@ -665,6 +698,23 @@ void ATrackBuilder::GatherMotion()
 				Part.LeftInline(Underscore);
 			}
 			M.Part = *Part;
+			// The same name tests TickMotion used to make every frame, once.
+			if (Part == TEXT("lighthouse_beams")) { M.Kind = EMotionKind::LighthouseBeams; }
+			else if (Part == TEXT("ferris_frame")) { M.Kind = EMotionKind::FerrisFrame; }
+			else if (Part == TEXT("ferris_wheel")) { M.Kind = EMotionKind::FerrisWheel; }
+			else if (Part.StartsWith(TEXT("ferris"))) { M.Kind = EMotionKind::FerrisGondola; }
+			else if (Part == TEXT("ferry") || Part == TEXT("ferry_smoke")) { M.Kind = EMotionKind::Ferry; }
+			else if (Part == TEXT("cargo_ship")) { M.Kind = EMotionKind::CargoShip; }
+			else if (Part == TEXT("jet_ski")) { M.Kind = EMotionKind::JetSki; }
+			else if (Part == TEXT("jet_wake")) { M.Kind = EMotionKind::JetWake; }
+			else if (Part == TEXT("gull_body")) { M.Kind = EMotionKind::GullBody; }
+			else if (Part == TEXT("gull_wing_l")) { M.Kind = EMotionKind::GullWingLeft; }
+			else if (Part.StartsWith(TEXT("gull"))) { M.Kind = EMotionKind::GullWingRight; }
+			else if (Part == TEXT("fountain_jet")) { M.Kind = EMotionKind::FountainJet; }
+			else if (Part.StartsWith(TEXT("fountain"))) { M.Kind = EMotionKind::FountainSpray; }
+			else if (Part == TEXT("buoy_lamp")) { M.Kind = EMotionKind::BuoyLamp; }
+			else if (Part.StartsWith(TEXT("buoy"))) { M.Kind = EMotionKind::Buoy; }
+			else { M.Kind = EMotionKind::Static; }
 			M.Index = FCString::Atoi(*Bits[1]);
 			M.Base = Vec3(Arr(A, TEXT("position")));
 			M.Yaw = Num(A, TEXT("yaw"));
@@ -681,31 +731,33 @@ void ATrackBuilder::TickMotion(double T)
 		return;
 	}
 	const double Rebase = Track->SuggestedRebaseY;
-	for (const FMotionPart& M : Motion)
+	for (FMotionPart& M : Motion)
 	{
 		UStaticMeshComponent* C = M.Component.Get();
 		if (!C)
 		{
 			continue;
 		}
-		const FString Part = M.Part.ToString();
 		const int32 i = M.Index;
 		FTransform X = Three(M.Base);
-		if (Part == TEXT("lighthouse_beams"))
+		switch (M.Kind)
 		{
+		case EMotionKind::LighthouseBeams:
 			X = Three(M.Base, Euler(0.0, 0.7 * T, 0.0)); // :23-25
-		}
-		else if (Part.StartsWith(TEXT("ferris")))
+			break;
+		case EMotionKind::FerrisFrame:
+		case EMotionKind::FerrisWheel:
+		case EMotionKind::FerrisGondola:
 		{
 			// :52-62: rim rolls 0.25 rad/s about the hub at y 11.6; gondolas counter-rotate to stay level.
 			const FTransform BaseX = Three(M.Base, Euler(0.0, M.Yaw, 0.0));
 			const double Roll = 0.25 * T;
 			const FTransform Wheel = Three(FVector(0.0, 11.6, 0.0), Euler(0.0, 0.0, Roll));
-			if (Part == TEXT("ferris_frame"))
+			if (M.Kind == EMotionKind::FerrisFrame)
 			{
 				X = BaseX;
 			}
-			else if (Part == TEXT("ferris_wheel"))
+			else if (M.Kind == EMotionKind::FerrisWheel)
 			{
 				X = Wheel * BaseX;
 			}
@@ -714,56 +766,74 @@ void ATrackBuilder::TickMotion(double T)
 				const double Angle = i / 10.0 * UE_DOUBLE_TWO_PI;
 				X = Three(FVector(FMath::Cos(Angle) * 9.0, FMath::Sin(Angle) * 9.0, 0.0), Euler(0.0, 0.0, -Roll)) * Wheel * BaseX;
 			}
+			break;
 		}
-		else if (Part == TEXT("ferry") || Part == TEXT("ferry_smoke"))
+		case EMotionKind::Ferry:
 		{
 			const double A = T * 0.02; // :124-128
 			X = Three(FVector(130.0 + FMath::Cos(A) * 330.0, -3.5 + FMath::Sin(T * 0.9) * 0.25, -35.0 + FMath::Sin(A) * 300.0),
 				Euler(FMath::Sin(T * 0.7) * 0.015, -A, FMath::Sin(T * 0.9) * 0.02));
+			break;
 		}
-		else if (Part == TEXT("cargo_ship"))
+		case EMotionKind::CargoShip:
 		{
 			const double A = -T * 0.012 + 2.2; // :129-133
 			X = Three(FVector(130.0 + FMath::Cos(A) * 420.0, -3.5 + FMath::Sin(T * 0.6) * 0.2, -35.0 + FMath::Sin(A) * 400.0),
 				Euler(0.0, -A + UE_DOUBLE_PI, FMath::Sin(T * 0.6) * 0.015));
+			break;
 		}
-		else if (Part == TEXT("jet_ski") || Part == TEXT("jet_wake"))
+		case EMotionKind::JetSki:
+		case EMotionKind::JetWake:
 		{
 			// :165-178. The web yaws the wake after laying it flat (Euler XYZ), which rolls it about its
 			// length; here the wake stays flat and yaws with its ski.
 			const double A = T * 0.55 + i * (UE_DOUBLE_TWO_PI / 3.0);
 			const double R = 24.0 + FMath::Sin(T * 0.3 + i) * 5.0;
 			const double PX = 110.0 + FMath::Cos(A) * R, PZ = -45.0 + FMath::Sin(A) * R * 0.75;
-			X = Part == TEXT("jet_ski")
+			X = M.Kind == EMotionKind::JetSki
 				? Three(FVector(PX, -6.6 + FMath::Sin(T * 4.0 + i) * 0.12, PZ), Euler(FMath::Sin(T * 4.0 + i) * 0.05, -A, -0.25))
 				: Three(FVector(PX, -6.92, PZ), Euler(0.0, -A, 0.0));
+			break;
 		}
-		else if (Part.StartsWith(TEXT("gull")))
+		case EMotionKind::GullBody:
+		case EMotionKind::GullWingLeft:
+		case EMotionKind::GullWingRight:
 		{
 			// :206-220.
 			const double A = T * (0.35 + (i % 3) * 0.08) + i * 0.8;
 			const double R = 14.0 + (i % 4) * 5.0;
 			const FTransform Bird = Three(FVector(M.Base.X + FMath::Cos(A) * R, 18.0 + (i % 5) * 2.5 + FMath::Sin(T * 1.3 + i) * 0.8, M.Base.Z + FMath::Sin(A) * R), Euler(0.0, -A, 0.0));
 			const double Flap = FMath::Sin(T * 6.0 + i) * 0.55;
-			X = Part == TEXT("gull_body") ? Bird : Three(FVector::ZeroVector, Euler(0.0, 0.0, Part == TEXT("gull_wing_l") ? Flap : -Flap)) * Bird;
+			X = M.Kind == EMotionKind::GullBody ? Bird : Three(FVector::ZeroVector, Euler(0.0, 0.0, M.Kind == EMotionKind::GullWingLeft ? Flap : -Flap)) * Bird;
+			break;
 		}
-		else if (Part.StartsWith(TEXT("fountain")))
+		case EMotionKind::FountainJet:
+		case EMotionKind::FountainSpray:
 		{
 			// :246-257.
 			const double Pulse = 0.7 + FMath::Sin(T * 1.6) * 0.3;
-			X = Part == TEXT("fountain_jet")
+			X = M.Kind == EMotionKind::FountainJet
 				? Three(M.Base + FVector(0.0, 4.6 + Pulse * 1.4, 0.0), FQuat::Identity, FVector(1.0, Pulse, 1.0))
 				: Three(M.Base + FVector(0.0, 6.4, 0.0), Euler(0.0, T * 0.8, 0.0), FVector(0.8 + Pulse * 0.5));
+			break;
 		}
-		else if (Part.StartsWith(TEXT("buoy")))
-		{
+		case EMotionKind::Buoy:
+		case EMotionKind::BuoyLamp:
 			// :278-289: bob and rock; the lamp shows when sin(2.5 t + phase) > 0.6.
 			X = Three(FVector(M.Base.X, -6.6 + FMath::Sin(T * 1.4 + M.Phase) * 0.35, M.Base.Z),
 				Euler(FMath::Sin(T * 1.1 + M.Phase) * 0.12, 0.0, FMath::Cos(T * 0.9 + M.Phase) * 0.12));
-			if (Part == TEXT("buoy_lamp") && M.Lamp.IsValid())
+			if (M.Kind == EMotionKind::BuoyLamp && M.Lamp.IsValid())
 			{
-				M.Lamp->SetScalarParameterValue(TEXT("Opacity"), FMath::Sin(T * 2.5 + M.Phase) > 0.6 ? 1.0 : 0.15);
+				const float Opacity = FMath::Sin(T * 2.5 + M.Phase) > 0.6 ? 1.f : 0.15f;
+				if (Opacity != M.LampSent)
+				{
+					M.Lamp->SetScalarParameterValue(TEXT("Opacity"), Opacity);
+					M.LampSent = Opacity;
+				}
 			}
+			break;
+		default:
+			break;
 		}
 		C->SetRelativeTransform(ToUETransform(X, Rebase));
 	}

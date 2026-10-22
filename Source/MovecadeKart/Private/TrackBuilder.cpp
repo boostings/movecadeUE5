@@ -89,6 +89,7 @@ ATrackBuilder::ATrackBuilder()
 	ItemBoxes->SetStaticMesh(CubeMesh.Object);
 	ItemBoxes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ItemBoxes->SetMobility(EComponentMobility::Movable);
+	ItemBoxes->SetCastShadow(false);
 
 	BoostPads = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("BoostPads"));
 	BoostPads->SetupAttachment(RootComponent);
@@ -103,7 +104,9 @@ ATrackBuilder::ATrackBuilder()
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
 	SkyLight->SetupAttachment(RootComponent);
 	SkyLight->SetMobility(EComponentMobility::Movable);
-	SkyLight->bRealTimeCapture = true;
+	// The dome is static: one capture (RecaptureSky in ApplyLook, again once it has streamed in) instead of a
+	// capture every frame. -KartSkyRealtime brings the per-frame capture back for comparisons.
+	SkyLight->bRealTimeCapture = false;
 
 	// Movable, so ApplyLook's setters take effect at BeginPlay too (static components ignore them).
 	Atmosphere = CreateDefaultSubobject<USkyAtmosphereComponent>(TEXT("Atmosphere"));
@@ -459,7 +462,13 @@ void ATrackBuilder::ApplyLook()
 	SkyLight->SetLightColor(FMath::Lerp(FLinearColor::White, TuneColor(TEXT("skyLightTint"), JsonColor(Hemi, TEXT("sky"), TEXT("ffffff"))), 0.35f));
 	SkyLight->bLowerHemisphereIsBlack = false;
 	SkyLight->SetLowerHemisphereColor(TuneColor(TEXT("groundBounce"), JsonColor(Hemi, TEXT("ground"), TEXT("6e5a48"))) * 0.5f);
+	const bool bRealtimeSky = FParse::Param(FCommandLine::Get(), TEXT("KartSkyRealtime"));
+	if (SkyLight->bRealTimeCapture != bRealtimeSky)
+	{
+		SkyLight->SetRealTimeCapture(bRealtimeSky);
+	}
 	SkyLight->RecaptureSky();
+	SkyRecapturesLeft = bRealtimeSky ? 0 : 2;
 
 	// Sky: a painted dome (M_TrackSky: gradient, sun, horizon glow, clouds). The physical atmosphere stays
 	// off: at these light levels it renders a dim grey sky, and it would tint the sun.
@@ -590,6 +599,12 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	const double Time = GetWorld()->GetTimeSeconds();
 	TickMotion(Time);
+	// The one-off sky capture again at 0.5 s and 2 s of play, once the dome's material and textures are in.
+	if (SkyRecapturesLeft > 0 && Time >= (SkyRecapturesLeft == 2 ? 0.5 : 2.0))
+	{
+		--SkyRecapturesLeft;
+		SkyLight->RecaptureSky();
+	}
 	if (AActor* Cam = DebugCamera.Get())
 	{
 		APlayerController* PC = GetWorld()->GetFirstPlayerController();
@@ -599,11 +614,12 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 		}
 	}
 
-	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t).
-	for (int32 i = 0; i < ItemBoxBase.Num(); ++i)
+	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t). Only while shown: in a race the
+	// item presenter draws the live boxes and these previews are hidden.
+	for (int32 i = 0; ItemBoxes->IsVisible() && i < ItemBoxBase.Num(); ++i)
 	{
 		const FVector P = ItemBoxBase[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time));
-		ItemBoxes->UpdateInstanceTransform(i, FTransform(FRotator(0.0, -FMath::RadiansToDegrees(1.5 * Time), 0.0), P, FVector(2.0)), true, i == ItemBoxBase.Num() - 1);
+		ItemBoxes->UpdateInstanceTransform(i, FTransform(FRotator(0.0, -FMath::RadiansToDegrees(1.5 * Time), 0.0), P, FVector(2.0)), true, false);
 	}
 
 	if (bShowCheckpoints && Track.IsValid())

@@ -131,11 +131,21 @@ private:
 		FLinearColor Color = FLinearColor::White;
 		double Start = 0.0;
 		double Rise = 1.0;
-		double TrailCarry = 0.0;
 		bool bBurst = false;
 		bool bCrackled = false;
+		/** The rising shell's trail: an index into TrailStreams while it climbs. */
+		int32 Trail = INDEX_NONE;
 	};
 	TArray<FShell> Shells;
+
+	/** Spark streams for rising shells, reused: one stream follows each shell instead of a burst per frame. */
+	UPROPERTY()
+	TArray<TObjectPtr<class UNiagaraComponent>> TrailStreams;
+	TArray<bool> TrailBusy;
+
+	/** Trample time not yet applied: the render target updates at 30 Hz with the whole elapsed time. */
+	float TrampleDt = 0.f;
+	TArray<FTransform> ButterflyXforms;
 	/** Where the shows go up: over the finish line, either side of it (UE cm, ground level). */
 	FVector FinishCm = FVector::ZeroVector;
 	FVector FinishRight = FVector::RightVector;

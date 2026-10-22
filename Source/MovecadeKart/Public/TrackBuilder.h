@@ -108,10 +108,34 @@ private:
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UMaterialInterface>> MaterialCache;
 
+	/** Which HarborMotion animation a part runs (resolved from its name once, in GatherMotion). */
+	enum class EMotionKind : uint8
+	{
+		Static,
+		LighthouseBeams,
+		FerrisFrame,
+		FerrisWheel,
+		FerrisGondola,
+		Ferry,
+		CargoShip,
+		JetSki,
+		JetWake,
+		GullBody,
+		GullWingLeft,
+		GullWingRight,
+		FountainJet,
+		FountainSpray,
+		Buoy,
+		BuoyLamp,
+	};
+
 	struct FMotionPart
 	{
 		TWeakObjectPtr<UStaticMeshComponent> Component;
 		FName Part;
+		EMotionKind Kind = EMotionKind::Static;
+		/** The lamp opacity last written (buoy lamps blink between two values). */
+		float LampSent = -1.f;
 		int32 Index = 0;
 		FVector Base = FVector::ZeroVector; // three.js metres
 		double Yaw = 0.0;
@@ -119,6 +143,8 @@ private:
 		TWeakObjectPtr<UMaterialInstanceDynamic> Lamp;
 	};
 	TArray<FMotionPart> Motion;
+	/** Sky recaptures still to do after BeginPlay (the sky light captures once, not every frame). */
+	int32 SkyRecapturesLeft = 0;
 	int32 SceneryCount = 0;
 
 	/** -KartTrackCam=x,y,z,lookX,lookY,lookZ (three.js metres): a fixed view for look checks in screenshots. */
