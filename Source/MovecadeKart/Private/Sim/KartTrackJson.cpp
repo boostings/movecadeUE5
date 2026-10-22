@@ -30,6 +30,8 @@ namespace MovecadeKart
 		 *  the floor would multiply the sweep's per-step work without changing the result. */
 		constexpr double MaxKartRadius = 10.0;
 		constexpr double MinSweepSubstep = 0.01;
+		/** A spawn heading past this many radians (every real one is within a turn) is corrupt. */
+		constexpr double MaxSpawnYaw = 100.0;
 
 		bool IsTrackPoint(const FVector2D& P)
 		{
@@ -175,7 +177,14 @@ namespace MovecadeKart
 			{
 				if (const TSharedPtr<FJsonObject> S = AsObject(V))
 				{
-					Out.Grid.Add({ GroundPoint(S), NumberField(S, TEXT("yaw")) });
+					const FSpawnSlot Slot{ GroundPoint(S), NumberField(S, TEXT("yaw")) };
+					// The karts start and the bots steer from this pose: it must be on the map, with a sane heading.
+					if (!IsTrackPoint(Slot.Position) || !(FMath::Abs(Slot.Yaw) <= MaxSpawnYaw))
+					{
+						UE_LOG(LogKartTrack, Warning, TEXT("Skipping spawn slot at (%g, %g) yaw %g"), Slot.Position.X, Slot.Position.Y, Slot.Yaw);
+						continue;
+					}
+					Out.Grid.Add(Slot);
 				}
 			}
 			for (const TSharedPtr<FJsonValue>& V : ArrayField(Root, TEXT("boostPads")))
