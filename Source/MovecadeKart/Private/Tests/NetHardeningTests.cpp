@@ -3,6 +3,8 @@
 
 #include "Dom/JsonObject.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Base64.h"
+#include "Net/RoomHostInternal.h"
 #include "Net/RoomProtocol.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -229,6 +231,53 @@ bool FNetHardeningJoinUrlLogTest::RunTest(const FString&)
 	TestEqual(TEXT("no token, unchanged"), RedactJoinUrl(BuildJoinUrl(TEXT("https://movecade.com"), TEXT("ABCDEF"), FString())),
 		FString(TEXT("https://movecade.com/join/ABCDEF#v=2")));
 	TestEqual(TEXT("a t= outside the fragment is not the token"), RedactJoinUrl(TEXT("http://x/join/A?t=1")), FString(TEXT("http://x/join/A?t=1")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningHostTokenTest, "MovecadeKart.Net.Hardening.HostTokenAtRest", HardeningTestFlags)
+bool FNetHardeningHostTokenTest::RunTest(const FString&)
+{
+	using namespace MovecadeKart::Net::RoomHost;
+	const FString Token = TEXT("host-token-é+/==");
+
+	// A legacy saved room (plaintext hostToken) still reclaims.
+	const TSharedPtr<FJsonObject> Legacy = ParseJson(TEXT("{\"identity\":\"x\",\"code\":\"ABCDEF\",\"hostToken\":\"legacy-token\"}"));
+	TestEqual(TEXT("legacy plaintext token read"), ReadSavedHostToken(*Legacy), FString(TEXT("legacy-token")));
+
+	// What a save writes now.
+	const TSharedRef<FJsonObject> Saved = MakeShared<FJsonObject>();
+	WriteSavedHostToken(*Saved, Token);
+	FString Json;
+	FJsonSerializer::Serialize(Saved, TJsonWriterFactory<>::Create(&Json));
+	TestEqual(TEXT("the token reads back"), ReadSavedHostToken(*Saved), Token);
+	if (bCanSealSecrets)
+	{
+		// NET-03: sealed, and the plaintext is nowhere in the file.
+		TestFalse(TEXT("no plaintext hostToken field"), Saved->HasField(TEXT("hostToken")));
+		TestTrue(TEXT("a sealed hostTokenSealed field"), Saved->HasTypedField<EJson::String>(TEXT("hostTokenSealed")));
+		TestFalse(TEXT("the file never holds the token"), Json.Contains(TEXT("host-token")));
+
+		FString Sealed;
+		FString Plain;
+		TestTrue(TEXT("seal"), SealSecret(Token, Sealed));
+		TestTrue(TEXT("unseal round trip"), UnsealSecret(Sealed, Plain) && Plain == Token);
+		// One flipped byte, or junk, does not unseal; a legacy token next to a broken seal is still used.
+		TArray<uint8> Bytes;
+		FBase64::Decode(Sealed, Bytes);
+		Bytes.Last() ^= 0x5A;
+		TestFalse(TEXT("tampered seal refused"), UnsealSecret(FBase64::Encode(Bytes), Plain));
+		TestFalse(TEXT("junk refused"), UnsealSecret(TEXT("not base64 !"), Plain));
+		const TSharedPtr<FJsonObject> Broken = ParseJson(TEXT("{\"hostTokenSealed\":\"AAAA\",\"hostToken\":\"legacy-token\"}"));
+		TestEqual(TEXT("a broken seal falls back to the legacy token"), ReadSavedHostToken(*Broken), FString(TEXT("legacy-token")));
+	}
+	else
+	{
+		// Documented: no OS keystore wired up off Windows, so the token stays plaintext as before.
+		TestTrue(TEXT("plaintext elsewhere"), Saved->HasField(TEXT("hostToken")));
+	}
+	const TSharedRef<FJsonObject> NoToken = MakeShared<FJsonObject>();
+	WriteSavedHostToken(*NoToken, FString());
+	TestEqual(TEXT("no token, no field"), NoToken->Values.Num(), 0);
 	return true;
 }
 

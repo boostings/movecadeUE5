@@ -37,6 +37,12 @@ public class MovecadeKart : ModuleRules
 			"StaticMeshDescription",
 		});
 
+		// Net/: the saved room's host token is sealed with DPAPI (CryptProtectData). Other platforms keep it in plaintext.
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			PublicSystemLibraries.Add("Crypt32.lib");
+		}
+
 		// Store/: the Steam Inventory backend builds only with MOVECADE_STEAM=1 in the environment (the engine's
 		// Steamworks SDK, no plugin). The default build has no Steam dependency and uses the offline store.
 		// UBT doesn't notice an environment change on its own: after toggling it, touch this file. Docs/Store/README.md.
