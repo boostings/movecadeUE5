@@ -88,10 +88,10 @@ namespace MovecadeKart::Net
 	/** validateSensorFrame: size 30/31/38/39, type 0x02, flags within 0x3F, quaternion flag needs 38/39, orientation <= 3. */
 	MOVECADEKART_API ESensorError ValidateSensorFrame(const uint8* Data, int32 Size);
 	/** decodeSensorFrame, little-endian. Returns false (and leaves Out alone) on an invalid frame. */
+	MOVECADEKART_API bool DecodeSensorFrame(const uint8* Data, int32 Size, FSensorFrame& Out, ESensorError* OutError = nullptr);
+
 	/** A JSON string literal, escaped. */
 	MOVECADEKART_API FString QuoteJson(const FString& Value);
-
-	MOVECADEKART_API bool DecodeSensorFrame(const uint8* Data, int32 Size, FSensorFrame& Out, ESensorError* OutError = nullptr);
 
 	/**
 	 * The host steering transform (MultiplayerMobileControlBridge.tsx:228-291): wrap gamma to
@@ -100,6 +100,65 @@ namespace MovecadeKart::Net
 	 * (positive gamma) steers right.
 	 */
 	MOVECADEKART_API double SteeringFromGamma(double GammaDeg, double Sensitivity = 1.0);
+
+	// Server -> host frames (messages.ts ServerMessage). The wire is exact: types and codes compare case-sensitively.
+	enum class EServerMessage : uint8
+	{
+		Unknown,
+		Ping,
+		Welcome,
+		State,
+		GameEvent,
+		Error,
+		HostChanged,
+		SignedScores,
+		RoomClosed,
+		ActionAck,
+		ResumeCountdown,
+	};
+	/** A frame's `t`; Unknown for anything the host does not handle. */
+	MOVECADEKART_API EServerMessage ParseServerMessageType(const FString& Type);
+
+	/** The phone game events the host itself consumes (every other one goes to the game through OnGameEvent). */
+	constexpr const TCHAR* KartInputEvent = TEXT("kart-input");
+	constexpr const TCHAR* PracticeActionEvent = TEXT("practice:action");
+
+	/** error {code: UNAUTHORIZED_ORIGIN}: the server does not admit this host's Origin (Docs/Port/server). */
+	constexpr const TCHAR* ErrorUnauthorizedOrigin = TEXT("UNAUTHORIZED_ORIGIN");
+	/** The error codes that refuse a start-game (the host may ask again). */
+	MOVECADEKART_API bool IsStartRejectedError(const FString& Code);
+
+	/** Why the host may not start the match yet, in the order the lobby checks (HostSurface.tsx:337-348). */
+	enum class EStartBlock : uint8
+	{
+		None,
+		/** The socket is not open (connecting, reconnecting, failed). */
+		NotConnected,
+		/** Another screen hosts this room. */
+		NotHost,
+		/** The room is not in its lobby. */
+		MatchRunning,
+		NobodySeated,
+		/** Only bots are seated: a person has to join. */
+		OnlyBots,
+		/** The race layer is still loading the track. */
+		Preparing,
+		/** Someone is not ready, not connected or eliminated (FStartCheck::NotReady of them). */
+		NotReady,
+	};
+
+	struct FStartCheck
+	{
+		EStartBlock Block = EStartBlock::None;
+		int32 NotReady = 0;
+
+		bool CanStart() const { return Block == EStartBlock::None; }
+	};
+
+	/** The start rules, without building any text: the lobby asks every frame. */
+	MOVECADEKART_API FStartCheck EvaluateStart(const FMcRoomState& Room, bool bConnectionOpen, bool bIsHost, bool bPreparationReady);
+	/** The lobby's line for a blocked start ("Scan the code with a phone to join."); empty when it can start. */
+	MOVECADEKART_API FString DescribeStartBlock(const FStartCheck& Check, const FString& LastError);
 
 	/** game-event `kart-input` data (legacyBridge.ts:318-335). Each phone event carries only the fields that changed. */
 	struct FKartInputEvent
@@ -198,15 +257,15 @@ namespace MovecadeKart::Net
 		MOVECADEKART_API FString DropPlayer(const FString& PlayerId);
 		MOVECADEKART_API FString CloseRoom();
 		/**
-		 * The web host's phone haptic (MultiplayerKart.tsx:1447-1569): game-event `collision` with
-		 * {type:'collision', targetPlayerId, intensity, collisionType, sustained}. Intensity is clamped to 0..1.
-		 */
-		/**
 		 * play:feedback (playFeedback.ts): the phone's toast and haptic after a play. Tone success | warning | neutral;
 		 * Haptic impact | warning | celebration or empty; title <= 80 and detail <= 160 characters.
 		 */
 		MOVECADEKART_API FString PlayFeedback(const FString& GameId, int32 MatchNumber, const FString& PlayerId, const FString& Title,
 			const FString& Detail, const FString& Tone, const FString& Haptic, bool bMajor);
+		/**
+		 * The web host's phone haptic (MultiplayerKart.tsx:1447-1569): game-event `collision` with
+		 * {type:'collision', targetPlayerId, intensity, collisionType, sustained}. Intensity is clamped to 0..1.
+		 */
 		MOVECADEKART_API FString Haptic(const FString& TargetPlayerId, double Intensity, const FString& CollisionType, bool bSustained);
 		/** Out-of-union ack that stops signed-scores redelivery (engine.ts handleScoresAck). */
 		MOVECADEKART_API FString ScoresAck(int32 MatchNumber);
