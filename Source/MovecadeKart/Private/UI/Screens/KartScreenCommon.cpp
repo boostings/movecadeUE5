@@ -50,18 +50,6 @@ namespace KartScreens::Shared
 		return Host ? UKartSessionSettings::Get(Host->GetWorld()) : nullptr;
 	}
 
-	const FString& SeatTag(int32 Seat)
-	{
-		static const FString Tags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4"), TEXT("P5"), TEXT("P6"), TEXT("P7"), TEXT("P8") };
-		return Tags[FMath::Clamp(Seat, 0, static_cast<int32>(UE_ARRAY_COUNT(Tags)) - 1)];
-	}
-
-	const FString& CpuTag()
-	{
-		static const FString Cpu(TEXT("CPU"));
-		return Cpu;
-	}
-
 	// FListFocus --------------------------------------------------------------------------------------
 
 	KartWidgets::FItemState FListFocus::State(int32 Row, double Now, bool bEnabled) const

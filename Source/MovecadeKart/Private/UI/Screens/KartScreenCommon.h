@@ -18,10 +18,8 @@ namespace KartScreens::Shared
 	/** The session settings of the host's world, or null (headless, or no game instance). */
 	UKartSessionSettings* SessionOf(const IKartScreenHost* Host);
 
-	/** "P1".."P8" (clamped), for seat badges. */
-	const FString& SeatTag(int32 Seat);
-	/** The badge on a house player's seat. */
-	const FString& CpuTag();
+	using KartWidgets::SeatTag;
+	using KartWidgets::CpuTag;
 
 	/**
 	 * A list's focus: the cursor plus the timestamps its focus pop and value-change nudge animate from.

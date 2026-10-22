@@ -99,6 +99,18 @@ namespace KartWidgets
 		return (1.f - Ease::OutCubic(Frame.Presence)) * Distance * Frame.Direction;
 	}
 
+	const FString& SeatTag(int32 Seat)
+	{
+		static const FString Tags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4"), TEXT("P5"), TEXT("P6"), TEXT("P7"), TEXT("P8") };
+		return Tags[FMath::Clamp(Seat, 0, static_cast<int32>(UE_ARRAY_COUNT(Tags)) - 1)];
+	}
+
+	const FString& CpuTag()
+	{
+		static const FString Cpu(TEXT("CPU"));
+		return Cpu;
+	}
+
 	void Arrow(const FKartPainter& P, const FVector2D& C, float Size, bool bRight, const FLinearColor& Color)
 	{
 		const double S = bRight ? 1.0 : -1.0;
