@@ -43,21 +43,12 @@ namespace
 	/** The web's item ids, which the audio observer keys item-spend sounds on. */
 	FName WebItemId(EKartItem Item)
 	{
-		switch (Item)
-		{
-		case EKartItem::Shot: return TEXT("GREEN_SHELL");
-		case EKartItem::Seeker: return TEXT("RED_SHELL");
-		case EKartItem::SkySeeker: return TEXT("BLUE_SHELL");
-		case EKartItem::Banana: return TEXT("BANANA");
-		case EKartItem::Nitro: return TEXT("MUSHROOM");
-		case EKartItem::TripleNitro: return TEXT("TRIPLE_MUSHROOM");
-		case EKartItem::Prism: return TEXT("STAR");
-		case EKartItem::Lightning: return TEXT("LIGHTNING");
-		case EKartItem::Ink: return TEXT("BLOOPER");
-		case EKartItem::Bomb: return TEXT("BOB_OMB");
-		case EKartItem::Rocket: return TEXT("BULLET_BILL");
-		default: return NAME_None;
-		}
+		// Read per kart per frame, so the names are interned once rather than looked up on every call.
+		static const FName Ids[] = { NAME_None, TEXT("GREEN_SHELL"), TEXT("RED_SHELL"), TEXT("BLUE_SHELL"), TEXT("BANANA"), TEXT("MUSHROOM"),
+			TEXT("TRIPLE_MUSHROOM"), TEXT("STAR"), TEXT("LIGHTNING"), TEXT("BLOOPER"), TEXT("BOB_OMB"), TEXT("BULLET_BILL") };
+		static_assert(UE_ARRAY_COUNT(Ids) == static_cast<SIZE_T>(EKartItem::Count), "one web id per item");
+		const SIZE_T Index = static_cast<uint8>(Item);
+		return Index < UE_ARRAY_COUNT(Ids) ? Ids[Index] : NAME_None;
 	}
 
 	EKartAudioPhase AudioPhase(EKartRacePhase Phase)
@@ -91,7 +82,7 @@ AKartRaceManager* AKartRaceManager::Get(const UObject* WorldContext)
 	{
 		return nullptr;
 	}
-	for (TActorIterator<AKartRaceManager> It(World); It; ++It)
+	if (TActorIterator<AKartRaceManager> It{World})
 	{
 		return *It;
 	}
@@ -185,7 +176,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 	// Intro shots: the track's static cameras (store.ts: 5 shots x 1.2 s).
 	for (ACameraActor* Camera : IntroCameras)
 	{
-		Camera->Destroy();
+		if (Camera)
+		{
+			Camera->Destroy();
+		}
 	}
 	IntroCameras.Reset();
 	for (int32 i = 0; i < FMath::Min(IntroShots, Track->StaticCameras.Num()); ++i)
@@ -285,7 +279,7 @@ const FKartRacer* AKartRaceManager::FindRacer(const AKartPawn* Kart) const
 double AKartRaceManager::ProgressScore(const FKartRacer& Racer) const
 {
 	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
-	return S.LapsCompleted * 100.0 + FMath::Clamp(S.ProgressPercent, 0.0, 99.9);
+	return MovecadeKart::ProgressScore(S.LapsCompleted, S.ProgressPercent);
 }
 
 void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
@@ -635,40 +629,7 @@ FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
 
 FKartRaceContext AKartRaceManager::MakeContext(const FKartRacer& Racer) const
 {
-	FKartRaceContext C;
-	C.PlayerCount = Racers.Num();
-	C.RacePosition = Racer.Place;
-	C.bRacing = Phase == EKartRacePhase::Racing;
-	C.SelfSeat = Racer.Seat;
-	C.bKartContact = bKartContact;
-
-	double LeaderScore = 0.0;
-	for (const FKartRacer& Other : Racers)
-	{
-		LeaderScore = FMath::Max(LeaderScore, ProgressScore(Other));
-	}
-	C.LeaderGapRatio = FMath::Min(1.0, FMath::Max(0.0, LeaderScore - ProgressScore(Racer)) / 140.0);
-
-	const FVector2D Pos = Racer.Kart->GetKartMovement()->SimState().Pos;
-	double NearestAhead = TNumericLimits<double>::Max();
-	for (const FKartRacer& Other : Racers)
-	{
-		if (Other.Seat == Racer.Seat)
-		{
-			continue;
-		}
-		const FVector2D OtherPos = Other.Kart->GetKartMovement()->SimState().Pos;
-		C.Others.Add({ Other.Seat, OtherPos });
-		// store.ts getNearestPlayerAhead: the nearest of the karts ahead in race order.
-		const double Distance = FVector2D::Distance(Pos, OtherPos);
-		if (Other.Place < Racer.Place && Distance < NearestAhead)
-		{
-			NearestAhead = Distance;
-			C.bHasAhead = true;
-			C.AheadPosition = OtherPos;
-		}
-	}
-	return C;
+	return MakeRaceContext(StepStandings, Racer.Seat, Phase == EKartRacePhase::Racing, bKartContact);
 }
 
 void AKartRaceManager::StepRace()
@@ -774,14 +735,17 @@ void AKartRaceManager::StepRace()
 
 void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
 {
+	static const FName BarrierHaptic(TEXT("barrier"));
+	static const FName KartHaptic(TEXT("kart"));
+	static const FName TerrainHaptic(TEXT("terrain"));
 	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
 	if (S.BarrierEvent > 0.0)
 	{
-		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BarrierEvent), TEXT("barrier"), S.bBarrierEventSustained);
+		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BarrierEvent), BarrierHaptic, S.bBarrierEventSustained);
 	}
 	if (S.BumpEvent > 0.0)
 	{
-		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), TEXT("kart"), false);
+		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), KartHaptic, false);
 		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
 		{
 			Audio->PlayImpact(static_cast<float>(S.BumpEvent));
@@ -791,7 +755,7 @@ void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
 	if (S.bOnDirt && FMath::Abs(S.Speed) > 5.0 && S.Time - Racer.LastTerrainRumble >= 0.2)
 	{
 		Racer.LastTerrainRumble = S.Time;
-		OnHaptic.Broadcast(Racer.Seat, 0.075f, TEXT("terrain"), true);
+		OnHaptic.Broadcast(Racer.Seat, 0.075f, TerrainHaptic, true);
 	}
 }
 
@@ -925,29 +889,16 @@ void AKartRaceManager::DispatchItemEvents(const TArray<FKartItemEvent>& Events)
 
 void AKartRaceManager::UpdateStandings()
 {
-	Standings.Reset();
+	StepStandings.Reset();
 	for (const FKartRacer& Racer : Racers)
 	{
-		Standings.Add(Racer.Seat);
+		const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
+		StepStandings.Add({ S.Pos, S.LapsCompleted, S.ProgressPercent, Racer.bFinished, Racer.FinishMs });
 	}
-	// Finished karts by finish time first, then laps and lap progress (RaceUI rankKarts).
-	Standings.StableSort([this](int32 A, int32 B)
+	RankRacers(StepStandings, Standings);
+	for (int32 Seat = 0; Seat < Racers.Num(); ++Seat)
 	{
-		const FKartRacer& RA = Racers[A];
-		const FKartRacer& RB = Racers[B];
-		if (RA.bFinished != RB.bFinished)
-		{
-			return RA.bFinished;
-		}
-		if (RA.bFinished)
-		{
-			return RA.FinishMs < RB.FinishMs;
-		}
-		return ProgressScore(RA) > ProgressScore(RB);
-	});
-	for (int32 i = 0; i < Standings.Num(); ++i)
-	{
-		Racers[Standings[i]].Place = i + 1;
+		Racers[Seat].Place = StepStandings[Seat].Place;
 	}
 }
 

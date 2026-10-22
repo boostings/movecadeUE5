@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimInstanceProxy.h"
+#include "Avatar/AvatarRig.h"
 #include "KartDriverAnimInstance.generated.h"
 
 /** What the kart tells its driver each frame. Positions are in the driver mesh's component space. */
@@ -81,17 +82,21 @@ private:
 		int32 Neck = INDEX_NONE;
 		int32 Arm[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
 		int32 Leg[2][3] = { { INDEX_NONE, INDEX_NONE, INDEX_NONE }, { INDEX_NONE, INDEX_NONE, INDEX_NONE } };
+		int32 Fingers[2] = { INDEX_NONE, INDEX_NONE };
+		int32 Thumb[2] = { INDEX_NONE, INDEX_NONE };
 		/** The rig's spring chains (avatar4 "Spring_hair*", "Spring_hem*"), parents first. */
 		TArray<int32, TInlineAllocator<8>> Hair;
 		TArray<int32, TInlineAllocator<8>> Hem;
 	};
 	/** Looks the joints up by name only when the bone container changes (LOD, mesh swap), not every evaluation. */
-	const FDriverBones& CacheBones(const FBoneContainer& Bones);
+	const FDriverBones& CacheDriverBones(const FBoneContainer& Bones);
 
 	FDriverBones CachedBones;
 	uint16 CachedSerial = 0;
 	bool bBonesCached = false;
 	FKartDriverPoseInput Input;
+	/** The working pose, reused every evaluation (no allocation). */
+	MovecadeKart::Rig::FRigWork Rig;
 	/** The damped pose state (radians), so the body lags the wheel like mass. */
 	float TorsoRoll = 0.f;
 	float TorsoRollVelocity = 0.f;

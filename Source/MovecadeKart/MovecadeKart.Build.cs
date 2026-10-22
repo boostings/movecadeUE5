@@ -7,6 +7,9 @@ public class MovecadeKart : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		// Files keep file-local helpers and log categories; unity batches would collide them as the module grows.
 		bUseUnity = false;
+		// The race must be bit-identical run to run and match the web build (JS doubles never fuse or reassociate).
+		// Game targets default to /fp:fast on Windows; only Editor targets get precise, which is what the tests prove.
+		FPSemantics = FPSemanticsMode.Precise;
 
 		// Track data is read from <Project>/Data/Tracks at runtime; stage it with packaged builds.
 		RuntimeDependencies.Add("$(ProjectDir)/Data/Tracks/*.json", StagedFileType.UFS);

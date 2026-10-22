@@ -6,10 +6,11 @@
 class UMaterialInstanceDynamic;
 class USkeletalMesh;
 class USkeletalMeshComponent;
+class UStaticMeshComponent;
 
 /**
  * Dresses an avatar4 driver (Content/Avatars, Tools/ue/import_karts.py) in an FKartLook: the face and body mesh,
- * one hair style (none under a cap), the accessory, a paid outfit leader-posed over the stock clothes, and the
+ * one hair style (none under a cap or beanie), the accessory (a mesh section, or a prop built in code on the head), a paid outfit leader-posed over the stock clothes, and the
  * tints (skin, lips, hair, jersey, trousers, shoes, eyes). Shared by the karts' drivers and every party game's
  * player avatar, so a look reads the same in all of them.
  */
@@ -33,7 +34,16 @@ namespace MovecadeKart::Avatar
 		/** Forget what was built, so the next Dress rebuilds everything. */
 		void Invalidate() { BuiltDriver.Reset(); bRebuildOutfit = true; }
 
+		/** The rim colour that keeps the avatar readable at a distance (the player's colour, lifted), and its strength. */
+		static FLinearColor RimColour(const FKartLook& Look);
+
 	private:
+		/** Puts the code-built prop on the head (or takes it off). */
+		void DressProp(USkeletalMeshComponent* Driver, const FKartLook& Look);
+
+		TWeakObjectPtr<UStaticMeshComponent> Prop;
+		EKartAccessory BuiltProp = EKartAccessory::None;
+		TArray<TWeakObjectPtr<UMaterialInstanceDynamic>, TInlineAllocator<3>> PropTints;
 		TMap<FName, TWeakObjectPtr<UMaterialInstanceDynamic>> DriverTints;
 		TMap<FName, TWeakObjectPtr<UMaterialInstanceDynamic>> OutfitTints;
 		FString BuiltDriver;

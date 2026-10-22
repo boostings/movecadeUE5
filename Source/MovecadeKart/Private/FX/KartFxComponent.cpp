@@ -35,16 +35,37 @@ namespace
 	template <typename T = USceneComponent>
 	T* FindPart(const AActor* Owner, const TCHAR* Name)
 	{
-		TArray<T*> All;
-		Owner->GetComponents(All);
-		for (T* C : All)
+		// Runs every tick (RefreshAnchors), so it walks the owned set in place and compares interned names.
+		const FName Wanted(Name, FNAME_Find);
+		if (Wanted.IsNone())
 		{
-			if (C->GetFName() == Name)
+			return nullptr;
+		}
+		for (UActorComponent* C : Owner->GetComponents())
+		{
+			if (T* Part = Cast<T>(C); Part && Part->GetFName() == Wanted)
 			{
-				return C;
+				return Part;
 			}
 		}
 		return nullptr;
+	}
+
+	/** Material parameters written every frame, interned once. */
+	namespace Param
+	{
+		const FName Color(TEXT("Color"));
+		const FName Intensity(TEXT("Intensity"));
+		const FName Now(TEXT("Now"));
+		const FName Fade(TEXT("Fade"));
+		const FName Age(TEXT("Age"));
+		const FName Prism(TEXT("Prism"));
+		const FName FlashT(TEXT("FlashT"));
+		const FName InkAge(TEXT("InkAge"));
+		const FName InkLeft(TEXT("InkLeft"));
+		const FName Hit(TEXT("Hit"));
+		const FName HitColor(TEXT("HitColor"));
+		const FName Zap(TEXT("Zap"));
 	}
 
 	UStaticMeshComponent* MakeMesh(AActor* Owner, USceneComponent* Parent, const TCHAR* Name, UStaticMesh* Mesh)
@@ -642,8 +663,8 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 			if (bGlow && GlowMaterials.IsValidIndex(i))
 			{
 				const FLinearColor C = Level.Level > 0 ? Level.Color : FLinearColor(0.9f, 0.9f, 1.f);
-				GlowMaterials[i]->SetVectorParameterValue(TEXT("Color"), C);
-				GlowMaterials[i]->SetScalarParameterValue(TEXT("Intensity"), static_cast<float>((Level.Level > 0 ? 6.0 : 1.2) * Pulse));
+				GlowMaterials[i]->SetVectorParameterValue(Param::Color, C);
+				GlowMaterials[i]->SetScalarParameterValue(Param::Intensity, static_cast<float>((Level.Level > 0 ? 6.0 : 1.2) * Pulse));
 				WheelGlow[i]->SetRelativeScale3D(FVector((Level.Level > 0 ? 0.3 + 0.07 * Level.Level : 0.2) * Pulse));
 			}
 		}
@@ -728,6 +749,10 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 			Out.Add(Burst);
 			for (const UNiagaraComponent* Pipe : BoostFire)
 			{
+				if (!Pipe)
+				{
+					continue; // no FX content: MakeStream returned null
+				}
 				FKartFxEmit Gout;
 				Gout.Field = EField::Fire;
 				Gout.Position = Pipe->GetComponentLocation();
@@ -784,7 +809,7 @@ void UKartFxComponent::UpdateSkids(const FKartState& S, double Time)
 		(S.DriftDirection != 0.0 || (FMath::Abs(S.SlipYaw) > 0.16 && Speed > 22.0));
 	if (SkidMaterial)
 	{
-		SkidMaterial->SetScalarParameterValue(TEXT("Now"), static_cast<float>(Time));
+		SkidMaterial->SetScalarParameterValue(Param::Now, static_cast<float>(Time));
 	}
 	const FTransform Frame = VehicleRoot->GetComponentTransform();
 	for (int32 Wheel = 0; Wheel < 2; ++Wheel)
@@ -823,11 +848,13 @@ void UKartFxComponent::UpdateSkids(const FKartState& S, double Time)
 		else
 		{
 			Index = NextSkid;
-			SkidMarks->UpdateInstanceTransform(Index, Segment, /*bWorldSpace*/ true, false, true);
+			SkidMarks->UpdateInstanceTransform(Index, Segment, /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false, /*bTeleport*/ true);
 		}
 		NextSkid = (Index + 1) % MaxSkidSegments;
-		// The material fades each segment out by its age: custom data 0 is when it was laid, "Now" the time.
-		SkidMarks->SetCustomDataValue(Index, 0, static_cast<float>(Time), true);
+		// The material fades each segment out by its age: custom data 0 is when it was laid, "Now" the time. Adding,
+		// moving and re-stamping an instance are all incremental instance updates; dirtying the render state here
+		// rebuilt the whole skid-mark proxy for every new segment.
+		SkidMarks->SetCustomDataValue(Index, 0, static_cast<float>(Time), /*bMarkRenderStateDirty*/ false);
 		LastMark[Wheel] = Contact;
 	}
 }
@@ -843,7 +870,7 @@ void UKartFxComponent::UpdateItemFx(double Time, bool bPrism, bool bRocket)
 	AuraShell->SetVisibility(bPrism && !bRocket);
 	if (AuraMaterial && bPrism)
 	{
-		AuraMaterial->SetVectorParameterValue(TEXT("Color"), Rainbow);
+		AuraMaterial->SetVectorParameterValue(Param::Color, Rainbow);
 		const double Breathe = 1.0 + 0.04 * FMath::Sin(Time * 9.0);
 		AuraShell->SetRelativeScale3D(FVector(3.0, 2.3, 1.9) * Breathe);
 	}
@@ -943,8 +970,8 @@ void UKartFxComponent::UpdatePadFlashes(double Time)
 		if (bOn && PadMaterials[i])
 		{
 			const double T = Age / PadFlashSeconds;
-			PadMaterials[i]->SetScalarParameterValue(TEXT("Fade"), static_cast<float>(3.0 * FMath::Pow(1.0 - T, 1.5)));
-			PadMaterials[i]->SetScalarParameterValue(TEXT("Age"), static_cast<float>(Age));
+			PadMaterials[i]->SetScalarParameterValue(Param::Fade, static_cast<float>(3.0 * FMath::Pow(1.0 - T, 1.5)));
+			PadMaterials[i]->SetScalarParameterValue(Param::Age, static_cast<float>(Age));
 		}
 	}
 }
@@ -993,11 +1020,11 @@ void UKartFxComponent::UpdateScreen(double Time, const FKartItemSlot* Slot, doub
 	{
 		Zap = FMath::Max(FMath::Exp(-ZapT * 18.0), 0.6 * FMath::Exp(-FMath::Square((ZapT - 0.35) * 9.0)));
 	}
-	ScreenMaterial->SetScalarParameterValue(TEXT("Prism"), bPrism ? 1.f : 0.f);
-	ScreenMaterial->SetScalarParameterValue(TEXT("FlashT"), FlashT);
-	ScreenMaterial->SetScalarParameterValue(TEXT("InkAge"), InkAge);
-	ScreenMaterial->SetScalarParameterValue(TEXT("InkLeft"), InkLeft);
-	ScreenMaterial->SetScalarParameterValue(TEXT("Hit"), static_cast<float>(Hit));
-	ScreenMaterial->SetVectorParameterValue(TEXT("HitColor"), FlashTint);
-	ScreenMaterial->SetScalarParameterValue(TEXT("Zap"), static_cast<float>(Zap));
+	ScreenMaterial->SetScalarParameterValue(Param::Prism, bPrism ? 1.f : 0.f);
+	ScreenMaterial->SetScalarParameterValue(Param::FlashT, FlashT);
+	ScreenMaterial->SetScalarParameterValue(Param::InkAge, InkAge);
+	ScreenMaterial->SetScalarParameterValue(Param::InkLeft, InkLeft);
+	ScreenMaterial->SetScalarParameterValue(Param::Hit, static_cast<float>(Hit));
+	ScreenMaterial->SetVectorParameterValue(Param::HitColor, FlashTint);
+	ScreenMaterial->SetScalarParameterValue(Param::Zap, static_cast<float>(Zap));
 }

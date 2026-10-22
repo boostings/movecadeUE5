@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "KartLook.h"
 #include "Race/KartBotDriver.h"
+#include "Race/KartStandings.h"
 #include "Sim/KartItems.h"
 #include "Sim/KartSim.h"
 #include "KartRaceManager.generated.h"
@@ -219,8 +220,10 @@ private:
 	void SetPhase(EKartRacePhase NewPhase);
 	void BeginRacing();
 	void StepRace();
+	/** Ranks the racers (Standings, each Place) from their current state, kept in StepStandings for MakeContext. */
 	void UpdateStandings();
 	MovecadeKart::FKartInput GatherInput(FKartRacer& Racer, bool bRacing);
+	/** What Racer sees this step, from the last UpdateStandings. */
 	MovecadeKart::FKartRaceContext MakeContext(const FKartRacer& Racer) const;
 	void EmitStepEvents(FKartRacer& Racer);
 	void DispatchItemEvents(const TArray<MovecadeKart::FKartItemEvent>& Events);
@@ -259,6 +262,7 @@ private:
 	MovecadeKart::FKartItemWorld Items;
 	TArray<MovecadeKart::FKartItemEvent> PendingItemEvents;
 	/** Per-step scratch, kept so a race step allocates nothing. */
+	TArray<MovecadeKart::FKartStanding> StepStandings;
 	TArray<MovecadeKart::FKartRaceContext> StepContexts;
 	TArray<MovecadeKart::FKartItemRacer> StepItemRacers;
 	TArray<MovecadeKart::FKartItemEvent> StepItemEvents;

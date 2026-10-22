@@ -53,7 +53,7 @@ AKartFrontEnd* AKartFrontEnd::Find(const UWorld* World)
 	{
 		return nullptr;
 	}
-	for (TActorIterator<AKartFrontEnd> It(const_cast<UWorld*>(World)); It; ++It)
+	if (TActorIterator<AKartFrontEnd> It{const_cast<UWorld*>(World)})
 	{
 		return *It;
 	}
@@ -389,7 +389,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 	{
 		return false;
 	}
-	const TSharedPtr<FKartScreen>& Top = Screens->Top();
+	const TSharedPtr<FKartScreen> Top = Screens->Top();
 	const FName Expected = Step == TEXT("quit") ? FName(TEXT("confirm")) : Step == TEXT("storebuy") ? FName(TEXT("store-buy")) : Step == TEXT("storedone") ? FName(TEXT("store-done")) : Step;
 	if (!Top.IsValid() || Top->GetId() != Expected)
 	{
