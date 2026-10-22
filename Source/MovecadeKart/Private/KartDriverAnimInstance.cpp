@@ -32,7 +32,6 @@ namespace
 
 }
 
-using MovecadeKart::Rig::FRigWork;
 using MovecadeKart::Rig::SolveMiddle;
 
 FAnimInstanceProxy* UKartDriverAnimInstance::CreateAnimInstanceProxy()
@@ -110,6 +109,10 @@ const FKartDriverAnimProxy::FDriverBones& FKartDriverAnimProxy::CacheDriverBones
 			B.Leg[Side][Joint] = Find(LegNames[Side][Joint]);
 		}
 	}
+	B.Fingers[0] = Find(TEXT("leftFingers"));
+	B.Fingers[1] = Find(TEXT("rightFingers"));
+	B.Thumb[0] = Find(TEXT("leftThumb"));
+	B.Thumb[1] = Find(TEXT("rightThumb"));
 	B.Hair.Reset();
 	B.Hem.Reset();
 	for (int32 MeshIndex = 0; MeshIndex < Ref.GetNum(); ++MeshIndex)
@@ -146,11 +149,8 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 		return true; // not an avatar4 rig: keep the reference pose
 	}
 
-	FRigWork Rig;
 	const int32 Num = Pose.GetNumBones();
-	Rig.Local.SetNum(Num);
-	Rig.CS.SetNum(Num);
-	Rig.Parent.SetNum(Num);
+	Rig.SetNum(Num);
 	for (int32 i = 0; i < Num; ++i)
 	{
 		const FCompactPoseBoneIndex Index(i);
@@ -267,7 +267,7 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 	// Spring chains: each joint takes a share of the swing about the head's (hair) or hips' (hems) own axes,
 	// so the tips curl furthest.
 	const FQuat HeadFrame = HeadDelta * TorsoDelta;
-	auto Swing = [&Rig](const TArray<int32, TInlineAllocator<8>>& Chain, const FVector& Side, const FVector& Ahead, float Pitch, float RollAngle)
+	auto Swing = [this](const TArray<int32, TInlineAllocator<8>>& Chain, const FVector& Side, const FVector& Ahead, float Pitch, float RollAngle)
 	{
 		for (const int32 Bone : Chain)
 		{
@@ -319,6 +319,9 @@ bool FKartDriverAnimProxy::Evaluate(FPoseContext& Output)
 			const FVector Elbow = SolveMiddle(Shoulder, Target, L1, L2, Pole);
 			Rig.Aim(Upper, Fore, Elbow - Shoulder);
 			Rig.Aim(Fore, Hand, Target - Rig.Pos(Fore));
+			// Fingers wrapped round the rim; open as the hand leaves it (a wave, an item, a flail).
+			const float Off = FMath::Max(HandsOff, Side == 1 ? FMath::Clamp(Input.ItemRaise, 0.f, 1.f) : 0.f);
+			MovecadeKart::Rig::CurlFingers(Rig, Hand, B.Fingers[Side], B.Thumb[Side], FMath::Lerp(0.9f, 0.15f, Off));
 		}
 	}
 
