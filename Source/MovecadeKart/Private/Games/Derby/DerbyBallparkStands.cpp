@@ -10,17 +10,38 @@
 #include "Engine/StaticMesh.h"
 #include "Games/Derby/DerbyBallparkParts.h"
 
+using namespace MovecadeKart::Derby;
 using namespace MovecadeKart::Derby::Ballpark;
 
-/** One arc of stepped rows round the plate: how high the first row sits, how much each rises and how wide a step is. */
+/**
+ * One arc of stepped stands round the plate, swept in steps of StepDeg: its rows (how high the first sits, how much each
+ * rises), and the back wall behind the last row with a neon trim and, for a grandstand, a roof. Metres and degrees.
+ */
 struct FDerbyStandArc
 {
+	double FromDeg = 0.0;
+	double ToDeg = 0.0;
+	double StepDeg = 0.0;
 	int32 Rows = 0;
 	double FirstRowZ = 0.0;
 	double RowRise = 0.0;
 	/** Degrees of arc each step's riser covers (a hair over the step, so the steps meet) and its fans spread over. */
 	double RiserArcDeg = 0.0;
 	double FanArcDeg = 0.0;
+	/** The back wall: this far behind the last row, this thick, rising this far above the top row. */
+	double BackGapM = 0.0;
+	double FacadeDepthM = 0.0;
+	double FacadeAboveM = 0.0;
+	/** The trim's strip: in front of the back wall by TrimInset, TrimAbove the top row. */
+	double TrimInsetM = 0.0;
+	double TrimAboveM = 0.0;
+	double TrimDepthM = 0.0;
+	double TrimHeightM = 0.0;
+	/** A roof over the upper rows (none when RoofDepth is 0), its front edge RoofInset in from the back wall. */
+	double RoofInsetM = 0.0;
+	double RoofDepthM = 0.0;
+	double RoofArcDeg = 0.0;
+	double RoofThicknessM = 0.0;
 };
 
 namespace
@@ -46,23 +67,48 @@ namespace
 	constexpr double SeatBenchShare = 0.96;
 	constexpr double FanSpacingM = 0.75;
 
-	/** The bleachers beyond the wall: from this far past the fence, in 2.5-degree steps, leaving the batter's eye clear. */
-	constexpr FDerbyStandArc Bleachers{ 16, 1.6, 0.62, 2.56, 2.5 };
-	constexpr double BleacherStepDeg = 2.5;
+	/** Every seat bench: its depth and height. */
+	constexpr double SeatBenchM = 0.4;
+
+	/** The bleachers beyond the wall, from pole to pole and a little past, leaving the batter's eye clear. */
+	constexpr FDerbyStandArc Bleachers{ .FromDeg = -50.0, .ToDeg = 50.0, .StepDeg = 2.5, .Rows = 16, .FirstRowZ = 1.6, .RowRise = 0.62,
+		.RiserArcDeg = 2.56, .FanArcDeg = 2.5, .BackGapM = 0.6, .FacadeDepthM = 1.0, .FacadeAboveM = 3.0,
+		.TrimInsetM = 0.55, .TrimAboveM = 2.4, .TrimDepthM = 0.1, .TrimHeightM = 0.25 };
+	/** Their first row this far past the fence (the fence clamped to the poles), the batter's eye this wide either side. */
 	constexpr double BleacherBehindFenceM = 6.0;
 	constexpr double BattersEyeHalfDeg = 10.0;
-	/** The grandstand round home: hugging the backstop behind the plate, farther out down the lines (foul ground). */
-	constexpr FDerbyStandArc Grandstand{ 18, 1.4, 0.66, 3.06, 3.0 };
-	constexpr double GrandstandStepDeg = 3.0;
+
+	/** The grandstand round home, from first base's side behind the plate to third's, under a roof with a neon edge. */
+	constexpr FDerbyStandArc Grandstand{ .FromDeg = 52.0, .ToDeg = 308.0, .StepDeg = 3.0, .Rows = 18, .FirstRowZ = 1.4, .RowRise = 0.66,
+		.RiserArcDeg = 3.06, .FanArcDeg = 3.0, .BackGapM = 0.6, .FacadeDepthM = 1.0, .FacadeAboveM = 6.0,
+		.TrimInsetM = 10.4, .TrimAboveM = 5.7, .TrimDepthM = 0.15, .TrimHeightM = 0.2,
+		.RoofInsetM = 5.0, .RoofDepthM = 11.0, .RoofArcDeg = 3.1, .RoofThicknessM = 0.5 };
+	/** It hugs the backstop within this many degrees of straight behind home, easing out to the far distance down the lines. */
 	constexpr double GrandstandNearM = 19.5;
 	constexpr double GrandstandFarM = 34.0;
-	/** The stands down the lines: blocks along each foul line, twelve rows back from it. */
-	constexpr int32 LineRows = 12;
-	constexpr double LineNearM = 12.0;
-	constexpr double LineRowRise = 0.62;
-	constexpr double LineFirstRowZ = 1.4;
-	constexpr double LineBlockM = 4.0;
-	constexpr int32 LineFansPerRow = 5;
+	constexpr double GrandstandHugDeg = 60.0;
+	constexpr double GrandstandEaseDeg = 70.0;
+
+	/** The stands down the lines: blocks of rows parallel to each foul line, a back wall behind each block. */
+	struct FLineStandSpec
+	{
+		double FromM;
+		double ToM;
+		double BlockM;
+		int32 Rows;
+		double NearM;
+		double FirstRowZ;
+		double RowRise;
+		/** Fans along each row from the block's start, this far apart. */
+		int32 FansPerRow;
+		double FirstFanM;
+		double FanSpacingM;
+		double BackGapM;
+		double FacadeDepthM;
+		double FacadeHeightM;
+	};
+	constexpr FLineStandSpec LineStands{ .FromM = 40.0, .ToM = 100.0, .BlockM = 4.0, .Rows = 12, .NearM = 12.0, .FirstRowZ = 1.4, .RowRise = 0.62,
+		.FansPerRow = 5, .FirstFanM = 0.4, .FanSpacingM = 0.8, .BackGapM = 0.6, .FacadeDepthM = 1.0, .FacadeHeightM = 12.0 };
 
 	/** A fan: a rounded body and a head, slot 0 the shirt, slot 1 the skin (cm, standing on the origin); a cheering
 	 *  one has both arms up in a V with fists. */
@@ -95,7 +141,7 @@ void ADerbyBallpark::BuildStandArc(const FDerbyStandArc& Arc, double MidDeg, dou
 		const double Z = Arc.FirstRowZ + Row * Arc.RowRise;
 		const double Len = Rr * FMath::DegreesToRadians(Arc.RiserArcDeg);
 		Box(Riser, Dir * (Rr + RiserInsetM) + FVector(0.0, 0.0, Z / 2.0), FVector(RowDepthM, Len, Z), MidDeg);
-		Box(Seat, Dir * (Rr + SeatInsetM) + FVector(0.0, 0.0, Z + SeatRaiseM), FVector(0.4, Len * SeatBenchShare, 0.4), MidDeg);
+		Box(Seat, Dir * (Rr + SeatInsetM) + FVector(0.0, 0.0, Z + SeatRaiseM), FVector(SeatBenchM, Len * SeatBenchShare, SeatBenchM), MidDeg);
 		const int32 Count = FMath::FloorToInt32(Len / FanSpacingM);
 		for (int32 k = 0; k < Count; ++k)
 		{
@@ -105,6 +151,21 @@ void ADerbyBallpark::BuildStandArc(const FDerbyStandArc& Arc, double MidDeg, dou
 			AddFan(FVector(FMath::Cos(Ar), FMath::Sin(Ar), 0.0) * (Rr + FanInsetM) + FVector(0.0, 0.0, Z), MidDeg + 180.0);
 		}
 	}
+}
+
+void ADerbyBallpark::BuildStandBack(const FDerbyStandArc& Arc, double MidDeg, double BaseM, UMaterialInterface* Facade, UMaterialInterface* Trim)
+{
+	const FVector Dir(FMath::Cos(FMath::DegreesToRadians(MidDeg)), FMath::Sin(FMath::DegreesToRadians(MidDeg)), 0.0);
+	const double Back = BaseM + Arc.Rows * RowDepthM + Arc.BackGapM;
+	const double Top = Arc.FirstRowZ + Arc.Rows * Arc.RowRise;
+	const double Width = Back * FMath::DegreesToRadians(Arc.RiserArcDeg);
+	Box(Facade, Dir * Back + FVector(0.0, 0.0, (Top + Arc.FacadeAboveM) / 2.0), FVector(Arc.FacadeDepthM, Width, Top + Arc.FacadeAboveM), MidDeg);
+	if (Arc.RoofDepthM > 0.0)
+	{
+		Box(Facade, Dir * (Back - Arc.RoofInsetM) + FVector(0.0, 0.0, Top + Arc.FacadeAboveM),
+			FVector(Arc.RoofDepthM, Back * FMath::DegreesToRadians(Arc.RoofArcDeg), Arc.RoofThicknessM), MidDeg);
+	}
+	Box(Trim, Dir * (Back - Arc.TrimInsetM) + FVector(0.0, 0.0, Top + Arc.TrimAboveM), FVector(Arc.TrimDepthM, Width, Arc.TrimHeightM), MidDeg);
 }
 
 void ADerbyBallpark::BuildStands()
@@ -124,8 +185,8 @@ void ADerbyBallpark::BuildStands()
 		Crowd.Add(P);
 		UMaterialInterface* Shirt = Materials.Plain(this, Hex(Shirts[i % UE_ARRAY_COUNT(Shirts)]), 0.7);
 		UMaterialInterface* Skin = Materials.Plain(this, Hex(Skins[(i / UE_ARRAY_COUNT(Shirts)) % UE_ARRAY_COUNT(Skins)]), 0.6);
-		Sections.Add(Groups.Find(FanMesh, Shirt, false, P, Skin));
-		Cheering.Add(Groups.Find(CheerMesh, Shirt, false, P, Skin));
+		Sections.Add(FindGroup(FanMesh, Shirt, false, P, Skin));
+		Cheering.Add(FindGroup(CheerMesh, Shirt, false, P, Skin));
 	}
 	FRandomStream R(CrowdSeed);
 	const auto AddFan = [&](const FVector& FeetM, double YawDeg)
@@ -139,60 +200,57 @@ void ADerbyBallpark::BuildStands()
 		const double Yaw = YawDeg + R.FRandRange(-FanTurnDeg, FanTurnDeg);
 		(R.FRand() < CheerChance ? Cheering : Sections)[S]->AddInstance(FTransform(FRotator(0.0, Yaw, 0.0), M(FeetM), FVector(Scale)), false);
 	};
-	// Bleachers beyond the wall, the back wall and its neon trim on top.
-	for (double A = -50.0; A < 50.0; A += BleacherStepDeg)
+	// Bleachers beyond the wall.
+	for (double A = Bleachers.FromDeg; A < Bleachers.ToDeg; A += Bleachers.StepDeg)
 	{
-		const double Mid = A + BleacherStepDeg / 2.0;
+		const double Mid = A + Bleachers.StepDeg / 2.0;
 		if (FMath::Abs(Mid) < BattersEyeHalfDeg)
 		{
 			continue;
 		}
-		const double Base = FenceAt(FMath::Clamp(Mid, -45.0, 45.0)) + BleacherBehindFenceM;
+		const double Base = FenceAt(FMath::Clamp(Mid, -FoulLineDeg, FoulLineDeg)) + BleacherBehindFenceM;
 		BuildStandArc(Bleachers, Mid, Base, Riser, Seat, AddFan);
-		const FVector Dir(FMath::Cos(FMath::DegreesToRadians(Mid)), FMath::Sin(FMath::DegreesToRadians(Mid)), 0.0);
-		const double Back = Base + Bleachers.Rows * RowDepthM + 0.6;
-		const double Top = Bleachers.FirstRowZ + Bleachers.Rows * Bleachers.RowRise;
-		Box(Facade, Dir * Back + FVector(0.0, 0.0, (Top + 3.0) / 2.0), FVector(1.0, Back * FMath::DegreesToRadians(Bleachers.RiserArcDeg), Top + 3.0), Mid);
-		Box(Trim, Dir * (Back - 0.55) + FVector(0.0, 0.0, Top + 2.4), FVector(0.1, Back * FMath::DegreesToRadians(Bleachers.RiserArcDeg), 0.25), Mid);
+		BuildStandBack(Bleachers, Mid, Base, Facade, Trim);
 	}
-	// The grandstand round home, from first base's side behind the plate to third's, under a roof with a neon edge.
-	for (double A = 52.0; A < 308.0; A += GrandstandStepDeg)
+	// The grandstand round home.
+	for (double A = Grandstand.FromDeg; A < Grandstand.ToDeg; A += Grandstand.StepDeg)
 	{
-		const double Mid = A + GrandstandStepDeg / 2.0;
+		const double Mid = A + Grandstand.StepDeg / 2.0;
 		// Down the lines the stand sits farther out (foul ground), behind the plate it hugs the backstop.
 		const double Behind = FMath::Abs(FMath::FindDeltaAngleDegrees(Mid, 180.0));
-		const double Base = Behind < 60.0 ? GrandstandNearM : FMath::Lerp(GrandstandNearM, GrandstandFarM, FMath::Clamp((Behind - 60.0) / 70.0, 0.0, 1.0));
+		const double Ease = FMath::Clamp((Behind - GrandstandHugDeg) / GrandstandEaseDeg, 0.0, 1.0);
+		const double Base = Behind < GrandstandHugDeg ? GrandstandNearM : FMath::Lerp(GrandstandNearM, GrandstandFarM, Ease);
 		BuildStandArc(Grandstand, Mid, Base, Riser, Seat, AddFan);
-		const FVector Dir(FMath::Cos(FMath::DegreesToRadians(Mid)), FMath::Sin(FMath::DegreesToRadians(Mid)), 0.0);
-		const double Back = Base + Grandstand.Rows * RowDepthM + 0.6;
-		const double Top = Grandstand.FirstRowZ + Grandstand.Rows * Grandstand.RowRise;
-		Box(Facade, Dir * Back + FVector(0.0, 0.0, (Top + 6.0) / 2.0), FVector(1.0, Back * FMath::DegreesToRadians(Grandstand.RiserArcDeg), Top + 6.0), Mid);
-		Box(Facade, Dir * (Back - 5.0) + FVector(0.0, 0.0, Top + 6.0), FVector(11.0, Back * FMath::DegreesToRadians(3.1), 0.5), Mid);
-		Box(Trim, Dir * (Back - 10.4) + FVector(0.0, 0.0, Top + 5.7), FVector(0.15, Back * FMath::DegreesToRadians(Grandstand.RiserArcDeg), 0.2), Mid);
+		BuildStandBack(Grandstand, Mid, Base, Facade, Trim);
 	}
-	// Down the lines: stands parallel to the foul lines, between the grandstand and the bleachers.
+	BuildLineStands(Riser, Facade, AddFan);
+}
+
+void ADerbyBallpark::BuildLineStands(UMaterialInterface* Riser, UMaterialInterface* Facade, TFunctionRef<void(const FVector&, double)> AddFan)
+{
+	// Down the lines: stands parallel to the foul lines, between the grandstand and the bleachers, facing the field.
+	const FLineStandSpec& L = LineStands;
 	for (const double Side : { -1.0, 1.0 })
 	{
-		const double LineRad = FMath::DegreesToRadians(Side * 45.0);
+		const double LineRad = FMath::DegreesToRadians(Side * FoulLineDeg);
 		const FVector Along(FMath::Cos(LineRad), FMath::Sin(LineRad), 0.0);
 		const FVector Out = FVector(-FMath::Sin(LineRad), FMath::Cos(LineRad), 0.0) * Side;
-		const double Yaw = Side * 45.0;
-		for (double S = 40.0; S < 100.0; S += LineBlockM)
+		const double Yaw = Side * FoulLineDeg;
+		for (double S = L.FromM; S < L.ToM; S += L.BlockM)
 		{
-			for (int32 Row = 0; Row < LineRows; ++Row)
+			for (int32 Row = 0; Row < L.Rows; ++Row)
 			{
-				const double D = LineNearM + Row * RowDepthM;
-				const double Z = LineFirstRowZ + Row * LineRowRise;
-				const FVector C = Along * (S + 2.0) + Out * (D + RiserInsetM);
-				Box(Riser, C + FVector(0.0, 0.0, Z / 2.0), FVector(LineBlockM, RowDepthM, Z), Yaw);
-				for (int32 k = 0; k < LineFansPerRow; ++k)
+				const double D = L.NearM + Row * RowDepthM;
+				const double Z = L.FirstRowZ + Row * L.RowRise;
+				const FVector C = Along * (S + L.BlockM / 2.0) + Out * (D + RiserInsetM);
+				Box(Riser, C + FVector(0.0, 0.0, Z / 2.0), FVector(L.BlockM, RowDepthM, Z), Yaw);
+				for (int32 k = 0; k < L.FansPerRow; ++k)
 				{
-					// Facing the field across the line.
-					AddFan(Along * (S + 0.4 + k * 0.8) + Out * (D + FanInsetM) + FVector(0.0, 0.0, Z), Yaw + (Side > 0 ? -90.0 : 90.0));
+					AddFan(Along * (S + L.FirstFanM + k * L.FanSpacingM) + Out * (D + FanInsetM) + FVector(0.0, 0.0, Z), Yaw + (Side > 0 ? -90.0 : 90.0));
 				}
 			}
-			const FVector Back = Along * (S + 2.0) + Out * (LineNearM + LineRows * RowDepthM + 0.6);
-			Box(Facade, Back + FVector(0.0, 0.0, 6.0), FVector(LineBlockM, 1.0, 12.0), Yaw);
+			const FVector Back = Along * (S + L.BlockM / 2.0) + Out * (L.NearM + L.Rows * RowDepthM + L.BackGapM);
+			Box(Facade, Back + FVector(0.0, 0.0, L.FacadeHeightM / 2.0), FVector(L.BlockM, L.FacadeDepthM, L.FacadeHeightM), Yaw);
 		}
 	}
 }

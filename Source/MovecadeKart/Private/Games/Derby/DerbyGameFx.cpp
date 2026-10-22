@@ -48,111 +48,118 @@ namespace
 		return MovecadeKart::Art::Hex(FireworkHues[((Index % NumFireworkHues) + NumFireworkHues) % NumFireworkHues]);
 	}
 
+	/** An emit recipe: every field but where it goes (and what the moment varies), set once. */
+	Fx::FKartFxEmit Recipe(Fx::EField Field, int32 Count, double Spread, const FVector2D& Speed, const FVector2D& Life, const FVector2D& Size, double SizeEnd,
+		const FLinearColor& Color, const FLinearColor& ColorEnd, double Intensity, double Jitter = 0.0)
+	{
+		Fx::FKartFxEmit Emit;
+		Emit.Field = Field;
+		Emit.Count = Count;
+		Emit.Spread = Spread;
+		Emit.Speed = Speed;
+		Emit.Life = Life;
+		Emit.Size = Size;
+		Emit.SizeEnd = SizeEnd;
+		Emit.Color = Color;
+		Emit.ColorEnd = ColorEnd;
+		Emit.Intensity = Intensity;
+		Emit.Jitter = Jitter;
+		return Emit;
+	}
+
+	// The recipes (FKartFxEmit units: m/s, seconds, metres). Count, Size and colours a moment varies are noted.
+	namespace Recipes
+	{
+		const FLinearColor& Gold() { static const FLinearColor C = MovecadeKart::Art::Hex(ContactGold); return C; }
+		/** Contact sparks along the hit: Count grows with the contact quality. */
+		const Fx::FKartFxEmit& ContactSparks()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Sparks, 1, 0.7, { 3.0, 8.0 }, { 0.2, 0.45 }, { 0.02, 0.04 }, 0.2, FLinearColor::White, Gold(), 3.0);
+			return E;
+		}
+		/** The white flash at the plate: Size grows with the contact quality. */
+		const Fx::FKartFxEmit& ContactFlash()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Flare, 1, 0.5, { 0.0, 0.0 }, { 0.14, 0.14 }, { 0.6, 0.6 }, 0.3, FLinearColor::White, Gold(), 3.0);
+			return E;
+		}
+		/** A barrelled ball's shock ring, along the hit. */
+		const Fx::FKartFxEmit& ContactRing()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Ring, 1, 0.5, { 0.0, 0.0 }, { 0.3, 0.3 }, { 0.5, 0.5 }, 3.0, FLinearColor::White, Gold(), 2.0);
+			return E;
+		}
+		/** A ball in play kicks up the infield dirt where it lands. */
+		const Fx::FKartFxEmit& LandingDust()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Smoke, 14, 1.2, { 0.6, 1.6 }, { 0.6, 1.0 }, { 0.4, 0.7 }, 2.0,
+				MovecadeKart::Art::Hex(TEXT("#b08a63")), MovecadeKart::Art::Hex(TEXT("#6d5a44")), 0.6);
+			return E;
+		}
+		/** A firework's coloured burst: Color (its hue whitened) and ColorEnd (the next hue) per burst. */
+		const Fx::FKartFxEmit& FireworkBurst()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Sparks, 140, PI, { 12.0, 19.0 }, { 1.1, 1.9 }, { 1.0, 1.6 }, 0.25, FLinearColor::White, FLinearColor::White, 14.0, 0.6);
+			return E;
+		}
+		/** Its white flash, fading to the hue. */
+		const Fx::FKartFxEmit& FireworkFlash()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Flare, 1, 0.5, { 0.0, 0.0 }, { 0.3, 0.3 }, { 26.0, 26.0 }, 0.3, FLinearColor::White, FLinearColor::White, 5.0);
+			return E;
+		}
+		/** Its slow glitter, fading two hues on. */
+		const Fx::FKartFxEmit& FireworkGlitter()
+		{
+			static const Fx::FKartFxEmit E = Recipe(Fx::EField::Flare, 40, PI, { 4.0, 8.0 }, { 1.4, 2.4 }, { 1.6, 2.6 }, 0.1, FLinearColor::White, FLinearColor::White, 8.0, 2.0);
+			return E;
+		}
+	}
+
 	/** The crack: sparks along the hit, a white flash, and a ring for a barrelled ball. */
 	void EmitContact(UKartFxSubsystem& FxSys, const FVector& At, const FVector& Dir, float Quality)
 	{
-		const FLinearColor Gold = MovecadeKart::Art::Hex(ContactGold);
-		Fx::FKartFxEmit Sparks;
-		Sparks.Field = Fx::EField::Sparks;
+		Fx::FKartFxEmit Sparks = Recipes::ContactSparks();
 		Sparks.Position = At;
 		Sparks.Direction = Dir;
 		Sparks.Count = FMath::RoundToInt32(10.f + 26.f * Quality);
-		Sparks.Spread = 0.7;
-		Sparks.Speed = FVector2D(3.0, 8.0);
-		Sparks.Life = FVector2D(0.2, 0.45);
-		Sparks.Size = FVector2D(0.02, 0.04);
-		Sparks.Color = FLinearColor::White;
-		Sparks.ColorEnd = Gold;
-		Sparks.Intensity = 3.0;
 		FxSys.Emit(Sparks);
-		Fx::FKartFxEmit Flash;
-		Flash.Field = Fx::EField::Flare;
+		Fx::FKartFxEmit Flash = Recipes::ContactFlash();
 		Flash.Position = At;
-		Flash.Speed = FVector2D::ZeroVector;
-		Flash.Life = FVector2D(0.14, 0.14);
 		Flash.Size = FVector2D(0.6 + 0.9 * Quality, 0.6 + 0.9 * Quality);
-		Flash.SizeEnd = 0.3;
-		Flash.Color = FLinearColor::White;
-		Flash.ColorEnd = Gold;
-		Flash.Intensity = 3.0;
 		FxSys.Emit(Flash);
 		if (Quality <= RingQuality)
 		{
 			return;
 		}
-		Fx::FKartFxEmit Ring;
-		Ring.Field = Fx::EField::Ring;
+		Fx::FKartFxEmit Ring = Recipes::ContactRing();
 		Ring.Position = At;
 		Ring.Direction = Dir;
-		Ring.Speed = FVector2D::ZeroVector;
-		Ring.Life = FVector2D(0.3, 0.3);
-		Ring.Size = FVector2D(0.5, 0.5);
-		Ring.SizeEnd = 3.0;
-		Ring.Color = FLinearColor::White;
-		Ring.ColorEnd = Gold;
-		Ring.Intensity = 2.0;
 		FxSys.Emit(Ring);
 	}
 
-	/** A ball in play kicks up the infield dirt where it lands. */
 	Fx::FKartFxEmit LandingDust(const FVector& At)
 	{
-		Fx::FKartFxEmit Dust;
-		Dust.Field = Fx::EField::Smoke;
+		Fx::FKartFxEmit Dust = Recipes::LandingDust();
 		Dust.Position = At;
-		Dust.Count = 14;
-		Dust.Spread = 1.2;
-		Dust.Speed = FVector2D(0.6, 1.6);
-		Dust.Life = FVector2D(0.6, 1.0);
-		Dust.Size = FVector2D(0.4, 0.7);
-		Dust.SizeEnd = 2.0;
-		Dust.Color = MovecadeKart::Art::Hex(TEXT("#b08a63"));
-		Dust.ColorEnd = MovecadeKart::Art::Hex(TEXT("#6d5a44"));
-		Dust.Intensity = 0.6;
 		return Dust;
 	}
 
 	/** One firework: a coloured burst, a white flash, and slow glitter that fades into the next hues. */
 	void EmitFirework(UKartFxSubsystem& FxSys, const FVector& At, int32 Hue)
 	{
-		Fx::FKartFxEmit Burst;
-		Burst.Field = Fx::EField::Sparks;
+		Fx::FKartFxEmit Burst = Recipes::FireworkBurst();
 		Burst.Position = At;
-		Burst.Count = 140;
-		Burst.Spread = PI;
-		Burst.Speed = FVector2D(12.0, 19.0);
-		Burst.Life = FVector2D(1.1, 1.9);
-		Burst.Size = FVector2D(1.0, 1.6);
-		Burst.SizeEnd = 0.25;
 		Burst.Color = FMath::Lerp(FireworkColor(Hue), FLinearColor::White, 0.35f);
 		Burst.ColorEnd = FireworkColor(Hue + 1);
-		Burst.Intensity = 14.0;
-		Burst.Jitter = 0.6;
 		FxSys.Emit(Burst);
-		Fx::FKartFxEmit Flash;
-		Flash.Field = Fx::EField::Flare;
+		Fx::FKartFxEmit Flash = Recipes::FireworkFlash();
 		Flash.Position = At;
-		Flash.Speed = FVector2D::ZeroVector;
-		Flash.Life = FVector2D(0.3, 0.3);
-		Flash.Size = FVector2D(26.0, 26.0);
-		Flash.SizeEnd = 0.3;
-		Flash.Color = FLinearColor::White;
 		Flash.ColorEnd = FireworkColor(Hue);
-		Flash.Intensity = 5.0;
 		FxSys.Emit(Flash);
-		Fx::FKartFxEmit Glitter;
-		Glitter.Field = Fx::EField::Flare;
+		Fx::FKartFxEmit Glitter = Recipes::FireworkGlitter();
 		Glitter.Position = At;
-		Glitter.Count = 40;
-		Glitter.Spread = PI;
-		Glitter.Speed = FVector2D(4.0, 8.0);
-		Glitter.Life = FVector2D(1.4, 2.4);
-		Glitter.Size = FVector2D(1.6, 2.6);
-		Glitter.SizeEnd = 0.1;
-		Glitter.Color = FLinearColor::White;
 		Glitter.ColorEnd = FireworkColor(Hue + 2);
-		Glitter.Intensity = 8.0;
-		Glitter.Jitter = 2.0;
 		FxSys.Emit(Glitter);
 	}
 }

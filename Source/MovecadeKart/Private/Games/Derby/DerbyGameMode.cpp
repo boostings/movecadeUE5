@@ -31,12 +31,6 @@ namespace
 	constexpr uint32 RoomSeedStep = 7919u;
 	const TCHAR* const PitchEvent = TEXT("derby:pitch");
 
-	FString Hex(const FLinearColor& Color)
-	{
-		const FColor S = Color.ToFColor(true);
-		return FString::Printf(TEXT("#%02x%02x%02x"), S.R, S.G, S.B);
-	}
-
 	/** The phone's toast for a pitch (play:feedback). */
 	struct FDerbyCall
 	{
@@ -213,7 +207,7 @@ void ADerbyGameMode::PromptPhones(URoomHostSubsystem& Room, const FString& Batte
 		const bool bUp = Seat.Id == BatterId;
 		const FString Title = bUp ? TEXT("Swing your phone like a bat") : FString::Printf(TEXT("%s is batting"), Up ? *Up->Name : TEXT("Someone"));
 		const FString Subtitle = bUp ? TEXT("Hold it by the bottom, screen to you. Swing as the ball reaches you.") : TEXT("Get loose: you're up soon");
-		Room.SendPadPrompt(Seat.Id, Title, Subtitle, bUp ? TEXT("READY") : TEXT(""), TEXT(""), Hex(Seat.Color), TEXT("swing"));
+		Room.SendPadPrompt(Seat.Id, Title, Subtitle, bUp ? TEXT("READY") : TEXT(""), TEXT(""), MovecadeKart::Net::HexColor(Seat.Color), TEXT("swing"));
 	}
 }
 
