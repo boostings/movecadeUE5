@@ -1109,6 +1109,12 @@ void URoomHostSubsystem::SendGameEvent(const FString& Event, const FString& Data
 	}
 }
 
+void URoomHostSubsystem::SendPadPrompt(const FString& PlayerId, const FString& Title, const FString& Subtitle, const FString& A,
+	const FString& B, const FString& AccentHex, const FString& Mode)
+{
+	SendGameEvent(MovecadeKart::Net::PadPromptEvent, MovecadeKart::Net::PadPromptData(PlayerId, Title, Subtitle, A, B, AccentHex, Mode));
+}
+
 void URoomHostSubsystem::SendPlayFeedback(const FString& PlayerId, const FString& Title, const FString& Detail, const FString& Tone, const FString& Haptic, bool bMajor)
 {
 	if (bWelcomed)

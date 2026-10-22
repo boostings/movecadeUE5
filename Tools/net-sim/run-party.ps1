@@ -1,8 +1,11 @@
 # Runs the Movecade room server (PartyKit) locally for the UE host. Local only: this never deploys.
 #
 #   .\Tools\net-sim\run-party.ps1            # clone + npm ci on first use, then serve ws://localhost:1999
+#   .\Tools\net-sim\run-party.ps1 -Source Tools\.cache\movecade-v2-pad   # serve a patched scratch clone in place
 #
-# The clone lives in Tools/.cache/movecade (git-ignored); the movecade-v2 checkout itself is never touched.
+# By default the clone lives in Tools/.cache/movecade (git-ignored); the movecade-v2 checkout itself is never touched.
+# -Source pointing anywhere else is taken to be your own scratch clone (for example one with the Docs/Port/server
+# patches applied): it is served from where it is, after `npm ci` if it has no node_modules yet.
 # EXTRA_ALLOWED_ORIGINS admits the Origin that UE's libwebsockets sends for ws://localhost:1999
 # ("http://localhost", or "http://127.0.0.1" with -RoomServer=127.0.0.1:1999). Without it the server
 # refuses the UE host with UNAUTHORIZED_ORIGIN / close 4003 (spec 04 §11 F1).
@@ -13,10 +16,18 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-$clone = Join-Path $root 'Tools\.cache\movecade'
-if (-not (Test-Path $clone)) {
-    git clone --local $Source $clone
+$original = 'C:\Users\Jimmy\Documents\Projects\movecade\movecade-v2'
+$sourcePath = (Resolve-Path $Source).Path.TrimEnd('\')
+if ($sourcePath -ieq $original.TrimEnd('\')) {
+    # The read-only original: work on a local clone of it.
+    $clone = Join-Path $root 'Tools\.cache\movecade'
+    if (-not (Test-Path $clone)) {
+        git clone --local $Source $clone
+    }
+} else {
+    $clone = $sourcePath
 }
+Write-Host "run-party: serving $clone on port $Port"
 if (-not (Test-Path (Join-Path $clone 'node_modules\.bin\partykit.cmd'))) {
     Push-Location $clone
     # --ignore-scripts: an optional native dependency (cpu-features) fails to build without a C++ toolchain on PATH.
