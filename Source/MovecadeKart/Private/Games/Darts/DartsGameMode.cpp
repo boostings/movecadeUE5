@@ -2,48 +2,84 @@
 
 #include "Art/KartMaterials.h"
 #include "Dom/JsonObject.h"
-#include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "EngineUtils.h"
-#include "GameFramework/PlayerController.h"
+#include "Games/Darts/DartsDebugFlags.h"
 #include "Games/Darts/DartsGame.h"
+#include "Games/Darts/DartsGameTuning.h"
 #include "Games/Darts/DartsPub.h"
-#include "Games/ArcadeSession.h"
-#include "Games/SArcadeOverlay.h"
-#include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetSystemLibrary.h"
+#include "Games/Darts/DartsRelease.h"
 #include "Misc/CommandLine.h"
 #include "Net/RoomHostSubsystem.h"
+#include "Net/RoomProtocol.h"
 #include "TimerManager.h"
 
 using namespace MovecadeKart::Darts;
+using MovecadeKart::Net::QuoteJson;
 
 namespace
 {
 	/** The web's lane colours, one per seat. */
 	const TCHAR* const SeatColors[] = { TEXT("#f0508e"), TEXT("#3fc9c2"), TEXT("#f2b23f"), TEXT("#a083ff") };
 	const TCHAR* const HouseNames[] = { TEXT("Dante"), TEXT("Priya"), TEXT("Mika"), TEXT("Rosa") };
+	/** Local people throw sharp (the bots' skill only matters if -DartsAuto hands them to the AI); house bots vary. */
+	constexpr float LocalSkill = 0.85f;
+	constexpr float HouseSkillBase = 0.45f;
+	constexpr float HouseSkillStep = 0.15f;
+	/** A room's own bots throw at this skill. */
+	constexpr float RoomBotSkill = 0.6f;
+	/** Each party game starts its line-up at its own FKartLook::MakeVaried row, so the games don't all show the same faces. */
+	constexpr int32 LookSeedBase = 2;
 
-	URoomHostSubsystem* RoomOf(const UObject* Context)
+	/** runtime.ts: darts:aim streams at 12.5 Hz; darts:turn repeats at least every 250 ms (a phone that missed one). */
+	constexpr float AimIntervalSeconds = 0.08f;
+	constexpr double TurnRepeatSeconds = 0.25;
+
+	/** -DartsLocalAuto: grip this long after the hand comes free, hold at least MinHold, let go in the sweet spot. */
+	constexpr float LocalAutoIntervalSeconds = 0.02f;
+	constexpr double LocalAutoGripDelaySeconds = 1.1;
+	constexpr double LocalAutoMinHoldSeconds = 0.4;
+
+	const TCHAR* PhaseName(EMatchPhase Phase)
 	{
-		const UGameInstance* GI = Context && Context->GetWorld() ? Context->GetWorld()->GetGameInstance() : nullptr;
-		return GI ? GI->GetSubsystem<URoomHostSubsystem>() : nullptr;
+		switch (Phase)
+		{
+		case EMatchPhase::Playing: return TEXT("playing");
+		case EMatchPhase::Ended: return TEXT("ended");
+		default: return TEXT("countdown");
+		}
 	}
 
-	FString Quote(const FString& Value)
+	const TCHAR* JsonBool(bool bValue)
 	{
-		return MovecadeKart::Net::QuoteJson(Value);
+		return bValue ? TEXT("true") : TEXT("false");
+	}
+
+	/** One dart's room traffic: the thrower's toast and haptic, darts:result and darts:replay-outcome. */
+	void SendThrowToRoom(URoomHostSubsystem& Room, const FString& PlayerId, const FThrowOutcome& Outcome)
+	{
+		const FDartLanding& L = Outcome.Landing;
+		const bool bMajor = L.bBounty || L.Hit.Ring == ERing::Bull;
+		const bool bScored = L.ScoreDelta > 0;
+		Room.SendPlayFeedback(PlayerId, Outcome.Label, FString::Printf(TEXT("%d points%s"), L.ScoreDelta, L.bBounty ? TEXT(" · Double points") : TEXT("")),
+			bScored ? TEXT("success") : TEXT("warning"), bMajor ? TEXT("celebration") : (bScored ? TEXT("impact") : TEXT("warning")), bMajor);
+		Room.SendGameEvent(TEXT("darts:result"), FString::Printf(TEXT("{\"playerId\":%s,\"label\":%s,\"score\":%d,\"bounty\":%s,\"roundBonus\":%d,\"finished\":%s}"),
+			*QuoteJson(PlayerId), *QuoteJson(Outcome.Label), L.ScoreDelta, JsonBool(L.bBounty), Outcome.RoundBonus, JsonBool(Outcome.bFinished)));
+		Room.SendGameEvent(TEXT("darts:replay-outcome"), FString::Printf(TEXT("{\"playerId\":%s,\"label\":%s,\"score\":%d}"),
+			*QuoteJson(PlayerId), *QuoteJson(Outcome.Label), L.ScoreDelta));
 	}
 }
 
 ADartsGameMode::ADartsGameMode()
 {
-	DefaultPawnClass = nullptr;
-	PlayerControllerClass = APlayerController::StaticClass();
+	ArcadeId = TEXT("darts");
+	CommandLinePrefix = TEXT("Darts");
+	DefaultLocals = 1;
+	DefaultBots = 1;
 }
 
-void ADartsGameMode::StartPlay()
+void ADartsGameMode::SpawnVenue()
 {
-	Super::StartPlay();
 	UWorld* World = GetWorld();
 	for (TActorIterator<ADartsPub> It(World); It; ++It)
 	{
@@ -54,140 +90,56 @@ void ADartsGameMode::StartPlay()
 	{
 		Pub = World->SpawnActor<ADartsPub>();
 	}
-
-	// The front end's picker passes ?Players=&Bots=; -DartsPlayers= / -DartsBots= on the command line override (tests).
-	int32 Locals = UGameplayStatics::GetIntOption(OptionsString, TEXT("Players"), 1);
-	int32 Bots = UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 1);
-	FParse::Value(FCommandLine::Get(), TEXT("DartsPlayers="), Locals);
-	FParse::Value(FCommandLine::Get(), TEXT("DartsBots="), Bots);
-	const bool bAuto = FParse::Param(FCommandLine::Get(), TEXT("DartsAuto"));
-	Locals = FMath::Clamp(Locals, 0, 4);
-	Bots = FMath::Clamp(Bots, 0, 4 - Locals);
-	if (Locals + Bots == 0)
-	{
-		Bots = 1;
-	}
-	TArray<FDartsSeat> Seats;
-	bRoomMatch = SetupRoom(Seats);
-	for (int32 i = 0; !bRoomMatch && i < Locals + Bots; ++i)
-	{
-		FDartsSeat& Seat = Seats.AddDefaulted_GetRef();
-		const bool bLocal = i < Locals;
-		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
-		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !bAuto ? EThrowerKind::Local : EThrowerKind::Bot;
-		Seat.Skill = bLocal ? 0.85f : 0.45f + 0.15f * (i % 3);
-		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
-		Seat.Look = FKartLook::MakeVaried(i + 2);
-	}
-	Game = World->SpawnActor<ADartsGame>();
-	Game->Setup(Pub, Seats, World->GetFirstPlayerController());
-	TWeakObjectPtr<ADartsGameMode> WeakThis = this;
-	Game->OnQuit = [WeakThis]()
-	{
-		if (ADartsGameMode* Self = WeakThis.Get())
-		{
-			UGameplayStatics::OpenLevel(Self, TEXT("L_SunsetHarbor"));
-		}
-	};
-	if (bRoomMatch)
-	{
-		BindRoom();
-	}
-	if (APlayerController* PC = World->GetFirstPlayerController())
-	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
-	}
-	if (!bRoomMatch)
-	{
-		// Play again and next game keep these seats.
-		if (UArcadeSession* Session = UArcadeSession::Get(this))
-		{
-			Session->NoteLaunch(TEXT("darts"), Locals, Bots);
-		}
-	}
-	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
-	SetupTestHooks();
 }
 
-bool ADartsGameMode::SetupRoom(TArray<FDartsSeat>& OutSeats)
+void ADartsGameMode::BuildRoomSeats(TConstArrayView<FMcSeat> Players)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Room->IsMatchRunning(TEXT("darts")))
-	{
-		return false;
-	}
-	TArray<FMcSeat> Players = Room->GetSeats();
-	Players.Sort([](const FMcSeat& A, const FMcSeat& B) { return A.Seat < B.Seat; });
+	Seats.Reset();
 	for (const FMcSeat& Player : Players)
 	{
-		if (Player.bEliminated || OutSeats.Num() >= 4)
-		{
-			continue;
-		}
-		FDartsSeat& Seat = OutSeats.AddDefaulted_GetRef();
+		FDartsSeat& Seat = Seats.AddDefaulted_GetRef();
 		Seat.Id = Player.PlayerId;
 		Seat.Name = Player.Name;
 		Seat.Kind = Player.bBot ? EThrowerKind::Bot : EThrowerKind::Phone;
-		Seat.Skill = 0.6f;
+		Seat.Skill = RoomBotSkill;
 		Seat.Color = Player.PaintColor;
 		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Player.SeatIndex());
 	}
-	UE_LOG(LogTemp, Display, TEXT("Darts: room match %d with %d thrower(s)"), Room->GetRoom().MatchNumber, OutSeats.Num());
-	return OutSeats.Num() > 0;
 }
 
-void ADartsGameMode::BindRoom()
+void ADartsGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
+	Seats.Reset();
+	for (int32 i = 0; i < InLaunch.Locals + InLaunch.Bots; ++i)
 	{
-		return;
+		FDartsSeat& Seat = Seats.AddDefaulted_GetRef();
+		const bool bLocal = i < InLaunch.Locals;
+		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
+		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EThrowerKind::Local : EThrowerKind::Bot;
+		Seat.Skill = bLocal ? LocalSkill : HouseSkillBase + HouseSkillStep * (i % 3);
+		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
+		Seat.Look = FKartLook::MakeVaried(i + LookSeedBase);
 	}
-	Room->SetPreparationReady(true);
-	Room->OnReturnedToLobby.AddDynamic(this, &ADartsGameMode::HandleRoomLobby);
-	Room->OnPauseChanged.AddDynamic(this, &ADartsGameMode::HandleRoomPause);
-	Game->SetPaused(Room->GetRoom().Status == EMcRoomStatus::Paused);
+}
 
-	TWeakObjectPtr<ADartsGame> WeakGame = Game;
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = Room;
-	GameEventHandle = Room->OnGameEvent.AddLambda([WeakGame](const FString& From, const FString& Event, const TSharedPtr<FJsonObject>& Data)
+void ADartsGameMode::SpawnGame()
+{
+	const FDartsDebugFlags Debug = FDartsDebugFlags::Parse(FCommandLine::Get());
+	Game = SpawnArcadeGame<ADartsGame>();
+	Game->Setup(Pub, Seats, GetWorld()->GetFirstPlayerController(), Debug.bShotOnBigHit);
+	Game->OnQuit = MakeQuitCallback();
+	Game->OnRematch = MakeRematchCallback();
+	if (Debug.bLocalAuto)
 	{
-		ADartsGame* G = WeakGame.Get();
-		double Power = 0.0;
-		if (!G || Event != TEXT("darts:release") || !Data.IsValid() || !Data->TryGetNumberField(TEXT("power"), Power))
-		{
-			return;
-		}
-		auto Field = [&Data](const TCHAR* Key, double Fallback)
-		{
-			double V = 0.0;
-			return Data->TryGetNumberField(Key, V) ? V : Fallback;
-		};
-		FDartGesture Gesture;
-		Gesture.AimX = Field(TEXT("aimX"), 0.0);
-		Gesture.AimY = Field(TEXT("aimY"), 0.0);
-		Gesture.Power = Power;
-		Gesture.SpinDegPerSec = Field(TEXT("spinDegPerSec"), 0.0);
-		Gesture.RollDegPerSec = Field(TEXT("rollDegPerSec"), 0.0);
-		Gesture.Confidence = Field(TEXT("confidence"), 0.5);
-		Gesture.Steadiness = Field(TEXT("steadiness"), 0.5);
-		Gesture.PeakMs2 = Field(TEXT("peakMs2"), 0.0);
-		Gesture.DurationMs = Field(TEXT("durationMs"), 0.0);
-		G->SubmitRelease(From, Gesture);
-	});
-	SensorHandle = Room->OnSensorFrame.AddLambda([WeakGame, WeakRoom](int32 SeatIndex, const MovecadeKart::Net::FSensorFrame& Frame)
-	{
-		ADartsGame* G = WeakGame.Get();
-		const URoomHostSubsystem* R = WeakRoom.Get();
-		const FMcSeat* Seat = R ? R->GetRoom().FindBySeat(SeatIndex + 1) : nullptr;
-		if (G && Seat)
-		{
-			G->FeedPhone(Seat->PlayerId, Frame);
-		}
-	});
+		GetWorldTimerManager().SetTimer(LocalAutoTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { TickLocalAutoPlay(); }),
+			LocalAutoIntervalSeconds, /*bLoop*/ true);
+	}
+}
 
+void ADartsGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
+{
+	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
 	// runtime.ts: every seated phone streams (activePlayerId null), once per match; the engine counts its own 3-2-1.
 	Game->OnMatchStart = [WeakRoom]()
 	{
@@ -199,44 +151,59 @@ void ADartsGameMode::BindRoom()
 	};
 	Game->OnThrow = [WeakRoom](const FString& PlayerId, const FThrowOutcome& Outcome)
 	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		if (!R)
+		if (URoomHostSubsystem* R = WeakRoom.Get())
 		{
-			return;
+			SendThrowToRoom(*R, PlayerId, Outcome);
 		}
-		const FDartLanding& L = Outcome.Landing;
-		const bool bMajor = L.bBounty || L.Hit.Ring == ERing::Bull;
-		R->SendPlayFeedback(PlayerId, Outcome.Label, FString::Printf(TEXT("%d points%s"), L.ScoreDelta, L.bBounty ? TEXT(" · Double points") : TEXT("")),
-			L.ScoreDelta > 0 ? TEXT("success") : TEXT("warning"), bMajor ? TEXT("celebration") : (L.ScoreDelta > 0 ? TEXT("impact") : TEXT("warning")), bMajor);
-		R->SendGameEvent(TEXT("darts:result"), FString::Printf(TEXT("{\"playerId\":%s,\"label\":%s,\"score\":%d,\"bounty\":%s,\"roundBonus\":%d,\"finished\":%s}"),
-			*Quote(PlayerId), *Quote(Outcome.Label), L.ScoreDelta, L.bBounty ? TEXT("true") : TEXT("false"), Outcome.RoundBonus, Outcome.bFinished ? TEXT("true") : TEXT("false")));
-		R->SendGameEvent(TEXT("darts:replay-outcome"), FString::Printf(TEXT("{\"playerId\":%s,\"label\":%s,\"score\":%d}"), *Quote(PlayerId), *Quote(Outcome.Label), L.ScoreDelta));
 	};
-	TWeakObjectPtr<ADartsGameMode> WeakThis = this;
-	Game->OnFinished = [WeakThis]()
+	Game->OnFinished = [WeakThis = TWeakObjectPtr<ADartsGameMode>(this)]()
 	{
 		if (ADartsGameMode* Self = WeakThis.Get())
 		{
+			// The phones see the match end before the final scores land.
 			Self->PushTurnAndAim();
-			Self->PushScores(true);
+			Self->CompleteRoomMatch();
 		}
 	};
-	// A room rematches (and quits) through its lobby: everyone re-readies there.
-	Game->OnRematch = [WeakRoom]()
+	GetWorldTimerManager().SetTimer(AimTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushTurnAndAim(); }), AimIntervalSeconds, /*bLoop*/ true);
+}
+
+void ADartsGameMode::HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame)
+{
+	Game->FeedPhone(Seat.PlayerId, Frame);
+}
+
+void ADartsGameMode::HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data)
+{
+	if (Event != TEXT("darts:release") || !Data.IsValid())
 	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->RestartGame();
-		}
-	};
-	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
-	GetWorldTimerManager().SetTimer(AimTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushTurnAndAim(); }), 0.08f, true);
+		return;
+	}
+	if (const TOptional<FDartGesture> Gesture = GestureFromRelease(*Data))
+	{
+		Game->SubmitRelease(FromPlayerId, *Gesture);
+	}
+}
+
+bool ADartsGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const
+{
+	// Nothing to report during the engine's own countdown (runtime.ts holds scores until play).
+	if (!Game || Game->GetMatch().Phase == EMatchPhase::Countdown)
+	{
+		return false;
+	}
+	for (const FDartsPlayer& P : Game->GetMatch().Players)
+	{
+		FMcScoreEntry& Entry = OutScores.AddDefaulted_GetRef();
+		Entry.PlayerId = P.Id;
+		Entry.Score = P.Score;
+	}
+	return true;
 }
 
 void ADartsGameMode::PushTurnAndAim()
 {
-	URoomHostSubsystem* Room = RoomOf(this);
+	URoomHostSubsystem* Room = GetRoom();
 	if (!Room || !Game)
 	{
 		return;
@@ -244,139 +211,56 @@ void ADartsGameMode::PushTurnAndAim()
 	const FDartsMatch& M = Game->GetMatch();
 	const FDartsPlayer* Current = M.ActivePlayer();
 	const bool bIntro = Game->GetStage() == EDartsStage::Intro;
-	const TCHAR* Phase = M.Phase == EMatchPhase::Playing ? TEXT("playing") : (M.Phase == EMatchPhase::Ended ? TEXT("ended") : TEXT("countdown"));
 	const int32 DartsLeft = Current && M.Phase == EMatchPhase::Playing && !bIntro ? FMath::Max(0, DartsPerRound - M.TurnDarts) : 0;
 	const int32 Round = Current ? FMath::Min((Current->DartsThrown - M.TurnDarts) / DartsPerRound, RoundCount - 1) : RoundCount;
 	const FString Turn = FString::Printf(TEXT("{\"activePlayerId\":%s,\"activePlayerName\":%s,\"dartsLeft\":%d,\"round\":%d,\"phase\":\"%s\"}"),
-		Current ? *Quote(Current->Id) : TEXT("null"), Current ? *Quote(Current->Name) : TEXT("null"), DartsLeft, Round, Phase);
+		Current ? *QuoteJson(Current->Id) : TEXT("null"), Current ? *QuoteJson(Current->Name) : TEXT("null"), DartsLeft, Round, PhaseName(M.Phase));
 	const double Now = GetWorld()->GetRealTimeSeconds();
-	if (Turn != LastTurnKey || Now - TurnPushedAt >= 0.25)
+	if (Turn != LastTurnJson || Now - TurnSentAt >= TurnRepeatSeconds)
 	{
-		LastTurnKey = Turn;
-		TurnPushedAt = Now;
+		LastTurnJson = Turn;
+		TurnSentAt = Now;
 		Room->SendGameEvent(TEXT("darts:turn"), Turn);
 	}
 	FVector2D Aim;
 	if (Current && M.Phase == EMatchPhase::Playing && Game->GetReticle(Aim))
 	{
-		Room->SendGameEvent(TEXT("darts:aim"), FString::Printf(TEXT("[{\"p\":%s,\"x\":%.3f,\"y\":%.3f}]"), *Quote(Current->Id), Aim.X, Aim.Y));
+		Room->SendGameEvent(TEXT("darts:aim"), FString::Printf(TEXT("[{\"p\":%s,\"x\":%.3f,\"y\":%.3f}]"), *QuoteJson(Current->Id), Aim.X, Aim.Y));
 	}
 }
 
-void ADartsGameMode::PushScores(bool bFinal)
+void ADartsGameMode::TickLocalAutoPlay()
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game || Game->GetMatch().Phase == EMatchPhase::Countdown)
+#if !UE_BUILD_SHIPPING
+	const FDartsSeat* Thrower = Game ? Game->GetThrower() : nullptr;
+	if (!Thrower || Thrower->Kind != EThrowerKind::Local || Game->GetMatch().Phase != EMatchPhase::Playing)
 	{
+		LocalAutoGripAt = -1.0;
+		if (Game)
+		{
+			Game->SetTestGrip(false);
+		}
 		return;
 	}
-	TArray<FMcScoreEntry> Scores;
-	for (const FDartsPlayer& P : Game->GetMatch().Players)
+	const double Now = Game->GetClock();
+	const FLocalThrow& Local = Game->GetLocal();
+	if (!Local.bGripped)
 	{
-		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
-		Entry.PlayerId = P.Id;
-		Entry.Score = P.Score;
+		LocalAutoGripAt = LocalAutoGripAt < 0.0 ? Now + LocalAutoGripDelaySeconds : LocalAutoGripAt;
+		Game->SetTestGrip(Now >= LocalAutoGripAt);
 	}
-	if (bFinal)
+	else if (Tuning::IsSweet(Local.Power) && Now - Local.GripAt > LocalAutoMinHoldSeconds)
 	{
-		Room->CompleteGame(Scores);
+		Game->SetTestGrip(false);
+		LocalAutoGripAt = -1.0;
 	}
-	else
-	{
-		Room->UpdateLiveScores(Scores);
-	}
-}
-
-void ADartsGameMode::HandleRoomLobby()
-{
-	UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor"));
-}
-
-void ADartsGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId)
-{
-	if (Game)
-	{
-		Game->SetPaused(bPaused);
-	}
+#endif
 }
 
 void ADartsGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
-	if (Overlay.IsValid())
-	{
-		Overlay->Detach();
-		Overlay.Reset();
-	}
-	// The world owns its timer manager, but in practice it outlives level travel: clear ours here.
-	GetWorldTimerManager().ClearTimer(ScoreTimer);
+	// The world's timer manager outlives level travel in practice: clear ours (the base clears its own).
 	GetWorldTimerManager().ClearTimer(AimTimer);
-	GetWorldTimerManager().ClearTimer(TestTimer);
-	if (URoomHostSubsystem* Room = RoomOf(this))
-	{
-		Room->OnGameEvent.Remove(GameEventHandle);
-		Room->OnSensorFrame.Remove(SensorHandle);
-		Room->OnReturnedToLobby.RemoveDynamic(this, &ADartsGameMode::HandleRoomLobby);
-		Room->OnPauseChanged.RemoveDynamic(this, &ADartsGameMode::HandleRoomPause);
-	}
+	GetWorldTimerManager().ClearTimer(LocalAutoTimer);
 	Super::EndPlay(Reason);
-}
-
-void ADartsGameMode::SetupTestHooks()
-{
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartShots="), Shots, false))
-	{
-		TArray<FString> Times;
-		Shots.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
-		{
-			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-			{
-				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-				{
-					PC->ConsoleCommand(TEXT("Shot showui"));
-				}
-			}), FCString::Atof(*Time), false);
-		}
-	}
-	// -DartsLocalAuto: the local thrower plays through its real controls (grip, the meter, release in the sweet
-	// spot), so a run can verify the local path to the results.
-	if (FParse::Param(FCommandLine::Get(), TEXT("DartsLocalAuto")))
-	{
-		GetWorldTimerManager().SetTimer(TestTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			const FDartsSeat* Thrower = Game ? Game->GetThrower() : nullptr;
-			if (!Thrower || Thrower->Kind != EThrowerKind::Local || Game->GetMatch().Phase != EMatchPhase::Playing)
-			{
-				TestGripAt = -1.0;
-				if (Game)
-				{
-					Game->SetTestGrip(false);
-				}
-				return;
-			}
-			const double Now = Game->GetClock();
-			const FLocalThrow& L = Game->GetLocal();
-			if (!L.bGripped)
-			{
-				TestGripAt = TestGripAt < 0.0 ? Now + 1.1 : TestGripAt;
-				Game->SetTestGrip(Now >= TestGripAt);
-			}
-			else if (FMath::Abs(L.Power - SweetSpot) < 0.05 && Now - L.GripAt > 0.4)
-			{
-				Game->SetTestGrip(false);
-				TestGripAt = -1.0;
-			}
-		}), 0.02f, true);
-	}
-	float QuitAfter = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
-	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}), QuitAfter, false);
-	}
 }

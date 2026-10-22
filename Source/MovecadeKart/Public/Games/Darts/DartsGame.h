@@ -2,11 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Games/Darts/DartsGameTypes.h"
 #include "Games/Darts/DartsRules.h"
 #include "Games/Darts/DartsThrow.h"
 #include "Games/ArcadeGame.h"
 #include "Games/GameAudio.h"
-#include "KartLook.h"
 #include "DartsGame.generated.h"
 
 class ADartsPub;
@@ -17,75 +17,6 @@ class UArcadeAvatarComponent;
 class UMaterialInstanceDynamic;
 class UNiagaraComponent;
 class UStaticMeshComponent;
-
-UENUM()
-enum class EDartsStage : uint8
-{
-	/** The intro card: the pub, the board and the line-up; the match clock holds. */
-	Intro,
-	/** The engine runs: its own 3-2-1, then the visits. */
-	Match,
-	/** The engine ended: final scores. */
-	Finished,
-};
-
-UENUM()
-enum class EThrowerKind : uint8
-{
-	/** Keyboard, mouse or a gamepad on this machine (whoever is up uses any of them). */
-	Local,
-	/** A phone in the room: its own detector decides the throw (darts:release). */
-	Phone,
-	Bot,
-};
-
-USTRUCT()
-struct FDartsSeat
-{
-	GENERATED_BODY()
-
-	FString Id;
-	FString Name;
-	FLinearColor Color = FLinearColor::White;
-	EThrowerKind Kind = EThrowerKind::Bot;
-	/** Bots: 0 wild .. 1 sharp. */
-	float Skill = 0.6f;
-	FKartLook Look;
-};
-
-/** The local thrower's live inputs (keyboard, gamepad, mouse), shown by the reticle and the HUD's meter. */
-struct FLocalThrow
-{
-	/** Aim, -1..1 each way (the reticle; a landing point is Aim * AimReach). */
-	FVector2D Aim = FVector2D::ZeroVector;
-	/** The aim's smoothed speed (units/s), for steadiness. */
-	double AimSpeed = 0.0;
-	bool bGripped = false;
-	double GripAt = 0.0;
-	/** 0..1: the oscillating meter (keys, pad) or the flick's speed (mouse). */
-	double Power = 0.0;
-	bool bMouseFlick = false;
-	double FlickSide = 0.0;
-};
-
-/** A finished visit, for the HUD's visit card (shown once its third dart sticks). */
-struct FDartsVisitSummary
-{
-	FString PlayerId;
-	int32 Round = 0;
-	/** The three darts: label ("T20", "Miss") and points. */
-	TArray<FString, TInlineAllocator<3>> Labels;
-	TArray<int32, TInlineAllocator<3>> Points;
-	int32 Total = 0;
-	int32 Bonus = 0;
-	int32 Bounties = 0;
-	/** The checkout-style call ("ONE-EIGHTY!", "TON!", ...). */
-	FText Call;
-	/** Clock when it was shown; < 0 when there is none. */
-	double At = -10.0;
-	/** Clock when the next dart landed (the card makes way for it). */
-	double EndAt = 1e9;
-};
 
 /** The camera's view-projection for one HUD paint: projects any number of world points without asking the engine each time. */
 struct FDartsView
@@ -113,16 +44,17 @@ class MOVECADEKART_API ADartsGame : public AActor, public IArcadeGame
 public:
 	ADartsGame();
 
-	void Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APlayerController* InViewer);
+	void Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APlayerController* InViewer, bool bInShotOnBigHit = false);
 
 	/** A phone's release (darts:release): only from the thrower up, after the intro card. */
 	bool SubmitRelease(const FString& PlayerId, const MovecadeKart::Darts::FDartGesture& Gesture);
 	/** A phone's sensor frame: the thrower up's detector drives the reticle (the release itself comes from the phone). */
 	void FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSensorFrame& Frame);
 
-	void SetPaused(bool bInPaused) { bPaused = bInPaused; }
-	/** Test hook (-DartsLocalAuto): holds the grip as if Space were down, so a run can play the local thrower's controls. */
+#if !UE_BUILD_SHIPPING
+	/** -DartsLocalAuto: holds the grip as if Space were down, so a run can play the local thrower's controls. */
 	void SetTestGrip(bool bDown) { bTestGrip = bDown; }
+#endif
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -305,4 +237,8 @@ private:
 	double CoachDoneAt = -1.0;
 
 	TSharedPtr<SDartsHud> Hud;
+
+	// Test hooks (FDartsDebugFlags).
+	bool bShotOnBigHit = false;
+	FTimerHandle BigHitShotTimer;
 };

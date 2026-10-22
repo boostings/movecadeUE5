@@ -12,6 +12,7 @@
 #include "FX/KartFxSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "Games/Darts/DartsPub.h"
+#include "Games/Darts/DartsRelease.h"
 #include "Games/Darts/SDartsHud.h"
 #include "InputCoreTypes.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -107,9 +108,10 @@ ADartsGame::ADartsGame()
 	BotRng.Initialize(0xda275);
 }
 
-void ADartsGame::Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APlayerController* InViewer)
+void ADartsGame::Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APlayerController* InViewer, bool bInShotOnBigHit)
 {
 	Pub = InPub;
+	bShotOnBigHit = bInShotOnBigHit;
 	Seats = InSeats;
 	Viewer = InViewer;
 	TArray<FMatchSeed> Seeds;
@@ -216,6 +218,7 @@ void ADartsGame::EndPlay(const EEndPlayReason::Type Reason)
 		}
 		Hud.Reset();
 	}
+	GetWorldTimerManager().ClearTimer(BigHitShotTimer);
 	// The camera is our own actor: it goes with the game.
 	if (Camera)
 	{
@@ -322,18 +325,7 @@ bool ADartsGame::SubmitRelease(const FString& PlayerId, const FDartGesture& Gest
 	{
 		return false;
 	}
-	// darts:release payload bounds (runtime.ts dartsGestureFromPayload).
-	FDartGesture G = Gesture;
-	auto Bound = [](double V, double Fallback, double Lo, double Hi) { return FMath::Clamp(FMath::IsFinite(V) ? V : Fallback, Lo, Hi); };
-	G.AimX = Bound(G.AimX, 0.0, -1.5, 1.5);
-	G.AimY = Bound(G.AimY, 0.0, -1.5, 1.5);
-	G.Power = Bound(G.Power, 0.0, 0.0, 1.0);
-	G.SpinDegPerSec = Bound(G.SpinDegPerSec, 0.0, -2000.0, 2000.0);
-	G.RollDegPerSec = Bound(G.RollDegPerSec, 0.0, -2000.0, 2000.0);
-	G.Confidence = Bound(G.Confidence, 0.5, 0.0, 1.0);
-	G.Steadiness = Bound(G.Steadiness, 0.5, 0.0, 1.0);
-	G.PeakMs2 = Bound(G.PeakMs2, 0.0, 0.0, 120.0);
-	G.DurationMs = Bound(G.DurationMs, 0.0, 0.0, 1000.0);
+	const FDartGesture G = BoundRelease(Gesture);
 	// Settle the clock to now first, so a queued release cannot ride a flight that already landed (runtime.ts).
 	while (Accumulator >= StepMs)
 	{
@@ -492,11 +484,10 @@ void ADartsGame::OnArrival(const FDartsEffect& Effect)
 		FlashColor = Tint;
 	}
 	// Test hook: -DartsShotBig grabs the frame just after a big hit lands (the punch and the flash).
-	static const bool bShotBig = FParse::Param(FCommandLine::Get(), TEXT("DartsShotBig"));
-	if (bShotBig && Kick >= 0.6 && Viewer)
+#if !UE_BUILD_SHIPPING
+	if (bShotOnBigHit && Kick >= 0.6 && Viewer)
 	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
+		GetWorldTimerManager().SetTimer(BigHitShotTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			if (Viewer)
 			{
@@ -504,6 +495,7 @@ void ADartsGame::OnArrival(const FDartsEffect& Effect)
 			}
 		}), 0.07f, false);
 	}
+#endif
 	if (Kick >= 0.6)
 	{
 		// The crowd: the pub's murmur, lifted and quickened into a cheer, on its own player so it isn't throttled.
