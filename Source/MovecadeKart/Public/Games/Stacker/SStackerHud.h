@@ -41,14 +41,6 @@ private:
 		FCachedText Combo;
 	};
 
-	/** The fixed labels, made once (an NSLOCTEXT per paint would look its text up every frame). */
-	struct FLabels
-	{
-		FText Wind, Done, Out, Quiet, Tipping, Steady, DropNow, DropAligned, DropKeys, LeanWind, LeanKeysRight, LeanKeysLeft,
-			Go, Controls, Title, Rules, Final;
-		FString Left, Right;
-	};
-
 	void PaintClock(const FKartPainter& P, const AStackerGame& Game, float S) const;
 	void PaintWind(const FKartPainter& P, const AStackerGame& Game, const FVector2D& Top, float S) const;
 	void PaintLanes(const FKartPainter& P, const AStackerGame& Game, const FArcadeHudView& View, float S) const;
@@ -76,7 +68,6 @@ private:
 	mutable bool bStandingsCached = false;
 	/** "Rosa · Mika · ...": the intro card's line-up. */
 	FString Names;
-	FLabels Labels;
 
 	TWeakObjectPtr<AStackerGame> Game;
 };

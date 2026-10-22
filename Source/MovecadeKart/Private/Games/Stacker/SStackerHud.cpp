@@ -355,25 +355,6 @@ void SStackerHud::Construct(const FArguments& InArgs)
 			Names += (Names.IsEmpty() ? TEXT("") : TEXT("   ·   ")) + Seat.Name;
 		}
 	}
-	Labels.Wind = NSLOCTEXT("Stacker", "Wind", "WIND");
-	Labels.Done = NSLOCTEXT("Stacker", "Done", "COMPLETE!");
-	Labels.Out = NSLOCTEXT("Stacker", "Out", "OUT");
-	Labels.Quiet = NSLOCTEXT("Stacker", "Quiet", "HOLD YOUR PHONE FLAT");
-	Labels.Tipping = NSLOCTEXT("Stacker", "Tipping", "IT'S TIPPING!");
-	Labels.Steady = NSLOCTEXT("Stacker", "Steady", "STEADY...");
-	Labels.DropNow = NSLOCTEXT("Stacker", "DropNow", "DROP NOW!");
-	Labels.DropAligned = NSLOCTEXT("Stacker", "DropAligned", "DROP WHEN ALIGNED");
-	Labels.DropKeys = NSLOCTEXT("Stacker", "DropKeys", "Space  ·  A  ·  Click");
-	Labels.LeanWind = NSLOCTEXT("Stacker", "LeanWind", "LEAN AGAINST THE WIND");
-	Labels.LeanKeysRight = NSLOCTEXT("Stacker", "LeanKeysR", "D  ·  stick  ·  mouse right");
-	Labels.LeanKeysLeft = NSLOCTEXT("Stacker", "LeanKeysL", "A  ·  stick  ·  mouse left");
-	Labels.Go = NSLOCTEXT("Stacker", "Go", "STACK!");
-	Labels.Controls = NSLOCTEXT("Stacker", "Controls", "Stick, A/D or mouse: lean against the wind  ·  A, Space or click: drop");
-	Labels.Title = NSLOCTEXT("Stacker", "Title", "SKY STACKER");
-	Labels.Rules = NSLOCTEXT("Stacker", "Rules", "Drop each block on the one below. Overhang is cut away. Lean against the wind.");
-	Labels.Final = NSLOCTEXT("Stacker", "Final", "FINAL SCORES");
-	Labels.Left = TEXT("L");
-	Labels.Right = TEXT("R");
 }
 
 int32 SStackerHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -449,7 +430,7 @@ void SStackerHud::PaintWind(const FKartPainter& P, const AStackerGame& G, const 
 	const FLinearColor Ink = FMath::Lerp(KC::Mint, KC::Hot, Strength);
 	P.Card(C - FVector2D(Wd::Width / 2.f, Wd::Height / 2.f) * S, FVector2D(Wd::Width, Wd::Height) * S, KC::WithAlpha(KC::Night, 0.78f), Wd::Radius * S,
 		Wd::Shadow * S, KC::WithAlpha(Ink, 0.7f), Wd::Outline * S);
-	P.Text(Labels.Wind, KartUI::Font(EFont::Label, Wd::LabelSize * S), C + FVector2D(Wd::LabelX * S, 0.f), KC::WithAlpha(KC::White, 0.8f), FVector2D(0.0, 0.5));
+	P.Text(ARCADE_LABEL("Stacker", "Wind", "WIND"), KartUI::Font(EFont::Label, Wd::LabelSize * S), C + FVector2D(Wd::LabelX * S, 0.f), KC::WithAlpha(KC::White, 0.8f), FVector2D(0.0, 0.5));
 	// Three chevrons streaming the way it blows, lit by strength, drifting so the eye reads the direction.
 	const float Drift = FMath::Frac(static_cast<float>(G.GetClock()) * (Wd::DriftRate + Wd::DriftRatePerStrength * Strength));
 	for (int32 k = 0; k < Wd::Chevrons; ++k)
@@ -571,9 +552,11 @@ void SStackerHud::PaintGauge(const FKartPainter& P, const AStackerGame& G, const
 		P.Box(FVector2D(X - Gg::LimitMarkWidth / 2.f * S, GaugePos.Y - Gg::LimitMarkOverhang * S), FVector2D(Gg::LimitMarkWidth * S, GaugeH + 2.f * Gg::LimitMarkOverhang * S),
 			KC::WithAlpha(KC::Hot, 0.9f));
 	}
+	// The side marks are letters, not words: not localized.
+	static const FString GaugeLeft(TEXT("L")), GaugeRight(TEXT("R"));
 	const FSlateFontInfo SideFont = KartUI::Font(EFont::Label, Gg::SideLabelSize * S);
-	P.Text(Labels.Left, SideFont, FVector2D(GaugePos.X - Gg::SideLabelGap * S, GaugePos.Y + GaugeH / 2.f), KC::WithAlpha(KC::White, 0.6f), FVector2D(0.5, 0.5));
-	P.Text(Labels.Right, SideFont, FVector2D(GaugePos.X + GaugeW + Gg::SideLabelGap * S, GaugePos.Y + GaugeH / 2.f), KC::WithAlpha(KC::White, 0.6f), FVector2D(0.5, 0.5));
+	P.Text(GaugeLeft, SideFont, FVector2D(GaugePos.X - Gg::SideLabelGap * S, GaugePos.Y + GaugeH / 2.f), KC::WithAlpha(KC::White, 0.6f), FVector2D(0.5, 0.5));
+	P.Text(GaugeRight, SideFont, FVector2D(GaugePos.X + GaugeW + Gg::SideLabelGap * S, GaugePos.Y + GaugeH / 2.f), KC::WithAlpha(KC::White, 0.6f), FVector2D(0.5, 0.5));
 	const float Lean = FMath::Clamp(static_cast<float>(Tower.Balance.LeanX / Limit), -Gg::Range, Gg::Range);
 	const FLinearColor DotColor = Ratio > 1.0 ? KC::Hot : (Ratio <= SteadyBalanceRatio ? KC::Mint : KC::Sun);
 	const FVector2D Dot(Mid + Lean / Gg::Range * GaugeW / 2.f, GaugePos.Y + GaugeH / 2.f);
@@ -610,7 +593,7 @@ void SStackerHud::PaintBanner(const FKartPainter& P, const AStackerGame& G, cons
 		return;
 	}
 	const bool bTipping = !Tower.bEliminated && !Tower.bCompleted && !bPhoneQuiet && !bRecovering;
-	const FText& Banner = Tower.bCompleted ? Labels.Done : Tower.bEliminated ? Labels.Out : bPhoneQuiet ? Labels.Quiet : bTipping ? Labels.Tipping : Labels.Steady;
+	const FText& Banner = Tower.bCompleted ? ARCADE_LABEL("Stacker", "Done", "COMPLETE!") : Tower.bEliminated ? ARCADE_LABEL("Stacker", "Out", "OUT") : bPhoneQuiet ? ARCADE_LABEL("Stacker", "Quiet", "HOLD YOUR PHONE FLAT") : bTipping ? ARCADE_LABEL("Stacker", "Tipping", "IT'S TIPPING!") : ARCADE_LABEL("Stacker", "Steady", "STEADY...");
 	const FLinearColor Ink = Tower.bCompleted ? KC::Sun : (Tower.bEliminated || bTipping ? KC::Hot : KC::White);
 	const float Wobble = bTipping ? Danger * Pn::BannerWobbleDeg * FMath::Sin(static_cast<float>(G.GetClock()) * Pn::BannerWobbleRate) : 0.f;
 	const FVector2D BannerAt = Pos + FVector2D(Width / 2.f, Pn::BannerY * S);
@@ -693,9 +676,9 @@ void SStackerHud::PaintDropCoach(const FKartPainter& P, const AStackerGame& G, c
 	const FVector2D Size(Coach.bAligned ? C::AlignedWidth * S : C::DropWidth * S, C::DropHeight * S);
 	Bubble(F, Anchor, Size, Coach.bAligned ? KC::Mint : KC::WithAlpha(KC::Night, 0.9f), Coach.bAligned ? KC::White : KC::Sun, S);
 	const FVector2D Mid = Anchor - FVector2D(0.f, C::PointerGap * S + Size.Y / 2.f);
-	F.Text(Coach.bAligned ? Labels.DropNow : Labels.DropAligned, KartUI::Font(EFont::Display, C::DropTitleSize * S, Coach.bAligned ? 0.f : C::DropTitleOutline * S, KC::Night),
+	F.Text(Coach.bAligned ? ARCADE_LABEL("Stacker", "DropNow", "DROP NOW!") : ARCADE_LABEL("Stacker", "DropAligned", "DROP WHEN ALIGNED"), KartUI::Font(EFont::Display, C::DropTitleSize * S, Coach.bAligned ? 0.f : C::DropTitleOutline * S, KC::Night),
 		Mid + FVector2D(0.f, C::DropTitleY * S), Coach.bAligned ? KC::Night : KC::Sun, FVector2D(0.5, 0.5));
-	F.Text(Labels.DropKeys, KartUI::Font(EFont::Label, C::KeysSize * S), Mid + FVector2D(0.f, C::DropKeysY * S), Coach.bAligned ? KC::Night : KC::WithAlpha(KC::White, 0.8f),
+	F.Text(ARCADE_LABEL("Stacker", "DropKeys", "Space  ·  A  ·  Click"), KartUI::Font(EFont::Label, C::KeysSize * S), Mid + FVector2D(0.f, C::DropKeysY * S), Coach.bAligned ? KC::Night : KC::WithAlpha(KC::White, 0.8f),
 		FVector2D(0.5, 0.5));
 }
 
@@ -710,12 +693,12 @@ void SStackerHud::PaintLeanCoach(const FKartPainter& P, const AStackerGame& G, f
 	const FVector2D Size(C::LeanWidth * S, C::LeanHeight * S);
 	Bubble(F, Anchor, Size, KC::WithAlpha(KC::Night, 0.92f), KC::Sky, S);
 	const FVector2D Mid = Anchor - FVector2D(0.f, C::PointerGap * S + Size.Y / 2.f);
-	F.Text(Labels.LeanWind, KartUI::Font(EFont::Display, C::LeanTitleSize * S, C::LeanTitleOutline * S, KC::Night), Mid + FVector2D(0.f, C::LeanTitleY * S), KC::Sky,
+	F.Text(ARCADE_LABEL("Stacker", "LeanWind", "LEAN AGAINST THE WIND"), KartUI::Font(EFont::Display, C::LeanTitleSize * S, C::LeanTitleOutline * S, KC::Night), Mid + FVector2D(0.f, C::LeanTitleY * S), KC::Sky,
 		FVector2D(0.5, 0.5));
 	const float Side = Coach.LeanSide;
 	const float Nudge = C::ArrowNudge * S * FMath::Sin(Clock * C::ArrowNudgeRate);
 	Arrow(F, Mid + FVector2D(Side * (C::ArrowX * S + Nudge), C::ArrowY * S), Side, C::ArrowLength * S, C::ArrowHead * S, C::ArrowThickness * S, KC::Sun);
-	F.Text(Side > 0.f ? Labels.LeanKeysRight : Labels.LeanKeysLeft, KartUI::Font(EFont::Label, C::KeysSize * S), Mid + FVector2D(-Side * C::LeanKeysAway * S, C::LeanKeysY * S),
+	F.Text(Side > 0.f ? ARCADE_LABEL("Stacker", "LeanKeysR", "D  ·  stick  ·  mouse right") : ARCADE_LABEL("Stacker", "LeanKeysL", "A  ·  stick  ·  mouse left"), KartUI::Font(EFont::Label, C::KeysSize * S), Mid + FVector2D(-Side * C::LeanKeysAway * S, C::LeanKeysY * S),
 		KC::WithAlpha(KC::White, 0.85f), FVector2D(0.5, 0.5));
 }
 
@@ -736,7 +719,7 @@ void SStackerHud::PaintCountdown(const FKartPainter& P, const AStackerGame& G, f
 	if (M.Phase == EMatchPhase::Playing && M.ElapsedMs < Cd::GoMs)
 	{
 		const float A = FMath::Clamp(static_cast<float>((Cd::GoMs - M.ElapsedMs) / Cd::GoFadeMs), 0.f, 1.f);
-		P.Faded(A).Text(Labels.Go, KartUI::Font(EFont::Display, Cd::GoSize * S, Cd::GoOutline * S, KC::Night), Centre, KC::Sun, FVector2D(0.5, 0.5), Cd::GoShadow * S);
+		P.Faded(A).Text(ARCADE_LABEL("Stacker", "Go", "STACK!"), KartUI::Font(EFont::Display, Cd::GoSize * S, Cd::GoOutline * S, KC::Night), Centre, KC::Sun, FVector2D(0.5, 0.5), Cd::GoShadow * S);
 	}
 }
 
@@ -754,7 +737,7 @@ void SStackerHud::PaintControls(const FKartPainter& P, const AStackerGame& G, fl
 	const FKartPainter F = P.Faded(A);
 	F.Card(Centre - FVector2D(Ct::Width / 2.f, Ct::Height / 2.f) * S, FVector2D(Ct::Width, Ct::Height) * S, KC::WithAlpha(KC::Night, 0.78f), Ct::Radius * S, Ct::Shadow * S,
 		KC::Sun, Ct::Outline * S);
-	F.Text(Labels.Controls, KartUI::Font(EFont::Body, Ct::FontSize * S), Centre, KC::White, FVector2D(0.5, 0.5));
+	F.Text(ARCADE_LABEL("Stacker", "Controls", "Stick, A/D or mouse: lean against the wind  ·  A, Space or click: drop"), KartUI::Font(EFont::Body, Ct::FontSize * S), Centre, KC::White, FVector2D(0.5, 0.5));
 }
 
 void SStackerHud::PaintIntro(const FKartPainter& P, const AStackerGame& G, float S) const
@@ -767,11 +750,11 @@ void SStackerHud::PaintIntro(const FKartPainter& P, const AStackerGame& G, float
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * In::CentreY);
 	const float Rise = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / In::RiseSeconds), 0.f, 1.f));
 	const FVector2D TitleAt = Centre + FVector2D(0.f, In::TitleY * S);
-	F.Transformed(TitleAt, FMath::Max(0.01f, Rise)).Text(Labels.Title, KartUI::Font(EFont::Display, In::TitleSize * S, In::TitleOutline * S), TitleAt, KC::Sun,
+	F.Transformed(TitleAt, FMath::Max(0.01f, Rise)).Text(ARCADE_LABEL("Stacker", "Title", "SKY STACKER"), KartUI::Font(EFont::Display, In::TitleSize * S, In::TitleOutline * S), TitleAt, KC::Sun,
 		FVector2D(0.5, 0.5), In::TitleShadow * S);
 	F.Text(Names, KartUI::Font(EFont::Title, In::NamesSize * S, In::NamesOutline * S), Centre + FVector2D(0.f, In::NamesY * S), KC::White, FVector2D(0.5, 0.5),
 		In::NamesShadow * S);
-	F.Text(Labels.Rules, KartUI::Font(EFont::Body, In::RulesSize * S), Centre + FVector2D(0.f, In::RulesY * S), KC::WithAlpha(KC::White, 0.88f), FVector2D(0.5, 0.5),
+	F.Text(ARCADE_LABEL("Stacker", "Rules", "Drop each block on the one below. Overhang is cut away. Lean against the wind."), KartUI::Font(EFont::Body, In::RulesSize * S), Centre + FVector2D(0.f, In::RulesY * S), KC::WithAlpha(KC::White, 0.88f), FVector2D(0.5, 0.5),
 		In::RulesShadow * S);
 }
 
@@ -799,7 +782,7 @@ void SStackerHud::PaintStandings(const FKartPainter& P, const AStackerGame& G, f
 	const double Age = G.GetFinishedAge();
 	const FKartPainter F = P.Faded(FMath::Clamp(static_cast<float>(Age / St::FadeSeconds), 0.f, 1.f));
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * St::TitleY);
-	F.Text(Labels.Final, KartUI::Font(EFont::Display, St::TitleSize * S, St::TitleOutline * S), Centre, KC::Sun, FVector2D(0.5, 0.5), St::TitleShadow * S);
+	F.Text(ARCADE_LABEL("Stacker", "Final", "FINAL SCORES"), KartUI::Font(EFont::Display, St::TitleSize * S, St::TitleOutline * S), Centre, KC::Sun, FVector2D(0.5, 0.5), St::TitleShadow * S);
 	for (int32 i = 0; i < Order.Num() && i < StandingLines.Num(); ++i)
 	{
 		const FTower& Tower = M.Towers[Order[i]];

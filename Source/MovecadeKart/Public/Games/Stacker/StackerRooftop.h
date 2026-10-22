@@ -107,6 +107,8 @@ private:
 	void BuildCrane(double DeckWidth);
 	void BuildRailing(double DeckWidth);
 	void BuildDeckProps(double DeckWidth);
+	void BuildHvac(double SideX, UMaterialInterface* Body, UMaterialInterface* Steel);
+	void BuildFlags(double DeckWidth, UMaterialInterface* PoleMaterial);
 
 	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, double YawRad = 0.0, bool bShadows = true, USceneComponent* Parent = nullptr);
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
@@ -130,7 +132,7 @@ private:
 	UPROPERTY(Transient)
 	FArcadeInstanceGroups MovingGroups;
 
-	/** One material per look, kept across rebuilds (a rebuild for a new lane count reuses every material). */
+	/** One material per look, made once per build (and reset with the venue). */
 	UPROPERTY(Transient)
 	FKartMaterialCache Materials;
 

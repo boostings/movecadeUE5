@@ -32,122 +32,121 @@ namespace
 	/** At (or within a hair of) full intensity a perfect earns the white sparks and the brighter ring. */
 	constexpr float FullIntensity = 0.99f;
 
-	/** A puff of grit squeezed out of the joint. */
-	Fx::FKartFxEmit LandingGrit(const FVector& At)
+	/**
+	 * One particle burst's fixed shape: field, offset from the effect's point (UE cm), count, cone, speed (m/s), life
+	 * (s), size (m) and end size, intensity and jitter (m). Colours and anything that depends on the effect are set
+	 * where the recipe is used.
+	 */
+	struct FEmitRecipe
 	{
-		Fx::FKartFxEmit Grit;
-		Grit.Field = Fx::EField::Smoke;
-		Grit.Position = At + FVector(-60.0, 0.0, -18.0);
-		Grit.Count = 6;
-		Grit.Direction = FVector(-0.4, 0.0, 1.0).GetSafeNormal();
-		Grit.Spread = 1.4;
-		Grit.Speed = FVector2D(0.4, 1.0);
-		Grit.Life = FVector2D(0.35, 0.6);
-		Grit.Size = FVector2D(0.06, 0.12);
-		Grit.SizeEnd = 1.8;
-		Grit.Color = MovecadeKart::Art::Hex(TEXT("#e8ddcc"));
-		Grit.ColorEnd = MovecadeKart::Art::Hex(TEXT("#a89c8a"));
-		Grit.Intensity = 0.8;
-		Grit.Jitter = 0.35;
-		return Grit;
+		Fx::EField Field;
+		double OffsetX, OffsetY, OffsetZ;
+		int32 Count;
+		double Spread;
+		double SpeedMin, SpeedMax;
+		double LifeMin, LifeMax;
+		double SizeMin, SizeMax;
+		double SizeEnd;
+		double Intensity;
+		double Jitter;
+	};
+
+	Fx::FKartFxEmit Emit(const FEmitRecipe& R, const FVector& At)
+	{
+		Fx::FKartFxEmit E;
+		E.Field = R.Field;
+		E.Position = At + FVector(R.OffsetX, R.OffsetY, R.OffsetZ);
+		E.Count = R.Count;
+		E.Spread = R.Spread;
+		E.Speed = FVector2D(R.SpeedMin, R.SpeedMax);
+		E.Life = FVector2D(R.LifeMin, R.LifeMax);
+		E.Size = FVector2D(R.SizeMin, R.SizeMax);
+		E.SizeEnd = R.SizeEnd;
+		E.Intensity = R.Intensity;
+		E.Jitter = R.Jitter;
+		return E;
 	}
 
-	/**
-	 * StackerScene.tsx's perfect: round(8 + 16i) sparks (three times that for a complete tower), ten more in white at
-	 * full intensity, twinkles along the seam, a flash and a ring; confetti for a complete tower.
-	 */
+	// StackerScene.tsx's bursts. A count or size of 0 here is set per effect.
+	/** A puff of grit squeezed out of the joint, blown back and up. */
+	constexpr FEmitRecipe LandingGrit{ Fx::EField::Smoke, -60.0, 0.0, -18.0, 6, 1.4, 0.4, 1.0, 0.35, 0.6, 0.06, 0.12, 1.8, 0.8, 0.35 };
+	const FVector GritDirection(-0.4, 0.0, 1.0);
+	/** A perfect: round(8 + 16i) sparks (three times that for a complete tower), ten more in white at full intensity. */
+	constexpr FEmitRecipe PerfectSparks{ Fx::EField::Sparks, -80.0, 0.0, 20.0, 0, 1.2, 2.0, 4.5, 0.35, 0.7, 0.02, 0.04, 0.2, 2.2, 0.3 };
+	constexpr int32 WhiteSparks = 10;
+	constexpr double WhiteSparkIntensity = 2.8;
+	/** Twinkles along the seam: the sparkle that says "clean" (one more per combo step, up to three). */
+	constexpr FEmitRecipe SeamTwinkle{ Fx::EField::Flare, -80.0, 0.0, 22.0, 4, 0.6, 0.2, 0.7, 0.35, 0.65, 0.1, 0.18, 0.1, 2.6, 0.3 };
+	constexpr double TwinkleJitterPerWidth = 0.45;
+	/** The flash at the seam, and the ring around the top (wider with the block, brighter at full intensity). */
+	constexpr FEmitRecipe PerfectFlash{ Fx::EField::Flare, -80.0, 0.0, 0.0, 1, 0.5, 0.0, 0.0, 0.22, 0.22, 1.4, 1.4, 0.4, 2.4, 0.0 };
+	constexpr FEmitRecipe PerfectRing{ Fx::EField::Ring, 0.0, 0.0, 22.0, 1, 0.5, 0.0, 0.0, 0.45, 0.45, 1.0, 1.0, 2.6, 1.4, 0.0 };
+	constexpr double RingSizePerWidth = 0.3;
+	constexpr double BrightRingIntensity = 2.2;
+	/** A complete tower's confetti, well above the top. */
+	constexpr FEmitRecipe CompleteConfetti{ Fx::EField::Confetti, 0.0, 0.0, 120.0, 60, 0.9, 3.0, 6.0, 1.4, 2.2, 0.06, 0.1, 0.2, 1.0, 0.0 };
+	/** A cloud of dust off the tower for a miss, a bigger one for a topple. */
+	constexpr FEmitRecipe FailureDust{ Fx::EField::Smoke, 0.0, 0.0, 0.0, 22, 1.3, 0.6, 1.8, 0.5, 0.9, 0.12, 0.22, 2.0, 0.9, 0.4 };
+	constexpr int32 TopoutDust = 34;
+	/** The spark and seam colours mix the lane's colour this far toward white. */
+	constexpr float SparkWhiteMix = 0.5f;
+
 	void PerfectBurst(const FVector& At, const FEffect& E, const FTower& Tower, const FLinearColor& Color, TArray<Fx::FKartFxEmit>& Out)
 	{
 		const float P = static_cast<float>(E.Intensity);
 		const bool bComplete = E.Kind == EEffectKind::Complete;
-		Fx::FKartFxEmit Sparks;
-		Sparks.Field = Fx::EField::Sparks;
-		Sparks.Position = At + FVector(-80.0, 0.0, 20.0);
+		const FLinearColor Pale = FMath::Lerp(Color, FLinearColor::White, SparkWhiteMix);
+		Fx::FKartFxEmit Sparks = Emit(PerfectSparks, At);
 		Sparks.Count = FMath::RoundToInt32(8.f + 16.f * P) * (bComplete ? 3 : 1);
-		Sparks.Spread = 1.2;
-		Sparks.Speed = FVector2D(2.0, 4.5);
-		Sparks.Life = FVector2D(0.35, 0.7);
-		Sparks.Size = FVector2D(0.02, 0.04);
-		Sparks.Color = FMath::Lerp(Color, FLinearColor::White, 0.5f);
+		Sparks.Color = Pale;
 		Sparks.ColorEnd = Color;
-		Sparks.Intensity = 2.2;
-		Sparks.Jitter = 0.3;
 		Out.Add(Sparks);
-		// Twinkles along the seam: the sparkle that says "clean".
-		Fx::FKartFxEmit Twinkle;
-		Twinkle.Field = Fx::EField::Flare;
-		Twinkle.Position = At + FVector(-80.0, 0.0, 22.0);
-		Twinkle.Count = 4 + FMath::Min(Tower.Combo, 3);
-		Twinkle.Spread = 0.6;
-		Twinkle.Speed = FVector2D(0.2, 0.7);
-		Twinkle.Life = FVector2D(0.35, 0.65);
-		Twinkle.Size = FVector2D(0.1, 0.18);
-		Twinkle.SizeEnd = 0.1;
+		Fx::FKartFxEmit Twinkle = Emit(SeamTwinkle, At);
+		Twinkle.Count = SeamTwinkle.Count + FMath::Min(Tower.Combo, 3);
 		Twinkle.Color = FLinearColor::White;
-		Twinkle.ColorEnd = FMath::Lerp(Color, FLinearColor::White, 0.5f);
-		Twinkle.Intensity = 2.6;
-		Twinkle.Jitter = FMath::Max(0.3, Tower.Top().Width * 0.45);
+		Twinkle.ColorEnd = Pale;
+		Twinkle.Jitter = FMath::Max(SeamTwinkle.Jitter, Tower.Top().Width * TwinkleJitterPerWidth);
 		Out.Add(Twinkle);
 		if (P >= FullIntensity)
 		{
 			Fx::FKartFxEmit White = Sparks;
-			White.Count = 10;
+			White.Count = WhiteSparks;
 			White.Color = White.ColorEnd = FLinearColor::White;
-			White.Intensity = 2.8;
+			White.Intensity = WhiteSparkIntensity;
 			Out.Add(White);
 		}
-		Fx::FKartFxEmit Flash;
-		Flash.Field = Fx::EField::Flare;
-		Flash.Position = At + FVector(-80.0, 0.0, 0.0);
-		Flash.Speed = FVector2D::ZeroVector;
-		Flash.Life = FVector2D(0.22, 0.22);
-		Flash.Size = FVector2D(1.4, 1.4);
-		Flash.SizeEnd = 0.4;
+		Fx::FKartFxEmit Flash = Emit(PerfectFlash, At);
 		Flash.Color = FLinearColor::White;
 		Flash.ColorEnd = Color;
-		Flash.Intensity = 2.4;
 		Out.Add(Flash);
-		Fx::FKartFxEmit Ring;
-		Ring.Field = Fx::EField::Ring;
-		Ring.Position = At + FVector(0.0, 0.0, 22.0);
-		Ring.Speed = FVector2D::ZeroVector;
-		Ring.Life = FVector2D(0.45, 0.45);
-		Ring.Size = FVector2D(1.0 + 0.3 * Tower.Top().Width, 1.0 + 0.3 * Tower.Top().Width);
-		Ring.SizeEnd = 2.6;
+		Fx::FKartFxEmit Ring = Emit(PerfectRing, At);
+		const double RingSize = PerfectRing.SizeMin + RingSizePerWidth * Tower.Top().Width;
+		Ring.Size = FVector2D(RingSize, RingSize);
 		Ring.Color = FLinearColor::White;
 		Ring.ColorEnd = Color;
-		Ring.Intensity = P >= FullIntensity || bComplete ? 2.2 : 1.4;
+		Ring.Intensity = P >= FullIntensity || bComplete ? BrightRingIntensity : PerfectRing.Intensity;
 		Out.Add(Ring);
 		if (bComplete)
 		{
-			Fx::FKartFxEmit Confetti;
-			Confetti.Field = Fx::EField::Confetti;
-			Confetti.Position = At + FVector(0.0, 0.0, 120.0);
-			Confetti.Count = 60;
-			Confetti.Spread = 0.9;
-			Confetti.Speed = FVector2D(3.0, 6.0);
-			Confetti.Life = FVector2D(1.4, 2.2);
-			Confetti.Size = FVector2D(0.06, 0.1);
-			Out.Add(Confetti);
+			Out.Add(Emit(CompleteConfetti, At));
 		}
 	}
 
-	/** A cloud of dust off the tower for a miss, a bigger one for a topple. */
-	Fx::FKartFxEmit FailureDust(const FVector& At, bool bTopout)
+	Fx::FKartFxEmit LandingGritAt(const FVector& At)
 	{
-		Fx::FKartFxEmit Dust;
-		Dust.Field = Fx::EField::Smoke;
-		Dust.Position = At;
-		Dust.Count = bTopout ? 34 : 22;
-		Dust.Spread = 1.3;
-		Dust.Speed = FVector2D(0.6, 1.8);
-		Dust.Life = FVector2D(0.5, 0.9);
-		Dust.Size = FVector2D(0.12, 0.22);
-		Dust.SizeEnd = 2.0;
+		Fx::FKartFxEmit Grit = Emit(LandingGrit, At);
+		Grit.Direction = GritDirection.GetSafeNormal();
+		Grit.Color = MovecadeKart::Art::Hex(TEXT("#e8ddcc"));
+		Grit.ColorEnd = MovecadeKart::Art::Hex(TEXT("#a89c8a"));
+		return Grit;
+	}
+
+	Fx::FKartFxEmit FailureDustAt(const FVector& At, bool bTopout)
+	{
+		Fx::FKartFxEmit Dust = Emit(FailureDust, At);
+		Dust.Count = bTopout ? TopoutDust : FailureDust.Count;
 		Dust.Color = MovecadeKart::Art::Hex(TEXT("#cfc6b8"));
 		Dust.ColorEnd = MovecadeKart::Art::Hex(TEXT("#8c857a"));
-		Dust.Intensity = 0.9;
-		Dust.Jitter = 0.4;
 		return Dust;
 	}
 }
@@ -198,7 +197,7 @@ void AStackerGame::PresentEffect(const FEffect& E)
 	case EEffectKind::Land:
 		Cues.Play(this, TEXT("stacker.drop"), 0.7f + 0.3f * P, DropPitch);
 		Punch = LandPunchBase + LandPunchPerIntensity * P;
-		Out.Add(LandingGrit(At));
+		Out.Add(LandingGritAt(At));
 		break;
 	case EEffectKind::Perfect:
 	case EEffectKind::Complete:
@@ -216,7 +215,7 @@ void AStackerGame::PresentEffect(const FEffect& E)
 		Cues.Play(this, TEXT("stacker.miss"));
 		Punch = BigPunch;
 		Lane.Topple = FMath::Max(Lane.Topple, E.Kind == EEffectKind::Topout ? TopoutShudder : MissShudder);
-		Out.Add(FailureDust(At, E.Kind == EEffectKind::Topout));
+		Out.Add(FailureDustAt(At, E.Kind == EEffectKind::Topout));
 		break;
 	}
 	Shake = FMath::Max(Shake, FMath::Min(MaxShake, Punch * ShakePerPunch));
