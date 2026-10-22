@@ -22,18 +22,67 @@ using namespace MovecadeKart::Derby::Ballpark;
 
 namespace
 {
+	/** The night's light: the floods' key and the moon's fill (degrees), the sky light, the haze and the grade. */
+	struct FNightRig
+	{
+		double FloodsPitch;
+		double FloodsYaw;
+		const TCHAR* FloodsColor;
+		float FloodsIntensity;
+		double MoonPitch;
+		double MoonYaw;
+		const TCHAR* MoonColor;
+		float MoonIntensity;
+		float SkyLightIntensity;
+		const TCHAR* GroundBounceColor;
+		float FogStartCm;
+		float FogDensity;
+		float FogHeightFalloff;
+		float FogMaxOpacity;
+		const TCHAR* FogColor;
+		const TCHAR* FogGlowColor;
+		float FogGlow;
+		float FogGlowExponent;
+		float ExposureMin;
+		float ExposureMax;
+		float BloomIntensity;
+		float BloomThreshold;
+		float Vignette;
+		float Saturation;
+		float Contrast;
+	};
+	const FNightRig Night{ .FloodsPitch = -52.0, .FloodsYaw = 18.0, .FloodsColor = TEXT("#fff0da"), .FloodsIntensity = 3.2f,
+		.MoonPitch = -35.0, .MoonYaw = -150.0, .MoonColor = TEXT("#7f9cff"), .MoonIntensity = 0.7f,
+		.SkyLightIntensity = 0.9f, .GroundBounceColor = TEXT("#1d2a1c"),
+		.FogStartCm = 9000.f, .FogDensity = 0.035f, .FogHeightFalloff = 0.06f, .FogMaxOpacity = 0.6f, .FogColor = TEXT("#16224a"),
+		.FogGlowColor = TEXT("#ffd9a8"), .FogGlow = 0.15f, .FogGlowExponent = 8.f,
+		.ExposureMin = 0.6f, .ExposureMax = 1.4f, .BloomIntensity = 1.1f, .BloomThreshold = 1.0f, .Vignette = 0.45f, .Saturation = 1.08f, .Contrast = 1.06f };
+
 	/** The sky dome's scale over the unit sphere: well past everything, inside the far plane. */
 	constexpr double SkyDomeScale = 20000.0;
 	const TCHAR* const SkyMaterialPath = TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky");
 	const TCHAR* const CloudsPath = TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds");
 	/** Where the moon hangs (and the sky material's "sun" glows): high over left-centre. */
 	const FVector MoonDirection(-0.45, 0.62, 0.42);
-	/** Stars on the upper dome (deterministic), their sizes, and the moon's disc (metres out on the dome). */
-	constexpr int32 StarSeed = 0xba5e;
-	constexpr int32 StarCount = 420;
-	constexpr double StarDomeM = 1800.0;
-	constexpr double MoonDomeM = 1700.0;
-	constexpr double MoonSize = 70.0;
+	/** Stars on the upper dome (deterministic), a few bright ones, and the moon's disc (metres out on the dome). */
+	struct FStarField
+	{
+		int32 Seed;
+		int32 Count;
+		double DomeM;
+		float MinSinElevation;
+		float MaxSinElevation;
+		float MinSize;
+		float MaxSize;
+		float BrightChance;
+		double BrightScale;
+		float Glow;
+		double MoonDomeM;
+		double MoonSize;
+		float MoonGlow;
+	};
+	constexpr FStarField Stars{ .Seed = 0xba5e, .Count = 420, .DomeM = 1800.0, .MinSinElevation = 0.12f, .MaxSinElevation = 0.98f, .MinSize = 1.4f,
+		.MaxSize = 3.6f, .BrightChance = 0.08f, .BrightScale = 2.0, .Glow = 6.f, .MoonDomeM = 1700.0, .MoonSize = 70.0, .MoonGlow = 4.f };
 
 	/** The crowd: it settles back to a murmur at this rate (per second), never under the floor. */
 	constexpr float CrowdSettleRate = 0.22f;
@@ -48,9 +97,50 @@ namespace
 	constexpr double SwayCm = 1.5;
 	constexpr double SwayRate = 1.3;
 
-	/** The scoreboard beyond centre field: metres past the fence, its screen's centre height. */
-	constexpr double BoardBehindFenceM = 42.0;
-	constexpr double BoardZ = 26.0;
+	/** The scoreboard beyond centre field (metres; X back from its screen, Z from the screen's centre). */
+	struct FBoardSpec
+	{
+		double BehindFenceM;
+		double CentreZ;
+		/** Two legs either side, a little behind the screen, standing on the ground. */
+		double LegY;
+		double LegBack;
+		double LegSize;
+		double LegSink;
+		double FrameBack;
+		double FrameDepth;
+		double FrameWidth;
+		double FrameHeight;
+		double ScreenDepth;
+		double ScreenWidth;
+		double ScreenHeight;
+		/** The accent bars along the screen's top and bottom edges, just proud of it. */
+		double AccentFront;
+		double AccentDepth;
+		double AccentHeight;
+		double AccentZ;
+	};
+	constexpr FBoardSpec Board{ .BehindFenceM = 42.0, .CentreZ = 26.0, .LegY = 12.0, .LegBack = 1.0, .LegSize = 1.5, .LegSink = 4.0,
+		.FrameBack = 0.6, .FrameDepth = 1.2, .FrameWidth = 38.0, .FrameHeight = 16.0, .ScreenDepth = 0.1, .ScreenWidth = 36.0, .ScreenHeight = 14.0,
+		.AccentFront = 0.06, .AccentDepth = 0.05, .AccentHeight = 0.5, .AccentZ = 6.6 };
+
+	/** The board's lettering: the title above the screen, then the three lines SetBoard writes (bLine). */
+	struct FBoardText
+	{
+		const TCHAR* Initial;
+		double OffsetX;
+		double OffsetZ;
+		float SizeCm;
+		/** Null: white. */
+		const TCHAR* Color;
+		bool bLine;
+	};
+	const FBoardText BoardTexts[] = {
+		{ TEXT("HOME RUN DERBY"), 0.3, 9.4, 280.f, TEXT("#f2b23f"), false },
+		{ TEXT("NOW BATTING"), -0.2, 3.4, 330.f, nullptr, true },
+		{ TEXT(""), -0.2, -0.6, 420.f, TEXT("#f2b23f"), true },
+		{ TEXT(""), -0.2, -4.4, 280.f, TEXT("#3fc9c2"), true },
+	};
 	/** The board's accent bars glow at this multiple of the batter's colour. */
 	constexpr float BoardAccentGlow = 3.f;
 	/** The batter's name line, warmed toward white. */
@@ -140,14 +230,14 @@ USceneComponent* ADerbyBallpark::Pivot(const TCHAR* Name)
 void ADerbyBallpark::Box(UMaterialInterface* Material, const FVector& CentreM, const FVector& SizeM, double YawDeg, bool bShadows, USceneComponent* Parent)
 {
 	// The engine cube is 1 m across: its scale is the size in metres.
-	Groups.Find(Cube, Material, bShadows, Parent)->AddInstance(FTransform(FRotator(0.0, YawDeg, 0.0), M(CentreM), SizeM), false);
+	FindGroup(Cube, Material, bShadows, Parent)->AddInstance(FTransform(FRotator(0.0, YawDeg, 0.0), M(CentreM), SizeM), false);
 }
 
 void ADerbyBallpark::Disc(UMaterialInterface* Material, const FVector& CentreM, double RadiusM, double HeightM, bool bShadows)
 {
 	// The engine cylinder is 1 m across and 1 m tall, centred on its origin.
 	const FTransform Transform(FRotator::ZeroRotator, M(CentreM + FVector(0.0, 0.0, HeightM / 2.0)), FVector(RadiusM * 2.0, RadiusM * 2.0, HeightM));
-	Groups.Find(Cylinder, Material, bShadows)->AddInstance(Transform, false);
+	FindGroup(Cylinder, Material, bShadows)->AddInstance(Transform, false);
 }
 
 UTextRenderComponent* ADerbyBallpark::Text(const FString& String, const FVector& AtM, double YawDeg, float WorldSizeCm, const FLinearColor& Color)
@@ -169,8 +259,10 @@ UTextRenderComponent* ADerbyBallpark::Text(const FString& String, const FVector&
 void ADerbyBallpark::Build()
 {
 	Clear();
+	WarnIfShapesMissing();
 	// Movable: the crowd sections bounce, and every group hangs off the movable root.
 	Groups.Init(this, TEXT("ParkGroup"), PartTag, EComponentMobility::Movable);
+	PartsWithoutMaterial = 0;
 	BuildLook();
 	BuildSky();
 	BuildField();
@@ -178,53 +270,75 @@ void ADerbyBallpark::Build()
 	BuildStands();
 	BuildTowers();
 	BuildBoard();
+	// Art warns once per missing master and falls back (Surface to Plain, GlowOpaque to Glow); only a look with no
+	// master at all comes back null, and its parts draw with the engine's default material.
+	UE_CLOG(PartsWithoutMaterial > 0, LogDerby, Warning, TEXT("DerbyBallpark: %d part(s) built without a material (see LogKartMaterials)"),
+		PartsWithoutMaterial);
+}
+
+void ADerbyBallpark::WarnIfShapesMissing() const
+{
+	// The engine's basic shapes are every instanced part; without them the park is built empty.
+	if (!Cube || !Cylinder || !Sphere)
+	{
+		UE_LOG(LogDerby, Warning, TEXT("DerbyBallpark: engine basic shapes missing (cube %d, cylinder %d, sphere %d); the park will be mostly empty"),
+			Cube != nullptr, Cylinder != nullptr, Sphere != nullptr);
+	}
+}
+
+UInstancedStaticMeshComponent* ADerbyBallpark::FindGroup(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows, USceneComponent* Parent,
+	UMaterialInterface* Material2)
+{
+	PartsWithoutMaterial += Material ? 0 : 1;
+	return Groups.Find(Mesh, Material, bShadows, Parent, Material2);
 }
 
 void ADerbyBallpark::BuildLook()
 {
 	using namespace MovecadeKart::Art;
+	const FNightRig& L = Night;
 	// The floods: one warm key from high behind the plate, as the towers add up to; a cold moon fill from the other side.
-	Floods->SetWorldRotation(FRotator(-52.0, 18.0, 0.0));
-	Floods->SetLightColor(Hex(TEXT("#fff0da")));
-	Floods->SetIntensity(3.2f);
+	Floods->SetWorldRotation(FRotator(L.FloodsPitch, L.FloodsYaw, 0.0));
+	Floods->SetLightColor(Hex(L.FloodsColor));
+	Floods->SetIntensity(L.FloodsIntensity);
 	Floods->SetCastShadows(true);
 	Floods->SetAtmosphereSunLight(false);
 	Floods->SetForwardShadingPriority(1);
-	Moon->SetWorldRotation(FRotator(-35.0, -150.0, 0.0));
-	Moon->SetLightColor(Hex(TEXT("#7f9cff")));
-	Moon->SetIntensity(0.7f);
+	Moon->SetWorldRotation(FRotator(L.MoonPitch, L.MoonYaw, 0.0));
+	Moon->SetLightColor(Hex(L.MoonColor));
+	Moon->SetIntensity(L.MoonIntensity);
 	Moon->SetCastShadows(false);
 	Moon->SetAtmosphereSunLight(false);
 	Moon->SetForwardShadingPriority(0);
 	SkyLight->bRealTimeCapture = false;
-	SkyLight->SetIntensity(0.9f);
+	SkyLight->SetIntensity(L.SkyLightIntensity);
 	SkyLight->bLowerHemisphereIsBlack = false;
-	SkyLight->SetLowerHemisphereColor(Hex(TEXT("#1d2a1c")));
+	SkyLight->SetLowerHemisphereColor(Hex(L.GroundBounceColor));
 	// A blue night haze past the stands, lit warm toward the floods.
-	Fog->SetStartDistance(9000.f);
-	Fog->SetFogDensity(0.035f);
-	Fog->SetFogHeightFalloff(0.06f);
-	Fog->SetFogMaxOpacity(0.6f);
-	Fog->SetFogInscatteringColor(Hex(TEXT("#16224a")));
-	Fog->SetDirectionalInscatteringColor(Hex(TEXT("#ffd9a8")) * 0.15f);
-	Fog->SetDirectionalInscatteringExponent(8.f);
+	Fog->SetStartDistance(L.FogStartCm);
+	Fog->SetFogDensity(L.FogDensity);
+	Fog->SetFogHeightFalloff(L.FogHeightFalloff);
+	Fog->SetFogMaxOpacity(L.FogMaxOpacity);
+	Fog->SetFogInscatteringColor(Hex(L.FogColor));
+	Fog->SetDirectionalInscatteringColor(Hex(L.FogGlowColor) * L.FogGlow);
+	Fog->SetDirectionalInscatteringExponent(L.FogGlowExponent);
 	// Without a sun, auto exposure drifts: hold it in a narrow band, and bloom the lamps.
 	FPostProcessSettings& S = Grade->Settings;
 	S = FPostProcessSettings();
 	S.bOverride_AutoExposureMinBrightness = true;
-	S.AutoExposureMinBrightness = 0.6f;
+	S.AutoExposureMinBrightness = L.ExposureMin;
 	S.bOverride_AutoExposureMaxBrightness = true;
-	S.AutoExposureMaxBrightness = 1.4f;
+	S.AutoExposureMaxBrightness = L.ExposureMax;
 	S.bOverride_BloomIntensity = true;
-	S.BloomIntensity = 1.1f;
+	S.BloomIntensity = L.BloomIntensity;
 	S.bOverride_BloomThreshold = true;
-	S.BloomThreshold = 1.0f;
+	S.BloomThreshold = L.BloomThreshold;
 	S.bOverride_VignetteIntensity = true;
-	S.VignetteIntensity = 0.45f;
+	S.VignetteIntensity = L.Vignette;
 	S.bOverride_ColorSaturation = true;
-	S.ColorSaturation = FVector4(1.08f, 1.08f, 1.08f, 1.f);
+	S.ColorSaturation = FVector4(L.Saturation, L.Saturation, L.Saturation, 1.f);
 	S.bOverride_ColorContrast = true;
-	S.ColorContrast = FVector4(1.06f, 1.06f, 1.06f, 1.f);
+	S.ColorContrast = FVector4(L.Contrast, L.Contrast, L.Contrast, 1.f);
 }
 
 void ADerbyBallpark::BuildSky()
@@ -250,6 +364,10 @@ void ADerbyBallpark::BuildSky()
 		{
 			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
 		}
+		else
+		{
+			UE_LOG(LogDerby, Warning, TEXT("DerbyBallpark: %s is missing; the sky has no clouds"), CloudsPath);
+		}
 		Sky->SetScalarParameterValue(TEXT("Clouds"), 0.18f);
 		Sky->SetScalarParameterValue(TEXT("CloudScale"), 0.3f);
 		Sky->SetVectorParameterValue(TEXT("CloudLit"), Hex(TEXT("#2c3a66")));
@@ -261,43 +379,52 @@ void ADerbyBallpark::BuildSky()
 		UE_LOG(LogDerby, Warning, TEXT("DerbyBallpark: %s is missing; the sky stays the default"), SkyMaterialPath);
 	}
 	SkyLight->RecaptureSky();
-	FRandomStream R(StarSeed);
-	UInstancedStaticMeshComponent* Stars = Groups.Find(Sphere, Materials.GlowOpaque(this, FLinearColor(1.f, 0.97f, 0.9f) * 6.f), false);
-	for (int32 i = 0; i < StarCount; ++i)
+	const FStarField& F = Stars;
+	FRandomStream R(F.Seed);
+	UInstancedStaticMeshComponent* StarGroup = FindGroup(Sphere, Materials.GlowOpaque(this, FLinearColor(1.f, 0.97f, 0.9f) * F.Glow), false);
+	for (int32 i = 0; i < F.Count; ++i)
 	{
 		const double Yaw = R.FRandRange(0.0, 2.0 * PI);
-		const double Elev = FMath::Asin(R.FRandRange(0.12f, 0.98f));
+		// Uniform over the dome's area between the two sines of elevation.
+		const double Elev = FMath::Asin(R.FRandRange(F.MinSinElevation, F.MaxSinElevation));
 		const FVector Dir(FMath::Cos(Elev) * FMath::Cos(Yaw), FMath::Cos(Elev) * FMath::Sin(Yaw), FMath::Sin(Elev));
-		// One in twelve or so a bright one.
-		const double Size = R.FRandRange(1.4f, 3.6f) * (R.FRand() < 0.08f ? 2.0 : 1.0);
-		Stars->AddInstance(FTransform(FRotator::ZeroRotator, M(Dir * StarDomeM), FVector(Size)), false);
+		const double Size = R.FRandRange(F.MinSize, F.MaxSize) * (R.FRand() < F.BrightChance ? F.BrightScale : 1.0);
+		StarGroup->AddInstance(FTransform(FRotator::ZeroRotator, M(Dir * F.DomeM), FVector(Size)), false);
 	}
-	Groups.Find(Sphere, Materials.GlowOpaque(this, Hex(TEXT("#f4f1e6")) * 4.f), false)
-		->AddInstance(FTransform(FRotator::ZeroRotator, M(MoonDirection.GetSafeNormal() * MoonDomeM), FVector(MoonSize)), false);
+	FindGroup(Sphere, Materials.GlowOpaque(this, Hex(TEXT("#f4f1e6")) * F.MoonGlow), false)
+		->AddInstance(FTransform(FRotator::ZeroRotator, M(MoonDirection.GetSafeNormal() * F.MoonDomeM), FVector(F.MoonSize)), false);
 }
 
 void ADerbyBallpark::BuildBoard()
 {
 	using namespace MovecadeKart::Art;
+	const FBoardSpec& B = Board;
 	UMaterialInterface* Frame = Materials.Plain(this, Hex(TEXT("#1a1d24")), 0.6, 0.4);
 	UMaterialInterface* Screen = Materials.GlowOpaque(this, Hex(TEXT("#050812")) * 1.f);
 	BoardAccent = GlowOpaque(this, Hex(TEXT("#f2b23f")) * BoardAccentGlow);
-	const double X = FenceAt(0.0) + BoardBehindFenceM;
-	const double Z = BoardZ;
+	const double X = FenceAt(0.0) + B.BehindFenceM;
+	const double Z = B.CentreZ;
 	// Two legs, the frame, the dark screen, an accent bar top and bottom.
-	for (const double Y : { -12.0, 12.0 })
+	for (const double Y : { -B.LegY, B.LegY })
 	{
-		Box(Frame, FVector(X + 1.0, Y, Z / 2.0 - 4.0), FVector(1.5, 1.5, Z), 0.0, true);
+		Box(Frame, FVector(X + B.LegBack, Y, Z / 2.0 - B.LegSink), FVector(B.LegSize, B.LegSize, Z), 0.0, true);
 	}
-	Box(Frame, FVector(X + 0.6, 0.0, Z), FVector(1.2, 38.0, 16.0), 0.0, true);
-	Box(Screen, FVector(X, 0.0, Z), FVector(0.1, 36.0, 14.0));
-	Box(BoardAccent, FVector(X - 0.06, 0.0, Z + 6.6), FVector(0.05, 36.0, 0.5));
-	Box(BoardAccent, FVector(X - 0.06, 0.0, Z - 6.6), FVector(0.05, 36.0, 0.5));
-	// The title, then the three lines SetBoard writes (the third in teal), all facing home.
-	Text(TEXT("HOME RUN DERBY"), FVector(X + 0.3, 0.0, Z + 9.4), 180.0, 280.f, Hex(TEXT("#f2b23f")));
-	BoardLines.Add(Text(TEXT("NOW BATTING"), FVector(X - 0.2, 0.0, Z + 3.4), 180.0, 330.f, FLinearColor::White));
-	BoardLines.Add(Text(TEXT(""), FVector(X - 0.2, 0.0, Z - 0.6), 180.0, 420.f, Hex(TEXT("#f2b23f"))));
-	BoardLines.Add(Text(TEXT(""), FVector(X - 0.2, 0.0, Z - 4.4), 180.0, 280.f, Hex(TEXT("#3fc9c2"))));
+	Box(Frame, FVector(X + B.FrameBack, 0.0, Z), FVector(B.FrameDepth, B.FrameWidth, B.FrameHeight), 0.0, true);
+	Box(Screen, FVector(X, 0.0, Z), FVector(B.ScreenDepth, B.ScreenWidth, B.ScreenHeight));
+	for (const double Bar : { B.AccentZ, -B.AccentZ })
+	{
+		Box(BoardAccent, FVector(X - B.AccentFront, 0.0, Z + Bar), FVector(B.AccentDepth, B.ScreenWidth, B.AccentHeight));
+	}
+	// The title, then the three lines SetBoard writes, all facing home.
+	for (const FBoardText& Line : BoardTexts)
+	{
+		const FLinearColor Color = Line.Color ? Hex(Line.Color) : FLinearColor::White;
+		UTextRenderComponent* Rendered = Text(Line.Initial, FVector(X + Line.OffsetX, 0.0, Z + Line.OffsetZ), 180.0, Line.SizeCm, Color);
+		if (Line.bLine)
+		{
+			BoardLines.Add(Rendered);
+		}
+	}
 }
 
 void ADerbyBallpark::SetBoard(const FString& Line1, const FString& Line2, const FString& Line3, const FLinearColor& Accent)

@@ -77,7 +77,15 @@ private:
 	/** One step of an arc of stands at MidDeg, its first row BaseM from the plate; AddFan seats a fan (feet, yaw). */
 	void BuildStandArc(const FDerbyStandArc& Arc, double MidDeg, double BaseM, UMaterialInterface* Riser, UMaterialInterface* Seat,
 		TFunctionRef<void(const FVector&, double)> AddFan);
+	/** That step's back wall behind its last row: the facade, a roof if the arc has one, the neon trim. */
+	void BuildStandBack(const FDerbyStandArc& Arc, double MidDeg, double BaseM, UMaterialInterface* Facade, UMaterialInterface* Trim);
+	void BuildLineStands(UMaterialInterface* Riser, UMaterialInterface* Facade, TFunctionRef<void(const FVector&, double)> AddFan);
 
+	/** Logs once per build when the engine's basic shapes (every instanced part) failed to load. */
+	void WarnIfShapesMissing() const;
+	/** Groups.Find, counting parts whose look came back null (Art had no master for it) for one warning per build. */
+	UInstancedStaticMeshComponent* FindGroup(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows, USceneComponent* Parent = nullptr,
+		UMaterialInterface* Material2 = nullptr);
 	/** A box (centre and size in metres, yawed about Z) and a disc (a flat cylinder standing on its centre) as instances. */
 	void Box(UMaterialInterface* Material, const FVector& CentreM, const FVector& SizeM, double YawDeg = 0.0, bool bShadows = false, USceneComponent* Parent = nullptr);
 	void Disc(UMaterialInterface* Material, const FVector& CentreM, double RadiusM, double HeightM, bool bShadows = false);
@@ -139,4 +147,6 @@ private:
 
 	double Clock = 0.0;
 	float Excitement = 0.15f;
+	/** Parts the current build made without a material (FindGroup). */
+	int32 PartsWithoutMaterial = 0;
 };
