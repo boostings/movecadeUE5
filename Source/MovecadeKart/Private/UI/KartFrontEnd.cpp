@@ -442,8 +442,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 		}
 		else if (Step == TEXT("quit"))
 		{
-			Screens->PushScreen(KartScreens::MakeConfirm(FText::FromString(TEXT("Quit the game?")), FText::FromString(TEXT("See you on the track soon.")),
-				FText::FromString(TEXT("Quit")), FText::FromString(TEXT("Stay")), nullptr));
+			Screens->PushScreen(KartScreens::MakeQuitConfirm(this));
 		}
 		return true;
 	}

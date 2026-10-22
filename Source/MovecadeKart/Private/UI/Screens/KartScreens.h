@@ -6,10 +6,11 @@
 class AKartFrontEnd;
 class AKartRaceManager;
 
-/** Factories for every menu screen (front end, settings, race pause and results). */
+/** Factories for every menu screen (front end, settings, race pause and results). One screen per file. */
 namespace KartScreens
 {
-	// Front end (KartFrontEndScreens.cpp)
+	// Front end: KartTitleScreen.cpp, KartMainMenuScreen.cpp, KartArcadeScreen.cpp, and the race setup
+	// (KartRacersScreen.cpp, KartRulesScreen.cpp, KartTracksScreen.cpp), then KartCreditsScreen.cpp.
 	TSharedRef<FKartScreen> MakeTitle(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeMainMenu(AKartFrontEnd* FrontEnd);
 	/** The party-game picker (Arcade on the main menu). */
@@ -29,8 +30,10 @@ namespace KartScreens
 	/** The main menu card's icon for Store. */
 	void PaintStoreIcon(const FKartPainter& P, const FVector2D& Centre, float Size, double Now);
 
-	/** A yes/no dialog over the current screen. No has focus first; Back is No. Each callback runs after the dialog closes. */
+	/** A yes/no dialog over the current screen (KartConfirmScreen.cpp). No has focus first; Back is No. Each callback runs after the dialog closes. */
 	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes, TFunction<void()> OnNo = nullptr);
+	/** "Quit the game?" from the title or the main menu (KartMainMenuScreen.cpp); Yes quits through FrontEnd. */
+	TSharedRef<FKartScreen> MakeQuitConfirm(AKartFrontEnd* FrontEnd);
 
 	// Settings (KartSettingsScreen.cpp): 0 Graphics, 1 Audio, 2 Controls, 3 Accessibility.
 	TSharedRef<FKartScreen> MakeSettings(int32 Tab = 0);
