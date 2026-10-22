@@ -25,19 +25,58 @@ namespace
 	constexpr double ButtonWidth = 600.0;
 	constexpr double ButtonGap = 14.0;
 	constexpr double ButtonSlide = 260.0;
+	constexpr float ButtonInAt = 0.05f;
+	constexpr float ButtonStagger = 0.05f;
+	constexpr float ButtonInSeconds = 0.4f;
+	/** The SOON chip on a game that isn't ported yet. */
+	const FVector2D SoonChipSize(116.0, 40.0);
+	constexpr double SoonChipInset = 24.0;
+	constexpr float SoonChipAlpha = 0.9f;
+	constexpr float SoonChipRound = 20.f;
+	constexpr float SoonChipFont = 19.f;
 	/** The two option rows under the list (players, house players). */
 	const FVector2D OptionRowSize(600.0, 76.0);
 	constexpr double OptionGap = 14.0;
 	constexpr double OptionsDrop = 20.0;
 	constexpr double OptionSlide = 200.0;
+	constexpr float OptionInAt = 0.25f;
+	constexpr float OptionStagger = 0.05f;
 
 	/** The picked game's card on the right and its line-up of seat dots. */
-	const FVector2D CardSize(620.0, 560.0);
-	constexpr double CardPopSeconds = 0.35;
-	constexpr float CardIconSize = 100.f;
-	constexpr float SeatRadius = 28.f;
-	constexpr double SeatSpacing = 76.0;
-	constexpr double PlayButtonDrop = 70.0;
+	namespace CardArt
+	{
+		const FVector2D Size(620.0, 560.0);
+		constexpr float InAt = 0.2f;
+		constexpr double PopSeconds = 0.35;
+		constexpr float PopOvershoot = 2.f;
+		/** A new pick pops the card from 92 % with a small tilt. */
+		constexpr float PopFrom = 0.92f;
+		constexpr float PopGrowth = 0.08f;
+		constexpr float PopTilt = -3.f;
+		constexpr float Shadow = 10.f;
+		constexpr float Rim = 5.f;
+		constexpr double ArtInset = 18.0;
+		constexpr double ArtHeight = 250.0;
+		/** The art's gradient darkens towards night by this much. */
+		constexpr float ArtShade = 0.35f;
+		constexpr double IconY = 143.0;
+		constexpr float IconSize = 100.f;
+		constexpr float NameSize = 54.f;
+		const FVector2D NamePos(36.0, 290.0);
+		constexpr float TaglineSize = 22.f;
+		const FVector2D TaglinePos(38.0, 372.0);
+		/** The line-up: a dot per seat along the bottom. */
+		constexpr double SeatsX = 70.0;
+		constexpr double SeatsLift = 66.0;
+		constexpr double SeatSpacing = 76.0;
+		constexpr float SeatRadius = 28.f;
+		constexpr float SeatOutline = 3.f;
+		constexpr float EmptySeatAlpha = 0.4f;
+		constexpr float PlayerTagSize = 18.f;
+		constexpr float CpuTagSize = 14.f;
+		constexpr float PlayInAt = 0.35f;
+		constexpr double PlayButtonDrop = 70.0;
+	}
 
 	constexpr int32 PlayHit = 99;
 
@@ -186,7 +225,7 @@ namespace
 			const double Step = FMath::Clamp((Frame.SafeMax.Y - Top - ListRoomBelow) / FMath::Max(1, ArcadeGames().Num()), MinRowStep, MaxRowStep);
 			PaintGameList(P, Frame, Top, Step);
 			PaintOptionRows(P, Frame, Top + ArcadeGames().Num() * Step + OptionsDrop);
-			PaintGameCard(P, Frame, FVector2D(Frame.SafeMax.X - CardSize.X, Top));
+			PaintGameCard(P, Frame, FVector2D(Frame.SafeMax.X - CardArt::Size.X, Top));
 		}
 
 	private:
@@ -203,17 +242,16 @@ namespace
 			{
 				Group.Next();
 				const FArcadeGame& Game = Games[i];
-				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
+				const float In = KartWidgets::Entrance(Frame, ButtonInAt + i * ButtonStagger, ButtonInSeconds);
 				const FKartPainter Row = P.Faded(In);
 				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * ButtonSlide + KartWidgets::SlideX(Frame), Top + i * Step);
 				KartWidgets::Button(Row, Pos, ButtonSize, Game.Name, Focus.State(i, Frame.Now, Game.IsPlayable()), Game.Accent, i);
 				if (!Game.IsPlayable())
 				{
 					// Not ported yet: a chip at the right end rather than a second line.
-					const FVector2D ChipSize(116.0, 40.0);
-					const FVector2D ChipPos(Pos.X + ButtonSize.X - ChipSize.X - 24.0, Pos.Y + (ButtonSize.Y - ChipSize.Y) * 0.5);
-					Row.Box(ChipPos, ChipSize, Color::WithAlpha(Game.Accent, 0.9f), 20.f);
-					Row.Text(LOCTEXT("Soon", "SOON"), Font(EFont::Label, 19.f), ChipPos + ChipSize * 0.5, Color::TextOn(Game.Accent), FVector2D(0.5, 0.5));
+					const FVector2D ChipPos(Pos.X + ButtonSize.X - SoonChipSize.X - SoonChipInset, Pos.Y + (ButtonSize.Y - SoonChipSize.Y) * 0.5);
+					Row.Box(ChipPos, SoonChipSize, Color::WithAlpha(Game.Accent, SoonChipAlpha), SoonChipRound);
+					Row.Text(LOCTEXT("Soon", "SOON"), Font(EFont::Label, SoonChipFont), ChipPos + SoonChipSize * 0.5, Color::TextOn(Game.Accent), FVector2D(0.5, 0.5));
 				}
 			}
 		}
@@ -234,7 +272,7 @@ namespace
 			{
 				Group.Next();
 				const int32 Row = PlayersRow + i;
-				const float In = KartWidgets::Entrance(Frame, 0.25f + i * 0.05f);
+				const float In = KartWidgets::Entrance(Frame, OptionInAt + i * OptionStagger);
 				const FVector2D Pos(Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * OptionSlide, OptionsTop + i * (OptionRowSize.Y + OptionGap));
 				KartWidgets::OptionRow(P.Faded(In), Pos, OptionRowSize, Labels[i], Values[i], Focus.State(Row, Frame.Now), Row);
 			}
@@ -243,37 +281,39 @@ namespace
 		/** The picked game's card: its icon, pitch and the line-up as dots, with the Play button under it. */
 		void PaintGameCard(const FKartPainter& P, const FKartScreenFrame& Frame, const FVector2D& CardPos) const
 		{
+			using namespace CardArt;
 			const FArcadePick& Pick = ArcadePick();
 			const FArcadeGame& Game = ArcadeGames()[Pick.Game];
-			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - PickedAt) / CardPopSeconds), 2.f);
-			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, 0.92f + 0.08f * Pop, (1.f - Pop) * -3.f * FKartAccessibility::MotionScale())
-				.Faded(KartWidgets::Entrance(Frame, 0.2f));
-			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
-			Card.Gradient(CardPos + FVector2D(18.0, 18.0), FVector2D(CardSize.X - 36.0, 250.0), Game.Accent, FMath::Lerp(Game.Accent, Color::Night, 0.35f), true, Metric::Radius);
-			Game.Icon(Card, CardPos + FVector2D(CardSize.X * 0.5, 143.0), CardIconSize, Frame.Now);
-			Card.Text(Game.Name, Font(EFont::Display, 54.f), CardPos + FVector2D(36.0, 290.0), Color::Navy);
-			Card.TextWrapped(Game.Tagline, Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 372.0), CardSize.X - 76.0, Color::NavyDim);
+			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - PickedAt) / PopSeconds), PopOvershoot);
+			const FKartPainter Card = P.Transformed(CardPos + Size * 0.5, PopFrom + PopGrowth * Pop, (1.f - Pop) * PopTilt * FKartAccessibility::MotionScale())
+				.Faded(KartWidgets::Entrance(Frame, InAt));
+			Card.Card(CardPos, Size, Color::Paper, Metric::RadiusLarge, Shadow, Color::White, Rim);
+			Card.Gradient(CardPos + FVector2D(ArtInset, ArtInset), FVector2D(Size.X - 2.0 * ArtInset, ArtHeight), Game.Accent, FMath::Lerp(Game.Accent, Color::Night, ArtShade), true,
+				Metric::Radius);
+			Game.Icon(Card, CardPos + FVector2D(Size.X * 0.5, IconY), IconSize, Frame.Now);
+			Card.Text(Game.Name, Font(EFont::Display, NameSize), CardPos + NamePos, Color::Navy);
+			Card.TextWrapped(Game.Tagline, Font(EFont::Body, TaglineSize), CardPos + TaglinePos, Size.X - 2.0 * TaglinePos.X, Color::NavyDim);
 
 			const int32 Seats = Pick.Players + Pick.House;
 			for (int32 i = 0; i < Game.MaxPlayers; ++i)
 			{
-				const FVector2D C(CardPos.X + 70.0 + i * SeatSpacing, CardPos.Y + CardSize.Y - 66.0);
+				const FVector2D C(CardPos.X + SeatsX + i * SeatSpacing, CardPos.Y + Size.Y - SeatsLift);
 				if (i >= Seats)
 				{
-					Card.Circle(C, SeatRadius, FLinearColor::Transparent, Color::WithAlpha(Color::NavyDim, 0.4f), 3.f);
+					Card.Circle(C, SeatRadius, FLinearColor::Transparent, Color::WithAlpha(Color::NavyDim, EmptySeatAlpha), SeatOutline);
 					continue;
 				}
 				const bool bLocal = i < Pick.Players;
 				const FLinearColor Fill = bLocal ? Game.Accent : Color::NavyDim;
-				Card.Circle(C, SeatRadius, Fill, Color::Navy, 3.f);
-				Card.Text(bLocal ? SeatTag(i) : CpuTag(), Font(EFont::Label, bLocal ? 18.f : 14.f), C, Color::TextOn(Fill), FVector2D(0.5, 0.5));
+				Card.Circle(C, SeatRadius, Fill, Color::Navy, SeatOutline);
+				Card.Text(bLocal ? SeatTag(i) : CpuTag(), Font(EFont::Label, bLocal ? PlayerTagSize : CpuTagSize), C, Color::TextOn(Fill), FVector2D(0.5, 0.5));
 			}
 
 			FItemState Start;
 			Start.bFocused = true;
 			Start.bEnabled = Game.IsPlayable();
 			Start.FocusAge = Frame.Now - Focus.FocusAt;
-			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, 0.35f)), FVector2D(CardPos.X + CardSize.X * 0.5, CardPos.Y + CardSize.Y + PlayButtonDrop),
+			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, PlayInAt)), FVector2D(CardPos.X + Size.X * 0.5, CardPos.Y + Size.Y + PlayButtonDrop),
 				Game.IsPlayable() ? LOCTEXT("PlayButton", "PLAY") : LOCTEXT("SoonButton", "COMING SOON"), EKartMenuAction::Accept, Frame.Device, Start, PlayHit);
 		}
 

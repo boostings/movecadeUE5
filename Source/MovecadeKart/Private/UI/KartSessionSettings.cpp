@@ -5,6 +5,7 @@
 #include "HAL/IConsoleManager.h"
 #include "UI/KartPlayerPrefs.h"
 #include "UI/KartTrackCatalog.h"
+#include "UI/KartUiDebugFlags.h"
 #include "Store/KartCosmetics.h" // store cosmetics
 
 namespace
@@ -193,9 +194,8 @@ EKartBoot KartFrontEndFlags::DecideBoot(EKartSessionMode Mode, bool bFirstBoot, 
 	{
 		return EKartBoot::Room;
 	}
-	// The screenshot tour drives the menus itself (other flags still shape its race).
-	FString Tour;
-	if (FParse::Value(Cmd, TEXT("KartUiShots="), Tour))
+	// The screenshot tour drives the menus itself (other flags still shape its race). Never set in Shipping.
+	if (FKartUiDebugFlags::Parse(Cmd).bTour)
 	{
 		return EKartBoot::FrontEnd;
 	}

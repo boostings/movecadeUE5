@@ -36,13 +36,29 @@ namespace
 	constexpr double CardDrop = 30.0;
 	constexpr double CardInset = 18.0;
 	constexpr double CardArtHeight = 270.0;
+	constexpr float CardInAt = 0.2f;
 	constexpr double CardPopSeconds = 0.35;
+	constexpr float CardPopOvershoot = 2.f;
+	/** A new focus pops the card from 90 % with a small tilt. */
+	constexpr float CardPopFrom = 0.9f;
+	constexpr float CardPopGrowth = 0.1f;
+	constexpr float CardPopTilt = -4.f;
+	constexpr float CardShadow = 10.f;
+	constexpr float CardRim = 5.f;
+	constexpr double CardIconY = 153.0;
 	constexpr float CardIconSize = 110.f;
+	constexpr float CardNameSize = 46.f;
+	const FVector2D CardNamePos(36.0, 306.0);
+	constexpr float CardDetailSize = 22.f;
+	const FVector2D CardDetailPos(38.0, 380.0);
 	/** The light stripes sweeping across the card's art. */
 	constexpr int32 Stripes = 6;
 	constexpr double StripeSpeed = 40.0;
 	constexpr double StripeSpacing = 90.0;
 	constexpr double StripeWidth = 40.0;
+	constexpr float StripeAlpha = 0.12f;
+	/** Stripes narrower than this at the art's edges are skipped. */
+	constexpr double MinStripe = 1.0;
 
 	struct FMenuEntry
 	{
@@ -144,10 +160,11 @@ namespace
 		void PaintCard(const FKartPainter& P, const FKartScreenFrame& Frame) const
 		{
 			const FMenuEntry& Entry = MenuEntries()[Focus.Cursor.Index];
-			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / CardPopSeconds), 2.f);
+			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / CardPopSeconds), CardPopOvershoot);
 			const FVector2D CardPos(Frame.SafeMax.X - CardSize.X, Frame.Size.Y * 0.5 - CardSize.Y * 0.5 + CardDrop);
-			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, 0.9f + 0.1f * Pop, (1.f - Pop) * -4.f).Faded(KartWidgets::Entrance(Frame, 0.2f));
-			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
+			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, CardPopFrom + CardPopGrowth * Pop, (1.f - Pop) * CardPopTilt)
+				.Faded(KartWidgets::Entrance(Frame, CardInAt));
+			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, CardShadow, Color::White, CardRim);
 			Card.Box(CardPos + FVector2D(CardInset, CardInset), FVector2D(CardSize.X - 2.0 * CardInset, CardArtHeight), Entry.Accent, Metric::Radius);
 			const double ArtLeft = CardPos.X + CardInset;
 			const double ArtRight = CardPos.X + CardSize.X - CardInset;
@@ -156,14 +173,14 @@ namespace
 				const double X = ArtLeft + FMath::Fmod(Frame.Now * StripeSpeed + Stripe * StripeSpacing, CardSize.X + StripeSpacing) - StripeSpacing;
 				const double X0 = FMath::Clamp(X, ArtLeft, ArtRight);
 				const double X1 = FMath::Clamp(X + StripeWidth, ArtLeft, ArtRight);
-				if (X1 > X0 + 1.0)
+				if (X1 > X0 + MinStripe)
 				{
-					Card.Box(FVector2D(X0, CardPos.Y + CardInset), FVector2D(X1 - X0, CardArtHeight), Color::WithAlpha(Color::White, 0.12f));
+					Card.Box(FVector2D(X0, CardPos.Y + CardInset), FVector2D(X1 - X0, CardArtHeight), Color::WithAlpha(Color::White, StripeAlpha));
 				}
 			}
-			Entry.Icon(Card, CardPos + FVector2D(CardSize.X * 0.5, 153.0), CardIconSize, Frame.Now);
-			Card.Text(Entry.Name, Font(EFont::Title, 46.f), CardPos + FVector2D(36.0, 306.0), Color::Navy);
-			Card.TextWrapped(Entry.Detail, Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 380.0), CardSize.X - 76.0, Color::NavyDim);
+			Entry.Icon(Card, CardPos + FVector2D(CardSize.X * 0.5, CardIconY), CardIconSize, Frame.Now);
+			Card.Text(Entry.Name, Font(EFont::Title, CardNameSize), CardPos + CardNamePos, Color::Navy);
+			Card.TextWrapped(Entry.Detail, Font(EFont::Body, CardDetailSize), CardPos + CardDetailPos, CardSize.X - 2.0 * CardDetailPos.X, Color::NavyDim);
 		}
 
 		void Activate(EMainMenuItem Item)
