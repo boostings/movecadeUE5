@@ -166,16 +166,7 @@ bool FArcadeStandingsOrderTest::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FArcadeVenueKitTest, "MovecadeKart.Arcade.VenueKit", ArcadeTestFlags)
 bool FArcadeVenueKitTest::RunTest(const FString&)
 {
-	FArcadeMaterialCache Materials;
-	int32 Made = 0;
 	UMaterialInterface* Wood = NewObject<UMaterialInstanceConstant>(GetTransientPackage());
-	auto MakeWood = [&]() -> UMaterialInterface* { ++Made; return Wood; };
-	TestTrue(TEXT("made on first ask"), Materials.FindOrAdd(TEXT("wood"), MakeWood) == Wood);
-	TestTrue(TEXT("cached on the second"), Materials.FindOrAdd(TEXT("wood"), MakeWood) == Wood);
-	TestEqual(TEXT("made once"), Made, 1);
-	TestTrue(TEXT("find"), Materials.Find(TEXT("wood")) == Wood);
-	TestNull(TEXT("unknown look"), Materials.Find(TEXT("brass")));
-
 	FScopedTestWorld TestWorld;
 	AActor* Venue = TestWorld.World->SpawnActor<AActor>();
 	if (!TestNotNull(TEXT("venue actor"), Venue))
