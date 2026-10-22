@@ -32,7 +32,7 @@ namespace
 	constexpr float FlushDeep = 0.45f, FlushLight = 1.f;
 	constexpr float RimDeep = 0.05f, RimLight = 0.12f;
 	constexpr float LiftDeep = 0.012f, LiftLight = 0.006f;
-	constexpr float SaturationDeep = 0.72f, SaturationLight = 0.92f;
+	constexpr float SaturationDeep = 0.78f, SaturationLight = 0.98f;
 	/** The lips: a satin finish over the skin. */
 	constexpr float LipRoughness = 0.36f;
 	constexpr float LipSpecular = 0.5f;
