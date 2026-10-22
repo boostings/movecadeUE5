@@ -39,6 +39,6 @@ if (-not $game.HasExited) { Stop-Process -Id $game.Id -Force }
 if (-not $sim.HasExited) { Stop-Process -Id $sim.Id -Force }
 
 Write-Output '--- host (LogRoomHost / laps) ---'
-Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:|LogDarts|Darts:|LogSamurai|Samurai:|LogStacker|Stacker:|LogDerby|Derby:' | ForEach-Object { $_.Line }
+Select-String -Path $log -Pattern 'LogRoomHost|Kart lap|LogKartGameMode|LogBowling|Bowling:|LogDarts|Darts:|LogSamurai|Samurai:|LogStacker|Stacker:|LogDerby|Derby:|LogFishing|Fishing:' | ForEach-Object { $_.Line }
 Write-Output '--- phone simulator ---'
 Get-Content $simLog
