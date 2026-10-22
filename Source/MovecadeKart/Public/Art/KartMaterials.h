@@ -8,7 +8,8 @@ class UObject;
 /**
  * Materials for scenery modelled in code (the game venues), from the same track masters ATrackBuilder instances
  * (Content/Tracks/Shared/Materials, Tools/ue/import_track_assets.py): a tinted surface over one of the CC0 detail
- * sets, a plain lit colour, glass, and unlit glow.
+ * sets, a plain lit colour, glass, and unlit glow (translucent or opaque). Each call makes a new dynamic instance;
+ * venues that reuse looks keep them in an FKartMaterialCache (Art/KartMaterialCache.h).
  */
 namespace MovecadeKart::Art
 {
@@ -35,8 +36,17 @@ namespace MovecadeKart::Art
 	MOVECADEKART_API UMaterialInstanceDynamic* Surface(UObject* Outer, const FSurfaceLook& Look);
 	MOVECADEKART_API UMaterialInstanceDynamic* Plain(UObject* Outer, const FLinearColor& Color, double Roughness = 0.6, double Metallic = 0.0, double Emissive = 0.0);
 	MOVECADEKART_API UMaterialInstanceDynamic* Glass(UObject* Outer, const FLinearColor& Color, double Opacity = 0.2, double Roughness = 0.05);
-	/** Unlit colour, for emissive strips, signs and lenses (Color can exceed 1 to bloom). */
+	/**
+	 * Unlit colour on the translucent master at opacity 1, for emissive strips, signs and lenses (Color can exceed 1
+	 * to bloom). It draws in the translucency pass: prefer GlowOpaque for solid glowing surfaces.
+	 */
 	MOVECADEKART_API UMaterialInstanceDynamic* Glow(UObject* Outer, const FLinearColor& Color);
+	/**
+	 * Unlit colour on the opaque unlit master (M_TrackUnlitTexture over its default white map): the same colour as
+	 * Glow, but drawn opaque, so no translucency pass or overdraw, correct depth sorting, and it shows in ray-traced
+	 * reflections. For solid lamps, neon and lenses that never fade. Falls back to Glow if the master is missing.
+	 */
+	MOVECADEKART_API UMaterialInstanceDynamic* GlowOpaque(UObject* Outer, const FLinearColor& Color);
 
 	/** An unlit texture (a backlit sign or panel), tinted (Tint can exceed 1 to bloom). */
 	MOVECADEKART_API UMaterialInstanceDynamic* Unlit(UObject* Outer, const TCHAR* TexturePath, const FLinearColor& Tint = FLinearColor::White);

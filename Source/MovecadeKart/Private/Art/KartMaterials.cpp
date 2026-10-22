@@ -4,11 +4,23 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogKartMaterials, Log, All);
+
 namespace
 {
+	/** A track master by name, or null (warned once per name) when the track assets aren't imported. */
 	UMaterialInterface* Master(const TCHAR* Name)
 	{
-		return LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("/Game/Tracks/Shared/Materials/%s.%s"), Name, Name), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		UMaterialInterface* Found = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("/Game/Tracks/Shared/Materials/%s.%s"), Name, Name), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		if (!Found)
+		{
+			// Materials are made on the game thread only; the set just keeps the warning to one per master.
+			static TSet<FName> Warned;
+			bool bAlreadyWarned = false;
+			Warned.Add(FName(Name), &bAlreadyWarned);
+			UE_CLOG(!bAlreadyWarned, LogKartMaterials, Warning, TEXT("No material master %s (import the track assets: Tools/ue/import_track_assets.py)."), Name);
+		}
+		return Found;
 	}
 
 	UTexture* SurfaceTexture(FName Set, const TCHAR* Kind)
@@ -118,6 +130,19 @@ namespace MovecadeKart::Art
 		UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
 		Mid->SetVectorParameterValue(TEXT("Color"), Color);
 		Mid->SetScalarParameterValue(TEXT("Opacity"), 1.0);
+		return Mid;
+	}
+
+	UMaterialInstanceDynamic* GlowOpaque(UObject* Outer, const FLinearColor& Color)
+	{
+		UMaterialInterface* Parent = Master(TEXT("M_TrackUnlitTexture"));
+		if (!Parent)
+		{
+			return Glow(Outer, Color);
+		}
+		// Map keeps the master's default white texture, so the result is Color, emissive and opaque.
+		UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
+		Mid->SetVectorParameterValue(TEXT("Color"), Color);
 		return Mid;
 	}
 
