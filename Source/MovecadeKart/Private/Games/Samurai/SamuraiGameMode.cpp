@@ -192,18 +192,22 @@ void ASamuraiGameMode::PushScores(bool bFinal)
 		return;
 	}
 	TArray<FMcScoreEntry> Scores;
+	FString Key;
 	for (const FPlayer& P : Game->GetMatch().Players)
 	{
 		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
 		Entry.PlayerId = P.Id;
 		Entry.Score = P.Score;
+		Key += FString::Printf(TEXT("%s=%d;"), *P.Id, P.Score);
 	}
 	if (bFinal)
 	{
 		Room->CompleteGame(Scores);
 	}
-	else
+	else if (Key != LastScores)
 	{
+		// Only when a score moved (the room relays every update to every phone).
+		LastScores = Key;
 		Room->UpdateLiveScores(Scores);
 	}
 }
