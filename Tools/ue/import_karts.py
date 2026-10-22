@@ -574,29 +574,50 @@ float facing = saturate(dot(normalize(N), normalize(V)));
 return Tint * pow(1.0 - facing, Power) * Rim;
 """
 
-# A stylised hair highlight: a soft ring where the normal sits between straight up and the view (it slides
-# over the crown as the head turns, like an anime sheen band), plus a rim so dark hair keeps its silhouette.
+# Skin: a warm peach-fuzz rim (the light scattering through the skin's edge, pulled toward a rose glow), a
+# faint lift so faces never go muddy in shadow, and the player's rim colour for silhouette readability.
+SKIN_GLOW = r"""
+float facing = saturate(dot(normalize(N), normalize(V)));
+float edge = pow(1.0 - facing, Power);
+float3 warm = lerp(Tint, float3(1.0, 0.42, 0.32) * dot(Tint, float3(0.4, 0.4, 0.2)) * 2.2, 0.55);
+return warm * edge * Rim + Tint * Lift + RimColor * pow(1.0 - facing, 4.0) * RimBoost;
+"""
+
+# A stylised hair highlight in two lobes: a tight bright band where the normal sits between straight up and the
+# view (it slides over the crown as the head turns, like an anime sheen ring) and a broad tinted one under it,
+# plus a rim so dark hair keeps its silhouette and the player's rim colour.
 HAIR_SHEEN = r"""
 float3 n = normalize(N);
 float3 v = normalize(V);
-float band = pow(saturate(dot(n, normalize(v + float3(0.0, 0.0, 1.3)))), 28.0);
+float band = pow(saturate(dot(n, normalize(v + float3(0.0, 0.0, 1.3)))), 36.0);
+float broad = pow(saturate(dot(n, normalize(v + float3(0.0, 0.0, 0.55)))), 9.0);
 float rim = pow(1.0 - saturate(dot(n, v)), 3.0);
-float3 lifted = Tint * 2.2 + 0.06;
-return lifted * band * Sheen + Tint * rim * Rim;
+float3 lifted = Tint * 2.4 + 0.07;
+return (lifted * band + Tint * broad * 0.45) * Sheen + Tint * rim * Rim + RimColor * rim * RimBoost;
 """
 
-# Eyes: a catchlight from a light just above the camera, so they read alive in every shot.
+# Fabric: a soft sheen at grazing angles (velvet-like, in the cloth's own colour) and the player's rim colour.
+CLOTH_SHEEN = r"""
+float facing = saturate(dot(normalize(N), normalize(V)));
+float edge = pow(1.0 - facing, 2.5);
+return (Tint * 0.6 + 0.04) * edge * Sheen + RimColor * pow(1.0 - facing, 4.0) * RimBoost;
+"""
+
+# Eyes: a big catchlight from a light just above the camera and a small second one beside it, so they read alive
+# in every shot.
 EYE_CATCHLIGHT = r"""
-float3 r = reflect(-normalize(V), normalize(N));
-float3 key = normalize(normalize(V) + float3(0.0, 0.0, 0.9));
-return pow(saturate(dot(r, key)), 220.0) * Catchlight;
+float3 v = normalize(V);
+float3 r = reflect(-v, normalize(N));
+float3 key = normalize(v + float3(0.0, 0.0, 0.9));
+float3 fill = normalize(v + float3(0.35, 0.45, 0.25));
+return (pow(saturate(dot(r, key)), 220.0) + 0.55 * pow(saturate(dot(r, fill)), 900.0)) * Catchlight;
 """
 
 
 def make_avatar_masters():
     white, linear = default_tex("T_Default_White"), default_tex("T_Default_WhiteLinear")
 
-    def common(g, tint_default, rough, use_vertex_color=False, ao=True, detail=1.0, ao_strength=1.0):
+    def common(g, tint_default, rough, use_vertex_color=False, ao=True, detail=1.0, ao_strength=1.0, detail_normal=False):
         tint = g.vector("Tint", tint_default)
         tex = g.texture("BaseTex", white, SAMPLER_COLOR)
         if detail < 1.0:
@@ -609,7 +630,13 @@ def make_avatar_masters():
             base = g.mul(base, vc, "", "")
         g.out(base, "BaseColor")
         g.out(g.scalar("Roughness", rough), "Roughness")
-        g.out(g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL), "Normal", "RGB")
+        normal = g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL)
+        if detail_normal:
+            # A tiled weave over the baked normal (off by default; the stock clothes turn it on).
+            weave = g.texture_at("DetailNormalTex", flat_normal(), SAMPLER_NORMAL, g.uv(0, g.scalar("DetailScale", 24.0)))
+            g.out(g.blend_normals(normal, "RGB", weave, "RGB", g.scalar("DetailNormalStrength", 0.0)), "Normal")
+        else:
+            g.out(normal, "Normal", "RGB")
         if ao:
             occlusion = g.texture("AOTex", linear, SAMPLER_MASKS)
             if ao_strength < 1.0:
@@ -622,33 +649,46 @@ def make_avatar_masters():
     def view(g):
         return g.node(unreal.MaterialExpressionCameraVectorWS), g.node(unreal.MaterialExpressionVertexNormalWS)
 
-    # Skin: screen-space subsurface (the engine's default profile) over a softened albedo bake, vertex-colour
-    # warmth on cheeks and nose, and a faint warm rim so faces keep their shape in shadow.
+    def rim_colour(g):
+        return g.vector("RimColor", (0.0, 0.0, 0.0)), g.scalar("RimBoost", 0.0)
+
+    # Skin: screen-space subsurface (a warm profile of its own) over a softened albedo bake, vertex-colour
+    # warmth on cheeks and nose, the peach-fuzz rim and the lift.
     g = Graph(AVATAR_MATS, "M_AvatarSkin", unreal.MaterialShadingModel.MSM_SUBSURFACE_PROFILE)
     tint = common(g, (0.63, 0.25, 0.14), 0.55, use_vertex_color=True, detail=0.7, ao_strength=0.35)
     v, n = view(g)
-    g.out(g.custom(AVATAR_RIM, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.16), "Power": g.scalar("RimPower", 3.0)},
-                   desc="SkinRim"), "EmissiveColor")
-    g.out(g.scalar("Specular", 0.3), "Specular")
+    rim, boost = rim_colour(g)
+    g.out(g.custom(SKIN_GLOW, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.22), "Power": g.scalar("RimPower", 2.6),
+                               "Lift": g.scalar("Lift", 0.025), "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="SkinGlow"), "EmissiveColor")
+    g.out(g.scalar("Specular", 0.36), "Specular")
+    profile = skin_profile()
+    if profile is not None:
+        set_if(g.mat, "subsurface_profile", profile)
     g.save()
 
     g = Graph(AVATAR_MATS, "M_AvatarHair", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     tint = common(g, (0.04, 0.018, 0.012), 0.4, detail=0.5, ao_strength=0.45)
     v, n = view(g)
-    g.out(g.custom(HAIR_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.35), "Rim": g.scalar("Rim", 0.5)},
-                   desc="HairSheen"), "EmissiveColor")
-    g.out(g.scalar("Specular", 0.45), "Specular")
+    rim, boost = rim_colour(g)
+    g.out(g.custom(HAIR_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.42), "Rim": g.scalar("Rim", 0.55),
+                                "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="HairSheen"), "EmissiveColor")
+    g.out(g.scalar("Specular", 0.5), "Specular")
     g.save()
 
-    # Fabric: the cloth shading model (fuzz sheen at grazing angles) for jersey, pants, shoes and outfits.
+    # Fabric: the cloth shading model (fuzz sheen at grazing angles) for jersey, pants, shoes and outfits, a
+    # velvet edge in emissive so the folds read under flat light, and an optional tiled weave.
     g = Graph(AVATAR_MATS, "M_AvatarCloth", unreal.MaterialShadingModel.MSM_CLOTH)
-    tint = common(g, (0.8, 0.8, 0.8), 0.82, ao_strength=0.6)
-    fuzz = g.mul(g.add(tint, g.scalar("FuzzLift", 0.35)), g.scalar("FuzzScale", 0.55))
+    tint = common(g, (0.8, 0.8, 0.8), 0.82, ao_strength=0.6, detail_normal=True)
+    fuzz = g.mul(g.add(tint, g.scalar("FuzzLift", 0.35)), g.scalar("FuzzScale", 0.6))
     g.out(fuzz, "SubsurfaceColor")
-    g.out(g.scalar("Cloth", 0.6), "ClearCoat")
+    g.out(g.scalar("Cloth", 0.7), "ClearCoat")
+    v, n = view(g)
+    rim, boost = rim_colour(g)
+    g.out(g.custom(CLOTH_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.16), "RimColor": (rim, "RGB"),
+                                 "RimBoost": boost}, desc="ClothSheen"), "EmissiveColor")
     g.save()
 
-    # Flat surfaces (eyes, mouth, teeth, glasses). Eyes add a catchlight and glow faintly in their own colour
+    # Flat surfaces (eyes, mouth, teeth, glasses). Eyes add catchlights and glow faintly in their own colour
     # (Glow), so a shaded iris never goes dead.
     g = Graph(AVATAR_MATS, "M_AvatarSurface", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     tint = g.vector("Tint", (0.5, 0.5, 0.5))
@@ -661,6 +701,65 @@ def make_avatar_masters():
                      out=unreal.CustomMaterialOutputType.CMOT_FLOAT1, desc="Catchlight")
     g.out(g.add(glint, g.mul(tint, g.scalar("Glow", 0.0), "RGB")), "EmissiveColor")
     g.save()
+
+
+def skin_profile():
+    """A warm skin subsurface profile (the engine default scatters grey-pink): red-orange scatter, soft falloff."""
+    path = f"{AVATAR_MATS}/SP_AvatarSkin"
+    try:
+        if ASSETS.does_asset_exist(path):
+            profile = ASSETS.load_asset(path)
+        else:
+            factory = unreal.SubsurfaceProfileFactory() if hasattr(unreal, "SubsurfaceProfileFactory") else None
+            profile = TOOLS.create_asset("SP_AvatarSkin", AVATAR_MATS, unreal.SubsurfaceProfile, factory)
+        settings = profile.get_editor_property("settings")
+        for prop, value in (("surface_albedo", unreal.LinearColor(0.91, 0.34, 0.27, 1.0)),
+                            ("mean_free_path_color", unreal.LinearColor(1.0, 0.36, 0.18, 1.0)),
+                            ("mean_free_path_distance", 1.1),
+                            ("world_unit_scale", 0.12),
+                            ("subsurface_color", unreal.LinearColor(0.95, 0.32, 0.22, 1.0)),
+                            ("falloff_color", unreal.LinearColor(1.0, 0.37, 0.3, 1.0)),
+                            ("boundary_color_bleed", unreal.LinearColor(0.85, 0.75, 0.7, 1.0))):
+            set_if(settings, prop, value)
+        profile.set_editor_property("settings", settings)
+        ASSETS.save_loaded_asset(profile)
+        log(f"subsurface profile {path}")
+        return profile
+    except Exception as error:  # noqa: BLE001 - the engine default profile is a fine fallback
+        log(f"  no subsurface profile: {error}")
+        return None
+
+
+# The stock clothes' weave (the outfits' own knit and twill normal maps) and the shared instances' tuning.
+STOCK_WEAVE = "/Game/Avatars/Outfits/glow_hoodie_female/glow-hoodie-female/Textures/knit"
+
+
+def tune_driver_instances():
+    """Updates every driver's cloth, skin and hair instance in place (the meshes reference them)."""
+    weave = ASSETS.load_asset(STOCK_WEAVE) if ASSETS.does_asset_exist(STOCK_WEAVE) else None
+    for face in FACES:
+        for body in BODIES:
+            mats = f"/Game/Avatars/Drivers/{face}_{body}/Materials"
+            cloth = f"{mats}/MI_{face}_{body}_Cloth"
+            if ASSETS.does_asset_exist(cloth):
+                mi = ASSETS.load_asset(cloth)
+                if weave is not None:
+                    MEL.set_material_instance_texture_parameter_value(mi, "DetailNormalTex", weave)
+                    MEL.set_material_instance_scalar_parameter_value(mi, "DetailNormalStrength", 0.35)
+                    MEL.set_material_instance_scalar_parameter_value(mi, "DetailScale", 28.0)
+                MEL.set_material_instance_scalar_parameter_value(mi, "Roughness", 0.8)
+                ASSETS.save_loaded_asset(mi)
+            hair = f"{mats}/MI_{face}_{body}_Hair"
+            if ASSETS.does_asset_exist(hair):
+                mi = ASSETS.load_asset(hair)
+                MEL.set_material_instance_scalar_parameter_value(mi, "Roughness", 0.36)
+                ASSETS.save_loaded_asset(mi)
+            skin = f"{mats}/MI_{face}_{body}_Skin"
+            if ASSETS.does_asset_exist(skin):
+                mi = ASSETS.load_asset(skin)
+                MEL.set_material_instance_scalar_parameter_value(mi, "Roughness", 0.5)
+                ASSETS.save_loaded_asset(mi)
+    log("driver instances tuned")
 
 
 def make_mi(folder, name, parent, scalars=None, vectors=None, textures=None):
@@ -1018,6 +1117,7 @@ def main():
             for key, value in scalars.items():
                 MEL.set_material_instance_scalar_parameter_value(mi, key, value)
             ASSETS.save_loaded_asset(mi)
+        tune_driver_instances()
     if STAGE == "swaps":
         finish_swaps()
     if STAGE == "usage":
