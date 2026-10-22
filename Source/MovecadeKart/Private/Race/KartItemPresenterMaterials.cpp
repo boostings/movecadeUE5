@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "FX/KartFx.h"
+#include "FX/KartFxMaterials.h"
 #include "FX/KartItemMeshes.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Race/KartItemPresenterTuning.h"
@@ -14,8 +15,6 @@ using namespace MovecadeKart::Fx;
 
 namespace
 {
-	const TCHAR* const ItemMaterialPath = TEXT("/Game/FX/Materials/M_KartItem.M_KartItem");
-	const TCHAR* const GlowMaterialPath = TEXT("/Game/FX/Materials/M_FX_Glow.M_FX_Glow");
 	const TCHAR* const PrismMaterialPath = TEXT("/Game/FX/Materials/M_ItemPrism.M_ItemPrism");
 	const TCHAR* const BoxGlassMaterialPath = TEXT("/Game/FX/Materials/M_ItemBoxGlass.M_ItemBoxGlass");
 	const TCHAR* const BoxLabelMaterialPath = TEXT("/Game/FX/Materials/M_ItemBoxLabel.M_ItemBoxLabel");
@@ -35,38 +34,24 @@ namespace
 			Component->SetMaterial(Index, Material);
 		}
 	}
-}
 
-UMaterialInstanceDynamic* AKartItemPresenter::ItemMaterial(const FLinearColor& Base, const FLinearColor& Emissive, float EmissiveStrength, float Metallic, float Roughness, float ClearCoat)
-{
-	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, ItemMaterialPath);
-	if (!Parent)
+	/** Item paint with the presenter's default clear coat. */
+	UMaterialInstanceDynamic* ItemPaint(UObject* Outer, const FLinearColor& Base, const FLinearColor& Emissive, float EmissiveStrength, float Metallic, float Roughness,
+		float ClearCoat = 0.6f)
 	{
-		return nullptr;
+		return MakeItemMaterial(Outer, Base, Emissive, EmissiveStrength, Metallic, Roughness, ClearCoat);
 	}
-	UMaterialInstanceDynamic* M = UMaterialInstanceDynamic::Create(Parent, this);
-	M->SetVectorParameterValue(TEXT("BaseColor"), Base);
-	M->SetVectorParameterValue(TEXT("Emissive"), Emissive);
-	M->SetScalarParameterValue(TEXT("EmissiveStrength"), EmissiveStrength);
-	M->SetScalarParameterValue(TEXT("Metallic"), Metallic);
-	M->SetScalarParameterValue(TEXT("Roughness"), Roughness);
-	M->SetScalarParameterValue(TEXT("ClearCoat"), ClearCoat);
-	return M;
-}
 
-UMaterialInstanceDynamic* AKartItemPresenter::GlowMaterial(const FLinearColor& Color, float Intensity, float Power, float Core)
-{
-	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, GlowMaterialPath);
-	if (!Parent)
+	UMaterialInstanceDynamic* Glow(UObject* Outer, const FLinearColor& Color, float Intensity, float Power, float Core)
 	{
-		return nullptr;
+		UMaterialInstanceDynamic* M = MakeGlowMaterial(Outer, Power, Core);
+		if (M)
+		{
+			M->SetVectorParameterValue(TEXT("Color"), Color);
+			M->SetScalarParameterValue(TEXT("Intensity"), Intensity);
+		}
+		return M;
 	}
-	UMaterialInstanceDynamic* M = UMaterialInstanceDynamic::Create(Parent, this);
-	M->SetVectorParameterValue(TEXT("Color"), Color);
-	M->SetScalarParameterValue(TEXT("Intensity"), Intensity);
-	M->SetScalarParameterValue(TEXT("Power"), Power);
-	M->SetScalarParameterValue(TEXT("Core"), Core);
-	return M;
 }
 
 void AKartItemPresenter::SetupMaterials()
@@ -112,30 +97,30 @@ void AKartItemPresenter::SetupItemMaterials()
 	{
 		const FItemColors C = ItemColors(Item);
 		UInstancedStaticMeshComponent* M = MeshesFor(Item);
-		SetSlot(M, TEXT("Dome"), ItemMaterial(C.Color, C.Emissive, 0.6f, 0.3f, 0.32f, 1.0f));
-		SetSlot(M, TEXT("Rim"), ItemMaterial(Cream, Cream, 0.05f, 0.1f, 0.35f, 0.6f));
-		SetSlot(M, TEXT("Belly"), ItemMaterial(C.Inner, C.Inner, 0.15f, 0.08f, 0.56f, 0.2f));
-		SetSlot(M, TEXT("Wings"), ItemMaterial(FLinearColor(0.95f, 0.96f, 1.f), FLinearColor(0.6f, 0.7f, 1.f), 0.25f, 0.1f, 0.3f, 0.8f));
+		SetSlot(M, TEXT("Dome"), ItemPaint(this, C.Color, C.Emissive, 0.6f, 0.3f, 0.32f, 1.0f));
+		SetSlot(M, TEXT("Rim"), ItemPaint(this, Cream, Cream, 0.05f, 0.1f, 0.35f, 0.6f));
+		SetSlot(M, TEXT("Belly"), ItemPaint(this, C.Inner, C.Inner, 0.15f, 0.08f, 0.56f, 0.2f));
+		SetSlot(M, TEXT("Wings"), ItemPaint(this, FLinearColor(0.95f, 0.96f, 1.f), FLinearColor(0.6f, 0.7f, 1.f), 0.25f, 0.1f, 0.3f, 0.8f));
 	}
 	{
 		const FItemColors C = ItemColors(EKartItem::Banana);
-		SetSlot(MeshesFor(EKartItem::Banana), TEXT("Peel"), ItemMaterial(C.Color, C.Emissive, 0.32f, 0.05f, 0.45f, 0.5f));
-		SetSlot(MeshesFor(EKartItem::Banana), TEXT("Tips"), ItemMaterial(C.Inner, C.Inner * 0.3f, 0.1f, 0.0f, 0.7f, 0.0f));
+		SetSlot(MeshesFor(EKartItem::Banana), TEXT("Peel"), ItemPaint(this, C.Color, C.Emissive, 0.32f, 0.05f, 0.45f, 0.5f));
+		SetSlot(MeshesFor(EKartItem::Banana), TEXT("Tips"), ItemPaint(this, C.Inner, C.Inner * 0.3f, 0.1f, 0.0f, 0.7f, 0.0f));
 	}
 	{
 		const FItemColors C = ItemColors(EKartItem::Bomb);
 		UInstancedStaticMeshComponent* M = MeshesFor(EKartItem::Bomb);
-		SetSlot(M, TEXT("Body"), ItemMaterial(C.Color, C.Emissive, 0.32f, 0.3f, 0.3f, 1.0f));
-		SetSlot(M, TEXT("Cap"), ItemMaterial(Hex(TEXT("8c8f96")), C.Inner, 0.0f, 0.9f, 0.3f, 0.3f));
-		SetSlot(M, TEXT("Fuse"), ItemMaterial(Hex(TEXT("d8c8a0")), Hex(TEXT("ff8a3a")), 0.2f, 0.0f, 0.8f, 0.0f));
+		SetSlot(M, TEXT("Body"), ItemPaint(this, C.Color, C.Emissive, 0.32f, 0.3f, 0.3f, 1.0f));
+		SetSlot(M, TEXT("Cap"), ItemPaint(this, Hex(TEXT("8c8f96")), C.Inner, 0.0f, 0.9f, 0.3f, 0.3f));
+		SetSlot(M, TEXT("Fuse"), ItemPaint(this, Hex(TEXT("d8c8a0")), Hex(TEXT("ff8a3a")), 0.2f, 0.0f, 0.8f, 0.0f));
 	}
 	for (EKartItem Item : { EKartItem::Nitro, EKartItem::TripleNitro })
 	{
 		const FItemColors C = ItemColors(Item);
 		UInstancedStaticMeshComponent* M = MeshesFor(Item);
-		SetSlot(M, TEXT("Body"), ItemMaterial(C.Color, C.Emissive, 0.25f, 0.15f, 0.25f, 1.0f));
-		SetSlot(M, TEXT("Band"), ItemMaterial(C.Inner, C.Inner, 0.08f, 0.0f, 0.4f, 0.5f));
-		SetSlot(M, TEXT("Metal"), ItemMaterial(Hex(TEXT("c9ccd2")), Hex(TEXT("000000")), 0.0f, 1.0f, 0.18f, 0.2f));
+		SetSlot(M, TEXT("Body"), ItemPaint(this, C.Color, C.Emissive, 0.25f, 0.15f, 0.25f, 1.0f));
+		SetSlot(M, TEXT("Band"), ItemPaint(this, C.Inner, C.Inner, 0.08f, 0.0f, 0.4f, 0.5f));
+		SetSlot(M, TEXT("Metal"), ItemPaint(this, Hex(TEXT("c9ccd2")), Hex(TEXT("000000")), 0.0f, 1.0f, 0.18f, 0.2f));
 	}
 	if (UMaterialInterface* Prism = LoadObject<UMaterialInterface>(nullptr, PrismMaterialPath))
 	{
@@ -143,26 +128,26 @@ void AKartItemPresenter::SetupItemMaterials()
 	}
 	{
 		const FItemColors C = ItemColors(EKartItem::Lightning);
-		SetSlot(MeshesFor(EKartItem::Lightning), TEXT("Bolt"), ItemMaterial(C.Color, C.Color, 1.2f, 0.1f, 0.3f, 1.0f));
-		SetSlot(MeshesFor(EKartItem::Lightning), TEXT("Edge"), ItemMaterial(Hex(TEXT("f08a00")), Hex(TEXT("ff9a1a")), 0.6f, 0.2f, 0.35f, 0.6f));
+		SetSlot(MeshesFor(EKartItem::Lightning), TEXT("Bolt"), ItemPaint(this, C.Color, C.Color, 1.2f, 0.1f, 0.3f, 1.0f));
+		SetSlot(MeshesFor(EKartItem::Lightning), TEXT("Edge"), ItemPaint(this, Hex(TEXT("f08a00")), Hex(TEXT("ff9a1a")), 0.6f, 0.2f, 0.35f, 0.6f));
 	}
 	{
 		const FItemColors C = ItemColors(EKartItem::Ink);
 		UInstancedStaticMeshComponent* M = MeshesFor(EKartItem::Ink);
-		SetSlot(M, TEXT("Ink"), ItemMaterial(C.Color, C.Inner, 0.35f, 0.0f, 0.12f, 1.0f));
-		SetSlot(M, TEXT("Eyes"), ItemMaterial(FLinearColor::White, FLinearColor::White, 0.35f, 0.0f, 0.3f, 0.5f));
-		SetSlot(M, TEXT("Pupils"), ItemMaterial(Hex(TEXT("0a0a10")), FLinearColor::Black, 0.0f, 0.0f, 0.1f, 1.0f));
+		SetSlot(M, TEXT("Ink"), ItemPaint(this, C.Color, C.Inner, 0.35f, 0.0f, 0.12f, 1.0f));
+		SetSlot(M, TEXT("Eyes"), ItemPaint(this, FLinearColor::White, FLinearColor::White, 0.35f, 0.0f, 0.3f, 0.5f));
+		SetSlot(M, TEXT("Pupils"), ItemPaint(this, Hex(TEXT("0a0a10")), FLinearColor::Black, 0.0f, 0.0f, 0.1f, 1.0f));
 	}
 	{
 		// The toy rocket in the pop-up and the showcase (each kart's own rocket shell is UKartFxComponent's).
 		UInstancedStaticMeshComponent* M = MeshesFor(EKartItem::Rocket);
-		SetSlot(M, TEXT("Exhaust"), ItemMaterial(Hex(TEXT("2a2a2e")), Hex(TEXT("ff6a2a")), 2.5f, 0.6f, 0.4f));
-		SetSlot(M, TEXT("Body"), ItemMaterial(Hex(TEXT("f2f4f8")), Hex(TEXT("c8d4ff")), 0.15f, 0.2f, 0.3f));
-		SetSlot(M, TEXT("Band"), ItemMaterial(Hex(TEXT("ff6a13")), Hex(TEXT("ff4a00")), 0.3f, 0.2f, 0.35f));
-		SetSlot(M, TEXT("Fins"), ItemMaterial(Hex(TEXT("21c7c0")), Hex(TEXT("0a5a58")), 0.2f, 0.4f, 0.35f));
+		SetSlot(M, TEXT("Exhaust"), ItemPaint(this, Hex(TEXT("2a2a2e")), Hex(TEXT("ff6a2a")), 2.5f, 0.6f, 0.4f));
+		SetSlot(M, TEXT("Body"), ItemPaint(this, Hex(TEXT("f2f4f8")), Hex(TEXT("c8d4ff")), 0.15f, 0.2f, 0.3f));
+		SetSlot(M, TEXT("Band"), ItemPaint(this, Hex(TEXT("ff6a13")), Hex(TEXT("ff4a00")), 0.3f, 0.2f, 0.35f));
+		SetSlot(M, TEXT("Fins"), ItemPaint(this, Hex(TEXT("21c7c0")), Hex(TEXT("0a5a58")), 0.2f, 0.4f, 0.35f));
 	}
-	Glows->SetMaterial(0, GlowMaterial(ItemColors(EKartItem::SkySeeker).Emissive * 2.f + FLinearColor(0.f, 0.05f, 0.3f), 3.0f, 1.6f, 0.08f));
-	BombGlows->SetMaterial(0, GlowMaterial(ItemColors(EKartItem::Bomb).Emissive, 2.5f, 1.4f, 0.12f));
+	Glows->SetMaterial(0, Glow(this, ItemColors(EKartItem::SkySeeker).Emissive * 2.f + FLinearColor(0.f, 0.05f, 0.3f), 3.0f, 1.6f, 0.08f));
+	BombGlows->SetMaterial(0, Glow(this, ItemColors(EKartItem::Bomb).Emissive, 2.5f, 1.4f, 0.12f));
 }
 
 void AKartItemPresenter::SetupBoxMaterials()
@@ -177,12 +162,12 @@ void AKartItemPresenter::SetupBoxMaterials()
 		M->SetVectorParameterValue(TEXT("EdgeColor"), Hex(TEXT("5ff0ff")));
 		Boxes->SetMaterial(0, M);
 	}
-	BoxCores->SetMaterial(0, ItemMaterial(Hex(TEXT("ff5fd2")), Hex(TEXT("b45cff")), 0.9f, 0.8f, 0.15f, 1.0f));
+	BoxCores->SetMaterial(0, ItemPaint(this, Hex(TEXT("ff5fd2")), Hex(TEXT("b45cff")), 0.9f, 0.8f, 0.15f, 1.0f));
 	if (UMaterialInterface* Label = LoadObject<UMaterialInterface>(nullptr, BoxLabelMaterialPath))
 	{
 		BoxLabels->SetMaterial(0, Label);
 	}
-	BoxHalos->SetMaterial(0, GlowMaterial(Hex(TEXT("5ff0ff")), 0.9f, 2.6f, 0.0f));
+	BoxHalos->SetMaterial(0, Glow(this, Hex(TEXT("5ff0ff")), 0.9f, 2.6f, 0.0f));
 	// The "?" labels belonged to the web's cube; the orb doesn't wear them.
 	BoxLabels->SetVisibility(false);
 }

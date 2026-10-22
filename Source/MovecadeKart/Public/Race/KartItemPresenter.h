@@ -110,8 +110,6 @@ private:
 
 	// Setup (KartItemPresenter.cpp, KartItemPresenterMaterials.cpp).
 	UInstancedStaticMeshComponent* MakeMeshes(const TCHAR* Name, UStaticMesh* Mesh, int32 CustomFloats = 0);
-	UMaterialInstanceDynamic* ItemMaterial(const FLinearColor& Base, const FLinearColor& Emissive, float EmissiveStrength, float Metallic, float Roughness, float ClearCoat = 0.6f);
-	UMaterialInstanceDynamic* GlowMaterial(const FLinearColor& Color, float Intensity, float Power, float Core);
 	void SetupMaterials();
 	void SetupItemMaterials();
 	void SetupBoxMaterials();

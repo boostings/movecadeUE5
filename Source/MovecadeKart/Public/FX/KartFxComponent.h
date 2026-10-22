@@ -7,6 +7,7 @@
 
 class AKartPawn;
 class AKartRaceManager;
+class UKartFxSubsystem;
 class UMaterialInstanceDynamic;
 class UNiagaraComponent;
 class USceneComponent;
@@ -46,6 +47,10 @@ struct FKartFxOverrides
  * - the per-view post-process: prism rainbow, hit flash, lightning flash, explosion flash and ink.
  * Anchors (exhausts, rear wheels) are measured from whatever vehicle the kart wears, so every body works.
  * AKartPawn creates it; nothing here feeds back into the sim.
+ *
+ * Source files: KartFxComponent.cpp (setup, anchors, the frame), KartFxDrive.cpp (boost, exhaust, drift, dust,
+ * skids, speed lines), KartFxEvents.cpp (impacts, respawn, landing, boost pads) and KartFxItems.cpp (prism, rocket
+ * and the screen post-process).
  */
 UCLASS(ClassGroup = (Movecade), meta = (BlueprintSpawnableComponent))
 class MOVECADEKART_API UKartFxComponent : public UActorComponent
@@ -78,17 +83,40 @@ private:
 		bool bValid = false;
 	};
 
+	// Setup (KartFxComponent.cpp).
 	void Build();
+	void BuildRocket(UKartFxSubsystem& Fx);
+	void BuildGlows();
+	void BuildSkidMarks();
+	UStaticMeshComponent* MakeFxMesh(USceneComponent* Parent, FName Name, UStaticMesh* Mesh);
 	void RefreshAnchors();
-	void UpdateDriveFx(const MovecadeKart::FKartState& S, double Time, double Dt, bool bBoosting, bool bRocket);
-	void UpdateSkids(const MovecadeKart::FKartState& S, double Time);
-	void UpdateEvents(const MovecadeKart::FKartState& S, double Time);
-	void UpdateItemFx(double Time, bool bPrism, bool bRocket);
-	void UpdateSpeedLines(const MovecadeKart::FKartState& S, bool bRocket);
-	void UpdateScreen(double Time, const MovecadeKart::FKartItemSlot* Slot, double ItemNow, bool bPrism);
-	void UpdatePadFlashes(double Time);
+	void PlaceStreams();
 	bool IsViewed() const;
 	FVector Velocity() const { return LastVelocity; }
+	/** The road under the middle of the rear axle, in world space. */
+	FVector RearGround() const;
+
+	// Driving (KartFxDrive.cpp).
+	void UpdateDriveFx(const MovecadeKart::FKartState& S, double Time, bool bBoosting, bool bRocket);
+	void UpdateBoostStreams(const MovecadeKart::FKartState& S, const FVector& Back, bool bBoosting, bool bRocket);
+	void UpdateExhaustPuffs(double Speed, const FVector& Back, bool bBoosting, bool bRocket);
+	/** Drift smoke, sparks and wheel glows; returns the spark recipe the drift flourishes build on. */
+	MovecadeKart::Fx::FKartFxEmit UpdateDrift(const MovecadeKart::FKartState& S, double Time, const FVector& Back, const MovecadeKart::Fx::FDriftLevel& Level);
+	void EmitDriftFlourishes(const MovecadeKart::FKartState& S, const FVector& Back, const MovecadeKart::Fx::FDriftLevel& Level, const MovecadeKart::Fx::FKartFxEmit& Spark);
+	void UpdateDust(const MovecadeKart::FKartState& S, const FVector& Back);
+	void UpdateSkids(const MovecadeKart::FKartState& S, double Time);
+	void UpdateSpeedLines(const MovecadeKart::FKartState& S, bool bRocket);
+
+	// One-off events from the sim's counters (KartFxEvents.cpp).
+	void UpdateEvents(const MovecadeKart::FKartState& S, double Time);
+	void EmitImpacts(const MovecadeKart::FKartState& S, const FVector& Ground, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
+	void EmitPadBoosts(const MovecadeKart::FKartState& S, double Time, const FVector& Ground, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
+	UStaticMeshComponent* PadFlash(int32 Pad, int32 PadCount);
+	void UpdatePadFlashes(double Time);
+
+	// Items and the screen (KartFxItems.cpp).
+	void UpdateItemFx(double Time, bool bPrism, bool bRocket);
+	void UpdateScreen(double Time, const MovecadeKart::FKartItemSlot* Slot, double ItemNow, bool bPrism);
 
 	TWeakObjectPtr<AKartRaceManager> Race;
 
@@ -142,6 +170,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> AuraShell;
+
+	/** The prism shell's size round the kart (a 1 m sphere, scaled), before it breathes. */
+	FVector AuraShellScale = FVector(3.0, 2.3, 1.9);
 
 	/** Tyre marks laid on the road (world space quads, reused oldest first). */
 	UPROPERTY()
