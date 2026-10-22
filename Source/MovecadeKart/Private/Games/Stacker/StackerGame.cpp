@@ -18,6 +18,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "KartCoords.h"
 #include "Net/RoomProtocol.h"
+#include "Store/KartCosmetics.h" // store cosmetics: block skin
 
 DEFINE_LOG_CATEGORY_STATIC(LogStacker, Log, All);
 
@@ -215,7 +216,8 @@ void AStackerGame::Setup(AStackerRooftop* InRooftop, const TArray<FStackerSeat>&
 	UMaterialInterface* PistonMat = Plain(this, Hex(TEXT("#c9ccd2")), 0.25, 0.95);
 	for (int32 i = 0; i < N; ++i)
 	{
-		const FLinearColor C = AStackerRooftop::LaneColor(Match.Towers[i].LaneIndex);
+		// Store cosmetics: a local builder's equipped block colour.
+		const FLinearColor C = FKartCosmetics::StackerBlockColor(Lanes[i].Kind == EBuilderKind::Local, AStackerRooftop::LaneColor(Match.Towers[i].LaneIndex));
 		LaneMaterials.Add(Plain(this, C * 0.95f, 0.42, 0.25));
 		LaneMaterials.Add(Plain(this, C * 0.74f, 0.45, 0.25));
 		LaneMaterials.Add(Plain(this, FMath::Lerp(C, FLinearColor::White, 0.22f), 0.35, 0.25, 0.18));

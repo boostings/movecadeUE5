@@ -9,6 +9,7 @@
 
 #include "Games/ArcadeCatalog.h"
 #include "Games/ArcadeSession.h"
+#include "Store/KartCosmetics.h" // store cosmetics
 
 #define LOCTEXT_NAMESPACE "KartFrontEnd"
 
@@ -324,6 +325,9 @@ namespace
 			P.Box(C + FVector2D(-0.95 * S, 0.64 * S), FVector2D(1.9 * S, 0.06 * S), Color::Navy, 0.03f * S);
 			break;
 		}
+		case 6: // Store: a shopping bag (KartStoreScreen.cpp).
+			KartScreens::PaintStoreIcon(P, C, S, Now);
+			break;
 		default: // Quit: a door with an arrow.
 			P.Box(C + FVector2D(-0.5 * S, -0.75 * S), FVector2D(0.7 * S, 1.5 * S), Color::Navy, 0.08f * S);
 			P.Box(C + FVector2D(-0.42 * S, -0.66 * S), FVector2D(0.54 * S, 1.32 * S), Color::PaperShade, 0.05f * S);
@@ -338,7 +342,7 @@ namespace
 	public:
 		explicit FMainMenuScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
 		{
-			Focus.Cursor.Count = 6;
+			Focus.Cursor.Count = 7; // store: +1 entry
 		}
 
 		virtual FName GetId() const override { return TEXT("menu"); }
@@ -390,26 +394,27 @@ namespace
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
 			LeftPanel(P, Frame, 720.f);
-			const FText Names[] = { LOCTEXT("Race", "Race"), LOCTEXT("Arcade", "Arcade"), LOCTEXT("Party", "Party Mode"), LOCTEXT("Settings", "Settings"), LOCTEXT("Credits", "Credits"), LOCTEXT("Quit", "Quit") };
+			const FText Names[] = { LOCTEXT("Race", "Race"), LOCTEXT("Arcade", "Arcade"), LOCTEXT("Party", "Party Mode"), LOCTEXT("Settings", "Settings"), LOCTEXT("Credits", "Credits"), LOCTEXT("Store", "Store"), LOCTEXT("Quit", "Quit") };
 			const FText Details[] = {
 				LOCTEXT("RaceDetail", "Up to four players on one screen, with bots."),
 				LOCTEXT("ArcadeDetail", "Bowling, darts, Samurai Slice and Sky Stacker, with friends or the house."),
 				LOCTEXT("PartyDetail", "Phones are the controllers. Scan, tilt, race."),
 				LOCTEXT("SettingsDetail", "Graphics, sound and controls."),
 				LOCTEXT("CreditsDetail", "Who made this, and with what."),
+				LOCTEXT("StoreDetail", "Kart paints, driver looks and party-game skins. Cosmetic only, plus free unlocks."),
 				LOCTEXT("QuitDetail", "Back to the desktop."),
 			};
-			const FLinearColor Accents[] = { Color::Hot, Color::Sun, Color::Sky, Color::Grape, Color::Mint, Color::NavyDim };
+			const FLinearColor Accents[] = { Color::Hot, Color::Sun, Color::Sky, Color::Grape, Color::Mint, Color::Gold, Color::NavyDim };
 			// The icon each entry shows on the card (MenuIcon's cases).
-			const int32 IconOf[] = { 0, 5, 1, 2, 3, 4 };
+			const int32 IconOf[] = { 0, 5, 1, 2, 3, 6, 4 };
 
 			// The small logo at the top of the panel.
 			Logo(P.Transformed(FVector2D(Frame.SafeMin.X + 300.0, Frame.SafeMin.Y + 70.0), 1.f), FVector2D(Frame.SafeMin.X + 300.0, Frame.SafeMin.Y + 70.0), 0.42f, 10.0, Frame.Now);
 
 			const FVector2D ButtonSize(560.0, 88.0);
 			const double Gap = 18.0;
-			const double Top = Frame.Size.Y * 0.5 - (6 * ButtonSize.Y + 5 * Gap) * 0.5 + 50.0;
-			for (int32 i = 0; i < 6; ++i)
+			const double Top = Frame.Size.Y * 0.5 - (7 * ButtonSize.Y + 6 * Gap) * 0.5 + 50.0;
+			for (int32 i = 0; i < 7; ++i)
 			{
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
 				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + Gap));
@@ -467,6 +472,10 @@ namespace
 			case 4:
 				Host->PlaySound(EKartUISound::Accept);
 				Host->PushScreen(KartScreens::MakeCredits());
+				break;
+			case 5: // store
+				Host->PlaySound(EKartUISound::Accept);
+				Host->PushScreen(KartScreens::MakeStore(FE));
 				break;
 			default:
 				Host->PlaySound(EKartUISound::Accept);
@@ -1108,6 +1117,7 @@ namespace
 				if (Slots[i].bJoined)
 				{
 					Looks.Add(FKartRoster::MakeLook(Choice(i), FString::Printf(TEXT("P%d"), i + 1)));
+					FKartCosmetics::ApplyToLook(Looks.Last(), i); // store cosmetics
 				}
 			}
 			FE->SetShowroom(Looks);
@@ -1129,7 +1139,7 @@ namespace
 			Card.Text(FKartRoster::Characters()[C.Character].Name, Font(EFont::Display, 46.f, 3.f), Pos + FVector2D(116.0, 60.0), Color::White, FVector2D(0.0, 0.5), 3.f);
 
 			const FText Labels[NumRows] = { LOCTEXT("Driver", "Driver"), LOCTEXT("Outfit", "Outfit"), LOCTEXT("Vehicle", "Vehicle"), LOCTEXT("Paint", "Paint") };
-			const FText Values[NumRows] = { FKartRoster::Characters()[C.Character].Name, FKartRoster::OutfitName(C.Outfit), FKartRoster::VehicleName(C.Vehicle), FKartRoster::Paints()[C.Paint].Name };
+			const FText Values[NumRows] = { FKartRoster::Characters()[C.Character].Name, FKartRoster::OutfitName(C.Outfit), FKartRoster::VehicleName(C.Vehicle), FKartCosmetics::PaintName(Player, FKartRoster::Paints()[C.Paint].Name) }; // store cosmetics: paint name
 			const double RowH = 58.0;
 			for (int32 Row = 0; Row < NumRows; ++Row)
 			{
