@@ -8,6 +8,21 @@ namespace MovecadeKart
 	{
 		/** A ray this close to parallel with a segment never hits it. */
 		constexpr double ParallelEpsilon = 1e-12;
+
+		/** Where a ray (unit Dir) crosses a segment, as the distance along the ray; false if it misses within Far. */
+		FORCEINLINE bool RayHitsSegment(const FVector2D& Origin, const FVector2D& Dir, double Far, const FWallSegment& Segment, double& OutRayT)
+		{
+			// Solve Origin + RayT * Dir = Start + SegmentU * Delta.
+			const double Denom = Dir.X * Segment.Delta.Y - Dir.Y * Segment.Delta.X;
+			if (FMath::Abs(Denom) < ParallelEpsilon)
+			{
+				return false;
+			}
+			const FVector2D AO = Segment.Start - Origin;
+			OutRayT = (AO.X * Segment.Delta.Y - AO.Y * Segment.Delta.X) / Denom;
+			const double SegmentU = (AO.X * Dir.Y - AO.Y * Dir.X) / Denom;
+			return OutRayT >= 0.0 && OutRayT <= Far && SegmentU >= 0.0 && SegmentU <= 1.0;
+		}
 	}
 
 	// ---- FWallSet -------------------------------------------------------------------------------
@@ -87,7 +102,7 @@ namespace MovecadeKart
 	bool FWallSet::Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const
 	{
 		// Walks the cells in place instead of gathering, sorting and deduplicating candidates. The winner is the
-		// smallest T with the lowest index among exact ties, which is what an ascending scan with a strict < picks;
+		// smallest RayT with the lowest index among exact ties, which is what an ascending scan with a strict < picks;
 		// a segment seen again from a neighbouring cell cannot change it.
 		const FVector2D End = Origin + Dir * Far;
 		double Best = TNumericLimits<double>::Max();
@@ -107,17 +122,8 @@ namespace MovecadeKart
 					}
 					for (const int32 Index : *Cell)
 					{
-						const FWallSegment& Segment = WallSegments[Index];
-						// Solve Origin + RayT * Dir = A + SegmentU * D.
-						const double Denom = Dir.X * Segment.Delta.Y - Dir.Y * Segment.Delta.X;
-						if (FMath::Abs(Denom) < ParallelEpsilon)
-						{
-							continue;
-						}
-						const FVector2D AO = Segment.Start - Origin;
-						const double RayT = (AO.X * Segment.Delta.Y - AO.Y * Segment.Delta.X) / Denom;
-						const double SegmentU = (AO.X * Dir.Y - AO.Y * Dir.X) / Denom;
-						if (RayT >= 0.0 && RayT <= Far && SegmentU >= 0.0 && SegmentU <= 1.0
+						double RayT = 0.0;
+						if (RayHitsSegment(Origin, Dir, Far, WallSegments[Index], RayT)
 							&& (RayT < Best || (RayT == Best && BestIndex != INDEX_NONE && Index < BestIndex)))
 						{
 							Best = RayT;
