@@ -8,34 +8,9 @@ using namespace MovecadeKart::Derby;
 namespace KC = KartUI::Color;
 using KartUI::EFont;
 
-// Layout is in 1080p canvas units, scaled by S (KartUI::Metric::CanvasH) at paint.
+// Layout is in 1080p canvas units, scaled by S (KartUI::Metric::CanvasH) at paint. Fixed labels are ARCADE_LABELs.
 namespace
 {
-	/** Labels that never change (made once; NSLOCTEXT per paint would look the string up every frame). */
-	namespace Label
-	{
-		const FText& Strikes() { static const FText T = NSLOCTEXT("Derby", "Strikes", "K"); return T; }
-		const FText& Deep() { static const FText T = NSLOCTEXT("Derby", "Deep", "IT'S DEEP..."); return T; }
-		const FText& SwingNow() { static const FText T = NSLOCTEXT("Derby", "SwingNow", "SWING YOUR PHONE!"); return T; }
-		const FText& PhoneHint() { static const FText T = NSLOCTEXT("Derby", "PhoneHint", "Swing your phone like a bat"); return T; }
-		const FText& Pull() { static const FText T = NSLOCTEXT("Derby", "Pull", "PULL"); return T; }
-		const FText& Oppo() { static const FText T = NSLOCTEXT("Derby", "Oppo", "OPPO"); return T; }
-		const FText& Power() { static const FText T = NSLOCTEXT("Derby", "Power", "POWER"); return T; }
-		const FText& Controls()
-		{
-			static const FText T = NSLOCTEXT("Derby", "Controls", "Hold Space, RT or click to load  ·  let go to swing  ·  mouse, A/D or stick to aim");
-			return T;
-		}
-		const FText& NowBatting() { static const FText T = NSLOCTEXT("Derby", "NowBatting", "NOW BATTING"); return T; }
-		const FText& Title() { static const FText T = NSLOCTEXT("Derby", "Title", "HOME RUN DERBY"); return T; }
-		const FText& Rules()
-		{
-			static const FText T = NSLOCTEXT("Derby", "Rules", "Ten pitches each. Time your swing, aim it, send it. Home runs score their distance.");
-			return T;
-		}
-		const FText& Final() { static const FText T = NSLOCTEXT("Derby", "Final", "FINAL STANDINGS"); return T; }
-	}
-
 	// ---- Timing (seconds).
 	/** The swing's EARLY / PERFECT / LATE stays up this long after contact, fading over the last FadeOut. */
 	constexpr double TimingShowSeconds = 1.6;
@@ -253,7 +228,7 @@ void SDerbyHud::PaintBug(const FKartPainter& P, const ADerbyGame& G, float S) co
 		P.Circle(C, 9.f * S * Pulse, i < Thrown ? KC::WithAlpha(KC::White, 0.18f) : KC::White, KC::Night, 2.f * S);
 	}
 	const int32 Strikes = G.ShownStrikes();
-	P.Text(Label::Strikes(), KartUI::Font(EFont::Label, 18.f * S), Pos + FVector2D(Size.X - 118.f * S, 112.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(1.0, 0.5));
+	P.Text(ARCADE_LABEL("Derby", "Strikes", "K"), KartUI::Font(EFont::Label, 18.f * S), Pos + FVector2D(Size.X - 118.f * S, 112.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(1.0, 0.5));
 	for (int32 i = 0; i < StrikesPerOut; ++i)
 	{
 		const FVector2D C = Pos + FVector2D(Size.X - (92.f - i * 30.f) * S, 112.f * S);
@@ -352,7 +327,7 @@ void SDerbyHud::PaintTracker(const FKartPainter& P, const ADerbyGame& G, float S
 	if (G.IsSlowMo())
 	{
 		const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.2f);
-		P.Text(Label::Deep(), KartUI::Font(EFont::Display, 60.f * S, 4.f * S, KC::Night), Centre, KC::White, FVector2D(0.5, 0.5), 6.f * S);
+		P.Text(ARCADE_LABEL("Derby", "Deep", "IT'S DEEP..."), KartUI::Font(EFont::Display, 60.f * S, 4.f * S, KC::Night), Centre, KC::White, FVector2D(0.5, 0.5), 6.f * S);
 	}
 }
 
@@ -451,7 +426,7 @@ void SDerbyHud::PaintPhonePrompt(const FKartPainter& P, const ADerbyGame& G, con
 	const FVector2D C = Base - FVector2D(0.f, 50.f * S);
 	const FKartPainter Pulsed = P.Transformed(C, Pulse);
 	Pulsed.Card(C - FVector2D(330.f, 40.f) * S, FVector2D(660.f, 80.f) * S, KC::WithAlpha(KC::Night, 0.82f), 40.f * S, 6.f * S, Up.Color, 3.f * S);
-	Pulsed.Text(bPitch ? Label::SwingNow() : Label::PhoneHint(), KartUI::Font(EFont::Title, 32.f * S), C, KC::White, FVector2D(0.5, 0.5));
+	Pulsed.Text(bPitch ? ARCADE_LABEL("Derby", "SwingNow", "SWING YOUR PHONE!") : ARCADE_LABEL("Derby", "PhoneHint", "Swing your phone like a bat"), KartUI::Font(EFont::Title, 32.f * S), C, KC::White, FVector2D(0.5, 0.5));
 	// The phone's live swing energy under the prompt.
 	const float Charge = static_cast<float>(G.GetPhoneCharge());
 	P.Box(C + FVector2D(-300.f, 46.f) * S, FVector2D(600.f * S * Charge, 8.f * S), Up.Color, 4.f * S);
@@ -477,8 +452,8 @@ void SDerbyHud::PaintAim(const FKartPainter& P, const ADerbyGame& G, const FVect
 	const FVector2D Tip = Pivot + FVector2D(FMath::Cos(Needle), FMath::Sin(Needle)) * R * 0.95f;
 	P.Lines({ Pivot, Tip }, KC::White, 5.f * S);
 	P.Circle(Tip, 9.f * S, KC::White, KC::Night, 2.f * S);
-	P.Text(Label::Pull(), KartUI::Font(EFont::Label, 15.f * S), Pivot + FVector2D(-R * 0.85f, -R * 0.2f), KC::WithAlpha(KC::White, 0.7f), FVector2D(1.0, 0.5));
-	P.Text(Label::Oppo(), KartUI::Font(EFont::Label, 15.f * S), Pivot + FVector2D(R * 0.85f, -R * 0.2f), KC::WithAlpha(KC::White, 0.7f), FVector2D(0.0, 0.5));
+	P.Text(ARCADE_LABEL("Derby", "Pull", "PULL"), KartUI::Font(EFont::Label, 15.f * S), Pivot + FVector2D(-R * 0.85f, -R * 0.2f), KC::WithAlpha(KC::White, 0.7f), FVector2D(1.0, 0.5));
+	P.Text(ARCADE_LABEL("Derby", "Oppo", "OPPO"), KartUI::Font(EFont::Label, 15.f * S), Pivot + FVector2D(R * 0.85f, -R * 0.2f), KC::WithAlpha(KC::White, 0.7f), FVector2D(0.0, 0.5));
 	// The load meter beside it: mint to sun as it builds, hot when full.
 	const FVector2D MeterPos = Pivot + FVector2D(R + 60.f * S, -96.f * S);
 	const FVector2D MeterSize(28.f * S, 110.f * S);
@@ -487,10 +462,10 @@ void SDerbyHud::PaintAim(const FKartPainter& P, const ADerbyGame& G, const FVect
 	const FLinearColor Fill = Load >= 0.999f ? KC::Hot : FMath::Lerp(KC::Mint, KC::Sun, Load);
 	const float Inner = MeterSize.Y - 8.f * S;
 	P.Box(MeterPos + FVector2D(4.f * S, MeterSize.Y - 4.f * S - Inner * Load), FVector2D(MeterSize.X - 8.f * S, Inner * Load), Fill, 7.f * S);
-	P.Text(Label::Power(), KartUI::Font(EFont::Label, 13.f * S), MeterPos + FVector2D(MeterSize.X / 2.f, MeterSize.Y + 14.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(0.5, 0.5));
+	P.Text(ARCADE_LABEL("Derby", "Power", "POWER"), KartUI::Font(EFont::Label, 13.f * S), MeterPos + FVector2D(MeterSize.X / 2.f, MeterSize.Y + 14.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(0.5, 0.5));
 	if (G.ShownPitch() < HintPitches && G.GetMatch().Round == 0)
 	{
-		P.Text(Label::Controls(), KartUI::Font(EFont::Body, 21.f * S), Base - FVector2D(0.f, 200.f * S), KC::White, FVector2D(0.5, 0.5), 3.f * S);
+		P.Text(ARCADE_LABEL("Derby", "Controls", "Hold Space, RT or click to load  ·  let go to swing  ·  mouse, A/D or stick to aim"), KartUI::Font(EFont::Body, 21.f * S), Base - FVector2D(0.f, 200.f * S), KC::White, FVector2D(0.5, 0.5), 3.f * S);
 	}
 }
 
@@ -509,7 +484,7 @@ void SDerbyHud::PaintStepIn(const FKartPainter& P, const ADerbyGame& G, float S)
 	const float X = P.Size().Y * KartUI::Metric::SafeFraction + (1.f - In) * -400.f * S;
 	const FVector2D Pos(X, P.Size().Y * 0.6f);
 	F.Box(Pos, FVector2D(760.f * S, 64.f * S), Up->Color, 10.f * S);
-	F.Text(Label::NowBatting(), KartUI::Font(EFont::Label, 28.f * S), Pos + FVector2D(24.f * S, 32.f * S), KC::TextOn(Up->Color), FVector2D(0.0, 0.5));
+	F.Text(ARCADE_LABEL("Derby", "NowBatting", "NOW BATTING"), KartUI::Font(EFont::Label, 28.f * S), Pos + FVector2D(24.f * S, 32.f * S), KC::TextOn(Up->Color), FVector2D(0.0, 0.5));
 	F.Text(Text.NameUpper, KartUI::Font(EFont::Display, 110.f * S, 6.f * S, KC::Night), Pos + FVector2D(18.f * S, 130.f * S), KC::White, FVector2D(0.0, 0.5), 8.f * S);
 	const FString& Line = StepInLine.Get(static_cast<int32>(Up->Kind), [](int32 Kind)
 	{
@@ -534,7 +509,7 @@ void SDerbyHud::PaintIntro(const FKartPainter& P, const ADerbyGame& G, float S) 
 	const FKartPainter F = P.Faded(FadeIn * FadeOut);
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.42f);
 	const float Pop = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / IntroPopSeconds), 0.f, 1.f), 1.6f);
-	F.Transformed(Centre - FVector2D(0.f, 60.f * S), FMath::Max(0.01f, Pop), -3.f).Text(Label::Title(), KartUI::Font(EFont::Display, 140.f * S, 7.f * S),
+	F.Transformed(Centre - FVector2D(0.f, 60.f * S), FMath::Max(0.01f, Pop), -3.f).Text(ARCADE_LABEL("Derby", "Title", "HOME RUN DERBY"), KartUI::Font(EFont::Display, 140.f * S, 7.f * S),
 		Centre - FVector2D(0.f, 60.f * S), KC::Sun, FVector2D(0.5, 0.5), 9.f * S);
 	if (IntroNames.IsEmpty())
 	{
@@ -544,7 +519,7 @@ void SDerbyHud::PaintIntro(const FKartPainter& P, const ADerbyGame& G, float S) 
 		}
 	}
 	F.Text(IntroNames, KartUI::Font(EFont::Title, 34.f * S, 2.f * S), Centre + FVector2D(0.f, 50.f * S), KC::White, FVector2D(0.5, 0.5), 4.f * S);
-	F.Text(Label::Rules(), KartUI::Font(EFont::Body, 24.f * S), Centre + FVector2D(0.f, 100.f * S), KC::WithAlpha(KC::White, 0.88f), FVector2D(0.5, 0.5), 3.f * S);
+	F.Text(ARCADE_LABEL("Derby", "Rules", "Ten pitches each. Time your swing, aim it, send it. Home runs score their distance."), KartUI::Font(EFont::Body, 24.f * S), Centre + FVector2D(0.f, 100.f * S), KC::WithAlpha(KC::White, 0.88f), FVector2D(0.5, 0.5), 3.f * S);
 }
 
 void SDerbyHud::PaintFinal(const FKartPainter& P, const ADerbyGame& G, float S) const
@@ -554,7 +529,7 @@ void SDerbyHud::PaintFinal(const FKartPainter& P, const ADerbyGame& G, float S) 
 	const double Age = G.GetFinishedAge();
 	const FKartPainter F = P.Faded(FMath::Clamp(static_cast<float>(Age / FinalFadeSeconds), 0.f, 1.f));
 	const FVector2D Top(P.Size().X / 2.f, P.Size().Y * 0.12f);
-	F.Text(Label::Final(), KartUI::Font(EFont::Display, 84.f * S, 5.f * S), Top, KC::Sun, FVector2D(0.5, 0.5), 7.f * S);
+	F.Text(ARCADE_LABEL("Derby", "Final", "FINAL STANDINGS"), KartUI::Font(EFont::Display, 84.f * S, 5.f * S), Top, KC::Sun, FVector2D(0.5, 0.5), 7.f * S);
 	for (int32 i = 0; i < Order.Num(); ++i)
 	{
 		const FBatter& B = M.Batters[Order[i]];

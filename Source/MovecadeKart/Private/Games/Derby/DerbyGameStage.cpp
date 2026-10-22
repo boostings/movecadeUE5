@@ -63,6 +63,26 @@ namespace
 	constexpr double HitTrailRate = 220.0;
 	const FLinearColor DefaultTrailEnd(1.f, 0.8f, 0.3f);
 
+	/** The trail's fire stream (m/s, seconds, metres): a white-hot wisp rising off the ball, fading to the batter's colour. */
+	Fx::FKartFxEmit TrailRecipe(const FVector2D& Life, const FVector2D& Size, double Intensity)
+	{
+		Fx::FKartFxEmit Emit;
+		Emit.Field = Fx::EField::Fire;
+		Emit.Direction = FVector::UpVector;
+		Emit.Spread = 0.3;
+		Emit.Speed = FVector2D(0.0, 0.15);
+		Emit.Life = Life;
+		Emit.Size = Size;
+		Emit.SizeEnd = 0.15;
+		Emit.Color = FLinearColor::White;
+		Emit.Intensity = Intensity;
+		return Emit;
+	}
+	/** On the pitch: a short, thin tracer. */
+	const Fx::FKartFxEmit& PitchTracer() { static const Fx::FKartFxEmit E = TrailRecipe({ 0.12, 0.18 }, { 0.07, 0.1 }, 1.6); return E; }
+	/** On a hit: a long, bright flame. */
+	const Fx::FKartFxEmit& HitFlame() { static const Fx::FKartFxEmit E = TrailRecipe({ 0.45, 0.7 }, { 0.22, 0.3 }, 3.5); return E; }
+
 	/** A bat along +Z: knob, handle, taper, barrel, rounded end (cm). Slot 0 wood, slot 1 grip tape. */
 	UStaticMesh* BuildBat(UObject* Outer)
 	{
@@ -131,6 +151,7 @@ void ADerbyGame::BuildStage()
 	{
 		Trail = FxSys->MakeStream(Fx::EField::Fire, nullptr, TEXT("DerbyTrail"));
 	}
+	UE_CLOG(!Trail, LogDerby, Warning, TEXT("Derby: no FX stream for the ball's trail (KartFx subsystem or its Fire system missing)"));
 }
 
 UStaticMeshComponent* ADerbyGame::AddProp(const TCHAR* Name, UStaticMesh* Mesh)
@@ -265,17 +286,8 @@ void ADerbyGame::UpdateTrail(const FVector& At, bool bTrail)
 	Trail->SetWorldLocation(At);
 	const FDerbySeat* Up = GetBatter();
 	const bool bHit = Phase == EDerbyPhase::Flight;
-	Fx::FKartFxEmit Emit;
-	Emit.Field = Fx::EField::Fire;
-	Emit.Direction = FVector::UpVector;
-	Emit.Spread = 0.3;
-	Emit.Speed = FVector2D(0.0, 0.15);
-	Emit.Life = bHit ? FVector2D(0.45, 0.7) : FVector2D(0.12, 0.18);
-	Emit.Size = bHit ? FVector2D(0.22, 0.3) : FVector2D(0.07, 0.1);
-	Emit.SizeEnd = 0.15;
-	Emit.Color = FLinearColor::White;
+	Fx::FKartFxEmit Emit = bHit ? HitFlame() : PitchTracer();
 	// The tracer burns out in the batter's colour.
 	Emit.ColorEnd = Up ? Up->Color : DefaultTrailEnd;
-	Emit.Intensity = bHit ? 3.5 : 1.6;
 	UKartFxSubsystem::UpdateStream(Trail, Emit, bTrail ? (bHit ? HitTrailRate : PitchTrailRate) : 0.0);
 }
