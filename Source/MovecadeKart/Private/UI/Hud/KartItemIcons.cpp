@@ -1,5 +1,6 @@
 #include "UI/Hud/KartItemIcons.h"
 
+#include "FX/KartFx.h"
 #include "UI/KartUIPainter.h"
 #include "UI/KartWidgets.h"
 
@@ -8,10 +9,7 @@ using MovecadeKart::EKartItem;
 
 namespace
 {
-	FLinearColor Hex(const TCHAR* Code)
-	{
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Code));
-	}
+	using MovecadeKart::Fx::Hex;
 
 	/** The buzz disc seen from above: eight swept teeth, a coloured disc, a pale bumper ring and a hub. */
 	void Disc(const FKartPainter& P, const FVector2D& C, float S, const FLinearColor& Body, double Now)
@@ -31,11 +29,12 @@ namespace
 		P.Circle(C + FVector2D(-R * 0.4, -R * 0.42), R * 0.16f, Color::WithAlpha(Color::White, 0.7f));
 	}
 
-	using FArcPoints = TArray<FVector2D, TInlineAllocator<24>>;
-
-	FArcPoints Arc(const FVector2D& C, double R, double From, double To, int32 Steps)
+	/** The tip, then Steps + 1 points around an arc: a teardrop when the arc opens towards the tip. */
+	TArray<FVector2D, TInlineAllocator<16>> Teardrop(const FVector2D& Tip, const FVector2D& C, double R, double From, double To, int32 Steps)
 	{
-		FArcPoints Points;
+		TArray<FVector2D, TInlineAllocator<16>> Points;
+		Points.Reserve(Steps + 2);
+		Points.Add(Tip);
 		for (int32 i = 0; i <= Steps; ++i)
 		{
 			const double A = FMath::DegreesToRadians(FMath::Lerp(From, To, static_cast<double>(i) / Steps));
@@ -49,9 +48,7 @@ namespace
 		// A teardrop pointing up: orange outside, yellow core.
 		auto Drop = [&](float Scale, const FLinearColor& Fill)
 		{
-			FArcPoints Points = Arc(C + FVector2D(0.0, S * 0.12 * Scale), S * 0.3 * Scale, -20.0, 200.0, 14);
-			Points.Insert(C + FVector2D(0.0, -S * 0.48 * Scale), 0);
-			P.Polygon(Points, Fill);
+			P.Polygon(Teardrop(C + FVector2D(0.0, -S * 0.48 * Scale), C + FVector2D(0.0, S * 0.12 * Scale), S * 0.3 * Scale, -20.0, 200.0, 14), Fill);
 		};
 		static const FLinearColor Outer = Hex(TEXT("ff6a2a"));
 		Drop(1.f, Outer);
@@ -156,7 +153,7 @@ namespace KartItemIcons
 			// Two convex halves.
 			P.Polygon({ Bolt[0], Bolt[1], Bolt[2], Bolt[5] }, Tint(Item));
 			P.Polygon({ Bolt[5], Bolt[2], Bolt[3], Bolt[4] }, Tint(Item));
-			P.Lines(MakeArrayView(Bolt), Color::Night, S * 0.035f, true);
+			P.Lines(Bolt, Color::Night, S * 0.035f, true);
 			break;
 		}
 		case EKartItem::Ink:

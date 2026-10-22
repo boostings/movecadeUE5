@@ -1,11 +1,10 @@
 #include "KartLook.h"
 
+#include "FX/KartFx.h"
+
 namespace
 {
-	FLinearColor Hex(const TCHAR* Code)
-	{
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Code));
-	}
+	using MovecadeKart::Fx::Hex;
 
 	// appearanceColors.ts
 	namespace Skin
@@ -30,6 +29,7 @@ namespace
 		const TCHAR* Pink = TEXT("f070a8");
 		const TCHAR* Blue = TEXT("3a6aa8");
 		const TCHAR* Teal = TEXT("2a9a94");
+		const TCHAR* Lavender = TEXT("9a7ad0");
 	}
 	namespace PantsHex
 	{
@@ -37,6 +37,8 @@ namespace
 		const TCHAR* Black = TEXT("1c1c24");
 		const TCHAR* Denim = TEXT("4a6a8a");
 		const TCHAR* Cream = TEXT("e8dcc8");
+		const TCHAR* Olive = TEXT("5a6a3a");
+		const TCHAR* Burgundy = TEXT("6a2232");
 	}
 	namespace ShoeHex
 	{
@@ -44,6 +46,8 @@ namespace
 		const TCHAR* Black = TEXT("22222c");
 		const TCHAR* Pink = TEXT("f070a8");
 		const TCHAR* Cyan = TEXT("5ec8e5");
+		const TCHAR* Lime = TEXT("7ed957");
+		const TCHAR* Orange = TEXT("ff8a3d");
 	}
 
 	struct FVariedSeat
@@ -60,18 +64,22 @@ namespace
 		EKartVehicle Vehicle;
 	};
 
-	// One row per grid seat (and beyond, cycling): every face once before any repeats, both bodies,
-	// a spread of skin tones and hair, two of the paid outfits and every vehicle but the truck (it hides
-	// the kart ahead of it from the chase camera).
+	// One row per grid seat (and beyond, cycling): rows 0-5 are the roster's six characters, each with a signature
+	// look; then bots in the other body, with the code-built props, every paid outfit, and the vehicles but the
+	// truck (it hides the kart ahead of it from the chase camera).
 	const FVariedSeat VariedSeats[] = {
-		{ EKartFace::Mira, EKartBody::Female, EKartHair::Short, Skin::Tan, HairHex::Brown, PantsHex::Navy, ShoeHex::White, EKartAccessory::None, EKartOutfit::Classic, EKartVehicle::Kart },
+		{ EKartFace::Mira, EKartBody::Female, EKartHair::Short, Skin::Tan, HairHex::Brown, PantsHex::Navy, ShoeHex::White, EKartAccessory::Headphones, EKartOutfit::Classic, EKartVehicle::Kart },
 		{ EKartFace::Leo, EKartBody::Male, EKartHair::Crop, Skin::Brown, HairHex::Black, PantsHex::Black, ShoeHex::Black, EKartAccessory::None, EKartOutfit::TurboRacer, EKartVehicle::Kart },
 		{ EKartFace::Nia, EKartBody::Female, EKartHair::Puff, Skin::Deep, HairHex::Black, PantsHex::Denim, ShoeHex::Cyan, EKartAccessory::None, EKartOutfit::Classic, EKartVehicle::Coupe },
 		{ EKartFace::Kai, EKartBody::Male, EKartHair::Short, Skin::Fair, HairHex::Blonde, PantsHex::Navy, ShoeHex::White, EKartAccessory::Glasses, EKartOutfit::Classic, EKartVehicle::Moto },
 		{ EKartFace::Rose, EKartBody::Female, EKartHair::Tail, Skin::Porcelain, HairHex::Red, PantsHex::Cream, ShoeHex::Pink, EKartAccessory::None, EKartOutfit::SkylineCrew, EKartVehicle::Kart },
 		{ EKartFace::Omar, EKartBody::Male, EKartHair::Curls, Skin::Warm, HairHex::Black, PantsHex::Black, ShoeHex::White, EKartAccessory::Headband, EKartOutfit::Classic, EKartVehicle::Coupe },
-		{ EKartFace::Mira, EKartBody::Female, EKartHair::Bob, Skin::Olive, HairHex::Teal, PantsHex::Navy, ShoeHex::Black, EKartAccessory::None, EKartOutfit::GlowHoodie, EKartVehicle::Kart },
-		{ EKartFace::Leo, EKartBody::Male, EKartHair::Bangs, Skin::Light, HairHex::Auburn, PantsHex::Denim, ShoeHex::White, EKartAccessory::Cap, EKartOutfit::Classic, EKartVehicle::Kart },
+		{ EKartFace::Mira, EKartBody::Male, EKartHair::Bob, Skin::Olive, HairHex::Teal, PantsHex::Navy, ShoeHex::Black, EKartAccessory::Beanie, EKartOutfit::GlowHoodie, EKartVehicle::Kart },
+		{ EKartFace::Leo, EKartBody::Female, EKartHair::Bangs, Skin::Light, HairHex::Auburn, PantsHex::Denim, ShoeHex::White, EKartAccessory::Cap, EKartOutfit::Classic, EKartVehicle::Kart },
+		{ EKartFace::Nia, EKartBody::Male, EKartHair::Crop, Skin::Deep, HairHex::Silver, PantsHex::Black, ShoeHex::Lime, EKartAccessory::PartyHat, EKartOutfit::ArcadeVarsity, EKartVehicle::Moto },
+		{ EKartFace::Rose, EKartBody::Male, EKartHair::Short, Skin::Fair, HairHex::Blonde, PantsHex::Olive, ShoeHex::Orange, EKartAccessory::None, EKartOutfit::MidnightBowler, EKartVehicle::Coupe },
+		{ EKartFace::Kai, EKartBody::Female, EKartHair::Bun, Skin::Tan, HairHex::Lavender, PantsHex::Burgundy, ShoeHex::White, EKartAccessory::Headphones, EKartOutfit::DojoGi, EKartVehicle::Kart },
+		{ EKartFace::Omar, EKartBody::Female, EKartHair::Curls, Skin::Warm, HairHex::Pink, PantsHex::Navy, ShoeHex::Cyan, EKartAccessory::Crown, EKartOutfit::OcheAce, EKartVehicle::Moto },
 	};
 }
 

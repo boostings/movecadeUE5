@@ -140,7 +140,7 @@ void SKartRaceOverlay::Tick(const FGeometry& AllottedGeometry, const double InCu
 		return;
 	}
 	const EKartRacePhase Phase = Race->GetPhase();
-	const TSharedPtr<FKartScreen>& Top = Menus->Top();
+	const TSharedPtr<FKartScreen> Top = Menus->Top();
 	if (Phase == EKartRacePhase::Finished)
 	{
 		// The results board follows the "race over" banner.

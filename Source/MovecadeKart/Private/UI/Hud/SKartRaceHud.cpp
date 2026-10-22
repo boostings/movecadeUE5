@@ -134,6 +134,10 @@ void SKartRaceHud::Tick(const FGeometry& AllottedGeometry, const double InCurren
 	for (int32 i = 0; i < Racers.Num(); ++i)
 	{
 		const FKartRacer& Racer = Racers[i];
+		if (!Racer.Kart)
+		{
+			continue;
+		}
 		FSeatAnim& A = Seats[i];
 		const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
 		if (A.Place == 0)
@@ -302,7 +306,8 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 
 void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& Race, const FView& View, int32 NumViews, double Now) const
 {
-	if (!Race.GetRacers().IsValidIndex(View.Seat) || !Seats.IsValidIndex(View.Seat))
+	if (!Race.GetRacers().IsValidIndex(View.Seat) || !Seats.IsValidIndex(View.Seat) || !Race.GetItems().Slots().IsValidIndex(View.Seat)
+		|| !Race.GetRacers()[View.Seat].Kart)
 	{
 		return;
 	}
@@ -461,6 +466,10 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 
 void SKartRaceHud::PaintItemSlot(const FKartPainter& P, const AKartRaceManager& Race, const FKartRacer& Racer, const FVector2D& Pos, float Scale, double Now) const
 {
+	if (!Race.GetItems().Slots().IsValidIndex(Racer.Seat))
+	{
+		return;
+	}
 	const FKartItemSlot& Slot = Race.GetItems().Slots()[Racer.Seat];
 	const double ItemNow = Race.GetItemTime();
 	const float Size = 150.f * Scale;
@@ -641,7 +650,10 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 	TArray<const FKartRacer*, TInlineAllocator<16>> Order;
 	for (const FKartRacer& Racer : Race.GetRacers())
 	{
-		Order.Add(&Racer);
+		if (Racer.Kart)
+		{
+			Order.Add(&Racer);
+		}
 	}
 	// Back to front: the leaders over the pack, the focus kart over everyone (seats are unique, so a plain sort is stable enough).
 	Order.Sort([FocusSeat](const FKartRacer& A, const FKartRacer& B)
@@ -682,6 +694,10 @@ void SKartRaceHud::PaintStandings(const FKartPainter& P, const AKartRaceManager&
 	for (int32 i = 0; i < Count; ++i)
 	{
 		Group.Next();
+		if (!Race.GetRacers().IsValidIndex(Race.GetStandings()[i]))
+		{
+			continue;
+		}
 		const FKartRacer& Racer = Race.GetRacers()[Race.GetStandings()[i]];
 		const bool bLocal = Racer.Kind != EKartSeatKind::Bot;
 		const FVector2D Pos(TopRight.X - W, TopRight.Y + i * (RowH + 6.0 * Scale));

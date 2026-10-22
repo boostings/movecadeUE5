@@ -393,7 +393,7 @@ void URoomHostSubsystem::HandleText(const FString& Text)
 	{
 		Message->TryGetStringField(TEXT("hostSessionId"), Room.HostSessionId);
 		double Version = 0.0;
-		if (Message->TryGetNumberField(TEXT("stateVersion"), Version))
+		if (Message->TryGetNumberField(TEXT("stateVersion"), Version) && FMath::Abs(Version) < 9.2e18) // int64 cast is UB beyond
 		{
 			// sessionStore.ts: host-changed advances the watermark too.
 			HighestStateVersion = FMath::Max(HighestStateVersion, static_cast<int64>(Version) - 1);

@@ -108,7 +108,8 @@ public:
 	SKartScreenStack();
 	void Construct(const FArguments& InArgs);
 
-	const TSharedPtr<FKartScreen>& Top() const;
+	/** The screen in front, or null. By value: a push or pop must not invalidate what a caller holds. */
+	TSharedPtr<FKartScreen> Top() const;
 	int32 Depth() const { return Stack.Num(); }
 	void Clear();
 	/** Called when Back is pressed on the bottom screen. */

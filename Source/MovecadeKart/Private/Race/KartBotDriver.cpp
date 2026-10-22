@@ -2,13 +2,12 @@
 
 namespace MovecadeKart
 {
-	FVector2D FKartBotDriver::LookAhead(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double Distance)
+	FKartBotDriver::FPathCursor FKartBotDriver::Locate(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path)
 	{
 		const FVector2D Facing(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
 		const int32 N = Path.Num();
 		double Best = TNumericLimits<double>::Max();
-		int32 Segment = 0;
-		double Along = 0.0;
+		FPathCursor Cursor;
 		for (int32 i = 0; i < N; ++i)
 		{
 			const FVector2D A = Path[i];
@@ -23,15 +22,21 @@ namespace MovecadeKart
 			if (Cost < Best)
 			{
 				Best = Cost;
-				Segment = i;
-				Along = T;
+				Cursor.Segment = i;
+				Cursor.Along = T;
 			}
 		}
-		FVector2D P = Path[Segment] + (Path[(Segment + 1) % N] - Path[Segment]) * Along;
+		return Cursor;
+	}
+
+	FVector2D FKartBotDriver::Advance(TConstArrayView<FVector2D> Path, const FPathCursor& Cursor, double Distance)
+	{
+		const int32 N = Path.Num();
+		FVector2D P = Path[Cursor.Segment] + (Path[(Cursor.Segment + 1) % N] - Path[Cursor.Segment]) * Cursor.Along;
 		double Remaining = Distance;
 		for (int32 Step = 0; Step <= N; ++Step)
 		{
-			const FVector2D Next = Path[(Segment + 1 + Step) % N];
+			const FVector2D Next = Path[(Cursor.Segment + 1 + Step) % N];
 			const double Gap = FVector2D::Distance(Next, P);
 			if (Gap >= Remaining)
 			{
@@ -43,7 +48,12 @@ namespace MovecadeKart
 		return P;
 	}
 
-	double FKartBotDriver::TurnDemand(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, double LookAheadDistance, double Gain)
+	FVector2D FKartBotDriver::LookAhead(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, double Distance)
+	{
+		return Advance(Path, Locate(Position, Yaw, Path), Distance);
+	}
+
+	double FKartBotDriver::TurnDemand(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, double LookAheadDistance, double Gain)
 	{
 		if (Path.Num() < 2)
 		{
@@ -61,7 +71,13 @@ namespace MovecadeKart
 		return FMath::Clamp(Error * Gain, -Limit, Limit);
 	}
 
-	bool FKartBotDriver::PickBox(const FVector2D& Position, double Yaw, const TArray<FVector2D>& Path, TConstArrayView<FVector2D> Boxes, FVector2D& OutBox)
+	bool FKartBotDriver::PickBox(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, TConstArrayView<FVector2D> Boxes, FVector2D& OutBox)
+	{
+		return Path.Num() >= 2 && PickBox(Position, Yaw, Path, Locate(Position, Yaw, Path), Boxes, OutBox);
+	}
+
+	bool FKartBotDriver::PickBox(const FVector2D& Position, double Yaw, TConstArrayView<FVector2D> Path, const FPathCursor& Cursor,
+		TConstArrayView<FVector2D> Boxes, FVector2D& OutBox)
 	{
 		const FVector2D Facing(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
 		double BestOffset = 7.0;
@@ -69,12 +85,12 @@ namespace MovecadeKart
 		for (const FVector2D& Box : Boxes)
 		{
 			const double Ahead = FVector2D::DotProduct(Box - Position, Facing);
-			if (Ahead < 4.0 || Ahead > 28.0 || Path.Num() < 2)
+			if (Ahead < 4.0 || Ahead > 28.0)
 			{
 				continue;
 			}
 			// How far the box sits from where the racing line will be at that distance.
-			const double Offset = FVector2D::Distance(Box, LookAhead(Position, Yaw, Path, Ahead));
+			const double Offset = FVector2D::Distance(Box, Advance(Path, Cursor, Ahead));
 			if (Offset < BestOffset)
 			{
 				BestOffset = Offset;
@@ -99,7 +115,7 @@ namespace MovecadeKart
 		OutDrift = Holding;
 	}
 
-	FKartInput FKartBotDriver::Update(const FKartState& State, const TArray<FVector2D>& Path, bool bRacing, double Now, TConstArrayView<FVector2D> Boxes)
+	FKartInput FKartBotDriver::Update(const FKartState& State, TConstArrayView<FVector2D> Path, bool bRacing, double Now, TConstArrayView<FVector2D> Boxes)
 	{
 		const int64 Step = FMath::RoundToInt64(Now / FKartSim::StepSeconds);
 		if (Step < NextTickStep)
@@ -114,10 +130,17 @@ namespace MovecadeKart
 		bool bGas = bRacing;
 		if (bRacing)
 		{
-			FVector2D Box;
-			const double Demand = Tuning.bSeekItems && PickBox(State.Pos, State.Yaw, Path, Boxes, Box)
-				? TurnDemandTo(State.Pos, State.Yaw, Box, Tuning.Gain)
-				: TurnDemand(State.Pos, State.Yaw, Path, Tuning.LookAheadDistance, Tuning.Gain);
+			// Locate once: the box check and the line both start from the same point on the path.
+			double Demand = 0.0;
+			if (Path.Num() >= 2)
+			{
+				const FPathCursor Cursor = Locate(State.Pos, State.Yaw, Path);
+				FVector2D Box;
+				const FVector2D Target = Tuning.bSeekItems && PickBox(State.Pos, State.Yaw, Path, Cursor, Boxes, Box)
+					? Box
+					: Advance(Path, Cursor, Tuning.LookAheadDistance);
+				Demand = TurnDemandTo(State.Pos, State.Yaw, Target, Tuning.Gain);
+			}
 			Wheel(Demand, Drift, WheelSteering, WheelDrift, Tuning.DriftEnter);
 			// A cautious bot lifts in the tight bends, unless it's drifting (a drift needs the gas).
 			const bool bLift = Tuning.LiftDemand > 0.0 && WheelDrift == 0 && FMath::Abs(Demand) > Tuning.LiftDemand && FMath::Abs(State.Speed) > 22.0;

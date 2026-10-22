@@ -22,6 +22,16 @@ namespace MovecadeKart::Arcade
 			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop each block on the last, trim the overhang, lean the tower against the wind."),
 				LOCTEXT("StackerHow", "A, Space or click drops the sweeping block; the overhang is cut away. Stick, A/D or mouse lean the tower against the wind."), TEXT("L_Stacker"), KC::Sky, 4, 1, 3.0,
 				LOCTEXT("StackerPhone", "Phones are your palm: scan the code, keep it level and tap DROP.") },
+			{ TEXT("sumo"), LOCTEXT("Sumo", "Sumo Bumpers"), LOCTEXT("SumoTag", "Bumper-car sumo on a ring over the night sea. Tilt to roll, dash to shove, last one standing."),
+				LOCTEXT("SumoHow", "Stick or WASD roll your puck; A, Space or click dashes into whoever is in front. Knock them off the edge; the ring shrinks. Two rounds win."), TEXT("L_Sumo"), KC::Grape, 4, 1, 2.5,
+				LOCTEXT("SumoPhone", "Phones are your bumper car: scan the code, tilt to roll, tap A to dash.") },
+			{ TEXT("derby"), LOCTEXT("Derby", "Home Run Derby"), LOCTEXT("DerbyTag", "Night lights, ten pitches, one bat. Time the swing and send it into the seats."),
+				LOCTEXT("DerbyHow", "Hold Space, RT or click to load, let go to swing as the ball arrives. Mouse, A/D or stick aim pull or opposite field. Phones: swing it like a bat."), TEXT("L_Derby"), KC::Hot, 4, 4, 3.0,
+				LOCTEXT("DerbyPhone", "Phones are the bat: scan the code, then swing it as the pitch arrives.") },
+			{ TEXT("fishing"), LOCTEXT("Fishing", "Fishing Frenzy"), LOCTEXT("FishingTag", "Cast, hook and reel off a golden-hour dock. The far water hides the giants."),
+				LOCTEXT("FishingHow", "Hold Space, A or click and let go to cast: power is distance. Press again when the bobber dips. Reel by spinning the right stick, alternating A/D or scrolling; keep the tension in the green."),
+				TEXT("L_Fishing"), FLinearColor::FromSRGBColor(FColor(0x2e, 0xc4, 0xb6)), 4, 1, 3.0,
+				LOCTEXT("FishingPhone", "Phones are your rod: flick forward to cast, jerk up to hook, roll your wrist to reel.") },
 		};
 		return List;
 	}

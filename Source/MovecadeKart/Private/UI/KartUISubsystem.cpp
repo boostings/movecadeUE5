@@ -58,7 +58,11 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	if (FSlateApplication::IsInitialized())
 	{
 		Processor = MakeShared<FKartMenuInputProcessor>();
-		Processor->OnEvent = [this](const FKartMenuEvent& Event) { return HandleEvent(Event); };
+		Processor->OnEvent = [WeakThis = TWeakObjectPtr<UKartUISubsystem>(this)](const FKartMenuEvent& Event)
+		{
+			UKartUISubsystem* Self = WeakThis.Get();
+			return Self && Self->HandleEvent(Event);
+		};
 		FSlateApplication::Get().RegisterInputPreProcessor(Processor, 0);
 		if (FParse::Param(FCommandLine::Get(), TEXT("KartUiPad")))
 		{
@@ -87,9 +91,13 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UKartUISubsystem::Deinitialize()
 {
-	if (Processor.IsValid() && FSlateApplication::IsInitialized())
+	if (Processor.IsValid())
 	{
-		FSlateApplication::Get().UnregisterInputPreProcessor(Processor);
+		Processor->OnEvent = nullptr; // Slate may still hold the processor after this subsystem is gone
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().UnregisterInputPreProcessor(Processor);
+		}
 	}
 	Processor.Reset();
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(MapLoadedHandle);

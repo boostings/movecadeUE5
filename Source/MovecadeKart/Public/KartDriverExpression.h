@@ -43,11 +43,15 @@ namespace MovecadeKart::DriverFace
 		float Cheer = 0.f;
 		/** Finished off the podium: crestfallen. */
 		float Slump = 0.f;
+		/** Straining (a charge, a heave): teeth set, brows down, eyes narrowed. */
+		float Effort = 0.f;
+		/** "Meh" (a shrug): brows up, mouth pressed flat. */
+		float Meh = 0.f;
 	};
 
 	/**
-	 * The morph weights for a mood, each 0..1. Moods layer in priority order (drift, boost, rev, shock, then the
-	 * finish), each pulling every morph toward its own expression by its strength, so the strongest recent
+	 * The morph weights for a mood, each 0..1. Moods layer in priority order (drift, boost, rev, effort, shock, then the
+	 * finish, then meh), each pulling every morph toward its own expression by its strength, so the strongest recent
 	 * emotion wins without popping.
 	 */
 	MOVECADEKART_API void Mix(const FMood& Mood, float (&OutWeights)[MorphCount]);

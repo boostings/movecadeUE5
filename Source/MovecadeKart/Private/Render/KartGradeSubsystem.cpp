@@ -13,7 +13,7 @@ void UKartGradeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
 
-	for (TActorIterator<AKartGradeVolume> It(&InWorld); It; ++It)
+	if (TActorIterator<AKartGradeVolume> It{&InWorld})
 	{
 		GradeVolume = *It;
 		return;

@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 
+class FJsonObject;
+
 /**
  * Track data for the kart sim, loaded from Data/Tracks/<id>.track.json.
  *
@@ -27,15 +29,19 @@ namespace MovecadeKart
 	{
 	public:
 		void Reset(TArray<FWallSegment>&& InSegments, double InCellSize = 8.0);
-		/** Segment indices near a box, sorted and unique. Inline storage: no heap allocation per query in the sim's hot path. */
-		using FCandidates = TArray<int32, TInlineAllocator<64>>;
+		/** Segment indices near a box, sorted and unique. Inline storage sized for Violet's densest wall queries
+		 *  (a sweep box there gathers up to ~400 raw indices), so the sim's hot path never touches the heap. */
+		using FCandidates = TArray<int32, TInlineAllocator<512>>;
 		void Query(const FVector2D& Min, const FVector2D& Max, FCandidates& Out) const;
-		/** First wall hit along a horizontal ray, within Far. Dir must be unit length. */
-		bool Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const;
+		/** First wall hit along a horizontal ray, within Far; on an exact tie the lowest segment index wins.
+		 *  Dir must be unit length. */
+		[[nodiscard]] bool Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const;
 		const TArray<FWallSegment>& Segments() const { return Segments_; }
 
 	private:
 		FIntPoint CellOf(const FVector2D& P) const;
+		/** The cells covering a box, or false (with an ensure) for a box too far out to walk. */
+		bool CellRange(const FVector2D& Min, const FVector2D& Max, FIntPoint& OutC0, FIntPoint& OutC1) const;
 
 		TArray<FWallSegment> Segments_;
 		TMap<FIntPoint, TArray<int32>> Grid;
@@ -61,6 +67,9 @@ namespace MovecadeKart
 		double Yaw = 0.0;
 		double Width = 0.0;
 		double Length = 0.0;
+		/** cos(Yaw) and sin(Yaw), filled by the loader so the per-step pad test does no trig. */
+		double CosYaw = 1.0;
+		double SinYaw = 0.0;
 	};
 
 	struct FCheckpoint
@@ -72,6 +81,17 @@ namespace MovecadeKart
 		/** The respawn pose for this checkpoint (legacy trackRecovery.ts getCheckpointApproachPose). */
 		FVector2D ApproachPosition = FVector2D::ZeroVector;
 		double ApproachYaw = 0.0;
+		/** NearestWaypoint(Position), filled by the loader; INDEX_NONE until then. */
+		int32 Waypoint = INDEX_NONE;
+	};
+
+	/** One closed-centreline segment, precomputed from Centre with the exact operations NearestCentre used inline. */
+	struct FCentreSegment
+	{
+		FVector2D A = FVector2D::ZeroVector;
+		/** Centre[i + 1] - A (wrapping). */
+		FVector2D D = FVector2D::ZeroVector;
+		double LengthSq = 0.0;
 	};
 
 	struct FSpawnSlot
@@ -108,6 +128,8 @@ namespace MovecadeKart
 
 		/** Dense closed centreline (Harbor: 870 samples, Violet: 490). */
 		TArray<FVector2D> Centre;
+		/** Centre as segments, built once at load (RebuildCentreSegments); queries fall back to Centre if stale. */
+		TArray<FCentreSegment> CentreSegments;
 		TArray<FVector2D> CentreTangent;
 		/** Racing-line waypoints (TRACK_PATH_POINTS) for recovery, wrong way and bots. */
 		TArray<FVector2D> Waypoints;
@@ -147,9 +169,16 @@ namespace MovecadeKart
 
 		/** Closest point on the closed centreline. Returns the distance; OutOffset is signed (+ = right). */
 		double NearestCentre(const FVector2D& P, FVector2D& OutPoint, double& OutOffset) const;
-		int32 NearestWaypoint(const FVector2D& P) const;
+		/** Exactly NearestCentre(P, ...) <= Limit, but stops at the first segment within Limit. Segments are tried
+		 *  outward from InOutHint (any value is valid), which is left on the segment found. */
+		[[nodiscard]] bool IsNearCentre(const FVector2D& P, double Limit, int32& InOutHint) const;
+		[[nodiscard]] int32 NearestWaypoint(const FVector2D& P) const;
+		/** Recomputes CentreSegments from Centre. */
+		void RebuildCentreSegments();
 
 		static bool LoadFromJsonFile(const FString& Path, FTrack& Out, FString& OutError);
 		static bool LoadFromJsonString(const FString& Json, FTrack& Out, FString& OutError);
+		/** For callers that also read the rest of the document: parse once, then load the sim track from the DOM. */
+		static bool LoadFromJsonObject(const TSharedPtr<FJsonObject>& Root, FTrack& Out, FString& OutError);
 	};
 }

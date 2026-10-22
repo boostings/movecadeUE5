@@ -76,8 +76,12 @@ namespace MovecadeKart::Fx
 
 	MOVECADEKART_API const FImpactProfile& ImpactProfile(EImpact Kind);
 
-	/** sRGB hex ("ffe2a0") to linear. */
-	MOVECADEKART_API FLinearColor Hex(const TCHAR* Value);
+	/** FColor::FromHex without building an FString: "rgb", "rrggbb" or "rrggbbaa", each optionally after one '#'.
+	 *  Anything else is transparent black, and a non-hex digit reads as 0, exactly as FromHex does. */
+	[[nodiscard]] MOVECADEKART_API FColor HexToColor(FStringView Value);
+
+	/** sRGB hex ("ffe2a0") to linear. Allocation-free, so it is fine in per-frame code. */
+	[[nodiscard]] MOVECADEKART_API FLinearColor Hex(FStringView Value);
 
 	/**
 	 * KartFxLayer.tsx onKartFx burst: sparks 34*burst, smoke 12*burst, and for heavy kinds (explosion,

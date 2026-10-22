@@ -57,4 +57,6 @@ private:
 	TSharedPtr<SArcadeOverlay> Overlay;
 	FDelegateHandle SensorHandle;
 	FTimerHandle ScoreTimer;
+	/** The last live scores sent ("id=score;..."), so unchanged scores aren't resent each second. */
+	FString LastScores;
 };

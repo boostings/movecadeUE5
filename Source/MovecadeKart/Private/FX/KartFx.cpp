@@ -1,10 +1,35 @@
 #include "FX/KartFx.h"
 
+#include "Misc/Parse.h"
+
 namespace MovecadeKart::Fx
 {
-	FLinearColor Hex(const TCHAR* Value)
+	FColor HexToColor(FStringView Value)
 	{
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Value));
+		if (Value.StartsWith(TEXT('#')))
+		{
+			Value.RightChopInline(1);
+		}
+		const auto Byte = [Value](int32 At) { return static_cast<uint8>((FParse::HexDigit(Value[At]) << 4) + FParse::HexDigit(Value[At + 1])); };
+		switch (Value.Len())
+		{
+		case 3:
+		{
+			const auto Doubled = [](int32 Digit) { return static_cast<uint8>((Digit << 4) + Digit); };
+			return FColor(Doubled(FParse::HexDigit(Value[0])), Doubled(FParse::HexDigit(Value[1])), Doubled(FParse::HexDigit(Value[2])), 255);
+		}
+		case 6:
+			return FColor(Byte(0), Byte(2), Byte(4), 255);
+		case 8:
+			return FColor(Byte(0), Byte(2), Byte(4), Byte(6));
+		default:
+			return FColor(ForceInitToZero);
+		}
+	}
+
+	FLinearColor Hex(FStringView Value)
+	{
+		return FLinearColor::FromSRGBColor(HexToColor(Value));
 	}
 
 	const FImpactProfile& ImpactProfile(EImpact Kind)

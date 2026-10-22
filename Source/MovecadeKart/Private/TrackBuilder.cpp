@@ -2,6 +2,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Components/DirectionalLightComponent.h"
+#include "FX/KartFx.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -28,10 +29,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogTrackBuilder, Log, All);
 
 namespace
 {
-	FLinearColor Hex(const TCHAR* Value)
-	{
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Value));
-	}
+	using MovecadeKart::Fx::Hex;
 
 	/** Graybox colours per ribbon material (from HarborTrack.tsx where the web uses a flat colour). */
 	FLinearColor RibbonColor(const FString& Material)
@@ -157,15 +155,18 @@ bool ATrackBuilder::Load()
 		UE_LOG(LogTrackBuilder, Error, TEXT("Track file not found: %s. Run Tools/track-export (npm run export)."), *Path);
 		return false;
 	}
+	// One DOM serves both the sim track and the presentation data (ribbons, scenery) read by Build().
+	TSharedPtr<FJsonObject> Root;
+	FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root);
 	TSharedPtr<MovecadeKart::FTrack> Parsed = MakeShared<MovecadeKart::FTrack>();
 	FString Error;
-	if (!MovecadeKart::FTrack::LoadFromJsonString(Text, *Parsed, Error))
+	if (!MovecadeKart::FTrack::LoadFromJsonObject(Root, *Parsed, Error))
 	{
 		UE_LOG(LogTrackBuilder, Error, TEXT("%s: %s"), *Path, *Error);
 		return false;
 	}
-	FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Json);
-	Track = Parsed;
+	Json = MoveTemp(Root);
+	Track = MoveTemp(Parsed);
 	return true;
 }
 
@@ -599,11 +600,17 @@ void ATrackBuilder::Tick(float DeltaSeconds)
 		}
 	}
 
-	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t).
-	for (int32 i = 0; i < ItemBoxBase.Num(); ++i)
+	// MultiplayerPowerups.tsx:159-164: yaw +1.5 rad/s, bob 0.1 * sin(2.5 t). Only while the preview boxes show (a race
+	// hides them for the item presenter's live ones). Each update is an incremental instance change, so the render
+	// state is never rebuilt for it.
+	if (ItemBoxes->IsVisible())
 	{
-		const FVector P = ItemBoxBase[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time));
-		ItemBoxes->UpdateInstanceTransform(i, FTransform(FRotator(0.0, -FMath::RadiansToDegrees(1.5 * Time), 0.0), P, FVector(2.0)), true, i == ItemBoxBase.Num() - 1);
+		const FRotator Spin(0.0, -FMath::RadiansToDegrees(1.5 * Time), 0.0);
+		const FVector Bob(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time));
+		for (int32 i = 0; i < ItemBoxBase.Num(); ++i)
+		{
+			ItemBoxes->UpdateInstanceTransform(i, FTransform(Spin, ItemBoxBase[i] + Bob, FVector(2.0)), /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false);
+		}
 	}
 
 	if (bShowCheckpoints && Track.IsValid())

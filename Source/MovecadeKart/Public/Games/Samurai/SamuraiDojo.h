@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "FX/KartFx.h"
 #include "SamuraiDojo.generated.h"
 
 class UDirectionalLightComponent;
@@ -12,6 +13,7 @@ class UPostProcessComponent;
 class USkyLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
+namespace MovecadeKart::Art { struct FSurfaceLook; }
 
 /**
  * Samurai Slice's dojo (movecade-v2 samurai/{DojoEnvironment,SamuraiSky,samuraiStage}.tsx, Docs/Port/08-samurai.md
@@ -38,6 +40,14 @@ public:
 	void SetLanes(int32 LaneCount);
 	int32 GetLanes() const { return Lanes; }
 
+	/**
+	 * The round's screen treatment over the grade: Focus 0..1 (gold, saturated, vignette), a Flash 0..1 in a colour
+	 * (a perfect cut, a bomb) and Fringe 0..1 (chromatic fringing on impacts).
+	 */
+	void SetMood(float Focus, float Flash, const FLinearColor& FlashColor, float Fringe);
+	/** A gust of cherry petals bursting from a point (web metres): Focus, big combos, the winner. */
+	void PetalBurst(const FVector& Web, int32 Count);
+
 	/** Web world (x, y, z) to UE cm. */
 	static FVector ToWorld(const FVector& Web);
 	double StageWidth() const;
@@ -46,6 +56,8 @@ private:
 	void Build();
 	void Clear();
 	void BuildLook();
+	void ApplyGrade();
+	MovecadeKart::Fx::FKartFxEmit Petal(const FVector& Web, int32 Count, double Speed);
 	void BuildGround();
 	void BuildStage();
 	void BuildTorii();
@@ -58,12 +70,19 @@ private:
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
 	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
 	UStaticMeshComponent* Part(UStaticMesh* Mesh, const FTransform& World, bool bShadows = true);
+	/** Materials, made once per distinct look and kept across rebuilds (SetLanes rebuilds the geometry only). */
+	UMaterialInterface* PlainC(const FLinearColor& Color, double Roughness = 0.6, double Metallic = 0.0, double Emissive = 0.0);
+	UMaterialInterface* SurfaceC(const MovecadeKart::Art::FSurfaceLook& Look);
+	UMaterialInterface* GlowC(const FLinearColor& Color);
 
 	UPROPERTY(EditAnywhere, Category = "Dojo")
 	int32 Lanes = 1;
 
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UMaterialInterface>> Materials;
 
 	/** The swaying paper lanterns, by their hanging point. */
 	UPROPERTY(Transient)
@@ -112,6 +131,14 @@ private:
 	TObjectPtr<UPostProcessComponent> Grade;
 
 	double Clock = 0.0;
+	/** In a game world the first build waits for SetLanes (or the first tick), so the dojo isn't built twice. */
+	bool bBuildPending = false;
+	bool bBuilt = false;
+	bool bLookBuilt = false;
+	float MoodFocus = 0.f;
+	float MoodFlash = 0.f;
+	float MoodFringe = 0.f;
+	FLinearColor MoodFlashColor = FLinearColor::White;
 	double PetalCarry = 0.0;
 	FRandomStream PetalRng;
 };

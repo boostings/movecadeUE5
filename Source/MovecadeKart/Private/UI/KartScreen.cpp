@@ -54,10 +54,9 @@ void SKartScreenStack::Construct(const FArguments& InArgs)
 	ForceVolatile(true);
 }
 
-const TSharedPtr<FKartScreen>& SKartScreenStack::Top() const
+TSharedPtr<FKartScreen> SKartScreenStack::Top() const
 {
-	static const TSharedPtr<FKartScreen> None;
-	return Stack.Num() > 0 ? Stack.Last() : None;
+	return Stack.Num() > 0 ? Stack.Last() : nullptr;
 }
 
 void SKartScreenStack::Clear()

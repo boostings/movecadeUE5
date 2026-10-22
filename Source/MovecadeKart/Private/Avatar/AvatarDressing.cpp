@@ -1,5 +1,9 @@
 #include "Avatar/AvatarDressing.h"
 
+#include "Avatar/AvatarProps.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "KartDriverAnimInstance.h"
@@ -144,7 +148,7 @@ namespace MovecadeKart::Avatar
 		const bool bGarment = Outfit && Outfit->GetSkeletalMeshAsset() != nullptr;
 		for (uint8 Hair = 0; Hair <= static_cast<uint8>(EKartHair::Bun); ++Hair)
 		{
-			const bool bShow = Hair == static_cast<uint8>(Look.Hair) && Look.Accessory != EKartAccessory::Cap;
+			const bool bShow = Hair == static_cast<uint8>(Look.Hair) && !HidesHair(Look.Accessory);
 			ShowSlot(Driver, FName(FString(TEXT("hair_")) + FKartLook::HairId(static_cast<EKartHair>(Hair))), bShow);
 		}
 		ShowSlot(Driver, TEXT("acc_cap"), Look.Accessory == EKartAccessory::Cap);
@@ -154,7 +158,71 @@ namespace MovecadeKart::Avatar
 		{
 			ShowSlot(Driver, Slot, !bGarment);
 		}
+		DressProp(Driver, Look);
 		return Result;
+	}
+
+	void FDressing::DressProp(USkeletalMeshComponent* Driver, const FKartLook& Look)
+	{
+		UStaticMesh* Mesh = PropMesh(Look.Accessory);
+		if (!Mesh)
+		{
+			if (Prop.IsValid())
+			{
+				Prop->SetVisibility(false);
+			}
+			BuiltProp = Look.Accessory;
+			return;
+		}
+		if (!Prop.IsValid())
+		{
+			UObject* Outer = Driver->GetOwner() ? static_cast<UObject*>(Driver->GetOwner()) : static_cast<UObject*>(Driver);
+			UStaticMeshComponent* Made = NewObject<UStaticMeshComponent>(Outer, MakeUniqueObjectName(Outer, UStaticMeshComponent::StaticClass(), TEXT("AvatarProp")));
+			Made->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Made->SetGenerateOverlapEvents(false);
+			Made->SetMobility(EComponentMobility::Movable);
+			Made->SetupAttachment(Driver, TEXT("head"));
+			Made->RegisterComponent();
+			Prop = Made;
+			BuiltProp = EKartAccessory::None;
+		}
+		UStaticMeshComponent* P = Prop.Get();
+		if (P->GetAttachParent() != Driver)
+		{
+			P->AttachToComponent(Driver, FAttachmentTransformRules::SnapToTargetIncludingScale, TEXT("head"));
+		}
+		P->SetVisibility(Driver->IsVisible());
+		if (BuiltProp != Look.Accessory || P->GetStaticMesh() != Mesh)
+		{
+			BuiltProp = Look.Accessory;
+			P->SetStaticMesh(Mesh);
+			PropTints.Reset();
+			static const TCHAR* const Parents[2] = { TEXT("/Game/Avatars/Materials/M_AvatarSurface.M_AvatarSurface"), TEXT("/Game/Avatars/Materials/M_AvatarCloth.M_AvatarCloth") };
+			for (int32 Slot = 0; Slot < static_cast<int32>(EPropSlot::Count) && Slot < P->GetNumMaterials(); ++Slot)
+			{
+				const bool bCloth = PropIsCloth(Look.Accessory, static_cast<EPropSlot>(Slot));
+				UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, Parents[bCloth ? 1 : 0], nullptr, LOAD_NoWarn | LOAD_Quiet);
+				UMaterialInstanceDynamic* Mid = Parent ? UMaterialInstanceDynamic::Create(Parent, P) : nullptr;
+				if (Mid)
+				{
+					const bool bGold = Look.Accessory == EKartAccessory::Crown && Slot != static_cast<int32>(EPropSlot::Accent);
+					const bool bLight = Look.Accessory == EKartAccessory::Headphones && Slot == static_cast<int32>(EPropSlot::Accent);
+					Mid->SetScalarParameterValue(TEXT("Metallic"), bGold ? 1.f : 0.f);
+					Mid->SetScalarParameterValue(TEXT("Roughness"), bGold ? 0.22f : (bCloth ? 0.85f : 0.35f));
+					Mid->SetScalarParameterValue(TEXT("Specular"), bGold ? 0.5f : 0.45f);
+					Mid->SetScalarParameterValue(TEXT("Glow"), bLight ? 2.5f : (Look.Accessory == EKartAccessory::Crown && !bGold ? 0.35f : 0.f));
+					Mid->SetScalarParameterValue(TEXT("Catchlight"), Look.Accessory == EKartAccessory::Crown ? 2.f : 0.f);
+					P->SetMaterial(Slot, Mid);
+				}
+				PropTints.Add(Mid);
+			}
+		}
+	}
+
+	FLinearColor FDressing::RimColour(const FKartLook& Look)
+	{
+		const FLinearColor Jersey = Look.JerseyColor();
+		return FLinearColor(FMath::Lerp(Jersey.R, 1.f, 0.35f), FMath::Lerp(Jersey.G, 1.f, 0.35f), FMath::Lerp(Jersey.B, 1.f, 0.35f), 1.f);
 	}
 
 	void FDressing::Colour(const FKartLook& Look) const
@@ -183,5 +251,26 @@ namespace MovecadeKart::Avatar
 		Tint(DriverTints, TEXT("acc_headband"), DetailColour(Jersey));
 		Tint(DriverTints, TEXT("iris"), IrisColour(Look.Face));
 		Tint(OutfitTints, TEXT("skin"), Look.Skin);
+
+		// The player's rim colour on the clothes and hair (a faint edge on the skin), so the avatar reads at a glance.
+		const FLinearColor Rim = RimColour(Look);
+		for (const TPair<FName, TWeakObjectPtr<UMaterialInstanceDynamic>>& Pair : DriverTints)
+		{
+			if (UMaterialInstanceDynamic* Mid = Pair.Value.Get())
+			{
+				const FString Slot = Pair.Key.ToString();
+				const bool bSkin = Slot.StartsWith(TEXT("skin")) || Slot == TEXT("lips");
+				const bool bEye = Slot == TEXT("iris");
+				Mid->SetVectorParameterValue(TEXT("RimColor"), Rim);
+				Mid->SetScalarParameterValue(TEXT("RimBoost"), bEye ? 0.f : (bSkin ? 0.05f : 0.22f));
+			}
+		}
+		for (int32 Slot = 0; Slot < PropTints.Num(); ++Slot)
+		{
+			if (UMaterialInstanceDynamic* Mid = PropTints[Slot].Get())
+			{
+				Mid->SetVectorParameterValue(TEXT("Tint"), PropColour(BuiltProp, static_cast<EPropSlot>(Slot), Look));
+			}
+		}
 	}
 }
