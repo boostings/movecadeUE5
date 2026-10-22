@@ -1377,7 +1377,8 @@ namespace
 				RacersText = FText::Format(LOCTEXT("RacersCount", "{0} racers"), Setup.LocalPlayers + Setup.Bots);
 				SummaryText = FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, Skill[FMath::Clamp(Setup.BotSkill, 0, 2)]);
 			}
-			const FVector2D RowSize(880.0, 84.0);
+			// The rows give way to the summary card on narrow canvases (a large UI scale).
+			const FVector2D RowSize(FMath::Min(880.0, Frame.SafeSize().X - 640.0), 84.0);
 			const double Top = Frame.SafeMin.Y + 200.0;
 			{
 			const FKartPaintGroup Group(P);

@@ -299,7 +299,7 @@ namespace
 				State(ReplayWelcomeRow, Frame, Prefs->bSeenHowItWorks), Color::Sky, ReplayWelcomeRow);
 			// What the focused option does, under the rows.
 			static const FText Notes[] = {
-				LOCTEXT("UIScaleNote", "Makes menus and the race HUD bigger or smaller. Bigger reads better from the couch."),
+				LOCTEXT("UIScaleNote", "Makes the race and party-game HUDs bigger or smaller; below 100% the menus shrink too. Bigger reads better from the couch."),
 				LOCTEXT("ReduceMotionNote", "Tones down screen shake, flashes, bounces and spinning effects in menus, races and party games."),
 				LOCTEXT("ColorVisionNote", "Swaps the colours that carry meaning (ready, gained or lost a place, warnings) for a pair you can tell apart, and labels players on the minimap."),
 				LOCTEXT("ReplayNote", "Shows the one-page guide to phones, pads and house players after the title screen."),

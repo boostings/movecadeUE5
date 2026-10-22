@@ -176,6 +176,11 @@ bool SKartScreenStack::HandleMenuEvent(const FKartMenuEvent& Event)
 	return Event.Action != EKartMenuAction::None;
 }
 
+FVector2D SKartScreenStack::ToCanvas(const FGeometry& Geometry, const FVector2D& ScreenPos) const
+{
+	return FVector2D(Geometry.AbsoluteToLocal(ScreenPos)) / FMath::Max(Fit, 0.01f);
+}
+
 int32 SKartScreenStack::HitAt(const FVector2D& Local) const
 {
 	// Arrows are registered after their row, so search from the top.
@@ -196,7 +201,7 @@ FReply SKartScreenStack::OnMouseMove(const FGeometry& MyGeometry, const FPointer
 	{
 		return FReply::Unhandled();
 	}
-	const int32 Id = HitAt(FVector2D(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())));
+	const int32 Id = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
 	if (Id != HoverId)
 	{
 		HoverId = Id;
@@ -214,7 +219,7 @@ FReply SKartScreenStack::OnMouseButtonDown(const FGeometry& MyGeometry, const FP
 	{
 		return FReply::Unhandled();
 	}
-	PressedId = HitAt(FVector2D(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())));
+	PressedId = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
 	return FReply::Handled();
 }
 
@@ -234,7 +239,7 @@ FReply SKartScreenStack::OnMouseButtonUp(const FGeometry& MyGeometry, const FPoi
 	{
 		return FReply::Unhandled();
 	}
-	const int32 Id = HitAt(FVector2D(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())));
+	const int32 Id = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
 	if (Id != INDEX_NONE && Id == PressedId && FSlateApplication::Get().GetCurrentTime() - ShownAt > TransitionSeconds * 0.5)
 	{
 		Screen->OnClick(Id);
@@ -249,7 +254,12 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 {
 	int32 Layer = LayerId;
 	Hits.Reset();
-	FKartPainter P(AllottedGeometry, OutDrawElements, Layer, &Hits);
+	// Screens are laid out on a canvas at least 1080 units tall. A UI scale above 100 % makes the widget shorter
+	// than that; the menus then scale back down to fit (the HUDs still grow), so no layout ever runs off screen.
+	const FVector2D Allotted(AllottedGeometry.GetLocalSize());
+	Fit = Allotted.Y > 1.0 ? FMath::Min(1.f, static_cast<float>(Allotted.Y / KartUI::Metric::CanvasH)) : 1.f;
+	const FGeometry Canvas = Fit < 1.f ? AllottedGeometry.MakeChild(FVector2f(Allotted / Fit), FSlateLayoutTransform(Fit)) : AllottedGeometry;
+	FKartPainter P(Canvas, OutDrawElements, Layer, &Hits);
 
 	FKartScreenFrame Frame;
 	Frame.Size = P.Size();
