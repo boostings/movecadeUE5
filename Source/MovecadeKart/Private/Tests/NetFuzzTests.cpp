@@ -6,7 +6,7 @@
 // compromised server, so the host must stand on its own.
 //
 // These tests assert robustness (no crash, bounded/finite outputs) and pin two current vulnerabilities as
-// documented behaviour so a fix flips the marked assertions (see Docs/Agents/PENTEST-NET.md):
+// documented behaviour so a fix flips the marked assertions:
 //   * NET-01  ParseRoomState accepts an unbounded, non-deduplicated player roster.
 //   * NET-02  ParseRoomState does not bound or sanitise attacker-controlled seat strings (name/emoji/...).
 
