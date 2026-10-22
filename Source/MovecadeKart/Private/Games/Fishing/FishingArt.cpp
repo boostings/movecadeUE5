@@ -1,5 +1,6 @@
 #include "Games/Fishing/FishingArt.h"
 
+#include "Art/KartMaterialCache.h"
 #include "Art/KartMaterials.h"
 #include "Art/KartMeshBuilder.h"
 #include "Components/StaticMeshComponent.h"
@@ -328,32 +329,18 @@ namespace MovecadeKart::Fishing::Art
 		return B.Build(Outer, *FString::Printf(TEXT("Fish_%s"), Id));
 	}
 
-	void DressFish(UObject* Outer, UStaticMeshComponent* Component, int32 Species)
+	void DressFish(FKartMaterialCache& Materials, UObject* Outer, UStaticMeshComponent* Component, int32 Species)
 	{
-		using namespace MovecadeKart::Art;
-		static TMap<TPair<TWeakObjectPtr<UObject>, int32>, TArray<TWeakObjectPtr<UMaterialInterface>>> Cache;
-		TArray<TWeakObjectPtr<UMaterialInterface>>& Mats = Cache.FindOrAdd(TPair<TWeakObjectPtr<UObject>, int32>(Outer, Species));
-		if (Mats.Num() != 6 || Mats.ContainsByPredicate([](const TWeakObjectPtr<UMaterialInterface>& M) { return !M.IsValid(); }))
-		{
-			const FFishLook& L = LookOf(Species);
-			const double Wet = 0.28;
-			Mats = {
-				Plain(Outer, Hex(L.Back), Wet, L.Metallic),
-				Plain(Outer, Hex(L.Flank), Wet, L.Metallic),
-				Plain(Outer, Hex(L.Belly), Wet + 0.1, L.Metallic * 0.5),
-				Plain(Outer, Hex(L.Pattern), Wet, L.Metallic),
-				Plain(Outer, Hex(L.Fin), 0.45, L.Metallic * 0.5),
-				Plain(Outer, Hex(TEXT("#0c0c10")), 0.08),
-			};
-		}
-		static const FName Slots[] = { TEXT("Back"), TEXT("Flank"), TEXT("Belly"), TEXT("Pattern"), TEXT("Fin"), TEXT("Eye") };
-		for (int32 i = 0; i < 6; ++i)
-		{
-			if (Mats[i].IsValid())
-			{
-				Component->SetMaterialByName(Slots[i], Mats[i].Get());
-			}
-		}
+		using MovecadeKart::Art::Hex;
+		const FFishLook& L = LookOf(Species);
+		// Wet skin is glossy; the belly a little less, the fins less again, the eye glassy.
+		const double Wet = 0.28;
+		Component->SetMaterialByName(TEXT("Back"), Materials.Plain(Outer, Hex(L.Back), Wet, L.Metallic));
+		Component->SetMaterialByName(TEXT("Flank"), Materials.Plain(Outer, Hex(L.Flank), Wet, L.Metallic));
+		Component->SetMaterialByName(TEXT("Belly"), Materials.Plain(Outer, Hex(L.Belly), Wet + 0.1, L.Metallic * 0.5));
+		Component->SetMaterialByName(TEXT("Pattern"), Materials.Plain(Outer, Hex(L.Pattern), Wet, L.Metallic));
+		Component->SetMaterialByName(TEXT("Fin"), Materials.Plain(Outer, Hex(L.Fin), 0.45, L.Metallic * 0.5));
+		Component->SetMaterialByName(TEXT("Eye"), Materials.Plain(Outer, Hex(TEXT("#0c0c10")), 0.08));
 	}
 
 	UStaticMesh* BuildRodHandle(UObject* Outer)
