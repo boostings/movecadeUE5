@@ -238,6 +238,49 @@ namespace MovecadeKart::Net
 		return true;
 	}
 
+	bool ReadPadButton(const FJsonObject& Data, TCHAR& OutButton)
+	{
+		FString Button;
+		// FString == ignores case; the phone (and the wire contract) is exact.
+		if (!Data.TryGetStringField(TEXT("button"), Button)
+			|| (!Button.Equals(TEXT("a"), ESearchCase::CaseSensitive) && !Button.Equals(TEXT("b"), ESearchCase::CaseSensitive)))
+		{
+			return false;
+		}
+		OutButton = Button[0];
+		return true;
+	}
+
+	bool IsPadMode(const FString& Mode)
+	{
+		for (const TCHAR* Known : { TEXT("tilt"), TEXT("swing"), TEXT("aim"), TEXT("flick") })
+		{
+			if (Mode.Equals(Known, ESearchCase::CaseSensitive)) return true;
+		}
+		return false;
+	}
+
+	FString PadPromptData(const FString& PlayerId, const FString& Title, const FString& Subtitle,
+		const FString& A, const FString& B, const FString& AccentHex, const FString& Mode)
+	{
+		bool bAccent = AccentHex.Len() == 7 && AccentHex[0] == TEXT('#');
+		for (int32 i = 1; bAccent && i < 7; ++i)
+		{
+			bAccent = FChar::IsHexDigit(AccentHex[i]);
+		}
+		FString Data = FString::Printf(TEXT("{\"playerId\":%s,\"title\":%s,\"subtitle\":%s,\"a\":%s,\"b\":%s"),
+			*QuoteJson(PlayerId), *QuoteJson(Title.Left(80)), *QuoteJson(Subtitle.Left(160)), *QuoteJson(A.Left(16)), *QuoteJson(B.Left(16)));
+		if (bAccent)
+		{
+			Data += FString::Printf(TEXT(",\"accent\":%s"), *QuoteJson(AccentHex));
+		}
+		if (IsPadMode(Mode))
+		{
+			Data += FString::Printf(TEXT(",\"mode\":%s"), *QuoteJson(Mode));
+		}
+		return Data + TEXT("}");
+	}
+
 	FKartInputEvent ParseKartInput(const FJsonObject& Data)
 	{
 		FKartInputEvent Event;
