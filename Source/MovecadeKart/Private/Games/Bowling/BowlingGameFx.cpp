@@ -1,5 +1,8 @@
 // ABowlingGame: the show around a roll. The ball's comet trail, the impact at the rack, the celebrations (confetti,
 // spark fountains, fireworks, the screen flash, the alley's light show, the crowd) and the camera jolt.
+//
+// Every effect is a recipe: the emitters' fixed shape is data below, and each use fills in only what varies (where,
+// how many, what colour). The celebrations are one table row per beat, applied in a fixed order.
 #include "Games/Bowling/BowlingGame.h"
 
 #include "BowlingGameTuning.h"
@@ -38,33 +41,175 @@ namespace
 	/** The trail hugs the lane just under the ball's centre (UE cm). */
 	constexpr double TrailDropCm = 10.0;
 
-	/** The impact's camera jolt (web units): a baseline plus more for a bigger share of the rack. */
+	/** fxPlan.ts: the impact burst's strength and the camera jolt (web units), each a baseline plus the rack's share. */
+	constexpr double ImpactBurst = 0.3;
+	constexpr double ImpactBurstPerShare = 0.7;
 	constexpr double ImpactShake = 0.02;
 	constexpr double ImpactShakePerShare = 0.06;
 
-	FVector DeckCentre()
+	// Where the effects sit on the deck (web units).
+	constexpr double KickbackX = 1.775;
+	constexpr double FountainY = 1.15;
+	constexpr double FountainZ = ABowlingAlley::DeckZ - 0.4;
+	const FVector DeckConfettiAt(0.0, 1.0, ABowlingAlley::DeckZ - 0.8);
+	const FVector HighConfettiAt(0.0, 2.2, ABowlingAlley::DeckZ + 0.2);
+	constexpr double ImpactZ = ABowlingAlley::DeckZ - 0.2;
+	constexpr double RingY = 0.05;
+	constexpr double RingZ = ABowlingAlley::DeckZ - 0.5;
+	/** Wood chips leave from this high above the hit (UE cm). */
+	constexpr double ChipLiftCm = 40.0;
+
+	// ---- Emitter recipes: the fixed shape of each effect.
+
+	/** A spark fountain off a kickback top; Speed is scaled by the celebration's height. */
+	Fx::FKartFxEmit FountainRecipe()
 	{
-		return LaneToWorld(0.0, 1.0, ABowlingAlley::DeckZ - 0.8);
+		return { .Field = Fx::EField::Sparks, .Direction = FVector(0.0, 0.0, 1.0), .Spread = 0.28, .Speed = FVector2D(5.0, 8.5),
+			.Life = FVector2D(0.7, 1.2), .Size = FVector2D(0.05, 0.09), .ColorEnd = FLinearColor(1.f, 0.35f, 0.1f), .Intensity = 6.0, .Jitter = 0.15 };
 	}
 
-	/** Spark fountains off the tops of the kickbacks either side of the deck; Height scales how high they throw. */
-	void AddFountains(TArray<Fx::FKartFxEmit>& Out, const FLinearColor& Color, int32 Count, double Height)
+	/** A firework burst over the deck; the colour is per burst. */
+	Fx::FKartFxEmit FireworkRecipe()
 	{
-		for (const double Side : { -1.775, 1.775 })
+		return { .Field = Fx::EField::Sparks, .Count = 60, .Spread = UE_DOUBLE_PI, .Speed = FVector2D(3.0, 6.5), .Life = FVector2D(0.8, 1.3),
+			.Size = FVector2D(0.05, 0.08), .ColorEnd = Fx::Hex(TEXT("ff7a2a")), .Intensity = 7.0 };
+	}
+
+	/** Wood chips off the struck pins, kicked up and down the lane; the count and top speed grow with the share felled. */
+	Fx::FKartFxEmit ChipsRecipe()
+	{
+		return { .Field = Fx::EField::Sparks, .Direction = FVector(0.6, 0.0, 1.0).GetSafeNormal(), .Spread = 1.1, .Life = FVector2D(0.35, 0.7),
+			.Size = FVector2D(0.05, 0.1), .Color = Fx::Hex(TEXT("fff6e0")), .ColorEnd = Fx::Hex(TEXT("ffb35a")), .Intensity = 5.0 };
+	}
+
+	/** A shock ring across the deck from the hit; its reach and brightness grow with the share felled. */
+	Fx::FKartFxEmit RingRecipe()
+	{
+		return { .Field = Fx::EField::Ring, .Count = 1, .Speed = FVector2D(0.0, 0.0), .Life = FVector2D(0.45, 0.45), .Size = FVector2D(0.4, 0.4),
+			.Color = Fx::Hex(TEXT("bfe9ff")), .ColorEnd = Fx::Hex(TEXT("6d8bff")) };
+	}
+
+	/** The comet's glow, in the bowler's colour. */
+	Fx::FKartFxEmit TrailGlowRecipe()
+	{
+		return { .Field = Fx::EField::Fire, .Direction = FVector(0.0, 0.0, 1.0), .Spread = 0.6, .Speed = FVector2D(0.05, 0.25), .Life = FVector2D(0.3, 0.5),
+			.Size = FVector2D(0.24, 0.34), .SizeEnd = 0.05, .Jitter = 0.04 };
+	}
+
+	/** The comet's sparkles, white fading to the bowler's colour. */
+	Fx::FKartFxEmit TrailSparkleRecipe()
+	{
+		return { .Field = Fx::EField::Flare, .Spread = 1.2, .Speed = FVector2D(0.4, 1.4), .Life = FVector2D(0.25, 0.5), .Size = FVector2D(0.08, 0.16),
+			.SizeEnd = 0.1, .Color = FLinearColor::White, .Intensity = 3.0, .Jitter = 0.1 };
+	}
+
+}
+
+/** One beat's celebration: what the house throws, flashes, lights and plays. A row per beat, below. */
+struct FBowlingCelebration
+{
+	/** Confetti over the deck; a turkey adds a second, higher burst. Half the paper on a spare. */
+	bool bHighConfetti = false;
+	bool bHalfConfetti = false;
+	/** Kickback fountains, when Fountains > 0. */
+	const TCHAR* FountainColor = nullptr;
+	int32 Fountains = 0;
+	double FountainHeight = 1.0;
+	bool bFireworks = false;
+	FLinearColor FlashColor = FLinearColor::White;
+	double Flash = 0.0;
+	/** The alley's light show; a gold tint (a turkey) instead of the thrower's colour. */
+	double ShowEnergy = 0.0;
+	double ShowSeconds = 0.0;
+	bool bGoldShow = false;
+	/** The crowd, and its second, higher layer (0: none); the stings (0: none). */
+	float Crowd = 0.f, CrowdPitch = 1.f;
+	float CrowdHigh = 0.f, CrowdHighPitch = 1.f;
+	float Go = 0.f, GoPitch = 1.f;
+	float Sparkle = 0.f, SparklePitch = 1.f;
+	/** The camera jolt (web units; 0: none). */
+	double Shake = 0.0;
+};
+
+namespace
+{
+	// ---- Celebrations: one row per beat.
+
+	const FBowlingCelebration& TurkeyCelebration()
+	{
+		static const FBowlingCelebration Row{ .bHighConfetti = true, .FountainColor = TEXT("ffd34d"), .Fountains = 70, .FountainHeight = 1.2, .bFireworks = true,
+			.FlashColor = FLinearColor(1.f, 0.82f, 0.3f), .Flash = 0.75, .ShowEnergy = 1.4, .ShowSeconds = 3.2, .bGoldShow = true,
+			.Crowd = 4.5f, .CrowdPitch = 1.0f, .CrowdHigh = 3.5f, .CrowdHighPitch = 1.3f, .Go = 1.2f, .GoPitch = 0.85f, .Sparkle = 1.0f, .SparklePitch = 1.25f,
+			.Shake = 0.08 };
+		return Row;
+	}
+
+	const FBowlingCelebration& StrikeCelebration()
+	{
+		static const FBowlingCelebration Row{ .FountainColor = TEXT("fff2c0"), .Fountains = 45, .FountainHeight = 1.0, .FlashColor = FLinearColor::White, .Flash = 0.55,
+			.ShowEnergy = 1.0, .ShowSeconds = 2.4, .Crowd = 3.6f, .CrowdPitch = 1.0f, .CrowdHigh = 2.4f, .CrowdHighPitch = 1.22f,
+			.Sparkle = 0.8f, .SparklePitch = 1.1f, .Shake = 0.05 };
+		return Row;
+	}
+
+	const FBowlingCelebration& SpareCelebration()
+	{
+		static const FBowlingCelebration Row{ .bHalfConfetti = true, .FlashColor = FLinearColor(0.5f, 1.f, 0.8f), .Flash = 0.3, .ShowEnergy = 0.55, .ShowSeconds = 1.5,
+			.Crowd = 2.4f, .CrowdPitch = 1.08f };
+		return Row;
+	}
+
+	const FBowlingCelebration& SplitConvertCelebration()
+	{
+		static const FBowlingCelebration Row{ .bHalfConfetti = true, .FountainColor = TEXT("7dffcf"), .Fountains = 40, .FountainHeight = 1.0,
+			.FlashColor = FLinearColor(0.5f, 1.f, 0.8f), .Flash = 0.3, .ShowEnergy = 1.0, .ShowSeconds = 1.5, .Crowd = 3.4f, .CrowdPitch = 1.08f };
+		return Row;
+	}
+
+	/** The beat's celebration, or null for the beats the house lets pass. */
+	const FBowlingCelebration* CelebrationFor(EBowlingBeat Beat)
+	{
+		switch (Beat)
 		{
-			Fx::FKartFxEmit Sparks;
-			Sparks.Field = Fx::EField::Sparks;
-			Sparks.Position = LaneToWorld(Side, 1.15, ABowlingAlley::DeckZ - 0.4);
-			Sparks.Count = Count;
-			Sparks.Direction = FVector::UpVector;
-			Sparks.Spread = 0.28;
-			Sparks.Speed = { 5.0 * Height, 8.5 * Height };
-			Sparks.Life = { 0.7, 1.2 };
-			Sparks.Size = { 0.05, 0.09 };
-			Sparks.Color = Color;
-			Sparks.ColorEnd = FLinearColor(1.f, 0.35f, 0.1f);
-			Sparks.Intensity = 6.0;
-			Sparks.Jitter = 0.15;
+		case EBowlingBeat::Turkey: return &TurkeyCelebration();
+		case EBowlingBeat::Strike: return &StrikeCelebration();
+		case EBowlingBeat::Spare: return &SpareCelebration();
+		case EBowlingBeat::SplitConvert: return &SplitConvertCelebration();
+		default: return nullptr;
+		}
+	}
+
+	/** A gold tint for the turkey's show. */
+	const FLinearColor TurkeyShowTint(1.f, 0.75f, 0.2f);
+	/** A gutter draws a sympathetic groan from the house. */
+	constexpr float GutterGroan = 1.6f;
+	constexpr float GutterGroanPitch = 0.72f;
+
+	void AddConfetti(const FBowlingCelebration& Row, TArray<Fx::FKartFxEmit>& Out)
+	{
+		Fx::ConfettiBurst(LaneToWorld(DeckConfettiAt.X, DeckConfettiAt.Y, DeckConfettiAt.Z), FVector::ForwardVector, Out);
+		if (Row.bHighConfetti)
+		{
+			Fx::ConfettiBurst(LaneToWorld(HighConfettiAt.X, HighConfettiAt.Y, HighConfettiAt.Z), FVector::ForwardVector, Out);
+		}
+		if (Row.bHalfConfetti)
+		{
+			for (Fx::FKartFxEmit& Emit : Out)
+			{
+				Emit.Count = FMath::Max(1, Emit.Count / 2);
+			}
+		}
+	}
+
+	void AddFountains(const FBowlingCelebration& Row, TArray<Fx::FKartFxEmit>& Out)
+	{
+		for (const double Side : { -KickbackX, KickbackX })
+		{
+			Fx::FKartFxEmit Sparks = FountainRecipe();
+			Sparks.Position = LaneToWorld(Side, FountainY, FountainZ);
+			Sparks.Count = Row.Fountains;
+			Sparks.Speed = { Sparks.Speed.X * Row.FountainHeight, Sparks.Speed.Y * Row.FountainHeight };
+			Sparks.Color = Fx::Hex(Row.FountainColor);
 			Out.Add(Sparks);
 		}
 	}
@@ -72,56 +217,14 @@ namespace
 	/** Three bursts over the deck: pink, gold, cyan. */
 	void AddFireworks(TArray<Fx::FKartFxEmit>& Out)
 	{
-		for (int32 i = 0; i < 3; ++i)
+		const TCHAR* const Colors[] = { TEXT("ff3fb4"), TEXT("fff2a8"), TEXT("38e1ff") };
+		for (int32 i = 0; i < UE_ARRAY_COUNT(Colors); ++i)
 		{
-			Fx::FKartFxEmit Burst;
-			Burst.Field = Fx::EField::Sparks;
+			Fx::FKartFxEmit Burst = FireworkRecipe();
 			Burst.Position = LaneToWorld(-1.6 + 1.6 * i, 3.6 + 0.3 * (i % 2), ABowlingAlley::DeckZ + 0.8);
-			Burst.Count = 60;
-			Burst.Spread = UE_DOUBLE_PI;
-			Burst.Speed = { 3.0, 6.5 };
-			Burst.Life = { 0.8, 1.3 };
-			Burst.Size = { 0.05, 0.08 };
-			Burst.Color = i == 1 ? Fx::Hex(TEXT("fff2a8")) : (i == 0 ? Fx::Hex(TEXT("ff3fb4")) : Fx::Hex(TEXT("38e1ff")));
-			Burst.ColorEnd = Fx::Hex(TEXT("ff7a2a"));
-			Burst.Intensity = 7.0;
+			Burst.Color = Fx::Hex(Colors[i]);
 			Out.Add(Burst);
 		}
-	}
-
-	/** Wood chips off the struck pins, kicked up and down the lane; Share is the part of the rack felled. */
-	Fx::FKartFxEmit PinChips(const FVector& Hit, double Share)
-	{
-		Fx::FKartFxEmit Chips;
-		Chips.Field = Fx::EField::Sparks;
-		Chips.Position = Hit + FVector(0.0, 0.0, 40.0);
-		Chips.Count = 12 + FMath::RoundToInt32(36.0 * Share);
-		Chips.Direction = (FVector::UpVector + FVector::ForwardVector * 0.6).GetSafeNormal();
-		Chips.Spread = 1.1;
-		Chips.Speed = { 2.5, 5.0 + 3.0 * Share };
-		Chips.Life = { 0.35, 0.7 };
-		Chips.Size = { 0.05, 0.1 };
-		Chips.Color = Fx::Hex(TEXT("fff6e0"));
-		Chips.ColorEnd = Fx::Hex(TEXT("ffb35a"));
-		Chips.Intensity = 5.0;
-		return Chips;
-	}
-
-	/** A shock ring across the deck from where the ball meets the rack. */
-	Fx::FKartFxEmit ShockRing(double EndX, double Share)
-	{
-		Fx::FKartFxEmit Ring;
-		Ring.Field = Fx::EField::Ring;
-		Ring.Position = LaneToWorld(EndX * ABowlingAlley::VisualPinScale, 0.05, ABowlingAlley::DeckZ - 0.5);
-		Ring.Count = 1;
-		Ring.Speed = { 0.0, 0.0 };
-		Ring.Life = { 0.45, 0.45 };
-		Ring.Size = { 0.4, 0.4 };
-		Ring.SizeEnd = 6.0 + 4.0 * Share;
-		Ring.Color = Fx::Hex(TEXT("bfe9ff"));
-		Ring.ColorEnd = Fx::Hex(TEXT("6d8bff"));
-		Ring.Intensity = 2.0 * Share;
-		return Ring;
 	}
 }
 
@@ -129,25 +232,25 @@ namespace
 
 void ABowlingGame::Celebrate(const FLinearColor& Mine)
 {
-	TArray<Fx::FKartFxEmit> Out;
-	switch (LastBeat)
+	if (LastBeat == EBowlingBeat::Gutter)
 	{
-	case EBowlingBeat::Turkey:
-		CelebrateTurkey(Out);
-		break;
-	case EBowlingBeat::Strike:
-		CelebrateStrike(Mine, Out);
-		break;
-	case EBowlingBeat::Spare:
-	case EBowlingBeat::SplitConvert:
-		CelebrateSpare(Mine, Out);
-		break;
-	case EBowlingBeat::Gutter:
-		// A sympathetic groan from the house.
-		Crowd.Play(this, CueCrowd, 1.6f, 0.72f);
-		break;
-	default:
-		break;
+		Crowd.Play(this, CueCrowd, GutterGroan, GutterGroanPitch);
+		return;
+	}
+	const FBowlingCelebration* Row = CelebrationFor(LastBeat);
+	if (!Row)
+	{
+		return;
+	}
+	TArray<Fx::FKartFxEmit> Out;
+	AddConfetti(*Row, Out);
+	if (Row->Fountains > 0)
+	{
+		AddFountains(*Row, Out);
+	}
+	if (Row->bFireworks)
+	{
+		AddFireworks(Out);
 	}
 	for (Fx::FKartFxEmit& Emit : Out)
 	{
@@ -157,56 +260,34 @@ void ABowlingGame::Celebrate(const FLinearColor& Mine)
 			Emit.Size *= ConfettiScale;
 		}
 	}
-	if (UKartFxSubsystem* FxSystem = UKartFxSubsystem::Get(this); FxSystem && Out.Num() > 0)
+	if (UKartFxSubsystem* FxSystem = UKartFxSubsystem::Get(this))
 	{
 		FxSystem->Emit(Out);
 	}
-}
-
-void ABowlingGame::CelebrateTurkey(TArray<Fx::FKartFxEmit>& Out)
-{
-	Fx::ConfettiBurst(DeckCentre(), FVector::ForwardVector, Out);
-	Fx::ConfettiBurst(LaneToWorld(0.0, 2.2, ABowlingAlley::DeckZ + 0.2), FVector::ForwardVector, Out);
-	AddFountains(Out, Fx::Hex(TEXT("ffd34d")), 70, 1.2);
-	AddFireworks(Out);
-	Flash(FLinearColor(1.f, 0.82f, 0.3f), 0.75);
-	// Past energy 1 the show strobes (ABowlingAlley::SetShow), tinting toward gold.
-	StartShow(1.4, 3.2, FLinearColor(1.f, 0.75f, 0.2f));
-	Crowd.Play(this, CueCrowd, 4.5f, 1.0f);
-	CrowdHigh.Play(this, CueCrowd, 3.5f, 1.3f);
-	Cues.Play(this, CueGo, 1.2f, 0.85f);
-	Cues.Play(this, CueSparkle, 1.0f, 1.25f);
-	Shake(0.08);
-}
-
-void ABowlingGame::CelebrateStrike(const FLinearColor& Mine, TArray<Fx::FKartFxEmit>& Out)
-{
-	Fx::ConfettiBurst(DeckCentre(), FVector::ForwardVector, Out);
-	AddFountains(Out, Fx::Hex(TEXT("fff2c0")), 45, 1.0);
-	Flash(FLinearColor::White, 0.55);
-	StartShow(1.0, 2.4, Mine);
-	Crowd.Play(this, CueCrowd, 3.6f, 1.0f);
-	CrowdHigh.Play(this, CueCrowd, 2.4f, 1.22f);
-	Cues.Play(this, CueSparkle, 0.8f, 1.1f);
-	Shake(0.05);
-}
-
-void ABowlingGame::CelebrateSpare(const FLinearColor& Mine, TArray<Fx::FKartFxEmit>& Out)
-{
-	const bool bConverted = LastBeat == EBowlingBeat::SplitConvert;
-	// Half the strike's confetti; a converted split adds the fountains.
-	Fx::ConfettiBurst(DeckCentre(), FVector::ForwardVector, Out);
-	for (Fx::FKartFxEmit& Emit : Out)
+	Flash(Row->FlashColor, Row->Flash);
+	StartShow(Row->ShowEnergy, Row->ShowSeconds, Row->bGoldShow ? TurkeyShowTint : Mine);
+	PlayCelebrationCues(*Row);
+	if (Row->Shake > 0.0)
 	{
-		Emit.Count = FMath::Max(1, Emit.Count / 2);
+		Shake(Row->Shake);
 	}
-	if (bConverted)
+}
+
+void ABowlingGame::PlayCelebrationCues(const FBowlingCelebration& Row)
+{
+	Crowd.Play(this, CueCrowd, Row.Crowd, Row.CrowdPitch);
+	if (Row.CrowdHigh > 0.f)
 	{
-		AddFountains(Out, Fx::Hex(TEXT("7dffcf")), 40, 1.0);
+		CrowdHigh.Play(this, CueCrowd, Row.CrowdHigh, Row.CrowdHighPitch);
 	}
-	Flash(FLinearColor(0.5f, 1.f, 0.8f), 0.3);
-	StartShow(bConverted ? 1.0 : 0.55, 1.5, Mine);
-	Crowd.Play(this, CueCrowd, bConverted ? 3.4f : 2.4f, 1.08f);
+	if (Row.Go > 0.f)
+	{
+		Cues.Play(this, CueGo, Row.Go, Row.GoPitch);
+	}
+	if (Row.Sparkle > 0.f)
+	{
+		Cues.Play(this, CueSparkle, Row.Sparkle, Row.SparklePitch);
+	}
 }
 
 void ABowlingGame::Flash(const FLinearColor& Color, double Strength)
@@ -255,23 +336,32 @@ void ABowlingGame::UpdateShow()
 
 void ABowlingGame::EmitImpact()
 {
-	// fxPlan.ts: sparks, chips and dust by the share of the rack felled, a shock ring across the deck.
+	// fxPlan.ts: sparks and chips by the share of the rack felled, a shock ring across the deck.
 	if (Shot.bGutter)
 	{
 		return;
 	}
 	const double Share = Standing.Num() > 0 ? static_cast<double>(Shot.Felled.Num()) / Standing.Num() : 0.0;
-	const FVector Hit = LaneToWorld(Shot.EndX * ABowlingAlley::VisualPinScale, 0.0, ABowlingAlley::DeckZ - 0.2);
+	const double HitX = Shot.EndX * ABowlingAlley::VisualPinScale;
+	const FVector Hit = LaneToWorld(HitX, 0.0, ImpactZ);
 	if (UKartFxSubsystem* FxSystem = UKartFxSubsystem::Get(this))
 	{
 		TArray<Fx::FKartFxEmit> Out;
-		Fx::ImpactBurst(Fx::EImpact::Bump, Hit, 0.3 + 0.7 * Share, Out);
+		Fx::ImpactBurst(Fx::EImpact::Bump, Hit, ImpactBurst + ImpactBurstPerShare * Share, Out);
 		// No kart dust on a polished deck: only the sparks of the hit.
 		Out.RemoveAll([](const Fx::FKartFxEmit& Emit) { return Emit.Field == Fx::EField::Smoke; });
 		if (Shot.Felled.Num() > 0)
 		{
-			Out.Add(PinChips(Hit, Share));
-			Out.Add(ShockRing(Shot.EndX, Share));
+			Fx::FKartFxEmit Chips = ChipsRecipe();
+			Chips.Position = Hit + FVector(0.0, 0.0, ChipLiftCm);
+			Chips.Count = 12 + FMath::RoundToInt32(36.0 * Share);
+			Chips.Speed = { 2.5, 5.0 + 3.0 * Share };
+			Out.Add(Chips);
+			Fx::FKartFxEmit Ring = RingRecipe();
+			Ring.Position = LaneToWorld(HitX, RingY, RingZ);
+			Ring.SizeEnd = 6.0 + 4.0 * Share;
+			Ring.Intensity = 2.0 * Share;
+			Out.Add(Ring);
 		}
 		FxSystem->Emit(Out);
 	}
@@ -298,37 +388,20 @@ void ABowlingGame::UpdateTrail(float Dt)
 	}
 	const FVector At = Ball->GetComponentLocation() - FVector(0.0, 0.0, TrailDropCm);
 	const double Hot = FMath::Clamp((Shot.Speed - HotFromSpeed) / HotSpeedRange, 0.0, 1.0);
-	Fx::FKartFxEmit Glow;
-	Glow.Field = Fx::EField::Fire;
+	Fx::FKartFxEmit Glow = TrailGlowRecipe();
 	Glow.Position = At;
 	Glow.Count = Fx::ParticlesDue(TrailCarry, TrailRate, Dt);
-	Glow.Direction = FVector::UpVector;
-	Glow.Spread = 0.6;
-	Glow.Speed = { 0.05, 0.25 };
-	Glow.Life = { 0.3, 0.5 };
-	Glow.Size = { 0.24, 0.34 };
-	Glow.SizeEnd = 0.05;
 	Glow.Color = Bowler->Color;
 	Glow.ColorEnd = Bowler->Color * 0.4f;
 	Glow.Intensity = 4.0 + 3.0 * Hot;
-	Glow.Jitter = 0.04;
 	if (Glow.Count > 0)
 	{
 		FxSystem->Emit(Glow);
 	}
-	Fx::FKartFxEmit Sparkle;
-	Sparkle.Field = Fx::EField::Flare;
+	Fx::FKartFxEmit Sparkle = TrailSparkleRecipe();
 	Sparkle.Position = At;
 	Sparkle.Count = Fx::ParticlesDue(SparkleCarry, SparkleRate + SparkleRatePerHeat * Hot, Dt);
-	Sparkle.Spread = 1.2;
-	Sparkle.Speed = { 0.4, 1.4 };
-	Sparkle.Life = { 0.25, 0.5 };
-	Sparkle.Size = { 0.08, 0.16 };
-	Sparkle.SizeEnd = 0.1;
-	Sparkle.Color = FLinearColor::White;
 	Sparkle.ColorEnd = Bowler->Color;
-	Sparkle.Intensity = 3.0;
-	Sparkle.Jitter = 0.1;
 	if (Sparkle.Count > 0)
 	{
 		FxSystem->Emit(Sparkle);

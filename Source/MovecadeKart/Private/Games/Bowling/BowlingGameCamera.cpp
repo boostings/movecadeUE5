@@ -46,57 +46,76 @@ namespace
 	constexpr double JoltRateZ = 61.0;
 	constexpr double DefaultAspect = 16.0 / 9.0;
 
-	FBowlingCameraShot AddressShot()
+	/** A fixed framing (web units): the camera and its look-at, each sliding across with where the ball meets the rack. */
+	struct FShotKey
 	{
-		return { AddressPos, AddressLook };
+		FVector Pos;
+		double PosPerEndX = 0.0;
+		FVector Look;
+		double LookPerEndX = 0.0;
+		double Fov = 39.0;
+		double Response = 3.05;
+	};
+
+	// presentation.ts cameraPlan's fixed shots, and the port's strike cam.
+	const FShotKey AddressKey{ AddressPos, 0.0, AddressLook, 0.0, 39.0, 3.05 };
+	const FShotKey ImpactKey{ FVector(0.0, 2.55, -6.85), 0.0, FVector(0.0, 0.58, -13.6), 0.14, 39.0, 3.05 };
+	const FShotKey ResultKey{ FVector(0.0, 3.3, -6.3), 0.0, FVector(0.0, 0.48, -13.6), 0.16, 40.0, 5.2 };
+	/** A strike-bound ball: the low cam at the deck as time slows (the roll's end, then the pins flying). */
+	const FShotKey StrikeRollingKey{ FVector(-1.25, 0.75, DeckZ + 3.4), 0.3, FVector(0.0, 0.45, DeckZ - 0.4), 0.5, 40.0, 4.2 };
+	const FShotKey StrikeSettlingKey{ FVector(-1.25, 0.8, DeckZ + 3.2), 0.3, FVector(0.0, 0.55, DeckZ - 0.6), 0.4, 42.0, 2.0 };
+
+	/** The roll: the tripod leans after the ball, travelling down the lane as it goes. */
+	const FShotKey RollingKey{ FVector(0.0, 3.4, 6.2), 0.0, FVector(0.0, 0.7, -10.5), 0.1, 37.0, 3.05 };
+	constexpr double RollingTravelZ = 3.6;
+
+	/** A celebration: a low swing across the deck (an arc of Sweep radians from Start), rising as it goes. */
+	struct FOrbit
+	{
+		double Start, Sweep, ExtraSeconds, RadiusX, RadiusZ, Height, Rise, RiseSeconds;
+	};
+	constexpr FOrbit CelebrationOrbit{ -0.55, 1.1, 0.4, 3.4, 4.6, 1.45, 0.4, 2.0 };
+	const FVector CelebrationLook(0.0, 0.9, DeckZ - 0.6);
+	constexpr double CelebrationFov = 44.0;
+	constexpr double CelebrationResponse = 3.4;
+
+	/** The results: a slow sway over the house. */
+	constexpr double FinishedSway = 1.6;
+	constexpr double FinishedSwayRate = 0.15;
+	const FShotKey FinishedKey{ FVector(0.0, 3.1, 4.6), 0.0, FVector(0.0, 1.0, -6.0), 0.0, 46.0, 1.2 };
+
+	FBowlingCameraShot Frame(const FShotKey& Key, double EndX)
+	{
+		return { Key.Pos + FVector(EndX * Key.PosPerEndX, 0.0, 0.0), Key.Look + FVector(EndX * Key.LookPerEndX, 0.0, 0.0), Key.Fov, Key.Response };
 	}
 
 	FBowlingCameraShot IntroShot(double Age)
 	{
 		// A slow push down the lane toward the rack before the first ball.
 		const double T = Smooth(0.0, 1.0, Age / IntroSeconds);
-		return { FMath::Lerp(IntroPos, AddressPos, T), FMath::Lerp(IntroLook, AddressLook, T), 39.0, IntroResponse };
+		return { FMath::Lerp(IntroPos, AddressPos, T), FMath::Lerp(IntroLook, AddressLook, T), AddressKey.Fov, IntroResponse };
 	}
 
 	FBowlingCameraShot RollingShot(double T, double EndX)
 	{
-		// The tripod leans after the ball.
-		return { FVector(0.0, 3.4, 6.2 - 3.6 * Smooth(0.0, 1.0, T)), FVector(EndX * 0.1, 0.7, -10.5), 37.0, 3.05 };
-	}
-
-	/** A strike-bound ball: the low cam at the deck as time slows (the roll's end, then the pins flying). */
-	FBowlingCameraShot StrikeCamRolling(double EndX)
-	{
-		return { FVector(EndX * 0.3 - 1.25, 0.75, DeckZ + 3.4), FVector(EndX * 0.5, 0.45, DeckZ - 0.4), 40.0, 4.2 };
-	}
-
-	FBowlingCameraShot StrikeCamSettling(double EndX)
-	{
-		return { FVector(EndX * 0.3 - 1.25, 0.8, DeckZ + 3.2), FVector(EndX * 0.4, 0.55, DeckZ - 0.6), 42.0, 2.0 };
-	}
-
-	FBowlingCameraShot ImpactShot(double EndX)
-	{
-		return { FVector(0.0, 2.55, -6.85), FVector(EndX * 0.14, 0.58, -13.6), 39.0, 3.05 };
-	}
-
-	FBowlingCameraShot ResultShot(double EndX)
-	{
-		return { FVector(0.0, 3.3, -6.3), FVector(EndX * 0.16, 0.48, -13.6), 40.0, 5.2 };
+		FBowlingCameraShot Shot = Frame(RollingKey, EndX);
+		Shot.Pos.Z = RollingKey.Pos.Z - RollingTravelZ * Smooth(0.0, 1.0, T);
+		return Shot;
 	}
 
 	FBowlingCameraShot CelebrationShot(double Since)
 	{
-		// A low swing across the deck while the house goes off.
-		const double A = -0.55 + 1.1 * Smooth(0.0, CelebrationSeconds + 0.4, Since);
-		return { FVector(FMath::Sin(A) * 3.4, 1.45 + 0.4 * Smooth(0.0, 2.0, Since), DeckZ + FMath::Cos(A) * 4.6),
-			FVector(0.0, 0.9, DeckZ - 0.6), 44.0, 3.4 };
+		const FOrbit& O = CelebrationOrbit;
+		const double A = O.Start + O.Sweep * Smooth(0.0, CelebrationSeconds + O.ExtraSeconds, Since);
+		return { FVector(FMath::Sin(A) * O.RadiusX, O.Height + O.Rise * Smooth(0.0, O.RiseSeconds, Since), DeckZ + FMath::Cos(A) * O.RadiusZ),
+			CelebrationLook, CelebrationFov, CelebrationResponse };
 	}
 
 	FBowlingCameraShot FinishedShot(double Clock)
 	{
-		// A slow drift over the house behind the results.
-		return { FVector(1.6 * FMath::Sin(Clock * 0.15), 3.1, 4.6), FVector(0.0, 1.0, -6.0), 46.0, 1.2 };
+		FBowlingCameraShot Shot = Frame(FinishedKey, 0.0);
+		Shot.Pos.X = FinishedSway * FMath::Sin(Clock * FinishedSwayRate);
+		return Shot;
 	}
 
 	/** three.js gives a vertical field of view; UE's is horizontal, so convert at the viewport's aspect. */
@@ -117,14 +136,14 @@ FBowlingCameraShot ABowlingGame::PickCameraShot() const
 	case EBowlingPhase::Rolling:
 	{
 		const double T = FMath::Clamp(Age / RollSeconds, 0.0, 1.0);
-		return bStrikeBound && T > StrikeCamFrom ? StrikeCamRolling(EndX) : RollingShot(T, EndX);
+		return bStrikeBound && T > StrikeCamFrom ? Frame(StrikeRollingKey, EndX) : RollingShot(T, EndX);
 	}
 	case EBowlingPhase::Settling:
 		if (bStrikeBound)
 		{
-			return StrikeCamSettling(EndX);
+			return Frame(StrikeSettlingKey, EndX);
 		}
-		return Age / SettleSeconds <= ImpactShare ? ImpactShot(EndX) : ResultShot(EndX);
+		return Age / SettleSeconds <= ImpactShare ? Frame(ImpactKey, EndX) : Frame(ResultKey, EndX);
 	case EBowlingPhase::Reset:
 	{
 		const double Since = Clock - LastBeatAt;
@@ -132,12 +151,12 @@ FBowlingCameraShot ABowlingGame::PickCameraShot() const
 		{
 			return CelebrationShot(Since);
 		}
-		return Age / ResetSeconds < ResultHoldShare ? ResultShot(EndX) : AddressShot();
+		return Age / ResetSeconds < ResultHoldShare ? Frame(ResultKey, EndX) : Frame(AddressKey, 0.0);
 	}
 	case EBowlingPhase::Finished:
 		return FinishedShot(Clock);
 	default:
-		return AddressShot();
+		return Frame(AddressKey, 0.0);
 	}
 }
 
@@ -155,6 +174,10 @@ FVector ABowlingGame::CameraJolt() const
 
 void ABowlingGame::UpdateCamera(float Dt)
 {
+	if (!Camera)
+	{
+		return;
+	}
 	const FBowlingCameraShot Want = PickCameraShot();
 	if (!bCamPlaced)
 	{

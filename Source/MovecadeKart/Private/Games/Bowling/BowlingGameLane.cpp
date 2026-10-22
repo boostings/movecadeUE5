@@ -40,6 +40,23 @@ namespace
 	/** A gutter ball drops this far into the channel, which sits this far outside the lane's edge (web units). */
 	constexpr double GutterDrop = 0.32;
 	constexpr double GutterBeyondEdge = 0.18;
+	/** The sim's gutter capture is drawn between these shares of the roll, blending in over GutterCaptureBlend. */
+	constexpr double GutterCaptureFirst = 0.08;
+	constexpr double GutterCaptureLast = 0.94;
+	constexpr double GutterCaptureBlend = 0.03;
+
+	// After the roll (web units, over the settle): a gutter ball runs on down its channel; a lane ball drops through
+	// the rack into the pit; during the reset it is gone to the ball return, under the deck.
+	constexpr double GutterChannelX = 1.785;
+	constexpr double GutterRunDrop = 0.4;
+	constexpr double GutterRunFromZ = ABowlingAlley::DeckZ + 0.1;
+	constexpr double GutterRunLength = 1.6;
+	constexpr double PitDrop = 0.6;
+	constexpr double PitFromZ = ABowlingAlley::DeckZ - 2.1;
+	constexpr double PitRun = 0.65;
+	const FVector BallReturnAt(0.0, -2.0, ABowlingAlley::DeckZ - 3.0);
+	/** A hidden pin parks here as an empty instance. */
+	const FVector HiddenPinAt(0.0, -3.0, ABowlingAlley::DeckZ - 2.0);
 
 	// presentation.ts:196-291, the pinsetter (web units): the rake drops, sweeps the deck and lifts; the setter table
 	// comes down and goes back up.
@@ -50,6 +67,17 @@ namespace
 	constexpr double TableUpY = 2.2;
 	constexpr double TableDownY = 1.16;
 	constexpr double TableZ = ABowlingAlley::DeckZ - 0.88;
+	/** The machine's keyframes, as shares of the reset (each a smoothstep window). */
+	struct FWindow
+	{
+		double From, To;
+	};
+	constexpr FWindow RakeDrop{ 0.0, 0.13 };
+	constexpr FWindow RakeSweep{ 0.10, 0.36 };
+	constexpr FWindow RakeLift{ 0.36, 0.52 };
+	constexpr FWindow RakeBack{ 0.52, 1.0 };
+	constexpr FWindow TableDrop{ 0.28, 0.62 };
+	constexpr FWindow TableLift{ 0.70, 1.0 };
 	/** Deadwood stays this far ahead of the rake, and drops into the pit past this line. */
 	constexpr double RakeClearance = 0.15;
 	constexpr double PitLineZ = ABowlingAlley::DeckZ - 1.95;
@@ -61,6 +89,14 @@ namespace
 	constexpr double GuideSpacing = 0.78;
 	constexpr double GuideDotY = 0.024;
 	constexpr double GuideDotSize = 0.11;
+	/** A dot's scale: bigger as the arm charges, and growing from the near end of the line to the far one. */
+	constexpr double GuideDotRest = 0.65;
+	constexpr double GuideDotPerCharge = 0.3;
+	constexpr double GuideDotNear = 0.75;
+	constexpr double GuideDotGrowth = 0.45;
+	/** The line turns mint in the pocket and red when it would drop into the gutter, so the read is instant. */
+	const TCHAR* const GoodLineColor = TEXT("#3dffb0");
+	const TCHAR* const GutterLineColor = TEXT("#ff3b4a");
 	constexpr double GuideGlow = 4.0;
 	constexpr double GuideGlowPerCharge = 5.0;
 	/** The target ring in front of the head pin: bigger on a good line, pulsing. */
@@ -83,7 +119,7 @@ namespace
 	/** The rake's way down the deck at reset progress P (web z). */
 	double RakeSweepZ(double P)
 	{
-		return FMath::Lerp(RakeHomeZ, RakeSweptZ, Smooth(0.10, 0.36, P));
+		return FMath::Lerp(RakeHomeZ, RakeSweptZ, Smooth(RakeSweep.From, RakeSweep.To, P));
 	}
 
 	/** A pin's lean (the solver's tilt vector: direction times angle, rack x and z) as a UE rotation, then its spin. */
@@ -140,17 +176,17 @@ void ABowlingGame::UpdateBall(float Dt)
 		if (Phase == EBowlingPhase::Reset)
 		{
 			// Gone to the ball return, under the deck.
-			Web = FVector(0.0, -2.0, ABowlingAlley::DeckZ - 3.0);
+			Web = BallReturnAt;
 		}
 		else if (Shot.bGutter)
 		{
 			// Down the channel and off the end of it.
-			Web = FVector(Shot.GutterSide * 1.785, BallRollY - GutterDrop - 0.4 * P, ABowlingAlley::DeckZ + 0.1 - 1.6 * P);
+			Web = FVector(Shot.GutterSide * GutterChannelX, BallRollY - GutterDrop - GutterRunDrop * P, GutterRunFromZ - GutterRunLength * P);
 		}
 		else
 		{
 			// Through the rack and down into the pit.
-			Web = FVector(Shot.EndX * ABowlingAlley::VisualPinScale, BallRollY - 0.6 * P, ABowlingAlley::DeckZ - 2.1 - 0.65 * P);
+			Web = FVector(Shot.EndX * ABowlingAlley::VisualPinScale, BallRollY - PitDrop * P, PitFromZ - PitRun * P);
 		}
 		break;
 	}
@@ -184,8 +220,8 @@ FVector ABowlingGame::BallWorld(double T, double& OutY) const
 	if (Shot.bGutter)
 	{
 		// Into the channel where the sim says it drops off the lane.
-		const double Capture = FMath::Clamp(Shot.GutterAt / LaneLength, 0.08, 0.94);
-		const double In = Smooth(Capture, Capture + 0.03, T);
+		const double Capture = FMath::Clamp(Shot.GutterAt / LaneLength, GutterCaptureFirst, GutterCaptureLast);
+		const double In = Smooth(Capture, Capture + GutterCaptureBlend, T);
 		X = FMath::Lerp(X, Shot.GutterSide * (ABowlingAlley::LaneVisualWidth / 2.0 + GutterBeyondEdge), In);
 		OutY -= GutterDrop * In;
 	}
@@ -229,12 +265,17 @@ void ABowlingGame::PlaceRack()
 	// Deadwood is raked off the deck during the reset.
 	const bool bRaking = Phase == EBowlingPhase::Reset;
 	const double RakeZ = RakeSweepZ(bRaking ? FMath::Clamp(GetPhaseAge() / ResetSeconds, 0.0, 1.0) : 0.0);
+	uint32 StandingMask = 0;
+	for (const int32 Id : Standing)
+	{
+		StandingMask |= 1u << Id;
+	}
 	for (const FPinPose& Pose : Solver.Poses())
 	{
 		FTransform& Out = PinTransforms[Pose.Id - 1];
 		FVector Web(Pose.Position.X, Pose.Position.Y, ABowlingAlley::DeckZ - Pose.Position.Z);
 		bool bShow = Pose.bVisible;
-		if (bRaking && bShow && !Standing.Contains(Pose.Id))
+		if (bRaking && bShow && !(StandingMask & (1u << Pose.Id)))
 		{
 			Web.Z = FMath::Min(Web.Z, RakeZ - RakeClearance);
 			bShow = Web.Z >= PitLineZ;
@@ -242,7 +283,7 @@ void ABowlingGame::PlaceRack()
 		if (!bShow)
 		{
 			// A hidden pin is an empty instance under the deck: no pose to work out.
-			Out = FTransform(FQuat::Identity, LaneToWorld(0.0, -3.0, ABowlingAlley::DeckZ - 2.0), FVector::ZeroVector);
+			Out = FTransform(FQuat::Identity, LaneToWorld(HiddenPinAt.X, HiddenPinAt.Y, HiddenPinAt.Z), FVector::ZeroVector);
 			continue;
 		}
 		Out = FTransform(PinRotation(Pose), LaneToWorld(Web.X, Web.Y, Web.Z));
@@ -261,10 +302,10 @@ void ABowlingGame::UpdatePinsetter()
 		return;
 	}
 	const double P = FMath::Clamp(GetPhaseAge() / ResetSeconds, 0.0, 1.0);
-	const double RakeY = FMath::Lerp(RakeUpY, RakeDownY, Smooth(0.0, 0.13, P)) + (RakeUpY - RakeDownY) * Smooth(0.36, 0.52, P);
-	const double Back = Smooth(0.52, 1.0, P);
+	const double RakeY = FMath::Lerp(RakeUpY, RakeDownY, Smooth(RakeDrop.From, RakeDrop.To, P)) + (RakeUpY - RakeDownY) * Smooth(RakeLift.From, RakeLift.To, P);
+	const double Back = Smooth(RakeBack.From, RakeBack.To, P);
 	Rake->SetWorldLocation(LaneToWorld(0.0, RakeY, FMath::Lerp(RakeSweepZ(P), RakeHomeZ, Back)));
-	const double TableY = FMath::Lerp(TableUpY, TableDownY, Smooth(0.28, 0.62, P)) + (TableUpY - TableDownY) * Smooth(0.70, 1.0, P);
+	const double TableY = FMath::Lerp(TableUpY, TableDownY, Smooth(TableDrop.From, TableDrop.To, P)) + (TableUpY - TableDownY) * Smooth(TableLift.From, TableLift.To, P);
 	Setter->SetWorldLocation(LaneToWorld(0.0, TableY, TableZ));
 }
 
@@ -288,8 +329,7 @@ void ABowlingGame::UpdateGuide()
 	const EBowlingLine Line = ReadLine(EndX, FirstGutter(Preview).IsSet(), Standing);
 	// The line turns mint in the pocket and red when it would drop into the gutter, so the read is instant.
 	const bool bGood = Line == EBowlingLine::Pocket || Line == EBowlingLine::OnTarget;
-	const FLinearColor LineColor = bGood ? MovecadeKart::Art::Hex(TEXT("#3dffb0"))
-		: (Line == EBowlingLine::Gutter ? MovecadeKart::Art::Hex(TEXT("#ff3b4a")) : Bowler->Color);
+	const FLinearColor LineColor = bGood ? MovecadeKart::Art::Hex(GoodLineColor) : (Line == EBowlingLine::Gutter ? MovecadeKart::Art::Hex(GutterLineColor) : Bowler->Color);
 	// Brighter as the arm charges.
 	GuideMaterial->SetVectorParameterValue(ColorParam, LineColor * static_cast<float>(GuideGlow + GuideGlowPerCharge * Charge));
 	for (int32 i = 0; i < GuideDots; ++i)
@@ -299,7 +339,7 @@ void ABowlingGame::UpdateGuide()
 		const double Progress = (BallStartZ - Z) / BallTravel;
 		const double X = BallXAt(Preview, FMath::Clamp(Progress, 0.0, 1.0) * LaneLength) * ABowlingAlley::LaneVisualScale;
 		// Dots grow down the lane and as the arm charges.
-		const double Size = (0.65 + 0.3 * Charge) * (0.75 + 0.45 * T) * GuideDotSize;
+		const double Size = (GuideDotRest + GuideDotPerCharge * Charge) * (GuideDotNear + GuideDotGrowth * T) * GuideDotSize;
 		Guide->UpdateInstanceTransform(i, FTransform(FRotator::ZeroRotator, LaneToWorld(X, GuideDotY, Z), FVector(Size, Size, DiscHeight)), true, i == GuideDots - 1, true);
 	}
 	const double Pulse = 1.0 + TargetPulse * FMath::Sin(Clock * TargetPulseRate);

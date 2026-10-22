@@ -101,6 +101,14 @@ namespace
 		return Felled >= GoodBeatPins ? EBowlingBeat::Good : EBowlingBeat::Open;
 	}
 
+	/** An engine basic shape; a miss (a stripped engine install) leaves that lane part empty, with one warning. */
+	UStaticMesh* LoadEngineMesh(const TCHAR* Path)
+	{
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, Path, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		UE_CLOG(!Mesh, LogBowling, Warning, TEXT("No engine mesh %s: the lane part that uses it stays empty."), Path);
+		return Mesh;
+	}
+
 	UStaticMeshComponent* NewLanePart(AActor& Owner, const TCHAR* Name, UStaticMesh* Mesh, UMaterialInterface* Material)
 	{
 		UStaticMeshComponent* Part = NewObject<UStaticMeshComponent>(&Owner, Name);
@@ -241,7 +249,7 @@ void ABowlingGame::CreateBall()
 void ABowlingGame::CreateMachinery()
 {
 	using namespace MovecadeKart::Art;
-	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	UStaticMesh* Cube = LoadEngineMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	auto Machine = [this, Cube](const TCHAR* Name, const FVector& Size, UMaterialInterface* Material)
 	{
 		UStaticMeshComponent* Part = NewLanePart(*this, Name, Cube, Material);
@@ -258,7 +266,7 @@ void ABowlingGame::CreateGuide()
 {
 	// The dots along the live line, and a flat ring of light on the deck where it meets the rack. Their colours change
 	// every frame, so each has its own material (not the alley's shared looks).
-	UStaticMesh* Disc = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UStaticMesh* Disc = LoadEngineMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 	Guide = NewObject<UInstancedStaticMeshComponent>(this, TEXT("Guide"));
 	Guide->SetStaticMesh(Disc);
 	GuideMaterial = MovecadeKart::Art::GlowOpaque(this, FLinearColor::White);

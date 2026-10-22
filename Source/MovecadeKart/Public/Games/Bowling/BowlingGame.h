@@ -21,7 +21,7 @@ class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
 struct FArcadePoseInput;
 struct FBowlingCameraShot;
-namespace MovecadeKart::Fx { struct FKartFxEmit; }
+struct FBowlingCelebration;
 
 /**
  * One game of Bowling on the alley's middle lane (Docs/Port/06-bowling.md): 1-4 bowlers taking frames in turn,
@@ -174,9 +174,7 @@ private:
 	// The show (BowlingGameFx.cpp).
 	/** The house's reaction to the beat just committed: FX, flash, light show, crowd. Mine is the thrower's colour. */
 	void Celebrate(const FLinearColor& Mine);
-	void CelebrateTurkey(TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
-	void CelebrateStrike(const FLinearColor& Mine, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
-	void CelebrateSpare(const FLinearColor& Mine, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
+	void PlayCelebrationCues(const FBowlingCelebration& Row);
 	void Flash(const FLinearColor& Color, double Strength);
 	void StartShow(double Energy, double Seconds, const FLinearColor& Tint);
 	/** The ball meets the rack: sparks, chips and a shock ring by the share of the rack felled, and a jolt. */

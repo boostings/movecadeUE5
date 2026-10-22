@@ -12,6 +12,7 @@ class UMaterialInterface;
 class USceneComponent;
 class USpotLightComponent;
 class UStaticMesh;
+struct FAlleyBox;
 
 /**
  * The bowling house (movecade-v2 bowling/venue, laneLayout.ts; Docs/Port/06-bowling.md §4), modelled in code like
@@ -74,7 +75,7 @@ private:
 	void BuildMasking(double LaneX, UMaterialInterface* PanelArt);
 	void BuildCeiling();
 	void BuildNeon();
-	void BuildHouseSign(double BackZ);
+	void BuildHouseSign();
 	void BuildLights();
 	void BuildFillLights();
 	void BuildTroughLights();
@@ -86,8 +87,14 @@ private:
 	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, double YawRad = 0.0, bool bShadows = true);
 	/** A box rolled in the plane of the back wall (about the lane axis), for neon drawn on it. */
 	void WallBox(UMaterialInterface* Material, const FVector& C, const FVector& S, double RollRad);
+	/** Every box of a part's table (BowlingAlleyLayout.h), moved by OffsetX / OffsetZ. */
+	void Boxes(UMaterialInterface* Material, TConstArrayView<FAlleyBox> Parts, double OffsetX = 0.0, double OffsetZ = 0.0);
 	/** A cylinder along web Y. */
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height);
+	/** The looks most parts share. */
+	UMaterialInterface* DarkMaterial();
+	UMaterialInterface* MachineMaterial();
+	UMaterialInterface* PitMaterial();
 	/** A neon colour whose glow the light show pulses: its own material, never shared with a steady look. */
 	UMaterialInterface* Neon(const TCHAR* Key, const FLinearColor& Color);
 	/** A movable light (or other part) under the root, tagged so Clear() finds it, named uniquely from Prefix. */
