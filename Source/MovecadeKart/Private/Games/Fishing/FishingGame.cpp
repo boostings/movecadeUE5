@@ -16,6 +16,7 @@
 #include "Games/Fishing/SFishingHud.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
 #include "Net/RoomProtocol.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFishing, Log, All);
@@ -67,6 +68,7 @@ AFishingGame::AFishingGame()
 	PrimaryActorTick.TickGroup = TG_PostPhysics;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	BotRng.Initialize(0xf15e);
+	bDemo = FParse::Param(FCommandLine::Get(), TEXT("FishingDemo"));
 	FxRng.Initialize(0x5b1a);
 }
 
@@ -131,6 +133,11 @@ void AFishingGame::Setup(AFishingLake* InLake, const TArray<FFishingSeat>& InSea
 		L.NextActAt = 400.0 + 500.0 * i;
 	}
 	Match = CreateMatch(MatchSeeds, Seed);
+	// -FishingClock=N: a short round for the test runs (seconds).
+	if (double Short = 0.0; FParse::Value(FCommandLine::Get(), TEXT("FishingClock="), Short) && Short > 0.0)
+	{
+		Match.TimeRemainingMs = Short * 1000.0;
+	}
 
 	using namespace MovecadeKart::Art;
 	UStaticMesh* HandleMesh = FA::BuildRodHandle(this);
@@ -142,7 +149,7 @@ void AFishingGame::Setup(AFishingLake* InLake, const TArray<FFishingSeat>& InSea
 	UMaterialInterface* Metal = Plain(this, Hex(TEXT("#c9ccd2")), 0.25, 0.95);
 	UMaterialInterface* Guide = Plain(this, Hex(TEXT("#d8d8dc")), 0.2, 1.0);
 	UMaterialInterface* White = Plain(this, Hex(TEXT("#f4f1ea")), 0.35);
-	LineMaterial = Glow(this, Hex(TEXT("#fff1d2")) * 0.9f);
+	LineMaterial = Glow(this, Hex(TEXT("#fff4dc")) * 1.6f);
 	FishMeshes.SetNum(Species().Num());
 	for (int32 i = 0; i < N; ++i)
 	{
@@ -258,7 +265,7 @@ FVector AFishingGame::HoldPoint(int32 Lane) const
 	{
 		return FVector::ZeroVector;
 	}
-	return A->GetComponentLocation() + A->GetComponentRotation().RotateVector(FVector(42.0, 0.0, 118.0));
+	return A->GetComponentLocation() + A->GetComponentRotation().RotateVector(FVector(44.0, 0.0, 124.0));
 }
 
 TArray<const FAngler*> AFishingGame::Standings() const
@@ -503,7 +510,9 @@ void AFishingGame::SteerBot(int32 i)
 			Lane.EaseFrom = -1.0;
 		}
 		const bool bEase = bRunning && Now >= Lane.EaseFrom;
-		const double Want = bEase ? 0.0 : ReelForTension(F.Pull, 0.52 + Lane.BotError);
+		// Mid-green, but always a little over the fish's own pull so the line keeps coming in.
+		const double Target = FMath::Clamp(F.Pull * 0.45 + 0.14, 0.5, 0.7) + Lane.BotError;
+		const double Want = bEase ? 0.0 : ReelForTension(F.Pull, Target);
 		Lane.BotReel += (Want - Lane.BotReel) * (bEase ? 0.3 : 0.08);
 		SetReel(Match, A.PlayerId, Lane.BotReel);
 		break;
@@ -522,6 +531,19 @@ void AFishingGame::SteerBot(int32 i)
 
 void AFishingGame::StepFixed()
 {
+	if (bDemo && Match.ElapsedMs >= 300.0 && Match.ElapsedMs < 300.0 + StepMs && Match.Anglers.Num() > 0)
+	{
+		// -FishingDemo: the first angler lands a trophy straight away (for the screenshots of the reveal).
+		FAngler& D = Match.Anglers[0];
+		D.State = EAnglerState::Bite;
+		D.BiteSpecies = SpeciesIndex(TEXT("goldie"));
+		D.LureM = 28.0;
+		D.CastM = 28.0;
+		D.WindowMs = 500.0;
+		Hook(Match, D.PlayerId);
+		D.Fight.DistanceM = LandM + 0.05;
+		D.Fight.NextBurstMs = 99999.0;
+	}
 	for (int32 i = 0; i < Lanes.Num(); ++i)
 	{
 		FLane& Lane = Lanes[i];
@@ -545,11 +567,24 @@ void AFishingGame::StepFixed()
 
 void AFishingGame::DrainEffects()
 {
-	for (const FEffect& E : Match.Effects)
+	// Presenting can act on the rules (a bot's nervous hook on a nibble), which adds effects: drain until none are new.
+	for (int32 Pass = 0; Pass < 4; ++Pass)
 	{
-		if (!SeenEffects.Contains(E.Id))
+		TArray<FEffect> Fresh;
+		for (const FEffect& E : Match.Effects)
 		{
-			SeenEffects.Add(E.Id);
+			if (!SeenEffects.Contains(E.Id))
+			{
+				SeenEffects.Add(E.Id);
+				Fresh.Add(E);
+			}
+		}
+		if (Fresh.Num() == 0)
+		{
+			break;
+		}
+		for (const FEffect& E : Fresh)
+		{
 			PresentEffect(E);
 			if (OnEffect)
 			{
@@ -849,7 +884,7 @@ void AFishingGame::UpdateLine(int32 i, const FVector& From, const FVector& To, d
 			S->SetVisibility(false);
 			continue;
 		}
-		S->SetWorldTransform(FTransform(D.Rotation(), Prev, FVector(Len / 100.0, 0.42, 0.42)));
+		S->SetWorldTransform(FTransform(D.Rotation(), Prev, FVector(Len / 100.0, 0.6, 0.6)));
 		S->SetVisibility(true);
 		Prev = P;
 	}
@@ -989,7 +1024,7 @@ void AFishingGame::UpdateAnglers(float Dt)
 			const FFight& F = A.Fight;
 			const double T = FMath::Clamp(F.Tension, 0.0, 1.3);
 			const double Jerk = Smooth(0.0, 0.08, Clock - Lane.HookedAt) * Smooth(0.35, 0.15, Clock - Lane.HookedAt);
-			Pitch = 52.0 + 18.0 * T + 25.0 * Jerk;
+			Pitch = 34.0 + 14.0 * T + 30.0 * Jerk;
 			Bend = 10.0 + 48.0 * FMath::Min(1.1, T);
 			Lane.ReelPhase += A.Reel * 1.6 * 2.0 * UE_DOUBLE_PI * Dt;
 			Right = FVector(0.48, -0.04, 0.12 + 0.22 * T + 0.35 * Jerk);
@@ -1037,10 +1072,9 @@ void AFishingGame::UpdateAnglers(float Dt)
 			}
 			else
 			{
-				Right = FVector(0.55, 0.28, 0.32);
-				Left = FVector(0.55, -0.28, 0.32);
-				Pose.Cheer = static_cast<float>(0.22 * Hold);
-				Pose.Lean = -0.05f;
+				Right = FVector(0.62, 0.3, -0.08);
+				Left = FVector(0.62, -0.3, -0.08);
+				Pose.Lean = -0.06f;
 			}
 			break;
 		}
@@ -1147,7 +1181,7 @@ void AFishingGame::UpdateAnglers(float Dt)
 			}
 			else if (F.DistanceM < 5.0)
 			{
-				const double Depth = -32.0 + 18.0 * Smooth(5.0, 1.2, F.DistanceM);
+				const double Depth = -14.0 + 12.0 * Smooth(5.0, 1.5, F.DistanceM);
 				ShowFish(i, F.Species, F.WeightG, FTransform(FRotator(0.0, 180.0 * 0.0 + F.Lateral * 35.0 + 14.0 * FMath::Sin(Clock * (10.0 + 8.0 * F.Stamina)), 0.0), Out + FVector(25.0, 0.0, Depth)));
 				bFish = true;
 			}
@@ -1196,8 +1230,9 @@ void AFishingGame::UpdateCamera(float Dt)
 	const double TanH = FMath::Tan(FMath::DegreesToRadians(VFov / 2.0)) * Aspect;
 	const double Back = FMath::Max(560.0, HalfW / (TanH * 0.88));
 	const FVector Anglers(AFishingLake::EdgeX - 62.0, 0.0, AFishingLake::DeckZ + 120.0);
-	FVector Pos = Anglers + FVector(-Back, 0.0, 120.0 + Back * 0.22);
-	FVector Look = FVector(AFishingLake::EdgeX + 1500.0, 0.0, 20.0);
+	// The heads a little below the middle, the horizon a quarter of the way down (the camera pitched 10 degrees).
+	FVector Pos = Anglers + FVector(-Back, 0.0, 10.0 + Back * 0.25);
+	FVector Look = Pos + FVector(3000.0, 0.0, -3000.0 * FMath::Tan(FMath::DegreesToRadians(10.0)));
 	double Fov = VFov;
 	if (Stage == EFishingStage::Intro)
 	{
@@ -1205,7 +1240,7 @@ void AFishingGame::UpdateCamera(float Dt)
 		const double T = Smooth(0.0, 1.0, GetStageAge() / (IntroSeconds - 0.4));
 		const double Angle = FMath::DegreesToRadians(FMath::Lerp(150.0, 0.0, T));
 		const double R = Back + 120.0;
-		Pos = Anglers + FVector(-FMath::Cos(Angle) * R, FMath::Sin(Angle) * R * 0.85, FMath::Lerp(60.0, 120.0 + Back * 0.22, T));
+		Pos = Anglers + FVector(-FMath::Cos(Angle) * R, FMath::Sin(Angle) * R * 0.85, FMath::Lerp(60.0, 10.0 + Back * 0.25, T));
 		Look = FMath::Lerp(Anglers + FVector(0.0, 0.0, -10.0), Look, Smooth(0.35, 1.0, T));
 		Fov = FMath::Lerp(46.0, VFov, T);
 	}
@@ -1215,7 +1250,8 @@ void AFishingGame::UpdateCamera(float Dt)
 		const double T = Smooth(0.0, 1.6, GetStageAge());
 		const double Drift = FMath::Sin(GetStageAge() * 0.25) * 60.0;
 		Pos = FMath::Lerp(Pos, Anglers + FVector(-Back * 0.95, Drift, 30.0), T);
-		Look = FMath::Lerp(Look, Anglers + FVector(400.0, 0.0, 0.0), T);
+		// Heads in the lower half: the weigh-in card sits over the lake.
+		Look = FMath::Lerp(Look, Anglers + FVector(400.0, 0.0, 95.0), T);
 	}
 	if (!bCamPlaced)
 	{
@@ -1245,6 +1281,11 @@ void AFishingGame::Rematch()
 	}
 	Seed = Seed * 747796405u + 2891336453u;
 	Match = CreateMatch(MatchSeeds, Seed);
+	// -FishingClock=N: a short round for the test runs (seconds).
+	if (double Short = 0.0; FParse::Value(FCommandLine::Get(), TEXT("FishingClock="), Short) && Short > 0.0)
+	{
+		Match.TimeRemainingMs = Short * 1000.0;
+	}
 	for (int32 i = 0; i < Lanes.Num(); ++i)
 	{
 		FLane Fresh;

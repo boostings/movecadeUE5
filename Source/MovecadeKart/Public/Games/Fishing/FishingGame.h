@@ -241,6 +241,7 @@ private:
 	bool bPaused = false;
 	double Shake = 0.0;
 	bool bResultsCommitted = false;
+	bool bDemo = false;
 
 	FVector CamPos = FVector::ZeroVector;
 	FVector CamLook = FVector::ZeroVector;

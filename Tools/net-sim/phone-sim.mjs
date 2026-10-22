@@ -127,11 +127,46 @@ const rock = (t) => {
   const pitch = (10 * Math.sin(t * 0.8 + 1)) * Math.PI / 180;
   return { q: bladeQuaternion(pitch, roll), gyro: 15 * 1.3 * Math.cos(t * 1.3) };
 };
+// fishing: driven by its pad:prompt. CAST! -> a forward flick (pitch rate down), or every other cast a held A
+// (the power meter); BITE! -> an upward jerk; REEL IT IN! -> rolling the wrist (rate about the long axis) in bursts.
+// With no prompt for 8 s it flicks and jerks on a timer anyway.
+let fishingAct = { kind: 'idle', at: 0 };
+let fishingCasts = 0;
+let fishingPromptAt = 0;
+let padStartedAt = Date.now();
+const fishingNow = () => (Date.now() - padStartedAt) / 1000;
+const fishingPose = (t) => {
+  const pose = rock(t);
+  const u = t - fishingAct.at;
+  if (fishingAct.kind === 'flick' && u >= 0 && u < 0.2) pose.gyro = -950 * Math.sin(Math.PI * u / 0.2);
+  if (fishingAct.kind === 'jerk' && u >= 0 && u < 0.16) pose.gyro = 750 * Math.sin(Math.PI * u / 0.16);
+  if (fishingAct.kind === 'reel' && u >= 0) pose.gyroY = ((u / 1.6) % 1) < 0.75 ? 420 : 0;
+  return pose;
+};
+function fishingPrompt(title) {
+  fishingPromptAt = fishingNow();
+  if (title.startsWith('CAST')) {
+    fishingCasts += 1;
+    if (fishingCasts % 2 === 1) {
+      fishingAct = { kind: 'flick', at: fishingNow() + 0.4 };
+    } else {
+      fishingAct = { kind: 'idle', at: 0 };
+      setTimeout(() => send({ t: 'game-event', event: 'pad:press', data: { button: 'a' } }), 400);
+      setTimeout(() => send({ t: 'game-event', event: 'pad:release', data: { button: 'a' } }), 400 + 700);
+    }
+  } else if (title.startsWith('BITE')) {
+    fishingAct = { kind: 'jerk', at: fishingNow() + 0.2 + Math.random() * 0.15 };
+  } else if (title.startsWith('REEL')) {
+    fishingAct = { kind: 'reel', at: fishingNow() };
+  } else {
+    fishingAct = { kind: 'idle', at: 0 };
+  }
+}
 const PAD_PROFILES = {
   pad: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
   sumo: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
   derby: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: true },
-  fishing: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
+  fishing: { hz: 100, attitude: fishingPose, pressEvery: 0, hold: 0, turnBased: false },
 };
 const padProfile = PAD_PROFILES[game] ?? null;
 let padTimer = null;
@@ -141,6 +176,7 @@ function startPad() {
   if (padTimer || !padProfile) return;
   log(`pad: streaming attitude at ${padProfile.hz} Hz, A every ${padProfile.pressEvery} s`);
   const started = Date.now();
+  padStartedAt = started;
   let sent = 0;
   let pressAt = padProfile.pressEvery;
   let releaseAt = -1;
@@ -149,7 +185,7 @@ function startPad() {
     const due = Math.floor(t * padProfile.hz) + 1 - sent;
     for (let i = 0; i < Math.min(due, 3); i += 1) {
       const pose = padProfile.attitude((sent + 1) / padProfile.hz);
-      ws.send(attitudeFrame(sequence, pose.q, pose.gyro, Math.round(1000 / padProfile.hz)));
+      ws.send(attitudeFrame(sequence, pose.q, pose.gyro, Math.round(1000 / padProfile.hz), pose.gyroY ?? 0));
       sequence = (sequence + 1) & 255;
       stats.frames += 1;
       sent += 1;
@@ -218,7 +254,7 @@ function bladeQuaternion(pitch, yaw) {
     qy[3] * qx[3] - qy[0] * qx[0] - qy[1] * qx[1] - qy[2] * qx[2],
   ];
 }
-function attitudeFrame(sequence, q, gyroDegPerSec, dtMs) {
+function attitudeFrame(sequence, q, gyroDegPerSec, dtMs, gyroY = 0) {
   const buffer = new ArrayBuffer(38);
   const view = new DataView(buffer);
   const i16 = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
@@ -228,6 +264,7 @@ function attitudeFrame(sequence, q, gyroDegPerSec, dtMs) {
   view.setUint8(2, 0);
   view.setUint8(3, sequence & 255);
   view.setInt16(10, i16(gyroDegPerSec * 20), true);
+  view.setInt16(12, i16(gyroY * 20), true);
   view.setInt16(24, i16(-9.81 * 1000), true);
   view.setUint16(28, dtMs, true);
   for (let i = 0; i < 4; i += 1) view.setInt16(30 + i * 2, i16(q[i] * 16384), true);
@@ -426,6 +463,7 @@ ws.addEventListener('message', (event) => {
         const to = m.data?.playerId;
         if (to === playerId || to === '*') {
           padPrompts += 1;
+          if (game === 'fishing') fishingPrompt(String(m.data?.title ?? ''));
           log(`pad:prompt #${padPrompts} "${m.data?.title ?? ''}" / "${m.data?.subtitle ?? ''}" a="${m.data?.a ?? ''}" b="${m.data?.b ?? ''}" mode=${m.data?.mode ?? '-'} accent=${m.data?.accent ?? '-'}`);
         }
         break;

@@ -155,7 +155,7 @@ void SFishingHud::PaintLanes(const FKartPainter& P, const AFishingGame& G, float
 	const int32 N = M.Anglers.Num();
 	const float Gap = 18.f * S;
 	const float Width = FMath::Min(440.f * S, (P.Size().X * 0.94f - Gap * (N - 1)) / FMath::Max(1, N));
-	const float Height = 170.f * S;
+	const float Height = 150.f * S;
 	const float Left = (P.Size().X - (Width * N + Gap * (N - 1))) / 2.f;
 	const float Clock = static_cast<float>(G.GetClock());
 	for (int32 i = 0; i < N; ++i)
@@ -187,7 +187,7 @@ void SFishingHud::PaintLanes(const FKartPainter& P, const AFishingGame& G, float
 			P.Text(Chip, Font, ChipPos + FVector2D(W / 2.f, 12.f * S), KC::Night, FVector2D(0.5, 0.5));
 		}
 		// The working area: a meter (cast or tension) or what to do now.
-		const FVector2D Bar = Pos + FVector2D(22.f * S, 98.f * S);
+		const FVector2D Bar = Pos + FVector2D(22.f * S, 88.f * S);
 		const float BarW = Width - 44.f * S;
 		const double Charge = G.ChargeOf(i);
 		if (bFight)
@@ -205,7 +205,7 @@ void SFishingHud::PaintLanes(const FKartPainter& P, const AFishingGame& G, float
 			const float Wobble = bRun ? 2.f * FMath::Sin(Clock * 40.f) * S : 0.f;
 			P.Box(FVector2D(Needle - 3.f * S + Wobble, Bar.Y - 7.f * S), FVector2D(6.f * S, H + 14.f * S), KC::White, 3.f * S, KC::Night, 2.f * S);
 			// The two ways to lose it, filling up underneath.
-			const float Under = Bar.Y + H + 12.f * S;
+			const float Under = Bar.Y + H + 10.f * S;
 			const float Snap = static_cast<float>(FMath::Clamp(F.StrainMs / SnapStrainMs, 0.0, 1.0));
 			const float Slack = static_cast<float>(FMath::Clamp(F.SlackMs / EscapeSlackMs, 0.0, 1.0));
 			if (Snap > 0.f)
@@ -233,8 +233,8 @@ void SFishingHud::PaintLanes(const FKartPainter& P, const AFishingGame& G, float
 				Hint = NSLOCTEXT("Fishing", "TooSlack", "SLACK!  reel faster");
 				Ink = KC::Sky;
 			}
-			P.Text(Hint, KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X, Under + 22.f * S), Ink, FVector2D(0.0, 0.5));
-			P.Text(FString::Printf(TEXT("%.0f m"), F.DistanceM), KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X + BarW, Under + 22.f * S), KC::WithAlpha(KC::White, 0.8f), FVector2D(1.0, 0.5));
+			P.Text(Hint, KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X, Under + 19.f * S), Ink, FVector2D(0.0, 0.5));
+			P.Text(FString::Printf(TEXT("%.0f m"), F.DistanceM), KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X + BarW, Under + 19.f * S), KC::WithAlpha(KC::White, 0.8f), FVector2D(1.0, 0.5));
 		}
 		else if (Charge >= 0.0)
 		{
@@ -273,7 +273,7 @@ void SFishingHud::PaintLanes(const FKartPainter& P, const AFishingGame& G, float
 				break;
 			default: break;
 			}
-			P.Text(Line, KartUI::Font(EFont::Display, Size * S, 2.f * S, KC::Night), Pos + FVector2D(Width / 2.f, 128.f * S), Ink, FVector2D(0.5, 0.5), 3.f * S);
+			P.Text(Line, KartUI::Font(EFont::Display, Size * S, 2.f * S, KC::Night), Pos + FVector2D(Width / 2.f, 112.f * S), Ink, FVector2D(0.5, 0.5), 3.f * S);
 		}
 	}
 }

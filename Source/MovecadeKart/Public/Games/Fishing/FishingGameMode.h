@@ -39,6 +39,8 @@ public:
 
 	/** The pad:prompt for an angler's state (JSON), public for the tests. */
 	static FString PromptJson(const MovecadeKart::Fishing::FAngler& Angler, const FLinearColor& Accent);
+	/** The prompt's words and the phone's hint for an angler's moment. */
+	static void PromptFields(const MovecadeKart::Fishing::FAngler& Angler, FString& Title, FString& Subtitle, FString& ButtonA, FString& Mode);
 
 private:
 	void SetupTestHooks();

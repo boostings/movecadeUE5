@@ -1,4 +1,5 @@
 // Golden tests for Fishing Frenzy's rules and motion detector.
+#include "Games/Fishing/FishingGameMode.h"
 #include "Games/Fishing/FishingMotion.h"
 #include "Games/Fishing/FishingRules.h"
 #include "Misc/AutomationTest.h"
@@ -322,6 +323,17 @@ bool FFishingGoldenTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("golden far catches"), Far.Catches, GoldenFarCatches);
 	TestEqual(TEXT("golden near score"), Near.Score, GoldenNearScore);
 	TestEqual(TEXT("golden record"), A.RecordG, GoldenRecord);
+	{
+		// The motion pad prompts: flick to cast and hook, swing to reel.
+		FAngler P;
+		P.PlayerId = TEXT("p1");
+		const FString Cast = AFishingGameMode::PromptJson(P, FLinearColor::Red);
+		P.State = EAnglerState::Fighting;
+		const FString Reel = AFishingGameMode::PromptJson(P, FLinearColor::Red);
+		TestTrue(TEXT("cast prompt"), Cast.Contains(TEXT("\"title\":\"CAST!\"")) && Cast.Contains(TEXT("\"mode\":\"flick\"")) && Cast.Contains(TEXT("\"a\":\"HOLD TO CAST\"")) && Cast.Contains(TEXT("#ff0000")));
+		TestTrue(TEXT("reel prompt"), Reel.Contains(TEXT("\"mode\":\"swing\"")) && Reel.Contains(TEXT("REEL IT IN!")));
+		AddInfo(Cast);
+	}
 	return true;
 }
 

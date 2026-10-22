@@ -110,7 +110,7 @@ FLinearColor AFishingLake::LaneColor(int32 Lane)
 FVector AFishingLake::SunDirection()
 {
 	// Low over the far shore, a little right of centre: the glitter path runs up the lake toward the anglers.
-	return FVector(1.0, 0.16, 0.085).GetSafeNormal();
+	return FVector(1.0, 0.17, 0.12).GetSafeNormal();
 }
 
 void AFishingLake::OnConstruction(const FTransform& Transform)
@@ -228,22 +228,22 @@ void AFishingLake::BuildLook()
 	SkyLight->SetIntensity(1.25f);
 	SkyLight->bLowerHemisphereIsBlack = false;
 	SkyLight->SetLowerHemisphereColor(Hex(TEXT("#5a4a52")) * 0.6f);
-	const FLinearColor Top = Hex(TEXT("#34407a")), Horizon = Hex(TEXT("#ffa45c"));
+	const FLinearColor Top = Hex(TEXT("#1c2a70")), Horizon = Hex(TEXT("#ff8a3c"));
 	if (UMaterialInterface* SkyMaster = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 	{
 		UMaterialInstanceDynamic* Sky = UMaterialInstanceDynamic::Create(SkyMaster, this);
 		Sky->SetVectorParameterValue(TEXT("SkyTop"), Top);
-		Sky->SetVectorParameterValue(TEXT("SkyMid"), Hex(TEXT("#c76a7a")));
+		Sky->SetVectorParameterValue(TEXT("SkyMid"), Hex(TEXT("#d65a78")));
 		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), Horizon);
 		Sky->SetVectorParameterValue(TEXT("SkyBelow"), Hex(TEXT("#7a5048")));
 		Sky->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(ToSun.X, ToSun.Y, ToSun.Z, 0.0));
 		Sky->SetVectorParameterValue(TEXT("SunColor"), Hex(TEXT("#fff0c8")) * 1.6f);
 		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.9f * 0.035f));
-		Sky->SetScalarParameterValue(TEXT("SunGlow"), 1.1f);
-		Sky->SetScalarParameterValue(TEXT("GlowPower"), 9.0f);
-		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), 0.85f);
+		Sky->SetScalarParameterValue(TEXT("SunGlow"), 0.5f);
+		Sky->SetScalarParameterValue(TEXT("GlowPower"), 20.0f);
+		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), 0.35f);
 		Sky->SetScalarParameterValue(TEXT("TopCurve"), 0.6f);
-		Sky->SetScalarParameterValue(TEXT("Brightness"), 1.0f);
+		Sky->SetScalarParameterValue(TEXT("Brightness"), 0.55f);
 		if (UTexture* Clouds = LoadObject<UTexture>(nullptr, TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 		{
 			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
@@ -255,13 +255,13 @@ void AFishingLake::BuildLook()
 		SkyDome->SetMaterial(0, Sky);
 	}
 	SkyLight->RecaptureSky();
-	Fog->SetStartDistance(3500.f);
-	Fog->SetFogDensity(0.035f);
-	Fog->SetFogHeightFalloff(0.06f);
+	Fog->SetStartDistance(8000.f);
+	Fog->SetFogDensity(0.012f);
+	Fog->SetFogHeightFalloff(0.25f);
 	Fog->SetFogMaxOpacity(0.75f);
 	Fog->SetFogCutoffDistance(900000.f);
-	Fog->SetFogInscatteringColor(Hex(TEXT("#e8936a")) * 0.8f);
-	Fog->SetDirectionalInscatteringColor(Hex(TEXT("#ffbf7a")) * 0.6f);
+	Fog->SetFogInscatteringColor(Hex(TEXT("#f0a27a")) * 0.55f);
+	Fog->SetDirectionalInscatteringColor(Hex(TEXT("#ffbf7a")) * 0.2f);
 	Fog->SetDirectionalInscatteringExponent(5.f);
 	FPostProcessSettings& S = Grade->Settings;
 	S = FPostProcessSettings();
@@ -270,7 +270,7 @@ void AFishingLake::BuildLook()
 	S.bOverride_BloomIntensity = true;
 	S.BloomIntensity = 0.85f;
 	S.bOverride_AutoExposureBias = true;
-	S.AutoExposureBias = 0.35f;
+	S.AutoExposureBias = -0.15f;
 	S.bOverride_ColorSaturation = true;
 	S.ColorSaturation = FVector4(1.08f, 1.04f, 1.0f, 1.0f);
 }
@@ -290,10 +290,10 @@ void AFishingLake::BuildWater()
 		{
 			M->SetTextureParameterValue(TEXT("WaveNormal"), Waves);
 		}
-		M->SetScalarParameterValue(TEXT("WaveStrength"), 0.3f);
-		M->SetScalarParameterValue(TEXT("WaveTileA"), 5.0f);
-		M->SetScalarParameterValue(TEXT("WaveTileB"), 13.0f);
-		M->SetScalarParameterValue(TEXT("WaveTileC"), 41.0f);
+		M->SetScalarParameterValue(TEXT("WaveStrength"), 0.2f);
+		M->SetScalarParameterValue(TEXT("WaveTileA"), 9.0f);
+		M->SetScalarParameterValue(TEXT("WaveTileB"), 23.0f);
+		M->SetScalarParameterValue(TEXT("WaveTileC"), 71.0f);
 		M->SetVectorParameterValue(TEXT("Scattering"), FLinearColor(0.05f, 0.24f, 0.2f));
 		M->SetVectorParameterValue(TEXT("Absorption"), FLinearColor(0.36f, 0.08f, 0.06f));
 		M->SetScalarParameterValue(TEXT("PhaseG"), 0.3f);
@@ -326,7 +326,7 @@ void AFishingLake::BuildDock()
 	{
 		const double X = Back + 12.0 + i * 24.0;
 		const double Lift = R.FRandRange(-0.6f, 0.6f);
-		Box(Plank, FVector(X, R.FRandRange(-6.f, 6.f), DeckZ - 2.5 + Lift), FVector(22.0, HalfW * 2.0 + R.FRandRange(-10.f, 10.f), 5.0), FRotator(0.0, R.FRandRange(-0.6f, 0.6f), 0.0));
+		Box(Plank, FVector(X, R.FRandRange(-6.f, 6.f), DeckZ - 2.5 + Lift), FVector(23.2, HalfW * 2.0 + R.FRandRange(-10.f, 10.f), 5.0), FRotator(0.0, R.FRandRange(-0.6f, 0.6f), 0.0));
 	}
 	for (const double Side : { -1.0, 1.0 })
 	{
@@ -442,15 +442,15 @@ void AFishingLake::BuildShores()
 		Tree(FVector2D(R.FRandRange(-1500.f, 15500.f), Side * R.FRandRange(4400.f, 15000.f)), R.FRandRange(0.8f, 1.8f));
 	}
 	// Rounded hills beyond, fading into the haze: three ranks, cooler and darker the farther they are.
-	const TCHAR* const HillColors[] = { TEXT("#3c5236"), TEXT("#3d4b52"), TEXT("#4f5272") };
+	const TCHAR* const HillColors[] = { TEXT("#2c3a3a"), TEXT("#363c5c"), TEXT("#4c4c78") };
 	for (int32 Rank = 0; Rank < 3; ++Rank)
 	{
 		UMaterialInterface* M = Plain(this, Hex(HillColors[Rank]), 0.95);
 		for (int32 i = 0; i < 9; ++i)
 		{
-			const double X = 24000.0 + Rank * 14000.0 + R.FRandRange(-2000.f, 2000.f);
+			const double X = 30000.0 + Rank * 16000.0 + R.FRandRange(-2000.f, 2000.f);
 			const double Y = -42000.0 + i * 10500.0 + R.FRandRange(-2500.f, 2500.f);
-			const double Rx = R.FRandRange(9000.f, 15000.f), Rz = R.FRandRange(2600.f, 5200.f) * (1.0 + Rank * 0.5);
+			const double Rx = R.FRandRange(9000.f, 15000.f), Rz = R.FRandRange(1100.f, 2200.f) * (1.0 + Rank * 0.7);
 			Group(Sphere, M, false)->AddInstance(FTransform(FRotator(0.0, R.FRandRange(0.f, 180.f), 0.0), FVector(X, Y, -Rz * 0.25), FVector(Rx / 50.0, Rx / 50.0 * 0.7, Rz / 50.0)), true);
 		}
 	}
@@ -535,7 +535,7 @@ void AFishingLake::BuildShallows()
 	for (int32 b = 0; b < 3; ++b)
 	{
 		UMaterialInterface* Paint = Plain(this, Hex(BandColors[b]), 0.35, 0.0, 0.25);
-		for (int32 g = 0; g <= Lanes; ++g)
+		for (const int32 g : { 0, Lanes })
 		{
 			const double Lateral = g == 0 ? -1.3 : (g == Lanes ? 1.3 : 0.0);
 			const int32 L = FMath::Clamp(g == Lanes ? g - 1 : g, 0, Lanes - 1);

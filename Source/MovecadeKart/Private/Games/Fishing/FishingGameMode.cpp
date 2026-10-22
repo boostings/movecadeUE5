@@ -27,6 +27,15 @@ namespace
 		return GI ? GI->GetSubsystem<URoomHostSubsystem>() : nullptr;
 	}
 
+	FString HexOf(const FLinearColor& C);
+
+	void SendPrompt(URoomHostSubsystem* Room, const FAngler& A)
+	{
+		FString Title, Subtitle, ButtonA, Mode;
+		AFishingGameMode::PromptFields(A, Title, Subtitle, ButtonA, Mode);
+		Room->SendPadPrompt(A.PlayerId, Title, Subtitle, ButtonA, FString(), HexOf(AFishingLake::LaneColor(A.LaneIndex)), Mode);
+	}
+
 	FString HexOf(const FLinearColor& C)
 	{
 		const FColor S = C.ToFColor(true);
@@ -42,8 +51,15 @@ AFishingGameMode::AFishingGameMode()
 
 FString AFishingGameMode::PromptJson(const FAngler& A, const FLinearColor& Accent)
 {
-	using MovecadeKart::Net::QuoteJson;
-	FString Title, Subtitle, ButtonA, Mode = TEXT("flick");
+	FString Title, Subtitle, ButtonA, Mode;
+	PromptFields(A, Title, Subtitle, ButtonA, Mode);
+	return MovecadeKart::Net::PadPromptData(A.PlayerId, Title, Subtitle, ButtonA, FString(), HexOf(Accent), Mode);
+}
+
+void AFishingGameMode::PromptFields(const FAngler& A, FString& Title, FString& Subtitle, FString& ButtonA, FString& Mode)
+{
+	Mode = TEXT("flick");
+	ButtonA.Reset();
 	switch (A.State)
 	{
 	case EAnglerState::Idle:
@@ -69,15 +85,13 @@ FString AFishingGameMode::PromptJson(const FAngler& A, const FLinearColor& Accen
 		break;
 	case EAnglerState::Landed:
 		Title = FString::Printf(TEXT("%s!"), Species()[A.LastCatch.Species].Name);
-		Subtitle = Species()[A.LastCatch.Species].Kind == EKind::Junk ? TEXT("Junk. Back in the lake it goes.") : FString::Printf(TEXT("%s on the scale"), *FormatWeight(A.LastCatch.WeightG));
+		Subtitle = Species()[A.LastCatch.Species].Kind == EKind::Junk ? FString(TEXT("Junk. Back in the lake it goes.")) : FString::Printf(TEXT("%s on the scale"), *FormatWeight(A.LastCatch.WeightG));
 		break;
 	case EAnglerState::Lost:
 		Title = A.LastLoss == ELoss::Snap ? TEXT("Line snapped!") : (A.LastLoss == ELoss::Escape ? TEXT("It got away!") : TEXT("Bait stolen!"));
 		Subtitle = A.LastLoss == ELoss::Snap ? TEXT("Too much tension. Ease off when it runs.") : (A.LastLoss == ELoss::Escape ? TEXT("Too slack. Keep reeling.") : TEXT("Hook faster when it bites."));
 		break;
 	}
-	return FString::Printf(TEXT("{\"playerId\":%s,\"title\":%s,\"subtitle\":%s,\"a\":%s,\"b\":\"\",\"accent\":%s,\"mode\":%s}"), *QuoteJson(A.PlayerId), *QuoteJson(Title),
-		*QuoteJson(Subtitle), *QuoteJson(ButtonA), *QuoteJson(HexOf(Accent)), *QuoteJson(Mode));
 }
 
 void AFishingGameMode::StartPlay()
@@ -197,20 +211,16 @@ void AFishingGameMode::BindRoom()
 	GameEventHandle = Room->OnGameEvent.AddLambda([WeakGame](const FString& From, const FString& Event, const TSharedPtr<FJsonObject>& Data)
 	{
 		AFishingGame* G = WeakGame.Get();
-		FString Button = TEXT("a");
-		if (Data.IsValid())
-		{
-			Data->TryGetStringField(TEXT("button"), Button);
-		}
-		if (!G || Button != TEXT("a"))
+		TCHAR Button = 0;
+		if (!G || !Data.IsValid() || !MovecadeKart::Net::ReadPadButton(*Data, Button) || Button != TEXT('a'))
 		{
 			return;
 		}
-		if (Event == TEXT("pad:press"))
+		if (Event == MovecadeKart::Net::PadPressEvent)
 		{
 			G->PadPress(From);
 		}
-		else if (Event == TEXT("pad:release"))
+		else if (Event == MovecadeKart::Net::PadReleaseEvent)
 		{
 			G->PadRelease(From);
 		}
@@ -226,7 +236,7 @@ void AFishingGameMode::BindRoom()
 				const FFishingSeat* Seat = Game->SeatOf(A.PlayerId);
 				if (Seat && Seat->Kind == EAnglerKind::Phone)
 				{
-					R->SendGameEvent(TEXT("pad:prompt"), PromptJson(A, AFishingLake::LaneColor(A.LaneIndex)));
+					SendPrompt(R, A);
 				}
 			}
 		}
@@ -237,7 +247,7 @@ void AFishingGameMode::BindRoom()
 		const FFishingSeat* Seat = Game ? Game->SeatOf(A.PlayerId) : nullptr;
 		if (R && Seat && Seat->Kind == EAnglerKind::Phone && A.State != EAnglerState::Casting)
 		{
-			R->SendGameEvent(TEXT("pad:prompt"), PromptJson(A, AFishingLake::LaneColor(A.LaneIndex)));
+			SendPrompt(R, A);
 		}
 	};
 	// Toasts and haptics: a buzz on the nibble, a hard one on the bite, a celebration on the catch.
