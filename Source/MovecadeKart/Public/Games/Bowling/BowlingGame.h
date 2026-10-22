@@ -8,7 +8,7 @@
 #include "Games/Bowling/BowlingRules.h"
 #include "Games/Bowling/BowlingSim.h"
 #include "Games/Bowling/BowlingThrow.h"
-#include "KartLook.h"
+#include "Games/Bowling/BowlingTypes.h"
 #include "BowlingGame.generated.h"
 
 class ABowlingAlley;
@@ -19,94 +19,6 @@ class SBowlingHud;
 class UInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
-
-UENUM()
-enum class EBowlingPhase : uint8
-{
-	/** The intro card: the lane at rest, nobody up yet. */
-	Intro,
-	Aiming,
-	Delivery,
-	Rolling,
-	Settling,
-	Reset,
-	Finished,
-};
-
-UENUM()
-enum class EBowlerKind : uint8
-{
-	/** Keyboard, mouse or a gamepad on this machine (turn-based: whoever is up uses any of them). */
-	Local,
-	/** A phone in the room: its own detector decides the throw (bowling:release). */
-	Phone,
-	Bot,
-};
-
-/** How a roll reads (presentation.ts classifyBowlingBeat), in that order of precedence. */
-enum class EBowlingBeat : uint8
-{
-	None,
-	Gutter,
-	SplitConvert,
-	Turkey,
-	Strike,
-	Spare,
-	Split,
-	Good,
-	Open,
-};
-
-/** Where a line meets the rack, as the commentary reads it (presentation only). */
-enum class EBowlingLine : uint8
-{
-	Pocket,
-	/** A spare ball through the pins that are left. */
-	OnTarget,
-	Brooklyn,
-	HeadOn,
-	Light,
-	Wide,
-	Gutter,
-};
-
-USTRUCT()
-struct FBowlerSeat
-{
-	GENERATED_BODY()
-
-	FString Id;
-	FString Name;
-	FLinearColor Color = FLinearColor::White;
-	EBowlerKind Kind = EBowlerKind::Bot;
-	/** Bots: 0 wild .. 1 steady. */
-	float Skill = 0.6f;
-	FKartLook Look;
-	/** Strikes in a row for this bowler (W3: per player, not across the lane). */
-	int32 Streak = 0;
-};
-
-/** The local bowler's live inputs (keyboard, gamepad, mouse), shown by the HUD's guide and meter. */
-struct FLocalBowl
-{
-	double Aim = 0.0;
-	double Curve = 0.0;
-	bool bGripped = false;
-	double GripAt = 0.0;
-	/** 0..1: the oscillating meter (keys, pad) or the flick's speed (mouse). */
-	double Power = 0.0;
-	bool bMouseFlick = false;
-};
-
-/** How the last throw left the hand, for the HUD's swing read-out (presentation only). */
-struct FBowlingSwing
-{
-	double At = -100.0;
-	double Speed = 0.0;
-	double Power = 0.0;
-	double Curve = 0.0;
-	EBowlingLine Line = EBowlingLine::Light;
-};
 
 /**
  * One game of Bowling on the alley's middle lane (Docs/Port/06-bowling.md): 1-4 bowlers taking frames in turn,
@@ -124,7 +36,8 @@ class MOVECADEKART_API ABowlingGame : public AActor, public IArcadeGame
 public:
 	ABowlingGame();
 
-	void Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSeats, APlayerController* InViewer);
+	void Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSeats, APlayerController* InViewer,
+		const FBowlingDebugFlags& InDebugFlags = FBowlingDebugFlags());
 
 	/**
 	 * A phone's release (bowling:release): only from the bowler up, while aiming. One that arrives while the intro
@@ -134,10 +47,6 @@ public:
 
 	/** A phone's sensor frame: the bowler up's arm and lane guide follow it (the release itself comes from the phone). */
 	void FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSensorFrame& Frame);
-
-	/** The room paused (a phone dropped): everything holds, with no catch-up on resume. */
-	void SetPaused(bool bInPaused) { bPaused = bInPaused; }
-	bool IsPaused() const { return bPaused; }
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -189,6 +98,7 @@ public:
 	// IArcadeGame (SArcadeOverlay: pause, results, play again, next game) -----------------------------------
 	virtual FString GetArcadeId() const override { return TEXT("bowling"); }
 	virtual double GetArcadeFinishedAge() const override { return GetFinishedAge(); }
+	/** The local pause or the room's (a phone dropped): everything holds, with no catch-up on resume. */
 	virtual void SetArcadePaused(bool bInPaused) override { bPaused = bInPaused; }
 	virtual bool IsArcadePaused() const override { return bPaused; }
 	virtual void ArcadeRestart() override;
@@ -277,6 +187,7 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> TargetMaterial;
 
 	TArray<FBowlerSeat> Seats;
+	FBowlingDebugFlags DebugFlags;
 	int32 BowlerSeat = INDEX_NONE;
 	MovecadeKart::Bowling::FMatch Match;
 	MovecadeKart::Bowling::FPinSolver Solver;

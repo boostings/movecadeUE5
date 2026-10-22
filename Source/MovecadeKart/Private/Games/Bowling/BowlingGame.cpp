@@ -173,10 +173,12 @@ EBowlingLine ABowlingGame::ReadLine(double EndX, bool bGutter, const TArray<int3
 	return FMath::Abs(EndX) > 0.3 ? EBowlingLine::Wide : EBowlingLine::Light;
 }
 
-void ABowlingGame::Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSeats, APlayerController* InViewer)
+void ABowlingGame::Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSeats, APlayerController* InViewer,
+	const FBowlingDebugFlags& InDebugFlags)
 {
 	Alley = InAlley;
 	Seats = InSeats;
+	DebugFlags = InDebugFlags;
 	Viewer = InViewer;
 	TArray<FString> Order;
 	for (const FBowlerSeat& Seat : Seats)
@@ -915,7 +917,7 @@ void ABowlingGame::UpdateBot()
 		}
 		AimAt = Sum / Standing.Num();
 	}
-	if (Standing.Num() == 10 && FParse::Param(FCommandLine::Get(), TEXT("BowlShowcase")))
+	if (Standing.Num() == 10 && DebugFlags.bShowcase)
 	{
 		Launch(ShowcaseShot());
 		return;
