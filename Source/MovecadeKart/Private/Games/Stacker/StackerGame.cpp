@@ -19,6 +19,7 @@
 #include "InputCoreTypes.h"
 #include "KartCoords.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Misc/CommandLine.h"
 #include "Net/RoomProtocol.h"
 #include "SceneView.h"
 
@@ -80,7 +81,7 @@ namespace
 	}
 
 	/**
-	 * blockSurface.ts as geometry: a rounded panel (UE cm, X deep, Y wide, Z tall) with a frame, nine ribs and four
+	 * blockSurface.ts as geometry: a rounded panel (UE cm, X deep, Y wide, Z tall) with a frame, five ribs and four
 	 * corner bolts pressed into its two broad faces in a darker trim, and a light edge catching the sun along the top.
 	 * Slot 0 the panel (the lane's paint), slot 1 the trim, slot 2 the highlight.
 	 */
@@ -139,25 +140,26 @@ namespace
 		{
 			const double X = Side * (H.X + 0.5);
 			const double FlatY = H.Y - R + 4.0, FlatZ = H.Z - 3.0;
-			B.Box(TEXT("Trim"), FVector(X, 0.0, FlatZ - 1.0), FVector(0.8, FlatY, 1.0), FVector2D::ZeroVector);
-			B.Box(TEXT("Trim"), FVector(X, 0.0, -FlatZ + 1.0), FVector(0.8, FlatY, 1.0), FVector2D::ZeroVector);
-			B.Box(TEXT("Trim"), FVector(X, FlatY - 0.9, 0.0), FVector(0.8, 0.9, FlatZ), FVector2D::ZeroVector);
-			B.Box(TEXT("Trim"), FVector(X, -FlatY + 0.9, 0.0), FVector(0.8, 0.9, FlatZ), FVector2D::ZeroVector);
-			for (int32 k = 0; k < 9; ++k)
+			// Chunky enough to stay crisp at a distance (fine trim shimmers under TSR at a quarter of the screen).
+			B.Box(TEXT("Trim"), FVector(X, 0.0, FlatZ - 1.6), FVector(0.8, FlatY, 1.6), FVector2D::ZeroVector);
+			B.Box(TEXT("Trim"), FVector(X, 0.0, -FlatZ + 1.6), FVector(0.8, FlatY, 1.6), FVector2D::ZeroVector);
+			B.Box(TEXT("Trim"), FVector(X, FlatY - 1.8, 0.0), FVector(0.8, 1.8, FlatZ), FVector2D::ZeroVector);
+			B.Box(TEXT("Trim"), FVector(X, -FlatY + 1.8, 0.0), FVector(0.8, 1.8, FlatZ), FVector2D::ZeroVector);
+			for (int32 k = 0; k < 5; ++k)
 			{
-				const double Y = FMath::Lerp(-FlatY + 7.5, FlatY - 7.5, k / 8.0);
-				B.Box(TEXT("Trim"), FVector(X, Y, 0.0), FVector(0.55, 0.7, FlatZ - 4.5), FVector2D::ZeroVector);
-				B.Box(TEXT("Light"), FVector(X, Y + 1.1, 0.0), FVector(0.45, 0.35, FlatZ - 4.5), FVector2D::ZeroVector);
+				const double Y = FMath::Lerp(-FlatY + 11.0, FlatY - 11.0, k / 4.0);
+				B.Box(TEXT("Trim"), FVector(X, Y, 0.0), FVector(0.55, 1.6, FlatZ - 5.5), FVector2D::ZeroVector);
+				B.Box(TEXT("Light"), FVector(X, Y + 2.4, 0.0), FVector(0.45, 0.8, FlatZ - 5.5), FVector2D::ZeroVector);
 			}
 			for (const double By : { -1.0, 1.0 })
 			{
 				for (const double Bz : { -1.0, 1.0 })
 				{
-					const FVector At(X, By * (FlatY - 4.0), Bz * (FlatZ - 4.6));
-					B.Cylinder(TEXT("Trim"), At, At + FVector(Side * 1.4, 0.0, 0.0), 1.5, 8, FVector2D::ZeroVector);
+					const FVector At(X, By * (FlatY - 6.0), Bz * (FlatZ - 6.0));
+					B.Cylinder(TEXT("Trim"), At, At + FVector(Side * 1.6, 0.0, 0.0), 2.4, 10, FVector2D::ZeroVector);
 				}
 			}
-			B.Box(TEXT("Light"), FVector(X, 0.0, FlatZ + 1.2), FVector(0.4, FlatY - 1.0, 0.45), FVector2D::ZeroVector);
+			B.Box(TEXT("Light"), FVector(X, 0.0, FlatZ + 1.4), FVector(0.4, FlatY - 2.0, 0.9), FVector2D::ZeroVector);
 		}
 		return B.Build(Outer, TEXT("StackerBlock"));
 	}
@@ -186,6 +188,18 @@ namespace
 		Out.bPerfect = Offset <= Tolerance;
 		Out.bMiss = !Out.bPerfect && Out.Right - Out.Left < MinWidth - 1e-9;
 		return Out;
+	}
+
+	/** Where an unused instance slot waits: shrunk to nothing under the deck (near, so the batch bounds stay tight). */
+	const FTransform& Parked()
+	{
+		static const FTransform Spot(FQuat::Identity, FVector(0.0, 0.0, -150.0), FVector(0.001));
+		return Spot;
+	}
+
+	bool IsParked(const FTransform& T)
+	{
+		return T.GetScale3D().X < 0.002;
 	}
 
 	/** A roll about the depth axis that tips the top toward +web x by Degrees. */
@@ -259,6 +273,8 @@ UInstancedStaticMeshComponent* AStackerGame::MakeBatch(const TCHAR* Name, UStati
 	C->SetMobility(EComponentMobility::Movable);
 	C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	C->SetCastShadow(bShadows);
+	// Keep each instance's previous transform, for motion vectors as the towers sway and compress.
+	C->SetHasPerInstancePrevTransforms(true);
 	C->RegisterComponent();
 	return C;
 }
@@ -369,6 +385,7 @@ void AStackerGame::Setup(AStackerRooftop* InRooftop, const TArray<FStackerSeat>&
 	}
 	BatchState.SetNum(Batches.Num());
 	Birds = MakeBatch(TEXT("Birds"), Cube, { Plain(this, Hex(TEXT("#4c3973")), 0.7) }, false);
+	Birds->SetHasPerInstancePrevTransforms(false);
 
 	Camera = GetWorld()->SpawnActor<ACameraActor>();
 	Camera->GetCameraComponent()->SetConstraintAspectRatio(false);
@@ -551,6 +568,12 @@ void AStackerGame::SteerLocal(FLane& Lane, FTower& Tower, float Dt)
 		}
 	}
 	// Leaning the palm is "roll" on the phone: a stick to the right tips the tower right.
+	// Test hook (-StackerLeanTest): the palm tips hard right from ten seconds in, to see the coach, the danger and the topple.
+	static const bool bLeanTest = FParse::Param(FCommandLine::Get(), TEXT("StackerLeanTest"));
+	if (bLeanTest && Match.ElapsedMs > 10000.0)
+	{
+		StickX = 1.f;
+	}
 	Tower.Balance.Roll = FMath::Clamp(FMath::Clamp(StickX, -1.f, 1.f) * 30.0 + Lane.MouseRoll, -35.0, 35.0);
 	Tower.Balance.Pitch = FMath::Clamp(FMath::Clamp(StickY, -1.f, 1.f) * 30.0 + Lane.MousePitch, -35.0, 35.0);
 	(void)Dt;
@@ -689,11 +712,11 @@ void AStackerGame::PresentEffect(const FEffect& E)
 		Fx::FKartFxEmit Twinkle;
 		Twinkle.Field = Fx::EField::Flare;
 		Twinkle.Position = At + FVector(-80.0, 0.0, 22.0);
-		Twinkle.Count = 5 + FMath::Min(Tower.Combo, 5);
+		Twinkle.Count = 4 + FMath::Min(Tower.Combo, 3);
 		Twinkle.Spread = 0.6;
 		Twinkle.Speed = FVector2D(0.2, 0.7);
 		Twinkle.Life = FVector2D(0.35, 0.65);
-		Twinkle.Size = FVector2D(0.14, 0.26);
+		Twinkle.Size = FVector2D(0.1, 0.18);
 		Twinkle.SizeEnd = 0.1;
 		Twinkle.Color = FLinearColor::White;
 		Twinkle.ColorEnd = FMath::Lerp(Color, FLinearColor::White, 0.5f);
@@ -841,6 +864,7 @@ void AStackerGame::Tick(float DeltaSeconds)
 		const int32 Step = FMath::Min(6, Band - 1);
 		Cues.Play(this, TEXT("stacker.altitude"), 0.75f + 0.25f * Step / 6.f, FMath::Pow(2.f, 2.f * Step / 12.f));
 	}
+	ResetBatches();
 	UpdateTowers(Dt);
 	UpdateShards();
 	UpdateBuilders(Dt);
@@ -857,29 +881,39 @@ void AStackerGame::FlushBatch(int32 Index)
 {
 	UInstancedStaticMeshComponent* Batch = Batches[Index];
 	FBatch& State = BatchState[Index];
-	bool bSame = State.Want.Num() == State.Have.Num();
+	if (Batch->GetInstanceCount() != State.Want.Num())
+	{
+		// The first flush lays out every slot; after that the count never changes.
+		Batch->ClearInstances();
+		Batch->AddInstances(State.Want, false, false, false);
+		State.Have = State.Want;
+		return;
+	}
+	bool bSame = true;
 	for (int32 k = 0; bSame && k < State.Want.Num(); ++k)
 	{
 		bSame = State.Want[k].Equals(State.Have[k], 0.01);
 	}
 	if (!bSame)
 	{
-		if (State.Want.Num() == Batch->GetInstanceCount())
+		// Last frame's transform of the same slot is the previous one, so the renderer has true motion vectors (no
+		// TSR smear); a slot coming out of hiding starts still rather than streaking in from the parking spot.
+		State.Prev.SetNum(State.Want.Num(), EAllowShrinking::No);
+		for (int32 k = 0; k < State.Want.Num(); ++k)
 		{
-			// With last frame's transforms as the previous ones, so the renderer has real motion vectors (no TSR smear).
-			Batch->BatchUpdateInstancesTransforms(0, State.Want, State.Have, false, true, false);
+			State.Prev[k] = IsParked(State.Have[k]) ? State.Want[k] : State.Have[k];
 		}
-		else
-		{
-			Batch->ClearInstances();
-			if (State.Want.Num() > 0)
-			{
-				Batch->AddInstances(State.Want, false, false, false);
-			}
-		}
+		Batch->BatchUpdateInstancesTransforms(0, State.Want, State.Prev, false, true, false);
 		Swap(State.Have, State.Want);
 	}
-	State.Want.Reset();
+}
+
+void AStackerGame::ResetBatches()
+{
+	for (int32 b = 0; b < BatchState.Num(); ++b)
+	{
+		BatchState[b].Want.Init(Parked(), b % BatchesPerLane == BlockKinds ? MaxShards : MaxTowerHeight + 1);
+	}
 }
 
 void AStackerGame::UpdateTowers(float Dt)
@@ -926,16 +960,18 @@ void AStackerGame::UpdateTowers(float Dt)
 			const double T = FMath::Min(1.0, B.AgeMs / 280.0);
 			const double Sq = T < 1.0 ? FMath::Pow(1.0 - T, 1.5) * FMath::Cos(3.0 * PI * T) : 0.0;
 			const double F = static_cast<double>(k + 1) / Len;
-			const double X = Lane.LaneX + B.Center + Sway * F + (0.05 * Shiver + 0.4 * Shudder) * F * F * Live;
+			// The bend is anchored at the foundation (it never tips) and builds up the tower; a short stack bends less.
+			const double Bend = static_cast<double>(k) / FMath::Max(Len - 1, 4);
+			const double X = Lane.LaneX + B.Center + Sway * F + (0.05 * Shiver + 0.4 * Shudder) * Bend * Bend * Live;
 			const double Y = (k - Scroll) * RowH + RowH / 2.0 - FMath::Max(0.0, Sq) * 0.08;
 			if (Y < -1.0)
 			{
 				continue;
 			}
-			const double TiltDeg = (LeanRatio * 4.5 + Shiver * 2.2 + Shudder * 9.0) * F * Live;
+			const double TiltDeg = (LeanRatio * 4.5 + Shiver * 2.2 + Shudder * 9.0) * Bend * Live;
 			const FVector Scale(1.0 + 0.2 * Sq, B.Width * (1.0 + 0.32 * Sq), (1.0 - 0.5 * Sq) * RowH / RowHeight);
 			const int32 Kind = bDim ? Dimmed : (B.bPerfect ? (bFlash && k == Len - 1 ? Flashing : Bright) : (k % 2 ? Odd : Even));
-			BatchState[i * BatchesPerLane + Kind].Want.Add(FTransform(Tip(TiltDeg), W(FVector(X, Y, 0.0)), Scale));
+			BatchState[i * BatchesPerLane + Kind].Want[k] = FTransform(Tip(TiltDeg), W(FVector(X, Y, 0.0)), Scale);
 		}
 		// The sweeping block: hidden while it reloads (the cooldown) and while the tower recovers.
 		UStaticMeshComponent* Cursor = Cursors[i];
@@ -1049,7 +1085,7 @@ void AStackerGame::UpdateShards()
 		const double Life = FMath::Max(0.0, Shard.TtlMs / Shard.DurationMs);
 		const double Tumble = 1.0 - Life;
 		const FVector Pos(Lanes[i].LaneX + Shard.X, (Shard.Row - Lanes[i].Scroll) * RowHeight + RowHeight / 2.0 + Shard.Y, 0.0);
-		BatchState[i * BatchesPerLane + BlockKinds].Want.Add(FTransform(FRotator(0.0, -FMath::RadiansToDegrees(Tumble * Shard.Spin * 0.45), -FMath::RadiansToDegrees(Tumble * Shard.Spin)), W(Pos),
+		BatchState[i * BatchesPerLane + BlockKinds].Want[Shard.Id % MaxShards] = (FTransform(FRotator(0.0, -FMath::RadiansToDegrees(Tumble * Shard.Spin * 0.45), -FMath::RadiansToDegrees(Tumble * Shard.Spin)), W(Pos),
 			FVector(FMath::Max(0.01, Life), FMath::Max(0.01, Shard.Width * Life), FMath::Max(0.01, Life))));
 	}
 	LastSeenShardId = Newest;
@@ -1205,18 +1241,22 @@ void AStackerGame::UpdateBeats(float Dt)
 			Wings.Add(FTransform(Tip(Flap), W(FVector(X + 0.24, Y, Z)), Scale));
 		}
 	}
-	if (Wings.Num() != Birds->GetInstanceCount())
+	// Fixed slots, parked between beats; written only while a flight is up (and once more to park it).
+	const bool bFlying = Wings.Num() > 0;
+	while (Wings.Num() < BirdCount * 2)
+	{
+		Wings.Add(Parked());
+	}
+	if (Birds->GetInstanceCount() != Wings.Num())
 	{
 		Birds->ClearInstances();
-		if (Wings.Num() > 0)
-		{
-			Birds->AddInstances(Wings, false, false, false);
-		}
+		Birds->AddInstances(Wings, false, false, false);
 	}
-	else if (Wings.Num() > 0)
+	else if (bFlying || bBirdsOut)
 	{
 		Birds->BatchUpdateInstancesTransforms(0, Wings, false, true, true);
 	}
+	bBirdsOut = bFlying;
 }
 
 void AStackerGame::UpdateCoach(float Dt)
@@ -1239,7 +1279,7 @@ void AStackerGame::UpdateCoach(float Dt)
 		const FVector2D Wind = WindAt(Match.ElapsedMs, Tower.Height());
 		const double Limit = BalanceLimit(Tower.Height(), Tower.Top().Width);
 		const double Ratio = FMath::Abs(Tower.Balance.LeanX) / Limit;
-		const bool bWindy = FMath::Abs(Wind.X) > 2.2;
+		const bool bWindy = FMath::Abs(Wind.X) > 1.0;
 		const bool bLeaning = Ratio > SteadyBalanceRatio || Tower.Balance.DangerMs > 0.0;
 		if (bWindy && !bLeaning)
 		{
@@ -1249,7 +1289,7 @@ void AStackerGame::UpdateCoach(float Dt)
 		{
 			GCoachLeanDone = true;
 		}
-		WantLean = !GCoachLeanDone && bLive && bWindy && (bLeaning || CoachLeanShown < 2.5) ? 1.f : 0.f;
+		WantLean = !GCoachLeanDone && bLive && (bLeaning || (bWindy && CoachLeanShown < 2.5)) ? 1.f : 0.f;
 		// Push the palm against whatever is tipping the tower: the lean itself once it shows, else the wind.
 		const double Push = Ratio > 0.25 ? -Tower.Balance.LeanX : -Wind.X;
 		Coach.LeanSide = Push >= 0.0 ? 1.f : -1.f;

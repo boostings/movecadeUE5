@@ -278,7 +278,7 @@ void AStackerRooftop::BuildLook()
 		Sky->SetVectorParameterValue(TEXT("SkyMid"), FMath::Lerp(Horizon, Top, 0.4f));
 		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), Horizon);
 		Sky->SetVectorParameterValue(TEXT("SkyBelow"), Hex(TEXT("#8c7a6a")));
-		const FVector SunDir = Coords::DirToUE(FVector(0.42, 0.13, -1.0)).GetSafeNormal();
+		const FVector SunDir = Coords::DirToUE(FVector(0.36, 0.085, -1.0)).GetSafeNormal();
 		Sky->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(SunDir.X, SunDir.Y, SunDir.Z, 0.0));
 		Sky->SetVectorParameterValue(TEXT("SunColor"), Hex(TEXT("#ffcf94")));
 		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.035f));

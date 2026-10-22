@@ -16,7 +16,7 @@ namespace
 	/** A life: a small block. */
 	void LifeBlock(const FKartPainter& P, const FVector2D& C, float S, const FLinearColor& Fill)
 	{
-		P.Box(C - FVector2D(14.f, 7.f) * S, FVector2D(28.f, 14.f) * S, Fill, 4.f * S);
+		P.Box(C - FVector2D(12.f, 7.f) * S, FVector2D(24.f, 14.f) * S, Fill, 4.f * S);
 	}
 
 	/** An arrow pointing along Dir (+1 right, -1 left), its tip at Tip. */
@@ -150,10 +150,26 @@ void SStackerHud::PaintLanes(const FKartPainter& P, const AStackerGame& G, const
 {
 	const FMatch& M = G.GetMatch();
 	const int32 Span = G.LaneSpan();
-	const float Width = FMath::Min(460.f * S, (P.Size().X * 0.92f) / FMath::Max(1, M.Towers.Num()) - 24.f * S);
 	const float Height = PanelHeight * S;
 	LaneText.SetNum(M.Towers.Num());
 	PanelAt.SetNum(M.Towers.Num());
+	// Each panel sits under its lane; as wide as the space to its neighbours allows (never overlapping them).
+	TArray<float, TInlineAllocator<4>> Centres;
+	for (const FTower& Tower : M.Towers)
+	{
+		FVector2D At01(0.5, 0.9);
+		View.Project(AStackerGame::W(FVector(AStackerRooftop::LaneX(Tower.LaneIndex, Span), -0.7, 2.5)), At01);
+		Centres.Add(static_cast<float>(At01.X * P.Size().X));
+	}
+	float Width = FMath::Min(460.f * S, (P.Size().X * 0.96f) / FMath::Max(1, M.Towers.Num()) - 16.f * S);
+	for (int32 a = 0; a < Centres.Num(); ++a)
+	{
+		for (int32 b = a + 1; b < Centres.Num(); ++b)
+		{
+			Width = FMath::Min(Width, FMath::Abs(Centres[a] - Centres[b]) - 10.f * S);
+		}
+	}
+	Width = FMath::Max(Width, 300.f * S);
 	for (int32 t = 0; t < M.Towers.Num(); ++t)
 	{
 		const FTower& Tower = M.Towers[t];
@@ -161,12 +177,9 @@ void SStackerHud::PaintLanes(const FKartPainter& P, const AStackerGame& G, const
 		const FStackerSeat* Seat = G.SeatOf(Tower.PlayerId);
 		const bool bHuman = Seat && Seat->Kind != EBuilderKind::Bot;
 		const FLinearColor Color = AStackerRooftop::LaneColor(Tower.LaneIndex);
-		FVector2D At01(0.5, 0.9);
-		if (View.Project(AStackerGame::W(FVector(AStackerRooftop::LaneX(Tower.LaneIndex, Span), -0.7, 2.5)), At01))
-		{
-			At01.X = FMath::Clamp(At01.X, 0.13, 0.87);
-		}
-		const FVector2D Pos(At01.X * P.Size().X - Width / 2.f, P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Height);
+		const float Margin = 24.f * S + Width / 2.f;
+		const float Centre = FMath::Clamp(Centres[t], Margin, static_cast<float>(P.Size().X) - Margin);
+		const FVector2D Pos(Centre - Width / 2.f, P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Height);
 		PanelAt[t] = Pos + FVector2D(Width / 2.f, 0.f);
 		const double Limit = BalanceLimit(Tower.Height(), Tower.Top().Width);
 		const double Ratio = FMath::Sqrt(Tower.Balance.LeanX * Tower.Balance.LeanX + Tower.Balance.LeanY * Tower.Balance.LeanY) / Limit;
@@ -183,15 +196,15 @@ void SStackerHud::PaintLanes(const FKartPainter& P, const AStackerGame& G, const
 		P.Text(ScoreText, KartUI::Font(EFont::Display, 48.f * S), Pos + FVector2D(Width - 22.f * S, 40.f * S), KC::White, FVector2D(1.0, 0.5), 3.f * S);
 		for (int32 i = 0; i < StartingLives; ++i)
 		{
-			LifeBlock(P, Pos + FVector2D((38.f + i * 36.f) * S, 78.f * S), S, i < Tower.Lives ? Color : KC::WithAlpha(KC::White, 0.16f));
+			LifeBlock(P, Pos + FVector2D((36.f + i * 30.f) * S, 78.f * S), S, i < Tower.Lives ? Color : KC::WithAlpha(KC::White, 0.16f));
 		}
 		const FString& RowText = Cached(Tower.Height(), 0, Text.Row.Text, [&Tower]() { return FString::Printf(TEXT("ROW %d"), Tower.Height()); }, Text.Row.Value);
-		P.Text(RowText, KartUI::Font(EFont::Label, 17.f * S), Pos + FVector2D(140.f * S, 78.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.0, 0.5));
+		P.Text(RowText, KartUI::Font(EFont::Label, 16.f * S), Pos + FVector2D(122.f * S, 78.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.0, 0.5));
 		if (Tower.Combo >= 2)
 		{
 			// A combo pill on the right, clear of the row count.
 			const FString& ComboText = Cached(Tower.Combo, 0, Text.Combo.Text, [&Tower]() { return FString::Printf(TEXT("x%d PERFECT"), Tower.Combo); }, Text.Combo.Value);
-			const FSlateFontInfo ComboFont = KartUI::Font(EFont::Label, 15.f * S);
+			const FSlateFontInfo ComboFont = KartUI::Font(EFont::Label, 14.f * S);
 			const FVector2D Sz = FKartPainter::Measure(ComboText, ComboFont);
 			const FLinearColor Ink = Tower.Combo >= 5 ? KC::Sun : KC::Mint;
 			const FVector2D PillPos(Pos.X + Width - 22.f * S - Sz.X - 20.f * S, Pos.Y + 78.f * S - 13.f * S);
@@ -315,7 +328,7 @@ void SStackerHud::PaintCoach(const FKartPainter& P, const AStackerGame& G, const
 			Bubble(F, Anchor, Size, Coach.bAligned ? KC::Mint : KC::WithAlpha(KC::Night, 0.9f), Coach.bAligned ? KC::White : KC::Sun, S);
 			const FVector2D Mid = Anchor - FVector2D(0.f, 16.f * S + Size.Y / 2.f);
 			F.Text(Coach.bAligned ? NSLOCTEXT("Stacker", "DropNow", "DROP NOW!") : NSLOCTEXT("Stacker", "DropAligned", "DROP WHEN ALIGNED"),
-				KartUI::Font(EFont::Display, 28.f * S, 2.f * S, KC::Night), Mid - FVector2D(0.f, 11.f * S), Coach.bAligned ? KC::Night : KC::Sun, FVector2D(0.5, 0.5));
+				KartUI::Font(EFont::Display, 28.f * S, Coach.bAligned ? 0.f : 2.f * S, KC::Night), Mid - FVector2D(0.f, 11.f * S), Coach.bAligned ? KC::Night : KC::Sun, FVector2D(0.5, 0.5));
 			F.Text(NSLOCTEXT("Stacker", "DropKeys", "Space  ·  A  ·  Click"), KartUI::Font(EFont::Label, 16.f * S), Mid + FVector2D(0.f, 20.f * S),
 				Coach.bAligned ? KC::Night : KC::WithAlpha(KC::White, 0.8f), FVector2D(0.5, 0.5));
 		}
@@ -332,9 +345,9 @@ void SStackerHud::PaintCoach(const FKartPainter& P, const AStackerGame& G, const
 			FVector2D(0.5, 0.5));
 		const float Side = Coach.LeanSide;
 		const float Nudge = 6.f * S * FMath::Sin(Clock * 9.f);
-		Arrow(F, Mid + FVector2D(Side * (150.f * S + Nudge), 18.f * S), Side, 70.f * S, 16.f * S, 8.f * S, KC::Sun);
+		Arrow(F, Mid + FVector2D(Side * (190.f * S + Nudge), 18.f * S), Side, 70.f * S, 16.f * S, 8.f * S, KC::Sun);
 		F.Text(Side > 0.f ? NSLOCTEXT("Stacker", "LeanKeysR", "D  ·  stick  ·  mouse right") : NSLOCTEXT("Stacker", "LeanKeysL", "A  ·  stick  ·  mouse left"),
-			KartUI::Font(EFont::Label, 16.f * S), Mid + FVector2D(-Side * 30.f * S, 18.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.5, 0.5));
+			KartUI::Font(EFont::Label, 16.f * S), Mid + FVector2D(-Side * 45.f * S, 18.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.5, 0.5));
 	}
 }
 

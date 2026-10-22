@@ -189,11 +189,16 @@ private:
 		double PeekRemaining = 0.0;
 	};
 
-	/** One batch of instances and the transforms it holds (rewritten only when they change). */
+	/**
+	 * One batch of instances with a fixed number of slots (a block's slot is its row, a shard's its id): the count
+	 * never changes in play, so nothing is reallocated, and a slot's previous transform is the same block's.
+	 * Unused slots are parked out of sight. Rewritten only when something moved.
+	 */
 	struct FBatch
 	{
 		TArray<FTransform> Want;
 		TArray<FTransform> Have;
+		TArray<FTransform> Prev;
 	};
 
 	void SetStage(EStackerStage Next);
@@ -209,6 +214,7 @@ private:
 	void UpdateCoach(float Dt);
 	void UpdateCamera(float Dt);
 	void FlushBatch(int32 Index);
+	void ResetBatches();
 	UStaticMeshComponent* MakeMesh(const TCHAR* Name, UStaticMesh* Mesh, bool bShadows = true);
 	UInstancedStaticMeshComponent* MakeBatch(const TCHAR* Name, UStaticMesh* Mesh, const TArray<UMaterialInterface*>& Materials, bool bShadows);
 	double LaneXOf(int32 LaneIndex) const;
@@ -276,6 +282,7 @@ private:
 	/** The latest reaction per lane: the effect kind and when. */
 	TArray<TPair<MovecadeKart::Stacker::EEffectKind, double>> Reactions;
 	FBeats Beats;
+	bool bBirdsOut = false;
 	FStackerCoach Coach;
 	/** Coach progress: landings so far and seconds held steady in a real wind. */
 	int32 CoachLandings = 0;
