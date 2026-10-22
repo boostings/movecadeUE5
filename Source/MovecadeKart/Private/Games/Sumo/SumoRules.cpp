@@ -734,7 +734,7 @@ namespace MovecadeKart::Sumo
 		// The dash: a decision every so often (faster when sharp).
 		if (B.ThinkMs <= 0.0 && P.CanDash())
 		{
-			B.ThinkMs = 260.0 - 170.0 * S + 120.0 * Random01(B.Rng);
+			B.ThinkMs = 200.0 - 140.0 * S + 100.0 * Random01(B.Rng);
 			const FVector2D Moving = P.Vel.SizeSquared() > 1.0 ? SafeNormal(P.Vel) : In.Tilt;
 			if (bDanger && P.Pos.Size() > Safe - 1.2 && FVector2D::DotProduct(P.Vel, SafeNormal(P.Pos)) > 1.5 && Random01(B.Rng) < 0.25 + 0.65 * S)
 			{
@@ -745,9 +745,9 @@ namespace MovecadeKart::Sumo
 			else if (Target && !DashDir.IsZero())
 			{
 				const double Dist = FVector2D::Distance(Target->Pos, P.Pos);
-				const bool bAligned = FVector2D::DotProduct(Moving, DashDir) > 0.82 - 0.3 * (1.0 - S);
+				const bool bAligned = FVector2D::DotProduct(Moving, DashDir) > 0.75 - 0.3 * (1.0 - S);
 				const bool bSafe = (P.Pos + DashDir * 3.2).Size() < Safe - 0.4 || bLinedUp;
-				if (Dist < 3.6 && Dist > 1.6 && bAligned && bSafe && (bLinedUp || S < 0.45) && Random01(B.Rng) < 0.35 + 0.6 * S)
+				if (Dist < 4.4 && Dist > PuckRadius * 2.0 && bAligned && bSafe && (bLinedUp || S < 0.45) && Random01(B.Rng) < 0.5 + 0.5 * S)
 				{
 					In.Tilt = DashDir;
 					In.bDash = true;

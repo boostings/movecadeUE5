@@ -164,8 +164,8 @@ bool FSumoCollisionTest::RunTest(const FString& Parameters)
 		Park(M);
 		FPuck& A = M.Pucks[0];
 		FPuck& B = M.Pucks[1];
-		A.Pos = FVector2D(0.0, -0.8);
-		B.Pos = FVector2D(0.0, 0.8);
+		A.Pos = FVector2D(0.0, -(PuckRadius - 0.05));
+		B.Pos = FVector2D(0.0, PuckRadius - 0.05);
 		A.Vel = FVector2D(0.0, 4.0);
 		B.Vel = FVector2D(0.0, -2.0);
 		ResolveContact(M, 0, 1);
@@ -184,14 +184,14 @@ bool FSumoCollisionTest::RunTest(const FString& Parameters)
 		FPuck& B = M.Pucks[1];
 		A.Power = EPower::Heavy;
 		A.PowerMs = HeavyMs;
-		A.Pos = FVector2D(0.0, -0.8);
-		B.Pos = FVector2D(0.0, 0.8);
+		A.Pos = FVector2D(0.0, -(PuckRadius - 0.05));
+		B.Pos = FVector2D(0.0, PuckRadius - 0.05);
 		A.Vel = FVector2D(0.0, 5.0);
 		ResolveContact(M, 0, 1);
 		const double J = (1.0 + Restitution) * 5.0 / (1.0 / HeavyMass + 1.0);
 		TestTrue(TEXT("heavy keeps going"), FMath::IsNearlyEqual(A.Vel.Y, 5.0 - J / HeavyMass, 1e-12) && A.Vel.Y > 0.0);
 		TestTrue(TEXT("light flies"), FMath::IsNearlyEqual(B.Vel.Y, J, 1e-12) && B.Vel.Y > 5.0);
-		TestTrue(TEXT("the light one is pushed out of the overlap more"), FMath::IsNearlyEqual(B.Pos.Y - 0.8, 0.1 * 1.0 / (1.0 / HeavyMass + 1.0), 1e-12));
+		TestTrue(TEXT("the light one is pushed out of the overlap more"), FMath::IsNearlyEqual(B.Pos.Y - (PuckRadius - 0.05), 0.1 * 1.0 / (1.0 / HeavyMass + 1.0), 1e-12));
 	}
 	{
 		// A dash hit: the impulse plus the shove.
@@ -199,8 +199,8 @@ bool FSumoCollisionTest::RunTest(const FString& Parameters)
 		Park(M);
 		FPuck& A = M.Pucks[0];
 		FPuck& B = M.Pucks[1];
-		A.Pos = FVector2D(0.0, -0.84);
-		B.Pos = FVector2D(0.0, 0.84);
+		A.Pos = FVector2D(0.0, -(PuckRadius - 0.01));
+		B.Pos = FVector2D(0.0, PuckRadius - 0.01);
 		A.Vel = FVector2D(0.0, 10.0);
 		A.DashMs = 200.0;
 		ResolveContact(M, 0, 1);
@@ -217,8 +217,8 @@ bool FSumoCollisionTest::RunTest(const FString& Parameters)
 		FPuck& B = M.Pucks[1];
 		B.Power = EPower::Shield;
 		B.PowerMs = ShieldMs;
-		A.Pos = FVector2D(0.0, -0.84);
-		B.Pos = FVector2D(0.0, 0.84);
+		A.Pos = FVector2D(0.0, -(PuckRadius - 0.01));
+		B.Pos = FVector2D(0.0, PuckRadius - 0.01);
 		A.Vel = FVector2D(0.0, 10.0);
 		A.DashMs = 200.0;
 		ResolveContact(M, 0, 1);
@@ -468,10 +468,42 @@ bool FSumoDeterminismTest::RunTest(const FString& Parameters)
 		const int64 Steps = RunBots(M, B);
 		int32 Kos = 0;
 		for (const FPuck& P : M.Pucks) Kos += P.Knockouts;
-		TestEqual(TEXT("golden steps"), Steps, static_cast<int64>(6074));
-		TestEqual(TEXT("golden rounds"), M.RoundsPlayed, 4);
+		TestEqual(TEXT("golden steps"), Steps, static_cast<int64>(5022));
+		TestEqual(TEXT("golden rounds"), M.RoundsPlayed, 3);
 		TestEqual(TEXT("golden winner"), M.MatchWinner, 2);
-		TestEqual(TEXT("golden knockouts"), Kos, 12);
+		TestEqual(TEXT("golden knockouts"), Kos, 9);
+	}
+	{
+		// Pacing: house bots settle a round in well under a minute (the shrink forces it, but they should push).
+		for (const int32 N : { 2, 3, 4 })
+		{
+			double Total = 0.0, Longest = 0.0;
+			int32 Rounds = 0;
+			for (uint32 Seed = 1; Seed <= 10; ++Seed)
+			{
+				FMatch M = Make(N, Seed * 101u);
+				TArray<FBotBrain> B;
+				for (int32 i = 0; i < N; ++i) B.Add(MakeBot(0.45 + 0.17 * (i % 3), Seed * 7u + i));
+				double FightAt = 0.0;
+				while (M.Phase != EPhase::MatchOver && M.Steps < 60 * 60 * 10)
+				{
+					for (int32 i = 0; i < N; ++i) SetInput(M, i, ThinkBot(M, i, B[i]));
+					const EPhase Before = M.Phase;
+					StepMatch(M);
+					if (Before == EPhase::Countdown && M.Phase == EPhase::Fight) FightAt = M.ElapsedMs;
+					if (Before == EPhase::Fight && M.Phase == EPhase::RoundOver)
+					{
+						const double Len = (M.ElapsedMs - FightAt) / 1000.0;
+						Total += Len;
+						Longest = FMath::Max(Longest, Len);
+						++Rounds;
+					}
+				}
+			}
+			const double Mean = Total / FMath::Max(1, Rounds);
+			AddInfo(FString::Printf(TEXT("Sumo pacing, %d bots: %d rounds, mean fight %.1f s, longest %.1f s"), N, Rounds, Mean, Longest));
+			TestTrue(*FString::Printf(TEXT("%d bots: rounds are brisk (mean %.1f s)"), N, Mean), Mean < 40.0);
+		}
 	}
 	{
 		// A sharp bot beats a sloppy one more often than not over a run of seeds.

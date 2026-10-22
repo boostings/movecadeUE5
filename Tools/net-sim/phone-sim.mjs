@@ -127,9 +127,16 @@ const rock = (t) => {
   const pitch = (10 * Math.sin(t * 0.8 + 1)) * Math.PI / 180;
   return { q: bladeQuaternion(pitch, roll), gyro: 15 * 1.3 * Math.cos(t * 1.3) };
 };
+const wander = (t) => {
+  // Pitch about x tips the top edge away (roll forward), roll about y drops the right edge; radians.
+  const pitch = (14 * Math.sin(t * 0.83) + 8 * Math.sin(t * 2.1)) * Math.PI / 180;
+  const roll = (16 * Math.sin(t * 0.61 + 1.3) + 6 * Math.sin(t * 1.7)) * Math.PI / 180;
+  return { q: bladeQuaternion(-pitch, roll), gyro: 0 };
+};
 const PAD_PROFILES = {
   pad: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
-  sumo: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
+  // Sumo Bumpers: a tilt that wanders the whole ring (two slow sines per axis, up to ~22 degrees) and A to dash.
+  sumo: { hz: 60, attitude: wander, pressEvery: 1.7, hold: 0.12, turnBased: false },
   derby: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: true },
   fishing: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
 };

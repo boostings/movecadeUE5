@@ -29,15 +29,15 @@ namespace MovecadeKart::Sumo
 	/** Bands that fall away before only the core (radius 2) is left. */
 	constexpr int32 RingBands = 7;
 	constexpr double CoreRadius = ArenaRadius - RingBands * BandWidth;
-	constexpr double FirstShrinkMs = 14000.0;
-	constexpr double ShrinkEveryMs = 8000.0;
+	constexpr double FirstShrinkMs = 12000.0;
+	constexpr double ShrinkEveryMs = 7000.0;
 	constexpr double ShrinkWarningMs = 3000.0;
 	/** The core itself goes last: whoever is still on it then falls too (a drawn round). */
 	constexpr double CollapseMs = FirstShrinkMs + RingBands * ShrinkEveryMs + 6000.0;
 	constexpr double SpawnRadius = 5.2;
 
 	// The pucks -------------------------------------------------------------------------------------------------
-	constexpr double PuckRadius = 0.85;
+	constexpr double PuckRadius = 1.05;
 	constexpr double PuckMass = 1.0;
 	constexpr double HeavyMass = 2.4;
 	/** m/s^2 at full tilt. */
