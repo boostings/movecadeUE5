@@ -411,8 +411,64 @@ void AKartItemPresenter::HandleCue(int32 Seat, FName Cue)
 		return;
 	}
 	const AKartPawn* Kart = Race->GetRacers()[Seat].Kart;
+	const FVector Forward = Kart->GetActorForwardVector();
+	const FVector Right = FVector::CrossProduct(FVector::UpVector, Forward).GetSafeNormal();
+	const FVector At = Kart->GetActorLocation();
+	const FVector Inherit = Kart->GetVelocity() * 0.6;
 	TArray<FKartFxEmit> Out;
-	ConfettiBurst(Kart->GetActorLocation() + Kart->GetActorForwardVector() * 300.0 + FVector(0.0, 0.0, 120.0), Kart->GetActorForwardVector(), Out);
+	ConfettiBurst(At + Forward * 300.0 + FVector(0.0, 0.0, 120.0), Forward, Out);
+	// The finish moment: a gold shock ring under the kart, two fountains of golden sparks either side, a crown of
+	// twinkles and a warm flash of light.
+	static const FLinearColor Gold = Hex(TEXT("ffd166"));
+	static const FLinearColor Amber = Hex(TEXT("ff9f1c"));
+	static const FLinearColor Cream = Hex(TEXT("fff6d8"));
+	FKartFxEmit Ring;
+	Ring.Field = EField::Ring;
+	Ring.Position = At + FVector(0.0, 0.0, 8.0);
+	Ring.Count = 1;
+	Ring.Speed = { 0.0, 0.0 };
+	Ring.Life = { 0.6, 0.6 };
+	Ring.Size = { 1.5, 1.5 };
+	Ring.SizeEnd = 6.5;
+	Ring.Color = Cream;
+	Ring.ColorEnd = Gold;
+	Ring.Intensity = 3.0;
+	Ring.InheritCm = Inherit;
+	Out.Add(Ring);
+	for (int32 Side = -1; Side <= 1; Side += 2)
+	{
+		FKartFxEmit Fountain;
+		Fountain.Field = EField::Sparks;
+		Fountain.Position = At + Right * (Side * 160.0) + FVector(0.0, 0.0, 40.0);
+		Fountain.Count = 40;
+		Fountain.Direction = (FVector::UpVector * 2.0 + Right * Side * 0.6).GetSafeNormal();
+		Fountain.Spread = 0.35;
+		Fountain.Speed = { 9.0, 16.0 };
+		Fountain.Life = { 0.7, 1.3 };
+		Fountain.Size = { 0.08, 0.14 };
+		Fountain.Color = Cream;
+		Fountain.ColorEnd = Amber;
+		Fountain.Intensity = 4.0;
+		Fountain.Jitter = 0.2;
+		Fountain.InheritCm = Inherit;
+		Out.Add(Fountain);
+	}
+	FKartFxEmit Crown;
+	Crown.Field = EField::Flare;
+	Crown.Position = At + FVector(0.0, 0.0, 220.0);
+	Crown.Count = 16;
+	Crown.Spread = UE_DOUBLE_PI;
+	Crown.Speed = { 1.5, 4.0 };
+	Crown.Life = { 0.5, 0.9 };
+	Crown.Size = { 0.45, 0.8 };
+	Crown.SizeEnd = 0.2;
+	Crown.Color = FLinearColor::White;
+	Crown.ColorEnd = Gold;
+	Crown.Intensity = 3.5;
+	Crown.Jitter = 0.8;
+	Crown.InheritCm = Inherit;
+	Out.Add(Crown);
+	FlashLight(At + FVector(0.0, 0.0, 400.0), Gold, 1200.0, 2500.0, 0.7, GetWorld()->GetTimeSeconds());
 	Fx->Emit(Out);
 }
 
@@ -459,38 +515,7 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 			{
 				Racer.Kart->AddShake(ImpactProfile(EImpact::Explosion).Shake * 0.5);
 			}
-			// The flash light: a free one from the pool (the oldest if all are lit), new only up to the pool size.
-			constexpr int32 BlastLightPool = 3;
-			int32 Slot = BlastLightStart.IndexOfByPredicate([](double Start) { return Start < 0.0; });
-			if (Slot == INDEX_NONE && BlastLights.Num() < BlastLightPool)
-			{
-				UPointLightComponent* Light = NewObject<UPointLightComponent>(this, MakeUniqueObjectName(this, UPointLightComponent::StaticClass(), TEXT("BlastLight")));
-				Light->SetupAttachment(RootComponent);
-				Light->SetUsingAbsoluteLocation(true);
-				Light->SetLightColor(Hex(TEXT("ff9a40")));
-				Light->SetIntensityUnits(ELightUnits::Candelas);
-				Light->SetIntensity(0.f);
-				Light->SetCastShadows(false);
-				Light->RegisterComponent();
-				Slot = BlastLights.Add(Light);
-				BlastLightStart.Add(-1.0);
-			}
-			if (Slot == INDEX_NONE)
-			{
-				Slot = 0;
-				for (int32 i = 1; i < BlastLightStart.Num(); ++i)
-				{
-					Slot = BlastLightStart[i] < BlastLightStart[Slot] ? i : Slot;
-				}
-			}
-			if (UPointLightComponent* Light = BlastLights[Slot])
-			{
-				Light->SetWorldLocation(Blast.Center + FVector(0.0, 0.0, 150.0));
-				Light->SetAttenuationRadius(static_cast<float>(E.Radius * 100.0 * 2.5));
-				Light->SetIntensity(0.f);
-				Light->SetVisibility(true);
-			}
-			BlastLightStart[Slot] = Time;
+			FlashLight(Blast.Center + FVector(0.0, 0.0, 150.0), Hex(TEXT("ff9a40")), E.Radius * 100.0 * 2.5, 60000.0, 0.6, Time);
 			break;
 		}
 		case EKartItemEventType::Hit:
@@ -499,6 +524,54 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 				Victim->AddShake(ImpactProfile(EImpact::ProjectileHit).Shake);
 				ImpactBurst(EImpact::ProjectileHit, Victim->GetActorLocation(), 1.0, Out, -1.0, ItemColors(E.Item).Color);
 				RecentImpacts.Add({ Victim->GetActorLocation(), Time });
+				// The hit reads at a glance: a white-hot pop, shards and a shock ring in the colour of what hit,
+				// and a quick light on the kart and the road.
+				{
+					const FItemColors C = ItemColors(E.Item);
+					const FVector At = Victim->GetActorLocation();
+					const FVector Inherit = Victim->GetKartMovement()->Velocity * 0.5;
+					FKartFxEmit Pop;
+					Pop.Field = EField::Flare;
+					Pop.Position = At + FVector(0.0, 0.0, 90.0);
+					Pop.Count = 1;
+					Pop.Speed = { 0.0, 0.0 };
+					Pop.Life = { 0.16, 0.16 };
+					Pop.Size = { 2.4, 2.4 };
+					Pop.SizeEnd = 1.4;
+					Pop.Color = FLinearColor::White;
+					Pop.ColorEnd = C.Emissive;
+					Pop.Intensity = 3.5;
+					Pop.InheritCm = Inherit;
+					Out.Add(Pop);
+					FKartFxEmit Shards;
+					Shards.Field = EField::Sparks;
+					Shards.Position = At + FVector(0.0, 0.0, 70.0);
+					Shards.Count = 18;
+					Shards.Spread = UE_DOUBLE_PI * 0.75;
+					Shards.Speed = { 6.0, 14.0 };
+					Shards.Life = { 0.3, 0.6 };
+					Shards.Size = { 0.1, 0.18 };
+					Shards.Color = FLinearColor::LerpUsingHSV(C.Color, FLinearColor::White, 0.4f);
+					Shards.ColorEnd = C.Inner;
+					Shards.Intensity = 3.0;
+					Shards.Jitter = 0.3;
+					Shards.InheritCm = Inherit;
+					Out.Add(Shards);
+					FKartFxEmit Ring;
+					Ring.Field = EField::Ring;
+					Ring.Position = FVector(At.X, At.Y, KartGround(E.Seat).Z + 12.0);
+					Ring.Count = 1;
+					Ring.Speed = { 0.0, 0.0 };
+					Ring.Life = { 0.32, 0.32 };
+					Ring.Size = { 1.0, 1.0 };
+					Ring.SizeEnd = 4.2;
+					Ring.Color = FLinearColor::LerpUsingHSV(C.Color, FLinearColor::White, 0.3f);
+					Ring.ColorEnd = C.Emissive;
+					Ring.Intensity = 2.4;
+					Ring.InheritCm = Inherit;
+					Out.Add(Ring);
+					FlashLight(At + FVector(0.0, 0.0, 220.0), FLinearColor::LerpUsingHSV(C.Color, FLinearColor::White, 0.45f), 650.0, 1200.0, 0.3, Time);
+				}
 				if (UKartFxComponent* VictimFx = KartFx(E.Seat))
 				{
 					VictimFx->Flash(ImpactProfile(EImpact::ProjectileHit).Flash, ImpactProfile(EImpact::ProjectileHit).FlashColor);
@@ -1096,25 +1169,63 @@ void AKartItemPresenter::UpdateBlasts(double Time)
 	}
 	Commit(Blasts, BlastBatch);
 
-	// Light flash: up in 0.05 s, gone by 0.6 s; the light goes back to the pool.
+	// Light flashes: up in 0.05 s, then out over the rest of their time; the light goes back to the pool.
 	for (int32 i = 0; i < BlastLights.Num(); ++i)
 	{
 		UPointLightComponent* Light = BlastLights[i];
-		if (!Light || BlastLightStart[i] < 0.0)
+		FLightFlash& F = LightFlashes[i];
+		if (!Light || F.Start < 0.0)
 		{
 			continue;
 		}
-		const double Age = Time - BlastLightStart[i];
-		if (Age > 0.6)
+		const double Age = Time - F.Start;
+		if (Age > F.Seconds)
 		{
 			Light->SetIntensity(0.f);
 			Light->SetVisibility(false);
-			BlastLightStart[i] = -1.0;
+			F.Start = -1.0;
 			continue;
 		}
-		const double Env = Age < 0.05 ? Age / 0.05 : FMath::Pow(1.0 - (Age - 0.05) / 0.55, 2.0);
-		Light->SetIntensity(static_cast<float>(60000.0 * Env));
+		const double Env = Age < 0.05 ? Age / 0.05 : FMath::Pow(1.0 - (Age - 0.05) / (F.Seconds - 0.05), 2.0);
+		Light->SetIntensity(static_cast<float>(F.Peak * Env));
 	}
+}
+
+void AKartItemPresenter::FlashLight(const FVector& At, const FLinearColor& Color, double RadiusCm, double PeakCandela, double Seconds, double Time)
+{
+	// A free light from the pool (the oldest lit one if all are busy), a new one only up to the pool size.
+	constexpr int32 LightPool = 4;
+	int32 Slot = LightFlashes.IndexOfByPredicate([](const FLightFlash& F) { return F.Start < 0.0; });
+	if (Slot == INDEX_NONE && BlastLights.Num() < LightPool)
+	{
+		UPointLightComponent* Light = NewObject<UPointLightComponent>(this, MakeUniqueObjectName(this, UPointLightComponent::StaticClass(), TEXT("FlashLight")));
+		Light->SetupAttachment(RootComponent);
+		Light->SetUsingAbsoluteLocation(true);
+		Light->SetIntensityUnits(ELightUnits::Candelas);
+		Light->SetIntensity(0.f);
+		Light->SetCastShadows(false);
+		Light->SetVolumetricScatteringIntensity(0.f);
+		Light->RegisterComponent();
+		Slot = BlastLights.Add(Light);
+		LightFlashes.AddDefaulted();
+	}
+	if (Slot == INDEX_NONE)
+	{
+		Slot = 0;
+		for (int32 i = 1; i < LightFlashes.Num(); ++i)
+		{
+			Slot = LightFlashes[i].Start < LightFlashes[Slot].Start ? i : Slot;
+		}
+	}
+	if (UPointLightComponent* Light = BlastLights[Slot])
+	{
+		Light->SetWorldLocation(At);
+		Light->SetLightColor(Color);
+		Light->SetAttenuationRadius(static_cast<float>(RadiusCm));
+		Light->SetIntensity(0.f);
+		Light->SetVisibility(true);
+	}
+	LightFlashes[Slot] = { Time, PeakCandela, FMath::Max(0.1, Seconds) };
 }
 
 void AKartItemPresenter::UpdateStrikes(double Time)

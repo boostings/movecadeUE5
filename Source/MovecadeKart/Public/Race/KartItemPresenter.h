@@ -105,6 +105,8 @@ private:
 	void UpdateStrikes(double Time);
 	void UpdateShowcase(double Time);
 	void Strike(const FVector& Ground, double Time);
+	/** A pooled point light that pops up in 0.05 s and fades out over Seconds (candelas at the peak). */
+	void FlashLight(const FVector& At, const FLinearColor& Color, double RadiusCm, double PeakCandela, double Seconds, double Time);
 	FVector KartGround(int32 Seat) const;
 	UInstancedStaticMeshComponent* MeshesFor(MovecadeKart::EKartItem Item) const;
 
@@ -149,10 +151,16 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInstancedStaticMeshComponent> Blasts;
 
-	/** A small pool of explosion flash lights, reused oldest first (start < 0: free). */
+	/** A small pool of flash lights (explosions, hits, the finish), reused oldest first (start < 0: free). */
 	UPROPERTY()
 	TArray<TObjectPtr<UPointLightComponent>> BlastLights;
-	TArray<double> BlastLightStart;
+	struct FLightFlash
+	{
+		double Start = -1.0;
+		double Peak = 0.0;
+		double Seconds = 0.6;
+	};
+	TArray<FLightFlash> LightFlashes;
 
 	/** Lightning bolts: a few prebuilt jagged meshes, each shown for a moment where it strikes. */
 	UPROPERTY()

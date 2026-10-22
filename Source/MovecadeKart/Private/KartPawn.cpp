@@ -320,6 +320,10 @@ void AKartPawn::ApplyVehicle()
 	if (UMaterialInterface* Paint = Body->GetMaterial(0))
 	{
 		PaintMaterial = UMaterialInstanceDynamic::Create(Paint, this);
+		// Showroom finish: a glassier clear coat over a little more metal flake, so the paint carries crisp
+		// highlights and sky reflections at race distance (M_KartPaint defaults: coat roughness 0.07, flakes 0.3).
+		PaintMaterial->SetScalarParameterValue(TEXT("ClearCoatRoughness"), 0.035f);
+		PaintMaterial->SetScalarParameterValue(TEXT("FlakeStrength"), 0.42f);
 		Body->SetMaterial(0, PaintMaterial);
 		if (Mount.bBooster)
 		{
