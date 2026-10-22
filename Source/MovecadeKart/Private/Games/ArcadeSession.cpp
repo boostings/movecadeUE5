@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "Games/ArcadeCatalog.h"
 #include "Kismet/GameplayStatics.h"
+#include "Store/KartStoreSubsystem.h" // store: unlock progress
 #include "UI/KartUISubsystem.h"
 
 UArcadeSession* UArcadeSession::Get(const UObject* WorldContext)
@@ -55,6 +56,8 @@ void UArcadeSession::RecordResult(const FString& MatchKey, const TArray<FArcadeS
 	}
 	RecordedKeys.Add(MatchKey);
 	++GamesPlayed;
+	// Store: free unlocks count finished party games (the key starts with the game id).
+	UKartStoreSubsystem::NoteArcadeGame(this, MatchKey.Left(MatchKey.Find(TEXT("-"))), Standings.ContainsByPredicate([](const FArcadeStanding& S) { return S.bHuman; }));
 	for (FArcadePartyRow& Row : Party)
 	{
 		Row.LastGain = 0;
