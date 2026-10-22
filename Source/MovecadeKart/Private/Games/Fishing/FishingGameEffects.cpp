@@ -39,6 +39,111 @@ namespace
 			FxSys->Emit(Emits);
 		}
 	}
+
+	/**
+	 * The effects' particle recipes: each returns one emit, ready to send. Size is 0..1, from a nibble's ripple up to
+	 * a fish landing; the splash's droplets, spray and ring all grow with it.
+	 */
+	namespace FxRecipe
+	{
+		Fx::FKartFxEmit SplashDrops(const FVector& At, double Size)
+		{
+			Fx::FKartFxEmit Drops;
+			Drops.Field = Fx::EField::Sparks;
+			Drops.Position = At + FVector(0.0, 0.0, 4.0);
+			Drops.Count = FMath::RoundToInt32(8.0 + 18.0 * Size);
+			Drops.Spread = 0.55;
+			Drops.Speed = FVector2D(1.2, 2.6) * (0.6 + 0.6 * Size);
+			Drops.Life = FVector2D(0.35, 0.7);
+			Drops.Size = FVector2D(0.015, 0.03);
+			Drops.Color = FLinearColor(0.85f, 0.95f, 1.f);
+			Drops.ColorEnd = FLinearColor(0.5f, 0.75f, 0.85f);
+			Drops.Intensity = 1.4;
+			Drops.Jitter = 0.08 * Size;
+			return Drops;
+		}
+
+		Fx::FKartFxEmit SplashSpray(const FVector& At, double Size)
+		{
+			Fx::FKartFxEmit Spray;
+			Spray.Field = Fx::EField::Smoke;
+			Spray.Position = At + FVector(0.0, 0.0, 6.0);
+			Spray.Count = FMath::RoundToInt32(4.0 + 8.0 * Size);
+			Spray.Spread = 0.5;
+			Spray.Speed = FVector2D(0.4, 1.3) * (0.6 + 0.5 * Size);
+			Spray.Life = FVector2D(0.35, 0.6);
+			Spray.Size = FVector2D(0.06, 0.12) * (0.7 + 0.6 * Size);
+			Spray.SizeEnd = 1.6;
+			Spray.Color = FLinearColor(0.95f, 0.98f, 1.f);
+			Spray.ColorEnd = FLinearColor(0.75f, 0.85f, 0.9f);
+			Spray.Intensity = 1.0;
+			Spray.Jitter = 0.06 * Size;
+			return Spray;
+		}
+
+		/** A ring spreading on the water. */
+		Fx::FKartFxEmit SplashRing(const FVector& At, double Size)
+		{
+			Fx::FKartFxEmit Ring;
+			Ring.Field = Fx::EField::Ring;
+			Ring.Position = At + FVector(0.0, 0.0, 1.0);
+			Ring.Speed = FVector2D::ZeroVector;
+			Ring.Life = FVector2D(0.8, 0.8);
+			Ring.Size = FVector2D(0.25, 0.25) * (0.6 + Size);
+			Ring.SizeEnd = 4.0;
+			Ring.Color = FLinearColor(0.9f, 0.95f, 1.f);
+			Ring.ColorEnd = FLinearColor(0.6f, 0.8f, 0.9f);
+			Ring.Intensity = 0.8;
+			return Ring;
+		}
+
+		/** A snapped line: a white flash at the rod tip, going red as it fades. */
+		Fx::FKartFxEmit SnapFlash(const FVector& At)
+		{
+			Fx::FKartFxEmit Flash;
+			Flash.Field = Fx::EField::Flare;
+			Flash.Position = At;
+			Flash.Speed = FVector2D::ZeroVector;
+			Flash.Life = FVector2D(0.18, 0.18);
+			Flash.Size = FVector2D(0.6, 0.6);
+			Flash.SizeEnd = 0.2;
+			Flash.Color = FLinearColor::White;
+			Flash.ColorEnd = FLinearColor(1.f, 0.4f, 0.3f);
+			Flash.Intensity = 2.5;
+			return Flash;
+		}
+
+		/** A new record: confetti bursting over the angler's head. */
+		Fx::FKartFxEmit RecordConfetti(const FVector& Head)
+		{
+			Fx::FKartFxEmit Confetti;
+			Confetti.Field = Fx::EField::Confetti;
+			Confetti.Position = Head + FVector(0.0, 0.0, 60.0);
+			Confetti.Count = 70;
+			Confetti.Spread = 0.9;
+			Confetti.Speed = FVector2D(3.0, 6.0);
+			Confetti.Life = FVector2D(1.4, 2.2);
+			Confetti.Size = FVector2D(0.05, 0.09);
+			return Confetti;
+		}
+
+		/** A new record: gold glints off the fish held up. */
+		Fx::FKartFxEmit RecordGlint(const FVector& Fish)
+		{
+			Fx::FKartFxEmit Glint;
+			Glint.Field = Fx::EField::Flare;
+			Glint.Position = Fish;
+			Glint.Count = 6;
+			Glint.Spread = 1.2;
+			Glint.Speed = FVector2D(0.3, 0.8);
+			Glint.Life = FVector2D(0.5, 0.9);
+			Glint.Size = FVector2D(0.25, 0.45);
+			Glint.Color = MovecadeKart::Art::Hex(TEXT("#fff0b0"));
+			Glint.ColorEnd = MovecadeKart::Art::Hex(TEXT("#ffb020"));
+			Glint.Intensity = 3.0;
+			return Glint;
+		}
+	}
 }
 
 void AFishingGame::PresentEffect(const FEffect& E)
@@ -131,89 +236,23 @@ void AFishingGame::PresentEffect(const FEffect& E)
 
 void AFishingGame::Splash(const FVector& At, double Size, bool bRing)
 {
-	// Size 0..1: a nibble's ripple up to a fish landing. Droplets, a puff of spray, and a ring spreading on the water.
+	// Droplets and a puff of spray; on open water a ring too.
 	TArray<Fx::FKartFxEmit> Out;
-	Fx::FKartFxEmit Drops;
-	Drops.Field = Fx::EField::Sparks;
-	Drops.Position = At + FVector(0.0, 0.0, 4.0);
-	Drops.Count = FMath::RoundToInt32(8.0 + 18.0 * Size);
-	Drops.Spread = 0.55;
-	Drops.Speed = FVector2D(1.2, 2.6) * (0.6 + 0.6 * Size);
-	Drops.Life = FVector2D(0.35, 0.7);
-	Drops.Size = FVector2D(0.015, 0.03);
-	Drops.Color = FLinearColor(0.85f, 0.95f, 1.f);
-	Drops.ColorEnd = FLinearColor(0.5f, 0.75f, 0.85f);
-	Drops.Intensity = 1.4;
-	Drops.Jitter = 0.08 * Size;
-	Out.Add(Drops);
-	Fx::FKartFxEmit Spray;
-	Spray.Field = Fx::EField::Smoke;
-	Spray.Position = At + FVector(0.0, 0.0, 6.0);
-	Spray.Count = FMath::RoundToInt32(4.0 + 8.0 * Size);
-	Spray.Spread = 0.5;
-	Spray.Speed = FVector2D(0.4, 1.3) * (0.6 + 0.5 * Size);
-	Spray.Life = FVector2D(0.35, 0.6);
-	Spray.Size = FVector2D(0.06, 0.12) * (0.7 + 0.6 * Size);
-	Spray.SizeEnd = 1.6;
-	Spray.Color = FLinearColor(0.95f, 0.98f, 1.f);
-	Spray.ColorEnd = FLinearColor(0.75f, 0.85f, 0.9f);
-	Spray.Intensity = 1.0;
-	Spray.Jitter = 0.06 * Size;
-	Out.Add(Spray);
+	Out.Add(FxRecipe::SplashDrops(At, Size));
+	Out.Add(FxRecipe::SplashSpray(At, Size));
 	if (bRing)
 	{
-		Fx::FKartFxEmit Ring;
-		Ring.Field = Fx::EField::Ring;
-		Ring.Position = At + FVector(0.0, 0.0, 1.0);
-		Ring.Speed = FVector2D::ZeroVector;
-		Ring.Life = FVector2D(0.8, 0.8);
-		Ring.Size = FVector2D(0.25, 0.25) * (0.6 + Size);
-		Ring.SizeEnd = 4.0;
-		Ring.Color = FLinearColor(0.9f, 0.95f, 1.f);
-		Ring.ColorEnd = FLinearColor(0.6f, 0.8f, 0.9f);
-		Ring.Intensity = 0.8;
-		Out.Add(Ring);
+		Out.Add(FxRecipe::SplashRing(At, Size));
 	}
 	Emit(this, Out);
 }
 
 void AFishingGame::SnapFlash(const FVector& At)
 {
-	// A white flash at the rod tip, going red as it fades.
-	Fx::FKartFxEmit Flash;
-	Flash.Field = Fx::EField::Flare;
-	Flash.Position = At;
-	Flash.Speed = FVector2D::ZeroVector;
-	Flash.Life = FVector2D(0.18, 0.18);
-	Flash.Size = FVector2D(0.6, 0.6);
-	Flash.SizeEnd = 0.2;
-	Flash.Color = FLinearColor::White;
-	Flash.ColorEnd = FLinearColor(1.f, 0.4f, 0.3f);
-	Flash.Intensity = 2.5;
-	Emit(this, { Flash });
+	Emit(this, { FxRecipe::SnapFlash(At) });
 }
 
 void AFishingGame::RecordBurst(int32 i)
 {
-	// Confetti over the angler and gold glints off the fish held up.
-	Fx::FKartFxEmit Confetti;
-	Confetti.Field = Fx::EField::Confetti;
-	Confetti.Position = HeadOf(i) + FVector(0.0, 0.0, 60.0);
-	Confetti.Count = 70;
-	Confetti.Spread = 0.9;
-	Confetti.Speed = FVector2D(3.0, 6.0);
-	Confetti.Life = FVector2D(1.4, 2.2);
-	Confetti.Size = FVector2D(0.05, 0.09);
-	Fx::FKartFxEmit Glint;
-	Glint.Field = Fx::EField::Flare;
-	Glint.Position = HoldPoint(i);
-	Glint.Count = 6;
-	Glint.Spread = 1.2;
-	Glint.Speed = FVector2D(0.3, 0.8);
-	Glint.Life = FVector2D(0.5, 0.9);
-	Glint.Size = FVector2D(0.25, 0.45);
-	Glint.Color = MovecadeKart::Art::Hex(TEXT("#fff0b0"));
-	Glint.ColorEnd = MovecadeKart::Art::Hex(TEXT("#ffb020"));
-	Glint.Intensity = 3.0;
-	Emit(this, { Confetti, Glint });
+	Emit(this, { FxRecipe::RecordConfetti(HeadOf(i)), FxRecipe::RecordGlint(HoldPoint(i)) });
 }

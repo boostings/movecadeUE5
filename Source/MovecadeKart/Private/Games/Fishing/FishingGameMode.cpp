@@ -187,38 +187,51 @@ void AFishingGameMode::SendPromptIfPhone(URoomHostSubsystem& Room, const FAngler
 
 void AFishingGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
 {
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
+	// The game holds these callbacks: both ends are weak, so a call after either is gone does nothing.
+	const TWeakObjectPtr<AFishingGameMode> WeakThis = this;
+	const TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
 	// Everyone fishes at once: no turn holder. The phones count down with the rules' 3-2-1.
-	Game->OnMatchStart = [this, WeakRoom]()
+	Game->OnMatchStart = [WeakThis, WeakRoom]()
 	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
+		const AFishingGameMode* Mode = WeakThis.Get();
+		URoomHostSubsystem* R = WeakRoom.Get();
+		if (!Mode || !R || !Mode->Game)
 		{
-			R->AdvanceTurn(FString());
-			R->PublishMatchCountdown(static_cast<int32>(CountdownMs));
-			for (const FAngler& A : Game->GetMatch().Anglers)
-			{
-				SendPromptIfPhone(*R, A);
-			}
+			return;
+		}
+		R->AdvanceTurn(FString());
+		R->PublishMatchCountdown(static_cast<int32>(CountdownMs));
+		for (const FAngler& A : Mode->Game->GetMatch().Anglers)
+		{
+			Mode->SendPromptIfPhone(*R, A);
 		}
 	};
 	// The prompt follows the angler's moment (and is sent again when the horn goes). Casting keeps the wait prompt
 	// the phone already shows: it would only flash.
-	Game->OnAnglerState = [this, WeakRoom](const FAngler& A)
+	Game->OnAnglerState = [WeakThis, WeakRoom](const FAngler& A)
 	{
+		const AFishingGameMode* Mode = WeakThis.Get();
 		URoomHostSubsystem* R = WeakRoom.Get();
-		if (R && A.State != EAnglerState::Casting)
+		if (Mode && R && A.State != EAnglerState::Casting)
 		{
-			SendPromptIfPhone(*R, A);
+			Mode->SendPromptIfPhone(*R, A);
 		}
 	};
-	Game->OnEffect = [this, WeakRoom](const FEffect& E)
+	Game->OnEffect = [WeakThis, WeakRoom](const FEffect& E)
 	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
+		const AFishingGameMode* Mode = WeakThis.Get();
+		if (URoomHostSubsystem* R = WeakRoom.Get(); Mode && R)
 		{
-			SendEffectFeedback(*R, E);
+			Mode->SendEffectFeedback(*R, E);
 		}
 	};
-	Game->OnFinished = [this]() { CompleteRoomMatch(); };
+	Game->OnFinished = [WeakThis]()
+	{
+		if (AFishingGameMode* Mode = WeakThis.Get())
+		{
+			Mode->CompleteRoomMatch();
+		}
+	};
 }
 
 void AFishingGameMode::SendEffectFeedback(URoomHostSubsystem& Room, const FEffect& E) const

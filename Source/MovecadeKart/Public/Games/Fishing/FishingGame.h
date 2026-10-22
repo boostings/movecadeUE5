@@ -67,7 +67,7 @@ struct FFishingSeat
  * its weight, then goes in the bucket (junk goes back in the lake). At the end the anglers turn round with their
  * biggest catch.
  *
- * The implementation is split by concern: FishingGame.cpp (flow), FishingGameAnglers.cpp (hands, bots, poses),
+ * The implementation is split by concern: FishingGame.cpp (flow), FishingGameAnglers.cpp (hands, bots), FishingGamePoses.cpp (the avatars),
  * FishingGameTackle.cpp (rod, line, bobber), FishingGameCatch.cpp (the fish), FishingGameEffects.cpp (effects to
  * sound and FX) and FishingGameCamera.cpp.
  */
@@ -229,7 +229,7 @@ private:
 	void SteerBotCast(int32 LaneIndex, double Skill);
 	void SteerBotFight(int32 LaneIndex, double Skill);
 
-	// Poses (FishingGameAnglers.cpp).
+	// Poses (FishingGamePoses.cpp).
 	void UpdateAnglers(float Dt);
 	void PoseForState(int32 LaneIndex, FLaneFrame& Frame, float Dt);
 	void PoseIdle(int32 LaneIndex, FLaneFrame& Frame);
