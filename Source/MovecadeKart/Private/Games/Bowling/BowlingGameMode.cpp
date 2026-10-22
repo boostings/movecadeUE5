@@ -1,25 +1,31 @@
 #include "Games/Bowling/BowlingGameMode.h"
 
 #include "Art/KartMaterials.h"
+#include "Dom/JsonObject.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "Games/Bowling/BowlingAlley.h"
 #include "Games/Bowling/BowlingGame.h"
-#include "Games/ArcadeSession.h"
-#include "Games/SArcadeOverlay.h"
-#include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetSystemLibrary.h"
-#include "Dom/JsonObject.h"
-#include "Engine/GameInstance.h"
 #include "Misc/CommandLine.h"
 #include "Net/RoomHostSubsystem.h"
-#include "TimerManager.h"
+#include "Net/RoomProtocol.h"
 
 namespace
 {
 	/** The web's lane colours, one per seat. */
 	const TCHAR* const SeatColors[] = { TEXT("#6d8bff"), TEXT("#3fc9c2"), TEXT("#f2b23f"), TEXT("#a083ff") };
 	const TCHAR* const HouseNames[] = { TEXT("Mika"), TEXT("Dante"), TEXT("Priya"), TEXT("Rosa") };
+	/** Local people bowl at this skill when -BowlAuto hands their seats to the house AI. */
+	constexpr float LocalAutoSkill = 0.85f;
+	/** House bots range from wild to steady by seat: 0.55, 0.65, 0.75. */
+	constexpr float HouseSkillBase = 0.55f;
+	constexpr float HouseSkillStep = 0.1f;
+	constexpr int32 HouseSkillLevels = 3;
+	/** The room's bots bowl at the house's middle skill. */
+	constexpr float RoomBotSkill = 0.6f;
+
+	const FString ReleaseEvent(TEXT("bowling:release"));
+	const FString ReplayEvent(TEXT("bowling:replay-outcome"));
 
 	/** presentation.ts beatLabel, for the phones' toasts and the replay event. */
 	FString BeatLabel(EBowlingBeat Beat, int32 Pins)
@@ -53,293 +59,156 @@ namespace
 		}
 	}
 
-	URoomHostSubsystem* RoomOf(const UObject* Context)
+	/** runtime.ts releaseGestureFromPayload: a bowling:release payload, or unset without a finite power. */
+	TOptional<MovecadeKart::Bowling::FShot> ParseRelease(const FJsonObject& Data)
 	{
-		const UGameInstance* GI = Context && Context->GetWorld() ? Context->GetWorld()->GetGameInstance() : nullptr;
-		return GI ? GI->GetSubsystem<URoomHostSubsystem>() : nullptr;
-	}
-}
-
-ABowlingGameMode::ABowlingGameMode()
-{
-	DefaultPawnClass = nullptr;
-	PlayerControllerClass = APlayerController::StaticClass();
-}
-
-void ABowlingGameMode::StartPlay()
-{
-	Super::StartPlay();
-	UWorld* World = GetWorld();
-	for (TActorIterator<ABowlingAlley> It(World); It; ++It)
-	{
-		Alley = *It;
-		break;
-	}
-	if (!Alley)
-	{
-		Alley = World->SpawnActor<ABowlingAlley>();
-	}
-
-	// The front end's picker passes ?Players=&Bots=; -BowlPlayers= / -BowlBots= on the command line override (tests).
-	int32 Locals = UGameplayStatics::GetIntOption(OptionsString, TEXT("Players"), 1);
-	int32 Bots = UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 1);
-	FParse::Value(FCommandLine::Get(), TEXT("BowlPlayers="), Locals);
-	FParse::Value(FCommandLine::Get(), TEXT("BowlBots="), Bots);
-	const bool bAuto = FParse::Param(FCommandLine::Get(), TEXT("BowlAuto"));
-	Locals = FMath::Clamp(Locals, 0, 4);
-	Bots = FMath::Clamp(Bots, 0, 4 - Locals);
-	if (Locals + Bots == 0)
-	{
-		Bots = 1;
-	}
-	TArray<FBowlerSeat> Seats;
-	bRoomMatch = SetupRoom(Seats);
-	for (int32 i = 0; !bRoomMatch && i < Locals + Bots; ++i)
-	{
-		FBowlerSeat& Seat = Seats.AddDefaulted_GetRef();
-		const bool bLocal = i < Locals;
-		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
-		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !bAuto ? EBowlerKind::Local : EBowlerKind::Bot;
-		Seat.Skill = bLocal ? 0.85f : 0.55f + 0.1f * (i % 3);
-		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
-		Seat.Look = FKartLook::MakeVaried(i);
-	}
-	Game = World->SpawnActor<ABowlingGame>();
-	Game->Setup(Alley, Seats, World->GetFirstPlayerController());
-	// Back to the front end, which lives on the default level.
-	TWeakObjectPtr<ABowlingGameMode> WeakMode = this;
-	Game->OnQuit = [WeakMode]()
-	{
-		if (ABowlingGameMode* Mode = WeakMode.Get())
-		{
-			UGameplayStatics::OpenLevel(Mode, TEXT("L_SunsetHarbor"));
-		}
-	};
-	if (bRoomMatch)
-	{
-		BindRoom();
-	}
-	if (APlayerController* PC = World->GetFirstPlayerController())
-	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
-	}
-	if (!bRoomMatch)
-	{
-		// Play again and next game keep these seats.
-		if (UArcadeSession* Session = UArcadeSession::Get(this))
-		{
-			Session->NoteLaunch(TEXT("bowling"), Locals, Bots);
-		}
-	}
-	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
-	SetupTestHooks();
-}
-
-bool ABowlingGameMode::SetupRoom(TArray<FBowlerSeat>& OutSeats)
-{
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Room->IsMatchRunning(TEXT("bowling")))
-	{
-		return false;
-	}
-	TArray<FMcSeat> Players = Room->GetSeats();
-	Players.Sort([](const FMcSeat& A, const FMcSeat& B) { return A.Seat < B.Seat; });
-	for (const FMcSeat& Player : Players)
-	{
-		if (Player.bEliminated || OutSeats.Num() >= 4)
-		{
-			continue;
-		}
-		FBowlerSeat& Seat = OutSeats.AddDefaulted_GetRef();
-		Seat.Id = Player.PlayerId;
-		Seat.Name = Player.Name;
-		Seat.Kind = Player.bBot ? EBowlerKind::Bot : EBowlerKind::Phone;
-		Seat.Skill = 0.6f;
-		Seat.Color = Player.PaintColor;
-		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Player.SeatIndex());
-	}
-	UE_LOG(LogTemp, Display, TEXT("Bowling: room match %d with %d bowler(s)"), Room->GetRoom().MatchNumber, OutSeats.Num());
-	return OutSeats.Num() > 0;
-}
-
-void ABowlingGameMode::BindRoom()
-{
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
-	{
-		return;
-	}
-	Room->SetPreparationReady(true);
-	Room->OnReturnedToLobby.AddDynamic(this, &ABowlingGameMode::HandleRoomLobby);
-	Room->OnPauseChanged.AddDynamic(this, &ABowlingGameMode::HandleRoomPause);
-	Game->SetPaused(Room->GetRoom().Status == EMcRoomStatus::Paused);
-
-	TWeakObjectPtr<ABowlingGame> WeakGame = Game;
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = Room;
-	GameEventHandle = Room->OnGameEvent.AddLambda([WeakGame](const FString& From, const FString& Event, const TSharedPtr<FJsonObject>& Data)
-	{
-		ABowlingGame* G = WeakGame.Get();
 		double Power = 0.0;
-		if (!G || Event != TEXT("bowling:release") || !Data.IsValid() || !Data->TryGetNumberField(TEXT("power"), Power) || !FMath::IsFinite(Power))
+		if (!Data.TryGetNumberField(TEXT("power"), Power) || !FMath::IsFinite(Power))
 		{
-			return;
+			return {};
 		}
 		auto Field = [&Data](const TCHAR* Key)
 		{
-			double V = 0.0;
-			return Data->TryGetNumberField(Key, V) && FMath::IsFinite(V) ? V : 0.0;
+			double Value = 0.0;
+			return Data.TryGetNumberField(Key, Value) && FMath::IsFinite(Value) ? Value : 0.0;
 		};
 		MovecadeKart::Bowling::FShot Throw;
 		Throw.Aim = Field(TEXT("aim"));
 		Throw.Power = Power;
 		Throw.Curve = Field(TEXT("curve"));
 		Throw.Loft = Field(TEXT("loft"));
-		G->SubmitRelease(From, Throw);
-	});
-	SensorHandle = Room->OnSensorFrame.AddLambda([WeakGame, WeakRoom](int32 SeatIndex, const MovecadeKart::Net::FSensorFrame& Frame)
-	{
-		ABowlingGame* G = WeakGame.Get();
-		const URoomHostSubsystem* R = WeakRoom.Get();
-		const FMcSeat* Seat = R ? R->GetRoom().FindBySeat(SeatIndex + 1) : nullptr;
-		if (G && Seat)
-		{
-			G->FeedPhone(Seat->PlayerId, Frame);
-		}
-	});
+		return Throw;
+	}
+}
 
+ABowlingGameMode::ABowlingGameMode()
+{
+	ArcadeId = TEXT("bowling");
+	CommandLinePrefix = TEXT("Bowl");
+}
+
+void ABowlingGameMode::SpawnVenue()
+{
+	UWorld* World = GetWorld();
+	TActorIterator<ABowlingAlley> It(World);
+	Alley = It ? *It : World->SpawnActor<ABowlingAlley>();
+}
+
+void ABowlingGameMode::BuildRoomSeats(TConstArrayView<FMcSeat> Players)
+{
+	for (const FMcSeat& Player : Players)
+	{
+		FBowlerSeat& Seat = Seats.AddDefaulted_GetRef();
+		Seat.Id = Player.PlayerId;
+		Seat.Name = Player.Name;
+		Seat.Kind = Player.bBot ? EBowlerKind::Bot : EBowlerKind::Phone;
+		Seat.Skill = RoomBotSkill;
+		Seat.Color = Player.PaintColor;
+		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Player.SeatIndex());
+	}
+}
+
+void ABowlingGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
+{
+	for (int32 i = 0; i < InLaunch.Locals + InLaunch.Bots; ++i)
+	{
+		FBowlerSeat& Seat = Seats.AddDefaulted_GetRef();
+		const bool bLocal = i < InLaunch.Locals;
+		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
+		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EBowlerKind::Local : EBowlerKind::Bot;
+		Seat.Skill = bLocal ? LocalAutoSkill : HouseSkillBase + HouseSkillStep * (i % HouseSkillLevels);
+		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
+		Seat.Look = FKartLook::MakeVaried(i);
+	}
+}
+
+void ABowlingGameMode::SpawnGame()
+{
+	Game = SpawnArcadeGame<ABowlingGame>();
+	Game->Setup(Alley, Seats, GetWorld()->GetFirstPlayerController(), FBowlingDebugFlags::Parse(FCommandLine::Get()));
+	Game->OnQuit = MakeQuitCallback();
+	Game->OnRematch = MakeRematchCallback();
+}
+
+void ABowlingGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
+{
+	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
 	// runtime.ts: announce the bowler up on each change, so the server lets only their phone throw.
 	Game->OnTurn = [WeakRoom](const FString& PlayerId)
 	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
+		if (URoomHostSubsystem* BoundRoom = WeakRoom.Get())
 		{
-			R->AdvanceTurn(PlayerId);
+			BoundRoom->AdvanceTurn(PlayerId);
 		}
 	};
 	TWeakObjectPtr<ABowlingGameMode> WeakMode = this;
-	Game->OnRoll = [WeakMode, WeakRoom, WeakGame](const FString& PlayerId, int32 Pins, EBowlingBeat Beat)
+	Game->OnRoll = [WeakMode, WeakRoom](const FString& PlayerId, int32 Pins, EBowlingBeat Beat)
 	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		const ABowlingGame* G = WeakGame.Get();
 		ABowlingGameMode* Mode = WeakMode.Get();
-		if (!R || !G || !Mode || PlayerId.IsEmpty())
+		URoomHostSubsystem* BoundRoom = WeakRoom.Get();
+		if (!Mode || !BoundRoom || PlayerId.IsEmpty())
 		{
 			return;
 		}
-		const MovecadeKart::Bowling::FShotResult* Result = G->GetShot();
-		const bool bBig = Beat == EBowlingBeat::Strike || Beat == EBowlingBeat::Turkey || Beat == EBowlingBeat::SplitConvert;
-		const FString Label = BeatLabel(Beat, Pins);
-		R->SendPlayFeedback(PlayerId, Label, FString::Printf(TEXT("%d pins · %.1f m/s"), Pins, Result ? Result->Speed : 0.0),
-			Beat == EBowlingBeat::Gutter || Pins == 0 ? TEXT("warning") : TEXT("success"),
-			bBig ? TEXT("celebration") : (Pins > 0 ? TEXT("impact") : TEXT("warning")), bBig);
-		R->SendGameEvent(TEXT("bowling:replay-outcome"), FString::Printf(TEXT("{\"playerId\":%s,\"pins\":%d,\"label\":%s,\"beat\":\"%s\"}"),
-			*MovecadeKart::Net::QuoteJson(PlayerId), Pins, *MovecadeKart::Net::QuoteJson(Label), BeatId(Beat)));
-		Mode->PushScores(false);
+		Mode->SendRollFeedback(*BoundRoom, PlayerId, Pins, Beat);
+		Mode->PushLiveScores();
 	};
 	Game->OnFinished = [WeakMode]()
 	{
 		if (ABowlingGameMode* Mode = WeakMode.Get())
 		{
-			Mode->PushScores(true);
+			Mode->CompleteRoomMatch();
 		}
 	};
-	// A room rematches (and quits) through its lobby: everyone re-readies there (engine.ts restart-game).
-	Game->OnRematch = [WeakRoom]()
-	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->RestartGame();
-		}
-	};
-	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
 }
 
-void ABowlingGameMode::PushScores(bool bFinal)
+void ABowlingGameMode::SendRollFeedback(URoomHostSubsystem& Room, const FString& PlayerId, int32 Pins, EBowlingBeat Beat) const
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
-	{
-		return;
-	}
-	TArray<FMcScoreEntry> Scores;
-	for (const FString& Id : Game->GetMatch().Order)
-	{
-		const MovecadeKart::Bowling::FCard* Card = Game->GetMatch().CardOf(Id);
-		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
-		Entry.PlayerId = Id;
-		Entry.Score = Card ? Card->Score : 0;
-	}
-	if (bFinal)
-	{
-		Room->CompleteGame(Scores);
-	}
-	else
-	{
-		Room->UpdateLiveScores(Scores);
-	}
+	const MovecadeKart::Bowling::FShotResult* Result = Game ? Game->GetShot() : nullptr;
+	const bool bBig = MovecadeKart::Bowling::IsCelebration(Beat);
+	const FString Label = BeatLabel(Beat, Pins);
+	const TCHAR* Tone = Beat == EBowlingBeat::Gutter || Pins == 0 ? TEXT("warning") : TEXT("success");
+	const TCHAR* Haptic = bBig ? TEXT("celebration") : (Pins > 0 ? TEXT("impact") : TEXT("warning"));
+	Room.SendPlayFeedback(PlayerId, Label, FString::Printf(TEXT("%d pins · %.1f m/s"), Pins, Result ? Result->Speed : 0.0), Tone, Haptic, bBig);
+	Room.SendGameEvent(ReplayEvent, FString::Printf(TEXT("{\"playerId\":%s,\"pins\":%d,\"label\":%s,\"beat\":\"%s\"}"),
+		*MovecadeKart::Net::QuoteJson(PlayerId), Pins, *MovecadeKart::Net::QuoteJson(Label), BeatId(Beat)));
 }
 
-void ABowlingGameMode::HandleRoomLobby()
-{
-	// The lobby lives on the front end's level; the room (a game instance subsystem) rides along.
-	UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor"));
-}
-
-void ABowlingGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId)
+void ABowlingGameMode::HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame)
 {
 	if (Game)
 	{
-		Game->SetPaused(bPaused);
+		Game->FeedPhone(Seat.PlayerId, Frame);
 	}
 }
 
-void ABowlingGameMode::EndPlay(const EEndPlayReason::Type Reason)
+void ABowlingGameMode::HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data)
 {
-	if (Overlay.IsValid())
+	if (!Game || !Data.IsValid() || !Event.Equals(ReleaseEvent, ESearchCase::CaseSensitive))
 	{
-		Overlay->Detach();
-		Overlay.Reset();
+		return;
 	}
-	// The world owns its timer manager, but in practice it outlives level travel: clear ours here.
-	GetWorldTimerManager().ClearTimer(ScoreTimer);
-	if (URoomHostSubsystem* Room = RoomOf(this))
+	if (const TOptional<MovecadeKart::Bowling::FShot> Throw = ParseRelease(*Data))
 	{
-		Room->OnGameEvent.Remove(GameEventHandle);
-		Room->OnSensorFrame.Remove(SensorHandle);
-		Room->OnReturnedToLobby.RemoveDynamic(this, &ABowlingGameMode::HandleRoomLobby);
-		Room->OnPauseChanged.RemoveDynamic(this, &ABowlingGameMode::HandleRoomPause);
+		Game->SubmitRelease(FromPlayerId, *Throw);
 	}
-	Super::EndPlay(Reason);
 }
 
-void ABowlingGameMode::SetupTestHooks()
+bool ABowlingGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const
 {
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartShots="), Shots, false))
+	if (!Game)
 	{
-		TArray<FString> Times;
-		Shots.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
-		{
-			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-			{
-				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-				{
-					PC->ConsoleCommand(TEXT("Shot showui"));
-				}
-			}), FCString::Atof(*Time), false);
-		}
+		return false;
 	}
-	float QuitAfter = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
+	// In turn order, every bowler (a card with no rolls yet scores 0).
+	const MovecadeKart::Bowling::FMatch& Match = Game->GetMatch();
+	for (const FString& Id : Match.Order)
 	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}), QuitAfter, false);
+		const MovecadeKart::Bowling::FCard* Card = Match.CardOf(Id);
+		FMcScoreEntry& Entry = OutScores.AddDefaulted_GetRef();
+		Entry.PlayerId = Id;
+		Entry.Score = Card ? Card->Score : 0;
 	}
+	return true;
 }

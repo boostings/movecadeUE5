@@ -1,59 +1,49 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/GameModeBase.h"
-#include "Templates/SharedPointer.h"
+#include "Games/ArcadeGameModeBase.h"
+#include "Games/Bowling/BowlingTypes.h"
 #include "BowlingGameMode.generated.h"
 
 class ABowlingAlley;
 class ABowlingGame;
-class SArcadeOverlay;
 
 /**
- * Bowling's level mode (L_Bowling): finds the alley (or builds one) and starts a game. Local play by default:
- * -BowlPlayers=N local bowlers (default 1; they share the keyboard, mouse and pads, since only one bowls at a
- * time), -BowlBots=N house bowlers (default 1), -BowlAuto (everyone is a bot: soak tests, screenshots). The Kart
- * test hooks work here too: -KartShots=t1,t2 and -KartQuitAfter=N. The front end's Arcade picker passes
- * ?Players=N?Bots=N on the travel URL instead.
+ * Bowling's level mode (L_Bowling): finds the alley (or builds one) and starts a game on it. The loop around the game
+ * (seats from ?Players=&Bots= or -BowlPlayers= / -BowlBots= / -BowlAuto, the overlay, the test hooks, the room
+ * binding, live scores) is AArcadeGameModeBase's. Local bowlers share the keyboard, mouse and pads, since only one
+ * bowls at a time.
  *
- * Party Mode: when the room host (URoomHostSubsystem) is playing a bowling match, the room's seats bowl instead,
- * phones by their own release (bowling:release) with their motion driving the arm and guide, room bots by the
- * house AI. The mode announces each turn (advance-turn), sends the phones' toasts (play:feedback) and the replay
- * outcome, streams scores, completes the game, and goes back to the lobby level when the room does.
+ * Party Mode: the room's seats bowl, phones by their own release (bowling:release) with their motion driving the arm
+ * and guide, room bots by the house AI. This mode announces each turn (advance-turn) and sends the phones' toasts
+ * (play:feedback) and the replay outcome after every roll.
  */
 UCLASS()
-class MOVECADEKART_API ABowlingGameMode : public AGameModeBase
+class MOVECADEKART_API ABowlingGameMode : public AArcadeGameModeBase
 {
 	GENERATED_BODY()
 
 public:
 	ABowlingGameMode();
 
-	virtual void StartPlay() override;
-	virtual void RestartPlayer(AController* NewPlayer) override {}
-	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
-
 	ABowlingGame* GetGame() const { return Game; }
 
+protected:
+	virtual void SpawnVenue() override;
+	virtual void BuildRoomSeats(TConstArrayView<FMcSeat> Players) override;
+	virtual void BuildLocalSeats(const FArcadeLaunchOptions& InLaunch) override;
+	virtual void SpawnGame() override;
+	virtual void BindRoomCallbacks(URoomHostSubsystem& Room) override;
+	virtual void HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame) override;
+	virtual void HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data) override;
+	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const override;
+
 private:
-	void SetupTestHooks();
-	/** Seats the room's players and binds the room to the game; false when no bowling match is running. */
-	bool SetupRoom(TArray<struct FBowlerSeat>& OutSeats);
-	void BindRoom();
-	void PushScores(bool bFinal);
+	/** The phone's toast and haptic for a committed roll, and the replay outcome for every phone. */
+	void SendRollFeedback(URoomHostSubsystem& Room, const FString& PlayerId, int32 Pins, EBowlingBeat Beat) const;
 
-	UFUNCTION()
-	void HandleRoomLobby();
-
-	UFUNCTION()
-	void HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId);
-
-	bool bRoomMatch = false;
-	/** Pause, results and the play-again / next-game loop over the game. */
-	TSharedPtr<SArcadeOverlay> Overlay;
-	FDelegateHandle GameEventHandle;
-	FDelegateHandle SensorHandle;
-	FTimerHandle ScoreTimer;
+	/** Filled by Build*Seats, handed to the game in SpawnGame. */
+	TArray<FBowlerSeat> Seats;
 
 	UPROPERTY()
 	TObjectPtr<ABowlingAlley> Alley;
