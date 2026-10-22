@@ -467,6 +467,49 @@ namespace MovecadeKart::Net
 		return Url;
 	}
 
+	bool IsLocalHost(const FString& HostOrUrl)
+	{
+		FString Host = HostOrUrl.TrimStartAndEnd();
+		if (const int32 SchemeEnd = Host.Find(TEXT("://")); SchemeEnd != INDEX_NONE)
+		{
+			Host.RightChopInline(SchemeEnd + 3);
+		}
+		// The authority ends at the path, query or fragment; user info before an @ is not where the socket goes.
+		if (const int32 AuthorityEnd = Host.GetCharArray().IndexOfByPredicate([](TCHAR C) { return C == TEXT('/') || C == TEXT('?') || C == TEXT('#'); });
+			AuthorityEnd != INDEX_NONE)
+		{
+			Host.LeftInline(AuthorityEnd);
+		}
+		if (int32 At = INDEX_NONE; Host.FindLastChar(TEXT('@'), At))
+		{
+			Host.RightChopInline(At + 1);
+		}
+		if (Host.StartsWith(TEXT("[")))
+		{
+			// [v6]:port. Anything after the bracket other than a port is not an address.
+			const int32 Close = Host.Find(TEXT("]"));
+			if (Close == INDEX_NONE || (Close + 1 < Host.Len() && Host[Close + 1] != TEXT(':')))
+			{
+				return false;
+			}
+			Host = Host.Mid(1, Close - 1);
+		}
+		else
+		{
+			// host:port. A bare v6 address (::1) has more than one colon and keeps them.
+			int32 FirstColon = INDEX_NONE;
+			int32 LastColon = INDEX_NONE;
+			if (Host.FindChar(TEXT(':'), FirstColon) && Host.FindLastChar(TEXT(':'), LastColon) && FirstColon == LastColon)
+			{
+				Host.LeftInline(FirstColon);
+			}
+		}
+		Host.ToLowerInline();
+		static constexpr int32 LocalhostSuffixLength = 10; // ".localhost"
+		return Host == TEXT("localhost") || Host == TEXT("127.0.0.1") || Host == TEXT("::1")
+			|| (Host.Len() > LocalhostSuffixLength && Host.EndsWith(TEXT(".localhost")));
+	}
+
 	FString MakeIdentity()
 	{
 		FGuid Guid = FGuid::NewGuid();

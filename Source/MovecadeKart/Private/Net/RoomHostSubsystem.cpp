@@ -41,15 +41,6 @@ namespace MovecadeKart::Net::RoomHost
 	}
 }
 
-namespace
-{
-	/** The join base's host, for "is the web app on this machine too". */
-	FString HostOfUrl(const FString& Url)
-	{
-		return FString(Url).Replace(TEXT("http://"), TEXT("")).Replace(TEXT("https://"), TEXT(""));
-	}
-}
-
 URoomHostSubsystem::URoomHostSubsystem() = default;
 
 // Out of line: TUniquePtr<FPipe> needs the complete type to destroy it.
@@ -117,7 +108,7 @@ void URoomHostSubsystem::ApplyServerSettings(const TCHAR* Cmd)
 	if (IsLocalPartyHost(PartyHost))
 	{
 		bSecure = false;
-		if (bServerGiven && !bJoinBaseGiven && !IsLocalPartyHost(HostOfUrl(JoinBaseUrl)))
+		if (bServerGiven && !bJoinBaseGiven && !IsLocalHost(JoinBaseUrl))
 		{
 			JoinBaseUrl = TEXT("http://localhost:5173");
 		}
@@ -162,7 +153,7 @@ bool URoomHostSubsystem::IsHost() const
 
 bool URoomHostSubsystem::IsLocalPartyHost(const FString& Host)
 {
-	return Host.StartsWith(TEXT("127.")) || Host.StartsWith(TEXT("localhost")) || Host.StartsWith(TEXT("0.0.0.0")) || Host.StartsWith(TEXT("[::1]"));
+	return IsLocalHost(Host);
 }
 
 void URoomHostSubsystem::Tick(float DeltaTime)

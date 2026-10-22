@@ -213,6 +213,12 @@ namespace MovecadeKart::Net
 	/** application/x-www-form-urlencoded, as URLSearchParams.toString() writes it. */
 	MOVECADEKART_API FString FormEncode(const FString& Value);
 
+	/**
+	 * True when a host (or URL) names this machine: exactly localhost, 127.0.0.1, ::1 or a *.localhost name once the
+	 * scheme, user info, port and path are stripped. localhost.example.com and 127.0.0.1.example.com are not local.
+	 */
+	MOVECADEKART_API bool IsLocalHost(const FString& HostOrUrl);
+
 	/** A lower-case v4 UUID (the server's identity regex requires v4). */
 	MOVECADEKART_API FString MakeIdentity();
 	MOVECADEKART_API bool IsV4Uuid(const FString& Value);

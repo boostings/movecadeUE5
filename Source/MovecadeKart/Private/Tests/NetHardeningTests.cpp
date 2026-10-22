@@ -163,4 +163,24 @@ bool FNetHardeningServerTextTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningLocalHostTest, "MovecadeKart.Net.Hardening.LocalHost", HardeningTestFlags)
+bool FNetHardeningLocalHostTest::RunTest(const FString&)
+{
+	// NET-04: "local" switches the socket to plain ws, so only names that can't leave this machine count.
+	for (const TCHAR* Local : { TEXT("localhost"), TEXT("LocalHost"), TEXT("localhost:1999"), TEXT("127.0.0.1"), TEXT("127.0.0.1:1999"),
+		TEXT("::1"), TEXT("[::1]"), TEXT("[::1]:1999"), TEXT("http://localhost:5173"), TEXT("http://localhost:5173/join/ABCDEF#v=2"),
+		TEXT("app.localhost"), TEXT("https://app.localhost:8443/x"), TEXT("ws://127.0.0.1:1999/parties/main") })
+	{
+		TestTrue(FString::Printf(TEXT("%s is local"), Local), IsLocalHost(Local));
+	}
+	for (const TCHAR* Remote : { TEXT("localhost.evil.com"), TEXT("localhost.evil.com:1999"), TEXT("127.0.0.1.evil.com"),
+		TEXT("127.0.0.1.evil.com:1999"), TEXT("http://localhost.evil.com/"), TEXT("http://localhost@evil.com"), TEXT("http://evil.com/localhost"),
+		TEXT("http://evil.com?h=localhost"), TEXT("[::1].evil.com"), TEXT("[::1]evil.com:1999"), TEXT("127.0.0.2"), TEXT("0.0.0.0"),
+		TEXT("evil-localhost"), TEXT("xlocalhost"), TEXT(".localhost"), TEXT("party.movecade.com"), TEXT("") })
+	{
+		TestFalse(FString::Printf(TEXT("%s is not local"), Remote), IsLocalHost(Remote));
+	}
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
