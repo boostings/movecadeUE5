@@ -250,7 +250,7 @@ void ABowlingGame::Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSe
 
 	Guide = NewObject<UInstancedStaticMeshComponent>(this, TEXT("Guide"));
 	Guide->SetStaticMesh(Disc);
-	GuideMaterial = ABowlingAlley::OpaqueGlow(this, FLinearColor::White);
+	GuideMaterial = MovecadeKart::Art::GlowOpaque(this, FLinearColor::White);
 	Guide->SetMaterial(0, GuideMaterial);
 	Guide->SetupAttachment(RootComponent);
 	Guide->SetMobility(EComponentMobility::Movable);
@@ -264,7 +264,7 @@ void ABowlingGame::Setup(ABowlingAlley* InAlley, const TArray<FBowlerSeat>& InSe
 	// The target: a flat ring of light on the deck where the line meets the rack.
 	Target = NewObject<UStaticMeshComponent>(this, TEXT("Target"));
 	Target->SetStaticMesh(Disc);
-	TargetMaterial = ABowlingAlley::OpaqueGlow(this, FLinearColor::White);
+	TargetMaterial = MovecadeKart::Art::GlowOpaque(this, FLinearColor::White);
 	Target->SetMaterial(0, TargetMaterial);
 	Target->SetupAttachment(RootComponent);
 	Target->SetMobility(EComponentMobility::Movable);
