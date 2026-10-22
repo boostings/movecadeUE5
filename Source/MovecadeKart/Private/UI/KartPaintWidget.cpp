@@ -16,6 +16,7 @@ namespace
 		{
 			Owner = InArgs._Owner;
 			SetVisibility(EVisibility::HitTestInvisible);
+			ForceVolatile(true); // painted from game state every frame
 		}
 
 		virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1.0, 1.0); }

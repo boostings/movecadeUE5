@@ -154,4 +154,10 @@ private:
 	int32 HoverId = INDEX_NONE;
 	int32 PressedId = INDEX_NONE;
 	mutable FVector2D LastSize = FVector2D(1920.0, 1080.0);
+	/** The top screen's hints, refreshed when the screen, the device or its state (an input) changes. */
+	mutable TArray<FKartHint> CachedHints;
+	mutable bool bHintsDirty = true;
+	mutable double HintsAt = -10.0;
+	mutable EKartInputDevice HintsDevice = EKartInputDevice::Keyboard;
+	mutable const FKartScreen* HintsScreen = nullptr;
 };

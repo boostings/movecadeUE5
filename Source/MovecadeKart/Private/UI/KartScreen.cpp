@@ -50,6 +50,8 @@ void SKartScreenStack::Construct(const FArguments& InArgs)
 	World = InArgs._World;
 	Background = InArgs._Background;
 	bShowHints = InArgs._ShowHints;
+	// Every screen animates from the clock: repaint each frame even under global invalidation.
+	ForceVolatile(true);
 }
 
 const TSharedPtr<FKartScreen>& SKartScreenStack::Top() const
@@ -71,6 +73,7 @@ void SKartScreenStack::Show(const TSharedRef<FKartScreen>& Screen, float InDirec
 	ShownAt = FSlateApplication::Get().GetCurrentTime();
 	HoverId = INDEX_NONE;
 	Hits.Reset();
+	bHintsDirty = true;
 	Screen->OnShown();
 }
 
@@ -151,6 +154,7 @@ bool SKartScreenStack::HandleMenuEvent(const FKartMenuEvent& Event)
 	{
 		return Event.Action != EKartMenuAction::None;
 	}
+	bHintsDirty = true; // a handled key may change what the screen offers (a tab, a ready state)
 	if (Screen->HandleEvent(Event))
 	{
 		return true;
@@ -234,6 +238,7 @@ FReply SKartScreenStack::OnMouseButtonUp(const FGeometry& MyGeometry, const FPoi
 	if (Id != INDEX_NONE && Id == PressedId && FSlateApplication::Get().GetCurrentTime() - ShownAt > TransitionSeconds * 0.5)
 	{
 		Screen->OnClick(Id);
+		bHintsDirty = true;
 	}
 	PressedId = INDEX_NONE;
 	return FReply::Handled();
@@ -299,7 +304,16 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 		}
 		if (bShowHints)
 		{
-			KartWidgets::Hints(P.Faded(Frame.Presence), Frame, Screen->GetHints());
+			// Hints are rebuilt only when something could change them (plus a slow safety refresh), not every paint.
+			if (bHintsDirty || HintsScreen != Screen.Get() || HintsDevice != Frame.Device || Frame.Now - HintsAt > 0.5)
+			{
+				CachedHints = Screen->GetHints();
+				bHintsDirty = false;
+				HintsScreen = Screen.Get();
+				HintsDevice = Frame.Device;
+				HintsAt = Frame.Now;
+			}
+			KartWidgets::Hints(P.Faded(Frame.Presence), Frame, CachedHints);
 		}
 	}
 	return Layer;

@@ -103,20 +103,55 @@ namespace KartUI::Color
 
 namespace KartUI
 {
+	namespace
+	{
+		FSlateFontInfo MakeFont(EFont Face, float Size, float OutlineSize, const FLinearColor& OutlineColor)
+		{
+			static const FName Regular(TEXT("Regular"));
+			const FFontSet& Set = Fonts();
+			const TSharedPtr<const FCompositeFont>& Composite = Set.Faces[static_cast<int32>(Face)];
+			FSlateFontInfo Info = Composite.IsValid()
+				? FSlateFontInfo(Composite, Size, Regular)
+				: FCoreStyle::GetDefaultFontStyle(Face == EFont::Body ? "Bold" : "Black", FMath::RoundToInt32(Size * 0.8f));
+			if (OutlineSize > 0.f)
+			{
+				Info.OutlineSettings.OutlineSize = FMath::RoundToInt32(OutlineSize);
+				Info.OutlineSettings.OutlineColor = OutlineColor;
+				Info.OutlineSettings.bSeparateFillAlpha = false;
+			}
+			return Info;
+		}
+	}
+
 	FSlateFontInfo Font(EFont Face, float Size, float OutlineSize, const FLinearColor& OutlineColor)
 	{
-		const FFontSet& Set = Fonts();
-		const TSharedPtr<const FCompositeFont>& Composite = Set.Faces[static_cast<int32>(Face)];
-		FSlateFontInfo Info = Composite.IsValid()
-			? FSlateFontInfo(Composite, Size, TEXT("Regular"))
-			: FCoreStyle::GetDefaultFontStyle(Face == EFont::Body ? "Bold" : "Black", FMath::RoundToInt32(Size * 0.8f));
-		if (OutlineSize > 0.f)
+		if (!IsInGameThread())
 		{
-			Info.OutlineSettings.OutlineSize = FMath::RoundToInt32(OutlineSize);
-			Info.OutlineSettings.OutlineColor = OutlineColor;
-			Info.OutlineSettings.bSeparateFillAlpha = false;
+			return MakeFont(Face, Size, OutlineSize, OutlineColor);
 		}
-		return Info;
+		// Screens ask for the same few dozen fonts every frame: keep the built infos (bounded; HUD sizes scale per view).
+		using FKey = TTuple<uint8, uint32, uint32, uint32>;
+		static TMap<FKey, FSlateFontInfo> Cache;
+		static bool bFacesLoaded = false;
+		if (!bFacesLoaded)
+		{
+			bFacesLoaded = true;
+			Fonts();
+		}
+		const FColor Outline = OutlineSize > 0.f ? OutlineColor.ToFColor(false) : FColor(0);
+		uint32 SizeBits, OutlineBits;
+		FMemory::Memcpy(&SizeBits, &Size, sizeof(SizeBits));
+		FMemory::Memcpy(&OutlineBits, &OutlineSize, sizeof(OutlineBits));
+		const FKey Key(static_cast<uint8>(Face), SizeBits, OutlineBits, Outline.DWColor());
+		if (const FSlateFontInfo* Found = Cache.Find(Key))
+		{
+			return *Found;
+		}
+		if (Cache.Num() >= 1024)
+		{
+			Cache.Reset();
+		}
+		return Cache.Add(Key, MakeFont(Face, Size, OutlineSize, OutlineColor));
 	}
 
 	bool HasGameFonts()
