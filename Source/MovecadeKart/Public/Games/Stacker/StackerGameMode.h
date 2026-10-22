@@ -1,49 +1,47 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/GameModeBase.h"
-#include "Templates/SharedPointer.h"
+#include "Games/ArcadeGameModeBase.h"
+#include "Games/Stacker/StackerTypes.h"
 #include "StackerGameMode.generated.h"
 
 class AStackerRooftop;
 class AStackerGame;
-class SArcadeOverlay;
+namespace MovecadeKart::Stacker { struct FEffect; }
 
 /**
- * Sky Stacker's level mode (L_Stacker): finds the rooftop (or builds one) and starts a round. Local play: one
- * builder on a pad, the keys or the mouse (the game is simultaneous) plus house bots, from ?Players=&Bots= or
- * -StackerPlayers= -StackerBots= -StackerAuto, and the Kart test hooks -KartShots= and -KartQuitAfter=.
+ * Sky Stacker's level mode (L_Stacker): finds the rooftop (or builds one) and starts a round; AArcadeGameModeBase
+ * does the rest of the arcade loop. Local play: one builder on a pad, the keys or the mouse (the game is
+ * simultaneous, so one pair of hands) plus house bots, from ?Players=&Bots= or -StackerPlayers= -StackerBots=
+ * -StackerAuto.
  *
- * Party Mode: when the room host plays a stacker match, every seat is a lane: phones balance their towers (their
- * attitude arrives in sensor frames) and drop on stacker:drop, room bots build by the house AI. The mode announces
- * simultaneous play (advance-turn null) and the countdown, sends play:feedback for every drop and topple, scores
- * each second, completes the match after the showcase and follows the room back to its lobby.
+ * Party Mode: every room seat is a lane: phones balance their towers (their attitude arrives in sensor frames) and
+ * drop on stacker:drop, room bots build by the house AI. The mode announces simultaneous play (advance-turn null)
+ * and the countdown, sends play:feedback for every drop and topple, and completes the match after the showcase.
  */
 UCLASS()
-class MOVECADEKART_API AStackerGameMode : public AGameModeBase
+class MOVECADEKART_API AStackerGameMode : public AArcadeGameModeBase
 {
 	GENERATED_BODY()
 
 public:
 	AStackerGameMode();
 
-	virtual void StartPlay() override;
-	virtual void RestartPlayer(AController* NewPlayer) override {}
-	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
-
 	AStackerGame* GetGame() const { return Game; }
 
+protected:
+	virtual void SpawnVenue() override;
+	virtual void BuildRoomSeats(TConstArrayView<FMcSeat> Players) override;
+	virtual void BuildLocalSeats(const FArcadeLaunchOptions& InLaunch) override;
+	virtual void SpawnGame() override;
+	virtual void BindRoomCallbacks(URoomHostSubsystem& Room) override;
+	virtual void HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame) override;
+	virtual void HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data) override;
+	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const override;
+
 private:
-	void SetupTestHooks();
-	bool SetupRoom(TArray<struct FStackerSeat>& OutSeats);
-	void BindRoom();
-	void PushScores(bool bFinal);
-
-	UFUNCTION()
-	void HandleRoomLobby();
-
-	UFUNCTION()
-	void HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId);
+	/** runtime.ts 540-549: the phone's toast (and haptic) for a drop or a topple. */
+	void SendEffectFeedback(const MovecadeKart::Stacker::FEffect& Effect) const;
 
 	UPROPERTY()
 	TObjectPtr<AStackerRooftop> Rooftop;
@@ -51,12 +49,6 @@ private:
 	UPROPERTY()
 	TObjectPtr<AStackerGame> Game;
 
-	bool bRoomMatch = false;
-	/** Pause, results and the play-again / next-game loop over the game. */
-	TSharedPtr<SArcadeOverlay> Overlay;
-	FDelegateHandle GameEventHandle;
-	FDelegateHandle SensorHandle;
-	FTimerHandle ScoreTimer;
-	/** Live scores go out only when they change (runtime.ts). */
-	FString LastScores;
+	/** Filled by BuildRoomSeats / BuildLocalSeats, handed to the game in SpawnGame. */
+	TArray<FStackerSeat> Seats;
 };

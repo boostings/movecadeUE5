@@ -168,6 +168,23 @@ namespace MovecadeKart::Stacker
 		FString Label;
 	};
 
+	/** What a drop at a centre would do, read only: DropBlock acts on it and the drop guide shows it. */
+	struct FDropPreview
+	{
+		/** The lean's shift of the support, and the support itself (the block below's centre plus the shift). */
+		double Sway = 0.0;
+		double Support = 0.0;
+		/** How far the drop is off the support. */
+		double Offset = 0.0;
+		/** The span the drop keeps, across the lane (narrower than the minimum on a miss). */
+		double Left = 0.0;
+		double Right = 0.0;
+		bool bPerfect = false;
+		bool bMiss = false;
+	};
+
+	MOVECADEKART_API FDropPreview PreviewDrop(const FTower& Tower, double DropCenter);
+
 	MOVECADEKART_API double SweepTrackHalfWidth(double Height);
 	MOVECADEKART_API double SweepLimit(double Width, double Height = 0.0);
 	MOVECADEKART_API double SweepSpeed(double Height);

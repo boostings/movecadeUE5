@@ -16,6 +16,71 @@ namespace MovecadeKart::Stacker
 		constexpr double SweepSpeedPerRow = 0.045;
 		constexpr double MaxSweepSpeed = 3.6;
 
+		// engine.ts: how long each callout lives (ms).
+		constexpr double CompleteEffectMs = 1600.0;
+		constexpr double PerfectEffectMs = 900.0;
+		constexpr double MissEffectMs = 800.0;
+		constexpr double TopoutEffectMs = 900.0;
+		// engine.ts spawnShard: a trimmed piece flies off its side, faster and higher the wider it is, spinning less.
+		constexpr double ShardSpeedBase = 1.15;
+		constexpr double ShardSpeedPerWidth = 0.9;
+		constexpr double ShardLiftBase = 1.9;
+		constexpr double ShardLiftMaxWidth = 1.2;
+		constexpr double ShardLiftPerWidth = 0.5;
+		constexpr double ShardSpinBase = 2.6;
+		constexpr double ShardSpinScale = 2.6;
+		constexpr double ShardSpinWidthOffset = 0.35;
+		constexpr double ShardGravity = 18.0;
+		// engine.ts: the perfect callout's intensity climbs with the combo; a landing's is its precision, never faint.
+		constexpr double PerfectIntensityBase = 0.55;
+		constexpr double PerfectIntensityPerCombo = 0.15;
+		constexpr int32 PerfectIntensityCombos = 3;
+		constexpr double MinLandIntensity = 0.25;
+		/** A block's age stops counting here (the presentation only looks at the first 280 ms). */
+		constexpr double MaxBlockAgeMs = 1000.0;
+		/** The foundation is born settled. */
+		constexpr double FoundationAgeMs = 9999.0;
+		/** One step never covers more than this (a hitch is not caught up). */
+		constexpr double MaxStepMs = 100.0;
+		/** A sweep never wraps more than this many times in one call. */
+		constexpr double MaxSweepWraps = 64.0;
+
+		// balance.ts windAt: a strength growing with height and over the first 18 s, two slow sines across, one deep.
+		constexpr double WindBase = 3.0;
+		constexpr double WindPerRow = 0.14;
+		constexpr double WindHeightMax = 4.0;
+		constexpr double WindRampSeconds = 18.0;
+		constexpr double WindRateX = 0.31;
+		constexpr double WindGustShare = 0.28;
+		constexpr double WindGustRate = 0.83;
+		constexpr double WindDepthShare = 0.65;
+		constexpr double WindRateY = 0.27;
+		constexpr double WindPhaseY = 0.8;
+		// balance.ts balanceLimit: 12 degrees, less with height and with a narrow top, never under 7.6.
+		constexpr double LimitBase = 12.0;
+		constexpr double LimitMin = 7.6;
+		constexpr double LimitPerRow = 0.06;
+		constexpr double LimitHeightMax = 2.4;
+		constexpr double LimitNarrowMax = 2.0;
+		// balance.ts balanceDisplacement: past a small dead zone the lean shifts the support, up to .45.
+		constexpr double SwayDeadZone = 0.4;
+		constexpr double SwayPerDegree = 0.045;
+		constexpr double MaxSway = 0.45;
+		// balance.ts applyLandingImpulse: an off-centre landing kicks the lean; a clean one damps it.
+		constexpr double KickBase = 10.0;
+		constexpr double KickPerRow = 0.5;
+		constexpr double KickHeightMax = 12.0;
+		constexpr double CleanLandingOffset = 0.14;
+		constexpr double CleanLandingDamping = 0.65;
+		// balance.ts stepBalance: a damped spring toward palm + wind, on a 10 ms substep; a topple recovers for 2 s.
+		constexpr double BalanceSubstepMs = 10.0;
+		constexpr double PalmLimit = 35.0;
+		constexpr double LeanSpring = 28.0;
+		constexpr double LeanDamping = 8.0;
+		constexpr double DangerRecoveryRate = 2.0;
+		constexpr double ToppleRecoveryMs = 2000.0;
+		constexpr double LeanKeptOnTopple = 0.35;
+
 		double Sign(double X)
 		{
 			return X > 0.0 ? 1.0 : (X < 0.0 ? -1.0 : 0.0);
@@ -29,7 +94,7 @@ namespace MovecadeKart::Stacker
 			E.LaneIndex = Tower.LaneIndex;
 			E.Kind = Kind;
 			E.Row = Row.Get(Tower.Height());
-			E.DurationMs = Kind == EEffectKind::Complete ? 1600.0 : (Kind == EEffectKind::Perfect ? 900.0 : (Kind == EEffectKind::Miss ? 800.0 : 900.0));
+			E.DurationMs = Kind == EEffectKind::Complete ? CompleteEffectMs : (Kind == EEffectKind::Perfect ? PerfectEffectMs : (Kind == EEffectKind::Miss ? MissEffectMs : TopoutEffectMs));
 			E.TtlMs = E.DurationMs;
 			E.Intensity = Intensity;
 			E.ScoreDelta = ScoreDelta;
@@ -49,9 +114,9 @@ namespace MovecadeKart::Stacker
 			S.Row = Row;
 			S.X = X;
 			S.Width = Width;
-			S.Vx = Side * (1.15 + Width * 0.9);
-			S.Vy = 1.9 + FMath::Min(1.2, Width) * 0.5;
-			S.Spin = Side * (2.6 + 2.6 / (0.35 + Width));
+			S.Vx = Side * (ShardSpeedBase + Width * ShardSpeedPerWidth);
+			S.Vy = ShardLiftBase + FMath::Min(ShardLiftMaxWidth, Width) * ShardLiftPerWidth;
+			S.Spin = Side * (ShardSpinBase + ShardSpinScale / (ShardSpinWidthOffset + Width));
 		}
 
 		void Finish(FMatch& Match)
@@ -88,13 +153,13 @@ namespace MovecadeKart::Stacker
 	FVector2D WindAt(double ElapsedMs, double Height)
 	{
 		const double T = ElapsedMs / 1000.0;
-		const double Strength = (3.0 + FMath::Min(4.0, Height * 0.14)) * FMath::Min(1.0, T / 18.0);
-		return FVector2D(Strength * (FMath::Sin(T * 0.31) + 0.28 * FMath::Sin(T * 0.83)), Strength * 0.65 * FMath::Sin(T * 0.27 + 0.8));
+		const double Strength = (WindBase + FMath::Min(WindHeightMax, Height * WindPerRow)) * FMath::Min(1.0, T / WindRampSeconds);
+		return FVector2D(Strength * (FMath::Sin(T * WindRateX) + WindGustShare * FMath::Sin(T * WindGustRate)), Strength * WindDepthShare * FMath::Sin(T * WindRateY + WindPhaseY));
 	}
 
 	double BalanceLimit(double Height, double Width)
 	{
-		return FMath::Max(7.6, 12.0 - FMath::Min(2.4, Height * 0.06) - FMath::Max(0.0, 1.0 - Width / 3.6) * 2.0);
+		return FMath::Max(LimitMin, LimitBase - FMath::Min(LimitHeightMax, Height * LimitPerRow) - FMath::Max(0.0, 1.0 - Width / BaseWidth) * LimitNarrowMax);
 	}
 
 	bool IsBalanceSteady(const FBalance& S, double Limit)
@@ -104,7 +169,7 @@ namespace MovecadeKart::Stacker
 
 	double BalanceDisplacement(double Lean)
 	{
-		return Sign(Lean) * FMath::Min(0.45, FMath::Max(0.0, FMath::Abs(Lean) - 0.4) * 0.045);
+		return Sign(Lean) * FMath::Min(MaxSway, FMath::Max(0.0, FMath::Abs(Lean) - SwayDeadZone) * SwayPerDegree);
 	}
 
 	bool BalanceInputMissing(const FBalance& S, double ElapsedMs)
@@ -114,12 +179,12 @@ namespace MovecadeKart::Stacker
 
 	void ApplyLandingImpulse(FBalance& S, double Offset, double Width, double Height)
 	{
-		const double Kick = FMath::Clamp(Offset / FMath::Max(0.42, Width), -1.0, 1.0) * (10.0 + FMath::Min(12.0, Height * 0.5));
+		const double Kick = FMath::Clamp(Offset / FMath::Max(MinWidth, Width), -1.0, 1.0) * (KickBase + FMath::Min(KickHeightMax, Height * KickPerRow));
 		S.VelocityX += Kick;
-		if (FMath::Abs(Offset) < 0.14)
+		if (FMath::Abs(Offset) < CleanLandingOffset)
 		{
-			S.VelocityX *= 0.65;
-			S.VelocityY *= 0.65;
+			S.VelocityX *= CleanLandingDamping;
+			S.VelocityY *= CleanLandingDamping;
 		}
 	}
 
@@ -132,16 +197,16 @@ namespace MovecadeKart::Stacker
 		{
 			return false;
 		}
-		const double Dt = FMath::Clamp(DtMs, 0.0, 100.0);
+		const double Dt = FMath::Clamp(DtMs, 0.0, MaxStepMs);
 		double Remaining = Dt;
 		const bool bHasInput = FMath::IsFinite(S.LastInputMs);
 		while (Remaining > 0.0)
 		{
-			const double H = FMath::Min(Remaining, 10.0) / 1000.0;
-			const double Roll = bHasInput ? FMath::Clamp(S.Roll, -35.0, 35.0) : 0.0;
-			const double Pitch = bHasInput ? FMath::Clamp(S.Pitch, -35.0, 35.0) : 0.0;
-			S.VelocityX += ((Roll + Wind.X - S.LeanX) * 28.0 - S.VelocityX * 8.0) * H;
-			S.VelocityY += ((Pitch + Wind.Y - S.LeanY) * 28.0 - S.VelocityY * 8.0) * H;
+			const double H = FMath::Min(Remaining, BalanceSubstepMs) / 1000.0;
+			const double Roll = bHasInput ? FMath::Clamp(S.Roll, -PalmLimit, PalmLimit) : 0.0;
+			const double Pitch = bHasInput ? FMath::Clamp(S.Pitch, -PalmLimit, PalmLimit) : 0.0;
+			S.VelocityX += ((Roll + Wind.X - S.LeanX) * LeanSpring - S.VelocityX * LeanDamping) * H;
+			S.VelocityY += ((Pitch + Wind.Y - S.LeanY) * LeanSpring - S.VelocityY * LeanDamping) * H;
 			S.LeanX += S.VelocityX * H;
 			S.LeanY += S.VelocityY * H;
 			Remaining -= H * 1000.0;
@@ -153,18 +218,36 @@ namespace MovecadeKart::Stacker
 			return false;
 		}
 		const double Ratio = FMath::Sqrt(S.LeanX * S.LeanX + S.LeanY * S.LeanY) / BalanceLimit(Height, Width);
-		S.DangerMs = Ratio > 1.0 ? S.DangerMs + Dt : FMath::Max(0.0, S.DangerMs - Dt * 2.0);
+		S.DangerMs = Ratio > 1.0 ? S.DangerMs + Dt : FMath::Max(0.0, S.DangerMs - Dt * DangerRecoveryRate);
 		if (S.DangerMs < BalanceFailureMs)
 		{
 			return false;
 		}
 		S.DangerMs = 0.0;
-		S.RecoveryMs = 2000.0;
-		S.LeanX *= 0.35;
-		S.LeanY *= 0.35;
+		S.RecoveryMs = ToppleRecoveryMs;
+		S.LeanX *= LeanKeptOnTopple;
+		S.LeanY *= LeanKeptOnTopple;
 		S.VelocityX = 0.0;
 		S.VelocityY = 0.0;
 		return true;
+	}
+
+	FDropPreview PreviewDrop(const FTower& Tower, double DropCenter)
+	{
+		const FBlock& Below = Tower.Top();
+		const double Width = Below.Width;
+		FDropPreview Out;
+		Out.Sway = BalanceDisplacement(Tower.Balance.LeanX);
+		Out.Support = Below.Center + Out.Sway;
+		Out.Offset = FMath::Abs(DropCenter - Out.Support);
+		const bool bSteady = IsBalanceSteady(Tower.Balance, BalanceLimit(Tower.Height(), Width));
+		// A steady palm earns the wider perfect window (never wider than half the block).
+		const double Tolerance = FMath::Min(bSteady ? SteadyPerfectTolerance : PerfectTolerance, Width / 2.0);
+		Out.Left = FMath::Max(DropCenter - Width / 2.0, Out.Support - Below.Width / 2.0);
+		Out.Right = FMath::Min(DropCenter + Width / 2.0, Out.Support + Below.Width / 2.0);
+		Out.bPerfect = Out.Offset <= Tolerance;
+		Out.bMiss = !Out.bPerfect && Out.Right - Out.Left < MinWidth - 1e-9;
+		return Out;
 	}
 
 	double SweepTrackHalfWidth(double Height)
@@ -196,7 +279,7 @@ namespace MovecadeKart::Stacker
 			Heading = -Heading;
 			Remaining = -Remaining;
 		}
-		Remaining = FMath::Min(Remaining, Limit * 2.0 * 64.0);
+		Remaining = FMath::Min(Remaining, Limit * 2.0 * MaxSweepWraps);
 		while (Remaining > 0.0)
 		{
 			const double ToWall = Heading > 0 ? Limit - Position : Position + Limit;
@@ -241,7 +324,7 @@ namespace MovecadeKart::Stacker
 			T.Name = Seeds[i].Name;
 			T.LaneIndex = i;
 			FBlock Foundation;
-			Foundation.AgeMs = 9999.0;
+			Foundation.AgeMs = FoundationAgeMs;
 			T.Blocks.Add(Foundation);
 			T.CursorDirection = i % 2 == 0 ? 1 : -1;
 		}
@@ -254,7 +337,7 @@ namespace MovecadeKart::Stacker
 		{
 			return;
 		}
-		const double Dt = FMath::Clamp(DtMs, 0.0, 100.0);
+		const double Dt = FMath::Clamp(DtMs, 0.0, MaxStepMs);
 		if (Match.Phase == EMatchPhase::Countdown)
 		{
 			Match.CountdownRemainingMs -= Dt;
@@ -289,7 +372,7 @@ namespace MovecadeKart::Stacker
 				Match.Shards.RemoveAt(i);
 				continue;
 			}
-			S.Vy -= 18.0 * Seconds;
+			S.Vy -= ShardGravity * Seconds;
 			S.X += S.Vx * Seconds;
 			S.Y += S.Vy * Seconds;
 		}
@@ -297,7 +380,7 @@ namespace MovecadeKart::Stacker
 		{
 			for (FBlock& B : T.Blocks)
 			{
-				if (B.AgeMs < 1000.0)
+				if (B.AgeMs < MaxBlockAgeMs)
 				{
 					B.AgeMs += Dt;
 				}
@@ -349,20 +432,19 @@ namespace MovecadeKart::Stacker
 		const FBlock Below = T.Top();
 		const double DropCenter = RewoundCenter(T, FMath::Max(0.0, RewindMs));
 		const double Width = Below.Width;
-		const double Sway = BalanceDisplacement(T.Balance.LeanX);
-		const double Support = Below.Center + Sway;
-		const double Offset = FMath::Abs(DropCenter - Support);
-		const bool bSteady = IsBalanceSteady(T.Balance, BalanceLimit(T.Height(), Width));
-		const double Tolerance = FMath::Min(bSteady ? SteadyPerfectTolerance : PerfectTolerance, Width / 2.0);
-		const double Left = FMath::Max(DropCenter - Width / 2.0, Support - Below.Width / 2.0);
-		const double Right = FMath::Min(DropCenter + Width / 2.0, Support + Below.Width / 2.0);
+		const FDropPreview Preview = PreviewDrop(T, DropCenter);
+		const double Sway = Preview.Sway;
+		const double Support = Preview.Support;
+		const double Offset = Preview.Offset;
+		const double Left = Preview.Left;
+		const double Right = Preview.Right;
 		const double Overlap = Right - Left;
-		const bool bPerfect = Offset <= Tolerance;
+		const bool bPerfect = Preview.bPerfect;
 		const int32 Row = T.Height() + 1;
 		FDropOutcome Out;
 		Out.Offset = Offset;
 
-		if (!bPerfect && Overlap < MinWidth - 1e-9)
+		if (Preview.bMiss)
 		{
 			const int32 Lost = T.Combo;
 			T.Combo = 0;
@@ -432,7 +514,7 @@ namespace MovecadeKart::Stacker
 		}
 		PushEffect(Match, T, bPerfect ? EEffectKind::Perfect : EEffectKind::Land,
 			bPerfect ? (T.Combo >= 2 ? FString::Printf(TEXT("Perfect ×%d"), T.Combo) : FString(TEXT("Perfect!"))) : FString::Printf(TEXT("+%d"), Delta),
-			bPerfect ? FMath::Min(1.0, 0.55 + 0.15 * FMath::Min(T.Combo, 3)) : FMath::Max(0.25, Precision), Delta, Row);
+			bPerfect ? FMath::Min(1.0, PerfectIntensityBase + PerfectIntensityPerCombo * FMath::Min(T.Combo, PerfectIntensityCombos)) : FMath::Max(MinLandIntensity, Precision), Delta, Row);
 		Out.ScoreDelta = Delta;
 		Out.Label = bPerfect ? TEXT("Perfect") : TEXT("Stacked");
 		return Out;
