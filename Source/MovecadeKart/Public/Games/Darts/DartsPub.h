@@ -44,6 +44,9 @@ public:
 	static constexpr float ExposureMaxEV = 8.6f;
 	/** Unlit and emissive colours are tuned for an auto-exposed scene; at this exposure they need this much more. */
 	static constexpr float GlowGain = 7.f;
+	/** The dart mesh's material slots: steel (point, nose, rings), barrel, shaft, flights (the thrower's colour). */
+	static constexpr int32 DartSteelSlot = 0;
+	static constexpr int32 DartFlightSlot = 3;
 
 	/** Web world (x, y, z) to UE cm. */
 	static FVector ToWorld(const FVector& Web);
@@ -60,7 +63,10 @@ public:
 	int32 GetDartMaterialCount() const { return DartMaterials.Num(); }
 	UStaticMesh* GetRingMesh() const { return RingMesh; }
 
-	/** Chalks "NAME  score" lines on the chalkboard. */
+	/** The wedge's glowing outline material (pulses with the wedge). */
+	UMaterialInstanceDynamic* GetBountyEdgeMaterial() const { return BountyEdgeMaterial; }
+
+	/** Chalks "NAME  score" lines on the chalkboard (a line only re-renders when its text changes). */
 	void SetChalk(const TArray<FString>& Lines);
 
 private:
@@ -71,6 +77,12 @@ private:
 	void BuildBar();
 	void BuildBoard();
 	void BuildLights();
+	void BuildProps();
+
+	/** One material per key per Build(): instance groups key on the material, so a duplicate would split a group. */
+	UMaterialInterface* Cached(const TCHAR* Key, TFunctionRef<UMaterialInterface*()> Make);
+	/** An opaque emissive (a lit colour with emissive) for solid glowing parts: no translucency pass. */
+	UMaterialInterface* SolidGlow(const TCHAR* Key, const FLinearColor& Color, float Strength);
 
 	/** A box centred at C with size S, in pub-local web units (z offset by PubZ). */
 	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, bool bShadows = true);
@@ -78,7 +90,9 @@ private:
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
 	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
 	UStaticMeshComponent* Part(UStaticMesh* Mesh, USceneComponent* Parent, const FTransform& Relative);
-	UTextRenderComponent* Text(USceneComponent* Parent, const FString& Value, const FVector& RelativeCm, float SizeCm, const FLinearColor& Color);
+	/** Text reads from its +X side; by default it faces the camera, which looks down UE +X. */
+	UTextRenderComponent* Text(USceneComponent* Parent, const FString& Value, const FVector& RelativeCm, float SizeCm, const FLinearColor& Color,
+		const FRotator& Rotation = FRotator(0.0, 180.0, 0.0));
 
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
@@ -93,7 +107,22 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> BountyMaterial;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> BountyEdgeMaterial;
+
+	UPROPERTY(Transient)
 	TArray<TObjectPtr<UTextRenderComponent>> ChalkLines;
+
+	/** What each chalk line shows now. */
+	TArray<FString> ChalkShown;
+
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UMaterialInterface>> Materials;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> StoolMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> BulbMesh;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> BoardMesh;

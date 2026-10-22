@@ -3,6 +3,7 @@
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundWave.h"
+#include "UObject/StrongObjectPtr.h"
 
 namespace
 {
@@ -64,10 +65,44 @@ namespace
 		};
 		return Table;
 	}
+
+	/**
+	 * Each cue's wave, loaded once and held (so GC never unloads it between plays). Heap-allocated and never freed on
+	 * purpose: strong refs must not be released by static destruction after the UObject system is gone.
+	 */
+	TMap<FName, TStrongObjectPtr<USoundWave>>& Waves()
+	{
+		static TMap<FName, TStrongObjectPtr<USoundWave>>* Map = new TMap<FName, TStrongObjectPtr<USoundWave>>();
+		return *Map;
+	}
+
+	USoundWave* WaveFor(FName Cue, const FCue& Spec)
+	{
+		TMap<FName, TStrongObjectPtr<USoundWave>>& Map = Waves();
+		if (const TStrongObjectPtr<USoundWave>* Found = Map.Find(Cue))
+		{
+			return Found->Get();
+		}
+		USoundWave* Wave = LoadObject<USoundWave>(nullptr, *FString::Printf(TEXT("/Game/Audio/Games/%s.%s"), Spec.Asset, Spec.Asset), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		// A missing file is remembered too (a null entry), so it is looked for once, not on every play.
+		Map.Add(Cue, TStrongObjectPtr<USoundWave>(Wave));
+		return Wave;
+	}
 }
 
 namespace MovecadeKart::Games
 {
+	void FCuePlayer::Preload(const TCHAR* Prefix)
+	{
+		for (const TPair<FName, FCue>& Pair : Cues())
+		{
+			if (!Prefix || Pair.Key.ToString().StartsWith(Prefix))
+			{
+				WaveFor(Pair.Key, Pair.Value);
+			}
+		}
+	}
+
 	void FCuePlayer::Play(const UObject* WorldContext, FName Cue, float Gain, float Rate)
 	{
 		const FCue* Spec = Cues().Find(Cue);
@@ -81,7 +116,7 @@ namespace MovecadeKart::Games
 		{
 			return;
 		}
-		USoundWave* Wave = LoadObject<USoundWave>(nullptr, *FString::Printf(TEXT("/Game/Audio/Games/%s.%s"), Spec->Asset, Spec->Asset), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		USoundWave* Wave = WaveFor(Cue, *Spec);
 		if (!Wave)
 		{
 			return;
