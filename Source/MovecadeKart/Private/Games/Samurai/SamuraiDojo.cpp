@@ -26,7 +26,8 @@ namespace
 	constexpr double LanternY = 4.55;
 	constexpr double LanternZ = -1.3;
 	/** samuraiStage.tsx: sunPosition [13, 5.6, -3], the sky's sun [.47, .195, -1]. */
-	const FVector SunFrom(13.0, 5.6, -3.0);
+	/** The port's sun sits lower and further behind than the web's (13, 5.6, -3), near the painted sun. */
+	const FVector SunFrom(6.0, 3.2, -10.0);
 	const FVector SkySun(0.47, 0.195, -1.0);
 }
 
@@ -312,67 +313,127 @@ void ASamuraiDojo::BuildLook()
 {
 	using namespace MovecadeKart;
 	using namespace MovecadeKart::Art;
-	// samuraiStage.tsx SAMURAI_STAGE_MOOD: a low warm sun from the right and behind, a rose rim from the left.
+	// The golden hour: a low sun from behind the right of the dojo throws long shadows toward the camera and rims
+	// every swordsman and fruit; a rose fill from the front left keeps the faces and fruit readable.
 	Sun->SetWorldRotation((-Coords::DirToUE(SunFrom).GetSafeNormal()).Rotation());
-	Sun->SetLightColor(Hex(TEXT("#ffc27c")));
-	Sun->SetIntensity(3.1f);
+	Sun->SetLightColor(Hex(TEXT("#ffb46e")));
+	Sun->SetIntensity(4.2f);
 	Sun->SetCastShadows(true);
 	Sun->SetAtmosphereSunLight(false);
-	Rim->SetWorldRotation((-Coords::DirToUE(FVector(-9.0, 5.0, -10.0)).GetSafeNormal()).Rotation());
-	Rim->SetLightColor(Hex(TEXT("#f08c86")));
-	Rim->SetIntensity(1.25f);
+	Sun->SetVolumetricScatteringIntensity(2.6f);
+	Sun->bEnableLightShaftBloom = true;
+	Sun->BloomScale = 0.22f;
+	Sun->BloomThreshold = 0.35f;
+	Sun->BloomMaxBrightness = 6.f;
+	Sun->BloomTint = FColor(255, 196, 140);
+	Sun->LightSourceAngle = 1.2f;
+	Sun->MarkRenderStateDirty();
+	Rim->SetWorldRotation((-Coords::DirToUE(FVector(-9.0, 5.0, 10.0)).GetSafeNormal()).Rotation());
+	Rim->SetLightColor(Hex(TEXT("#f49aa0")));
+	Rim->SetIntensity(1.6f);
 	Rim->SetCastShadows(false);
 	Rim->SetAtmosphereSunLight(false);
+	Rim->SetVolumetricScatteringIntensity(0.f);
 	// The sun is the one forward shading, translucency and fog use.
 	Sun->SetForwardShadingPriority(1);
 	Rim->SetForwardShadingPriority(0);
-	SkyLight->SetIntensity(1.3f);
-	SkyLight->SetLightColor(FMath::Lerp(FLinearColor::White, Hex(TEXT("#9dbbe0")), 0.35f));
+	SkyLight->SetIntensity(1.05f);
+	SkyLight->SetLightColor(FMath::Lerp(FLinearColor::White, Hex(TEXT("#a7a6e0")), 0.4f));
 	SkyLight->bLowerHemisphereIsBlack = false;
-	SkyLight->SetLowerHemisphereColor(Hex(TEXT("#6b6150")) * 0.5f);
+	SkyLight->SetLowerHemisphereColor(Hex(TEXT("#6b4a3c")) * 0.5f);
 
-	const FLinearColor Top = Hex(TEXT("#3f5f93")), Horizon = Hex(TEXT("#f0b889"));
+	// A sunset that grades from indigo overhead through rose to a molten horizon, the sun low over the garden.
+	const FLinearColor Top = Hex(TEXT("#2c2f6e")), Mid = Hex(TEXT("#b4587c")), Horizon = Hex(TEXT("#ffa25a"));
 	if (UMaterialInterface* SkyMaster = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 	{
 		UMaterialInstanceDynamic* Sky = UMaterialInstanceDynamic::Create(SkyMaster, this);
 		Sky->SetVectorParameterValue(TEXT("SkyTop"), Top);
-		Sky->SetVectorParameterValue(TEXT("SkyMid"), FMath::Lerp(Horizon, Top, 0.55f));
+		Sky->SetVectorParameterValue(TEXT("SkyMid"), Mid);
 		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), Horizon);
-		Sky->SetVectorParameterValue(TEXT("SkyBelow"), Hex(TEXT("#6b6150")));
+		Sky->SetVectorParameterValue(TEXT("SkyBelow"), Hex(TEXT("#5a3a3a")));
 		const FVector SunDir = Coords::DirToUE(SkySun).GetSafeNormal();
 		Sky->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(SunDir.X, SunDir.Y, SunDir.Z, 0.0));
-		Sky->SetVectorParameterValue(TEXT("SunColor"), Hex(TEXT("#ffd6ae")));
-		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.6 * 0.042));
-		Sky->SetScalarParameterValue(TEXT("SunGlow"), 0.6);
-		Sky->SetScalarParameterValue(TEXT("GlowPower"), 18.0);
-		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), 0.55);
+		Sky->SetVectorParameterValue(TEXT("SunColor"), Hex(TEXT("#fff0c8")) * 3.f);
+		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.9 * 0.042));
+		Sky->SetScalarParameterValue(TEXT("SunGlow"), 1.6);
+		Sky->SetScalarParameterValue(TEXT("GlowPower"), 9.0);
+		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), 1.1);
 		Sky->SetScalarParameterValue(TEXT("Brightness"), 1.0);
 		if (UTexture* Clouds = LoadObject<UTexture>(nullptr, TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 		{
 			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
 		}
-		Sky->SetScalarParameterValue(TEXT("Clouds"), 0.34);
+		Sky->SetScalarParameterValue(TEXT("Clouds"), 0.5);
 		Sky->SetScalarParameterValue(TEXT("CloudScale"), 0.35);
-		Sky->SetVectorParameterValue(TEXT("CloudLit"), Hex(TEXT("#ffd6ae")));
-		Sky->SetVectorParameterValue(TEXT("CloudShade"), FMath::Lerp(Horizon, Top, 0.4f) * 0.8f);
+		Sky->SetVectorParameterValue(TEXT("CloudLit"), Hex(TEXT("#ffc08a")) * 1.4f);
+		Sky->SetVectorParameterValue(TEXT("CloudShade"), Hex(TEXT("#7a4a78")));
 		SkyDome->SetMaterial(0, Sky);
 	}
-	// Haze from 22 m, in the horizon's peach; the sun side scatters warmer.
-	Fog->SetStartDistance(2200.f);
-	Fog->SetFogDensity(0.05f);
+	// Haze from 18 m in the horizon's peach, glowing toward the sun; volumetric fog catches the sun's shafts
+	// through the torii, the posts and the open middle of the wall.
+	Fog->SetStartDistance(1800.f);
+	Fog->SetFogDensity(0.045f);
 	Fog->SetFogHeightFalloff(0.02f);
-	Fog->SetFogMaxOpacity(0.85f);
-	Fog->SetFogCutoffDistance(900000.f);
-	Fog->SetFogInscatteringColor(Horizon * 0.9f);
-	Fog->SetDirectionalInscatteringColor(Hex(TEXT("#ffc27c")) * 0.3f);
-	Fog->SetDirectionalInscatteringExponent(6.f);
-	// The mood's grade: a warm gain, a cool lift.
+	Fog->SetFogMaxOpacity(0.8f);
+	// The painted sky (10 km out) stays clear of the haze.
+	Fog->SetFogCutoffDistance(250000.f);
+	Fog->SetFogInscatteringColor(FMath::Lerp(Horizon, Mid, 0.35f) * 0.85f);
+	Fog->SetDirectionalInscatteringColor(Hex(TEXT("#ffb46e")) * 0.6f);
+	Fog->SetDirectionalInscatteringExponent(5.f);
+	Fog->SetVolumetricFog(true);
+	Fog->SetVolumetricFogScatteringDistribution(0.75f);
+	Fog->SetVolumetricFogAlbedo(FColor(255, 214, 180));
+	Fog->SetVolumetricFogExtinctionScale(0.6f);
+	Fog->SetVolumetricFogDistance(4000.f);
+	Fog->SetVolumetricFogStartDistance(0.f);
+	ApplyGrade();
+}
+
+void ASamuraiDojo::ApplyGrade()
+{
+	// The mood's grade: warm highlights, violet shadows, a little more colour and contrast, bloom on the glows and
+	// a soft vignette. Mood layers Focus (gold, saturated, a pulsing vignette) and impacts (a flash, fringing).
 	FPostProcessSettings& S = Grade->Settings;
 	S = FPostProcessSettings();
-	S.bOverride_ColorGain = true;
-	S.ColorGain = FVector4(1.06, 1.0, 0.9, 1.0);
-	S.bOverride_ColorOffset = true;
-	S.ColorOffset = FVector4(0.0, 0.01 / 3.0, 0.03 / 3.0, 0.0);
+	S.bOverride_AutoExposureBias = true;
+	S.AutoExposureBias = 0.15f;
+	S.bOverride_ColorSaturation = true;
+	S.ColorSaturation = FVector4(1.0, 1.0, 1.0, 1.1 + 0.2 * MoodFocus);
+	S.bOverride_ColorContrast = true;
+	S.ColorContrast = FVector4(1.0, 1.0, 1.0, 1.08 + 0.05 * MoodFocus);
+	S.bOverride_ColorGainHighlights = true;
+	S.ColorGainHighlights = FVector4(1.06 + 0.06 * MoodFocus, 1.0 + 0.02 * MoodFocus, 0.9 - 0.05 * MoodFocus, 1.0);
+	S.bOverride_ColorOffsetShadows = true;
+	S.ColorOffsetShadows = FVector4(0.012, 0.0, 0.03, 0.0);
+	S.bOverride_ColorGammaShadows = true;
+	S.ColorGammaShadows = FVector4(1.0, 0.98, 1.04, 1.0);
+	S.bOverride_BloomIntensity = true;
+	S.BloomIntensity = 0.85f + 0.5f * MoodFocus + 1.6f * MoodFlash;
+	S.bOverride_BloomThreshold = true;
+	S.BloomThreshold = -1.f;
+	S.bOverride_VignetteIntensity = true;
+	S.VignetteIntensity = 0.42f + 0.38f * MoodFocus;
+	S.bOverride_SceneFringeIntensity = true;
+	S.SceneFringeIntensity = 0.4f + 3.5f * MoodFringe;
+	S.bOverride_SceneColorTint = true;
+	S.SceneColorTint = FMath::Lerp(FLinearColor::White, MoodFlashColor * 2.2f, 0.5f * MoodFlash) + FLinearColor(0.07f, 0.04f, -0.05f, 0.f) * MoodFocus;
+	S.SceneColorTint.A = 1.f;
+	S.bOverride_FilmGrainIntensity = true;
+	S.FilmGrainIntensity = 0.08f;
+}
+
+void ASamuraiDojo::SetMood(float Focus, float Flash, const FLinearColor& FlashColor, float Fringe)
+{
+	// Re-grade only when the mood moved enough to see.
+	if (FMath::Abs(Focus - MoodFocus) < 0.01f && FMath::Abs(Flash - MoodFlash) < 0.01f && FMath::Abs(Fringe - MoodFringe) < 0.01f)
+	{
+		return;
+	}
+	MoodFocus = Focus;
+	MoodFlash = Flash;
+	MoodFlashColor = FlashColor;
+	MoodFringe = Fringe;
+	ApplyGrade();
 }
 
 void ASamuraiDojo::BuildGround()
@@ -638,34 +699,49 @@ void ASamuraiDojo::Tick(float DeltaSeconds)
 			Lanterns[i]->SetRelativeRotation(FRotator(0.0, 0.0, Swing));
 		}
 	}
-	// Petals drift across the stage.
+	// Cherry petals drift down through the sunlight on the breeze, some close past the camera.
 	if (UKartFxSubsystem* Fx = UKartFxSubsystem::Get(this))
 	{
-		PetalCarry += DeltaSeconds * 7.0;
+		PetalCarry += DeltaSeconds * 11.0;
 		TArray<MovecadeKart::Fx::FKartFxEmit> Out;
 		while (PetalCarry >= 1.0)
 		{
 			PetalCarry -= 1.0;
-			MovecadeKart::Fx::FKartFxEmit E;
-			E.Field = MovecadeKart::Fx::EField::Confetti;
 			const double W = StageWidth();
-			E.Position = ToWorld(FVector(PetalRng.FRandRange(-W * 0.6, W * 0.6), PetalRng.FRandRange(4.5, 6.0), PetalRng.FRandRange(-3.0, 3.0)));
-			E.Count = 1;
-			E.Direction = ToWorld(FVector(-0.6, -0.2, 0.3)).GetSafeNormal();
-			E.Spread = 0.6;
-			E.Speed = FVector2D(0.3, 0.8);
-			E.Life = FVector2D(3.5, 5.0);
-			E.Size = FVector2D(0.035, 0.05);
-			E.SizeEnd = 0.9;
-			static const FLinearColor PetalFrom = MovecadeKart::Art::Hex(TEXT("#f6b6c8"));
-			static const FLinearColor PetalTo = MovecadeKart::Art::Hex(TEXT("#f8d3dd"));
-			E.Color = PetalFrom;
-			E.ColorEnd = PetalTo;
-			Out.Add(E);
+			Out.Add(Petal(FVector(PetalRng.FRandRange(-W * 0.65, W * 0.65), PetalRng.FRandRange(3.8, 6.4), PetalRng.FRandRange(-3.5, 5.5)), 1, 0.6));
 		}
 		if (Out.Num() > 0)
 		{
 			Fx->Emit(Out);
 		}
+	}
+}
+
+MovecadeKart::Fx::FKartFxEmit ASamuraiDojo::Petal(const FVector& Web, int32 Count, double Speed)
+{
+	static const FLinearColor Tones[] = { MovecadeKart::Art::Hex(TEXT("#f7a8c0")), MovecadeKart::Art::Hex(TEXT("#fbd0dc")), MovecadeKart::Art::Hex(TEXT("#ff8fb1")) };
+	static const FLinearColor Pale = MovecadeKart::Art::Hex(TEXT("#fff0f4"));
+	MovecadeKart::Fx::FKartFxEmit E;
+	E.Field = MovecadeKart::Fx::EField::Confetti;
+	E.Position = ToWorld(Web);
+	E.Count = Count;
+	E.Direction = ToWorld(FVector(-0.6, -0.25, 0.35)).GetSafeNormal();
+	E.Spread = Count > 1 ? 1.4 : 0.6;
+	E.Speed = FVector2D(0.3, 0.8) * Speed / 0.6;
+	E.Life = FVector2D(3.5, 5.5);
+	E.Size = FVector2D(0.05, 0.075);
+	E.SizeEnd = 0.85;
+	E.Color = Tones[PetalRng.RandRange(0, UE_ARRAY_COUNT(Tones) - 1)];
+	E.ColorEnd = Pale;
+	E.Intensity = 1.25;
+	E.Jitter = Count > 1 ? 0.4 : 0.0;
+	return E;
+}
+
+void ASamuraiDojo::PetalBurst(const FVector& Web, int32 Count)
+{
+	if (UKartFxSubsystem* Fx = UKartFxSubsystem::Get(this))
+	{
+		Fx->Emit(Petal(Web, Count, 2.4));
 	}
 }

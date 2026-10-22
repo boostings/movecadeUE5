@@ -21,6 +21,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/RoomProtocol.h"
 #include "ProceduralMeshComponent.h"
+#include "Misc/CommandLine.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSamurai, Log, All);
 
@@ -29,7 +30,6 @@ namespace Fx = MovecadeKart::Fx;
 
 namespace
 {
-	constexpr double IntroSeconds = 3.2;
 	constexpr double StepMs = 1000.0 / 60.0;
 	constexpr int32 TargetPoolSize = 20;
 	constexpr int32 PiecePoolSize = 32;
@@ -42,6 +42,12 @@ namespace
 	{
 		const double T = FMath::Clamp((X - A) / (B - A), 0.0, 1.0);
 		return T * T * (3.0 - 2.0 * T);
+	}
+
+	double EaseOutBack(double X)
+	{
+		constexpr double C1 = 1.70158, C3 = C1 + 1.0;
+		return 1.0 + C3 * FMath::Pow(X - 1.0, 3.0) + C1 * FMath::Pow(X - 1.0, 2.0);
 	}
 
 	/** A web direction to UE. */
@@ -127,6 +133,7 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 		TargetPool.Add(MakeMesh(TEXT("Target"), nullptr));
 	}
 	Slots.SetNum(TargetPoolSize);
+	bPracticeDemo = FParse::Param(FCommandLine::Get(), TEXT("SamuraiPracticeDemo"));
 	// The halves live 0.65 s: no shadows (52 shadowed multi-section casters otherwise).
 	for (int32 i = 0; i < PiecePoolSize; ++i)
 	{
@@ -137,10 +144,10 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 	UStaticMesh* Octagon = Art::RingMesh(this, 98.0, 116.0, 8, true);
 	UStaticMesh* HaloRing = Art::RingMesh(this, 70.0, 128.0, 40);
 	TelegraphMaterial = Glow(this, Hex(TEXT("#d66d50")) * 2.2f);
-	HaloMaterial = Glow(this, Hex(TEXT("#fff5d9")) * 1.6f);
-	FocusHaloMaterial = Glow(this, Hex(TEXT("#ffd477")) * 2.2f);
-	if (HaloMaterial) HaloMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.32f);
-	if (FocusHaloMaterial) FocusHaloMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.52f);
+	HaloMaterial = Glow(this, Hex(TEXT("#fff5d9")) * 1.1f);
+	FocusHaloMaterial = Glow(this, Hex(TEXT("#ffcf6a")) * 1.2f);
+	if (HaloMaterial) HaloMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.2f);
+	if (FocusHaloMaterial) FocusHaloMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.3f);
 	for (int32 i = 0; i < 8; ++i)
 	{
 		UStaticMeshComponent* T = MakeMesh(TEXT("Telegraph"), Octagon, false);
@@ -149,8 +156,14 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 		HaloPool.Add(MakeMesh(TEXT("Halo"), HaloRing, false));
 		HaloWorn.Add(nullptr);
 	}
-	TrailMaterial = Glow(this, FLinearColor(0.95f, 0.98f, 1.f) * 2.4f);
-	if (TrailMaterial) TrailMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.55f);
+	// The practice apple: a whole apple with its halo, hung in the local lane during the intro.
+	PracticeMesh = MakeMesh(TEXT("Practice"), TargetMeshes[static_cast<int32>(EVariant::Apple) * 3]);
+	for (int32 m = MaterialStart[0]; m < MaterialStart[1]; ++m)
+	{
+		PracticeMesh->SetMaterial(m - MaterialStart[0], TargetMaterials[m]);
+	}
+	PracticeHalo = MakeMesh(TEXT("PracticeHalo"), HaloRing, false);
+	PracticeHalo->SetMaterial(0, FocusHaloMaterial);
 
 	// The trail ribbon's topology: TrailSamples pairs, both faces; created once, then only its vertices move.
 	TArray<int32> TrailTris;
@@ -193,7 +206,11 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 		Trail->bUseAsyncCooking = true;
 		Trail->RegisterComponent();
 		Trail->CreateMeshSection_LinearColor(0, TrailVerts, TrailTris, TrailNormals, TrailUVs, TrailColors, TrailTangents, false);
-		Trail->SetMaterial(0, TrailMaterial);
+		// White-hot at heart, tinted toward the seat's colour so each lane's cuts read as its own.
+		UMaterialInstanceDynamic* TrailMat = Glow(this, FMath::Lerp(FLinearColor(0.95f, 0.98f, 1.f), Seats[i].Color, 0.55f) * 2.4f);
+		if (TrailMat) TrailMat->SetScalarParameterValue(TEXT("Opacity"), 0.42f);
+		TrailMaterials.Add(TrailMat);
+		Trail->SetMaterial(0, TrailMat);
 		Trail->SetMeshSectionVisible(0, false);
 		Trails.Add(Trail);
 	}
@@ -430,10 +447,20 @@ void ASamuraiGame::StepFixed(double DtMs, double Dt)
 	{
 		FLane& Lane = Lanes[i];
 		SampleBlade(Lane, i, Dt);
-		if (!Lane.bIntent || Match.Phase != EMatchPhase::Playing)
+		if (Match.Phase != EMatchPhase::Playing)
 		{
 			continue;
 		}
+		if (!Lane.bIntent)
+		{
+			FeedbackForMisses(Lane, i);
+			continue;
+		}
+		if (!Lane.bWasIntent)
+		{
+			Lane.bSweepHit = false;
+		}
+		Lane.bWasIntent = true;
 		Lane.TrailAt = Clock;
 		// bladeContact.ts on the sim clock: whatever the blade passed through since the last step.
 		TSet<int32>& Hits = HitScratch;
@@ -447,8 +474,13 @@ void ASamuraiGame::StepFixed(double DtMs, double Dt)
 		}
 		if (Hits.Num() > 0)
 		{
+			// The follow-through's side and strength, for the swordsman's cut pose (presentation only).
+			const FVector Sweep = Lane.Blade.Tip - Lane.Previous.Tip;
+			Lane.CutSide = Sweep.X >= 0.0 ? 1.0 : -1.0;
+			Lane.CutPower = FMath::Clamp(Sweep.Size() / 0.12, 0.35, 1.0);
 			ResolveSwing(Match, Lane.PlayerId, ContactSwing(), &Hits);
 			Lane.LastCutAt = Clock;
+			Lane.bSweepHit = true;
 		}
 	}
 	for (const FEffect& E : Match.Effects)
@@ -465,11 +497,222 @@ void ASamuraiGame::StepFixed(double DtMs, double Dt)
 	}
 }
 
+void ASamuraiGame::FeedbackForMisses(FLane& Lane, int32 Index)
+{
+	// What the rules stay silent about, for the people holding a blade: a sweep that ended without touching any
+	// fruit near it, and a blade dragged through fruit too slowly to count as a cut (the intent gate is closed).
+	const bool bSweepEnded = Lane.bWasIntent;
+	Lane.bWasIntent = false;
+	if (!IsHuman(Index) || Clock - Lane.HintAt < 1.3)
+	{
+		return;
+	}
+	const FTarget* Touched = nullptr;
+	const FTarget* Nearest = nullptr;
+	double NearestDist = 1.25;
+	for (const FTarget& T : Match.Targets)
+	{
+		if (T.LaneIndex != Index || T.Kind == EKind::Bomb)
+		{
+			continue;
+		}
+		const FVector Centre = TargetCentre(T, LaneCount());
+		if (!Touched && SweptBladeHits(Lane.Previous.Base, Lane.Previous.Tip, Lane.Blade.Base, Lane.Blade.Tip, Centre, ContactRadius(T)))
+		{
+			Touched = &T;
+		}
+		const double Dist = FVector::Dist(FMath::ClosestPointOnSegment(Centre, Lane.Blade.Base, Lane.Blade.Tip), Centre);
+		if (Dist < NearestDist)
+		{
+			NearestDist = Dist;
+			Nearest = &T;
+		}
+	}
+	const double Turn = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(Lane.Previous.Direction, Lane.Blade.Direction), -1.0, 1.0))) * 60.0;
+	if (Touched && Turn > 20.0)
+	{
+		Lane.HintAt = Clock;
+		Note(W(TargetCentre(*Touched, LaneCount()) + FVector(0.0, 0.5, 0.0)), NSLOCTEXT("Samurai", "TooSlow", "Swing faster!"), MovecadeKart::Art::Hex(TEXT("#ffd477")), 1.1, 0.8f);
+		Cues.Play(this, TEXT("samurai.miss"), 0.25f, 1.6f);
+	}
+	else if (bSweepEnded && !Lane.bSweepHit && Nearest)
+	{
+		Lane.HintAt = Clock;
+		Note(W(TargetCentre(*Nearest, LaneCount()) + FVector(0.0, 0.5, 0.0)), NSLOCTEXT("Samurai", "Whiff", "Missed"), FLinearColor(0.78f, 0.8f, 0.86f), 0.8, 0.7f);
+	}
+}
+
+bool ASamuraiGame::IsHuman(int32 LaneIndex) const
+{
+	return Lanes.IsValidIndex(LaneIndex) && Lanes[LaneIndex].Kind != ESwordKind::Bot;
+}
+
+bool ASamuraiGame::IsFeatured(int32 LaneIndex) const
+{
+	if (IsHuman(LaneIndex))
+	{
+		return true;
+	}
+	const bool bAnyHuman = Lanes.ContainsByPredicate([](const FLane& L) { return L.Kind != ESwordKind::Bot; });
+	return !bAnyHuman && LaneIndex == 0;
+}
+
+void ASamuraiGame::Note(const FVector& World, const FText& Label, const FLinearColor& Color, double Life, float Scale)
+{
+	if (Notes.Num() >= 12)
+	{
+		Notes.RemoveAt(0);
+	}
+	FSamuraiNote& N = Notes.AddDefaulted_GetRef();
+	N.World = World;
+	N.Label = Label;
+	N.Color = Color;
+	N.BornAt = Clock;
+	N.Life = Life;
+	N.Scale = Scale;
+}
+
+void ASamuraiGame::Shout(const FText& Text, const FLinearColor& Color)
+{
+	Banner = Text;
+	BannerColor = Color;
+	BannerAt = Clock;
+}
+
+void ASamuraiGame::SlowMo(double Seconds)
+{
+	// A beat of slow motion (the whole round slows, rules included, so nothing desyncs); never back to back.
+	if (RealClock - SlowAt > Seconds + 2.0)
+	{
+		SlowAt = RealClock;
+		SlowSeconds = Seconds;
+	}
+}
+
+void ASamuraiGame::Flash(const FLinearColor& Color, double Power, double Fringe)
+{
+	FlashAt = RealClock;
+	FlashColor = Color;
+	FlashPower = Power;
+	FringePower = Fringe;
+}
+
+FVector ASamuraiGame::CutNormal(int32 LaneIndex) const
+{
+	if (!Lanes.IsValidIndex(LaneIndex))
+	{
+		return FVector::ZeroVector;
+	}
+	const FLane& Lane = Lanes[LaneIndex];
+	const FVector Sweep = Lane.Blade.Tip - Lane.Previous.Tip;
+	const FVector N = FVector::CrossProduct(Lane.Blade.Direction, Sweep);
+	return N.Size() < 1e-4 ? FVector::ZeroVector : DirUE(N).GetSafeNormal();
+}
+
+void ASamuraiGame::CutFx(EVariant Variant, const FVector& At, const FVector& Normal, double Scale, bool bPerfect)
+{
+	UKartFxSubsystem* FxSys = UKartFxSubsystem::Get(this);
+	if (!FxSys)
+	{
+		return;
+	}
+	const FLinearColor Juice = MovecadeKart::Art::Hex(Def(Variant).Color);
+	TArray<Fx::FKartFxEmit> Out;
+	// Two arcs of juice thrown off the cut faces, falling under gravity.
+	for (const double Side : { -1.0, 1.0 })
+	{
+		Fx::FKartFxEmit Arc;
+		Arc.Field = Fx::EField::Sparks;
+		Arc.Position = At + Normal * Side * Scale * 30.0;
+		Arc.Count = bPerfect ? 16 : 10;
+		Arc.Direction = (Normal * Side + FVector(0.0, 0.0, 0.9)).GetSafeNormal();
+		Arc.Spread = 0.55;
+		Arc.Speed = FVector2D(2.2, 5.2);
+		Arc.Life = FVector2D(0.35, 0.7);
+		Arc.Size = FVector2D(0.025, 0.05);
+		Arc.Color = Juice * 1.2f;
+		Arc.ColorEnd = Juice * 0.6f;
+		Arc.Intensity = 1.8;
+		Arc.Jitter = 0.08;
+		Out.Add(Arc);
+	}
+	// A spray of droplets all round, the pulp, and a soft splash of the fruit's colour.
+	Fx::FKartFxEmit Spray;
+	Spray.Field = Fx::EField::Sparks;
+	Spray.Position = At;
+	Spray.Count = 10;
+	Spray.Spread = 1.5;
+	Spray.Speed = FVector2D(1.2, 3.4);
+	Spray.Life = FVector2D(0.3, 0.55);
+	Spray.Size = FVector2D(0.018, 0.035);
+	Spray.Color = Juice;
+	Spray.ColorEnd = Juice * 0.7f;
+	Spray.Intensity = 1.5;
+	Out.Add(Spray);
+	Fx::FKartFxEmit Pulp;
+	Pulp.Field = Fx::EField::Smoke;
+	Pulp.Position = At;
+	Pulp.Count = 6;
+	Pulp.Spread = 1.0;
+	Pulp.Speed = FVector2D(0.4, 1.2);
+	Pulp.Life = FVector2D(0.35, 0.6);
+	Pulp.Size = FVector2D(0.08, 0.16);
+	Pulp.SizeEnd = 1.6;
+	Pulp.Color = Juice;
+	Pulp.ColorEnd = Juice * 0.5f;
+	Pulp.Intensity = 0.8;
+	Out.Add(Pulp);
+	Fx::FKartFxEmit Splash;
+	Splash.Field = Fx::EField::Fire;
+	Splash.Position = At;
+	Splash.Count = 4;
+	Splash.Spread = 1.2;
+	Splash.Speed = FVector2D(0.3, 0.9);
+	Splash.Life = FVector2D(0.18, 0.3);
+	Splash.Size = FVector2D(0.18, 0.28);
+	Splash.SizeEnd = 1.8;
+	Splash.Color = Juice;
+	Splash.ColorEnd = Juice * 0.3f;
+	Splash.Intensity = 1.2;
+	Out.Add(Splash);
+	if (bPerfect)
+	{
+		// A star of light and a ring where the blade met the apex.
+		static const FLinearColor Light = MovecadeKart::Art::Hex(TEXT("#fff5d9"));
+		Fx::FKartFxEmit Star;
+		Star.Field = Fx::EField::Flare;
+		Star.Position = At;
+		Star.Count = 1;
+		Star.Speed = FVector2D::ZeroVector;
+		Star.Life = FVector2D(0.24, 0.24);
+		Star.Size = FVector2D(1.3, 1.3);
+		Star.SizeEnd = 0.2;
+		Star.Color = Light;
+		Star.ColorEnd = Light;
+		Star.Intensity = 4.0;
+		Out.Add(Star);
+		Fx::FKartFxEmit Glints;
+		Glints.Field = Fx::EField::Flare;
+		Glints.Position = At;
+		Glints.Count = 6;
+		Glints.Spread = 3.1;
+		Glints.Speed = FVector2D(1.0, 2.4);
+		Glints.Life = FVector2D(0.3, 0.5);
+		Glints.Size = FVector2D(0.12, 0.2);
+		Glints.SizeEnd = 0.1;
+		Glints.Color = Light;
+		Glints.ColorEnd = Juice;
+		Glints.Intensity = 3.0;
+		Out.Add(Glints);
+	}
+	FxSys->Emit(Out);
+}
+
 void ASamuraiGame::PresentEffect(const FEffect& E)
 {
-	const FPlayer* Player = Match.FindPlayer(E.PlayerId);
+	const FPlayer* Player = Match.Players.IsValidIndex(E.LaneIndex) ? &Match.Players[E.LaneIndex] : Match.FindPlayer(E.PlayerId);
 	const float P = static_cast<float>(E.Intensity);
-	UKartFxSubsystem* FxSys = UKartFxSubsystem::Get(this);
+	const bool bFeatured = IsFeatured(E.LaneIndex);
 	switch (E.Kind)
 	{
 	case EEffectKind::Slash:
@@ -489,77 +732,73 @@ void ASamuraiGame::PresentEffect(const FEffect& E)
 		FrozenUntil = Clock + 0.078;
 		Punch = 0.16 * (0.72 + 0.28 * P);
 		Shake = FMath::Max(Shake, E.Kind == EEffectKind::Combo ? 0.32 : 0.16);
+		const FVector Cut = CutNormal(E.LaneIndex);
+		bool bAnyPerfect = false;
 		for (const FTarget& T : E.Struck)
 		{
 			const FVector At = W(TargetCentre(T, LaneCount()));
 			const int32* Slot = TargetSlots.Find(T.Id);
-			const FQuat Rot = Slot ? Slots[*Slot].Spin : FQuat::Identity;
+			FQuat Rot = Slot ? Slots[*Slot].Spin : FQuat::Identity;
+			// The halves part along the plane the blade swept: turn the fruit so its split faces that way.
+			if (!Cut.IsNearlyZero())
+			{
+				Rot = FQuat::FindBetweenNormals(Rot.RotateVector(FVector(0, 1, 0)), Cut) * Rot;
+			}
 			SpawnPiece(T, At, Rot, true);
 			SpawnPiece(T, At, Rot, false);
-			// Juice and pulp in the fruit's colour, a flash of light on a precise cut.
-			if (FxSys)
+			const bool bPerfect = CutQuality(T.Progress) >= 0.85 || E.Kind == EEffectKind::Combo;
+			bAnyPerfect |= CutQuality(T.Progress) >= 0.92;
+			CutFx(T.Variant, At, Rot.RotateVector(FVector(0, 1, 0)), T.Radius * 0.75, bPerfect);
+		}
+		if (bFeatured)
+		{
+			if (bAnyPerfect || E.Struck.Num() >= 2)
 			{
-				const FLinearColor Juice = MovecadeKart::Art::Hex(Def(T.Variant).Color);
-				TArray<Fx::FKartFxEmit> Out;
-				Fx::FKartFxEmit Spray;
-				Spray.Field = Fx::EField::Sparks;
-				Spray.Position = At;
-				Spray.Count = 14;
-				Spray.Direction = FVector(0.0, 0.0, 1.0);
-				Spray.Spread = 1.4;
-				Spray.Speed = FVector2D(1.5, 4.0);
-				Spray.Life = FVector2D(0.3, 0.6);
-				Spray.Size = FVector2D(0.02, 0.04);
-				Spray.Color = Juice;
-				Spray.ColorEnd = Juice * 0.7f;
-				Spray.Intensity = 1.6;
-				Out.Add(Spray);
-				Fx::FKartFxEmit Pulp;
-				Pulp.Field = Fx::EField::Smoke;
-				Pulp.Position = At;
-				Pulp.Count = 6;
-				Pulp.Spread = 1.0;
-				Pulp.Speed = FVector2D(0.4, 1.2);
-				Pulp.Life = FVector2D(0.35, 0.6);
-				Pulp.Size = FVector2D(0.08, 0.16);
-				Pulp.SizeEnd = 1.6;
-				Pulp.Color = Juice;
-				Pulp.ColorEnd = Juice * 0.5f;
-				Pulp.Intensity = 0.8;
-				Out.Add(Pulp);
-				if (CutQuality(T.Progress) >= 0.85 || E.Kind == EEffectKind::Combo)
+				Flash(MovecadeKart::Art::Hex(TEXT("#fff2d6")), 0.55, 0.35);
+				FovKick = -2.2;
+				SlowMo(E.Struck.Num() >= 2 ? 0.6 : 0.42);
+			}
+			if (Combo >= 5 && Combo % 5 == 0)
+			{
+				Shout(FText::Format(NSLOCTEXT("Samurai", "ComboShout", "{0}x COMBO!"), FText::AsNumber(Combo)), Combo >= 10 ? MovecadeKart::Art::Hex(TEXT("#ffd477")) : MovecadeKart::Art::Hex(TEXT("#7cf0c4")));
+				if (Dojo)
 				{
-					Fx::FKartFxEmit Flash;
-					Flash.Field = Fx::EField::Flare;
-					Flash.Position = At;
-					Flash.Count = 1;
-					Flash.Speed = FVector2D::ZeroVector;
-					Flash.Life = FVector2D(0.2, 0.2);
-					Flash.Size = FVector2D(0.9, 0.9);
-					Flash.SizeEnd = 0.3;
-					Flash.Color = MovecadeKart::Art::Hex(TEXT("#fff5d9"));
-					Flash.ColorEnd = Flash.Color;
-					Flash.Intensity = 3.0;
-					Out.Add(Flash);
+					Dojo->PetalBurst(FVector(LaneX(E.LaneIndex, LaneCount()), 3.0, 0.8), 18 + Combo);
 				}
-				FxSys->Emit(Out);
 			}
 		}
 		break;
 	}
 	case EEffectKind::Bomb:
 		Cues.Play(this, TEXT("samurai.bomb"));
-		FrozenUntil = Clock + 0.084;
-		Punch = 0.22;
-		Shake = FMath::Max(Shake, 0.55);
-		if (FxSys)
+		FrozenUntil = Clock + 0.12;
+		Punch = 0.3;
+		Shake = FMath::Max(Shake, 0.8);
+		Flash(MovecadeKart::Art::Hex(TEXT("#ff8a3d")), bFeatured ? 1.0 : 0.4, bFeatured ? 1.0 : 0.4);
+		FovKick = 3.5;
+		if (UKartFxSubsystem* FxSys = UKartFxSubsystem::Get(this))
 		{
 			for (const FTarget& T : E.Struck)
 			{
 				if (T.Kind == EKind::Bomb)
 				{
+					const FVector At = W(TargetCentre(T, LaneCount()));
 					TArray<Fx::FKartFxEmit> Out;
-					Fx::ExplosionBurst(W(TargetCentre(T, LaneCount())) - FVector(0.0, 0.0, 30.0), 1.4, Out);
+					Fx::ExplosionBurst(At - FVector(0.0, 0.0, 30.0), 2.1, Out);
+					// The shell's shards and embers flung at the camera.
+					Fx::FKartFxEmit Shards;
+					Shards.Field = Fx::EField::Sparks;
+					Shards.Position = At;
+					Shards.Count = 26;
+					Shards.Direction = FVector(-1.0, 0.0, 0.6).GetSafeNormal();
+					Shards.Spread = 1.3;
+					Shards.Speed = FVector2D(4.0, 9.0);
+					Shards.Life = FVector2D(0.4, 0.9);
+					Shards.Size = FVector2D(0.03, 0.06);
+					Shards.Color = MovecadeKart::Art::Hex(TEXT("#ffd08a"));
+					Shards.ColorEnd = MovecadeKart::Art::Hex(TEXT("#ff4a1c"));
+					Shards.Intensity = 3.0;
+					Out.Add(Shards);
 					FxSys->Emit(Out);
 				}
 			}
@@ -579,9 +818,15 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 		UpdateCamera(DeltaSeconds);
 		return;
 	}
-	const float Dt = FMath::Min(DeltaSeconds, 0.1f);
+	const float RealDt = FMath::Min(DeltaSeconds, 0.1f);
+	RealClock += RealDt;
+	// Slow motion: down to a third at once, easing back over the beat.
+	const double SlowAge = RealClock - SlowAt;
+	const double TimeScale = SlowAge < SlowSeconds ? FMath::Lerp(0.33, 1.0, Smooth(SlowSeconds * 0.3, SlowSeconds, SlowAge)) : 1.0;
+	const float Dt = static_cast<float>(RealDt * TimeScale);
 	Clock += Dt;
 	// The local swordsman's tip: the mouse, the right (or left) stick, the keys.
+	bool bSkip = false;
 	if (Viewer)
 	{
 		float MouseX = 0.f, MouseY = 0.f;
@@ -596,22 +841,54 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 			{
 				continue;
 			}
-			Lane.TipGoal.X = FMath::Clamp(Lane.TipGoal.X + MouseX * 0.0042 + Stick.X * 4.2 * Dt, Lane.LaneX - 1.6, Lane.LaneX + 1.6);
-			Lane.TipGoal.Y = FMath::Clamp(Lane.TipGoal.Y + MouseY * 0.0042 + Stick.Y * 4.2 * Dt, 0.1, 3.1);
+			Lane.TipGoal.X = FMath::Clamp(Lane.TipGoal.X + MouseX * 0.0042 + Stick.X * 4.2 * RealDt, Lane.LaneX - 1.6, Lane.LaneX + 1.6);
+			Lane.TipGoal.Y = FMath::Clamp(Lane.TipGoal.Y + MouseY * 0.0042 + Stick.Y * 4.2 * RealDt, 0.1, 3.1);
 		}
+		bSkip = Viewer->WasInputKeyJustPressed(EKeys::SpaceBar) || Viewer->WasInputKeyJustPressed(EKeys::Enter) || Viewer->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom);
 	}
 	switch (Stage)
 	{
 	case ESamuraiStage::Intro:
-		if (GetStageAge() >= IntroSeconds)
-		{
-			SetStage(ESamuraiStage::Match);
-		}
+	{
 		for (int32 i = 0; i < Lanes.Num(); ++i)
 		{
 			SampleBlade(Lanes[i], i, Dt);
 		}
+		// The title card, then (the first round, with a local swordsman) the practice apple.
+		const double Age = GetStageAge();
+		if (Practice == ESamuraiPractice::None && !bPracticeDone && Age >= TitleSeconds - 0.6)
+		{
+			PracticeLane = Lanes.IndexOfByPredicate([](const FLane& L) { return L.Kind == ESwordKind::Local; });
+			if (PracticeLane != INDEX_NONE)
+			{
+				Practice = ESamuraiPractice::Waiting;
+				PracticeAt = Clock;
+				PracticeWeb = FVector(Lanes[PracticeLane].LaneX + 0.15, TargetHeight(CutApex), TargetDepth);
+				Lanes[PracticeLane].TipGoal = FVector(Lanes[PracticeLane].LaneX - 1.1, 2.9, TargetDepth);
+			}
+			else
+			{
+				bPracticeDone = true;
+			}
+		}
+		if (Practice != ESamuraiPractice::None)
+		{
+			UpdatePractice(Dt);
+			if (bSkip && Practice != ESamuraiPractice::Cut)
+			{
+				Practice = ESamuraiPractice::None;
+				bPracticeDone = true;
+			}
+		}
+		const bool bHolding = Practice != ESamuraiPractice::None;
+		if (!bHolding && Age >= TitleSeconds)
+		{
+			PracticeMesh->SetVisibility(false);
+			PracticeHalo->SetVisibility(false);
+			SetStage(ESamuraiStage::Match);
+		}
 		break;
+	}
 	case ESamuraiStage::Match:
 		Accumulator += Dt * 1000.0;
 		while (Accumulator >= StepMs)
@@ -623,6 +900,14 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 		{
 			SetStage(ESamuraiStage::Finished);
 			UE_LOG(LogSamurai, Log, TEXT("Round over"));
+			// Petals over the winners.
+			for (const FPlayer& Winner : Match.Players)
+			{
+				if (Dojo && Match.WinnerIds.Contains(Winner.Id))
+				{
+					Dojo->PetalBurst(FVector(LaneX(Winner.LaneIndex, LaneCount()), 3.4, 1.0), 60);
+				}
+			}
 			if (OnFinished)
 			{
 				OnFinished();
@@ -636,6 +921,22 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 		}
 		break;
 	}
+	// Focus: the moment a featured swordsman's Focus lights, a banner and a gust of petals.
+	for (int32 i = 0; i < Lanes.Num() && i < Match.Players.Num(); ++i)
+	{
+		const bool bFocus = Match.Players[i].FocusRemainingMs > 0.0;
+		if (bFocus && !Lanes[i].bWasFocus && IsFeatured(i) && Stage == ESamuraiStage::Match)
+		{
+			Shout(NSLOCTEXT("Samurai", "FocusShout", "FOCUS!"), MovecadeKart::Art::Hex(TEXT("#ffd477")));
+			Flash(MovecadeKart::Art::Hex(TEXT("#ffd477")), 0.7, 0.2);
+			if (Dojo)
+			{
+				Dojo->PetalBurst(FVector(Lanes[i].LaneX, 3.2, 0.8), 40);
+			}
+		}
+		Lanes[i].bWasFocus = bFocus;
+	}
+	Notes.RemoveAll([this](const FSamuraiNote& N) { return Clock - N.BornAt > N.Life; });
 	const bool bFrozen = Clock < FrozenUntil;
 	if (!bFrozen)
 	{
@@ -644,7 +945,110 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 		UpdateSwordsmen(Dt);
 	}
 	UpdateTrails();
+	UpdateMood(RealDt);
 	UpdateCamera(Dt);
+}
+
+void ASamuraiGame::UpdatePractice(float Dt)
+{
+	// "Slice the practice fruit": the apple hangs at the cut's apex in the local lane; a sweep through it with
+	// intent cuts it (the same contact test as a round, judged here: the rules never see it); a blade dragged
+	// through too slowly says so. Space, Enter or the pad's A skips it; it gives way after a while regardless.
+	FLane& Lane = Lanes[PracticeLane];
+	const double Age = GetPracticeAge();
+	PracticeSpin = FQuat(FVector::UpVector, 0.9 * Dt) * PracticeSpin;
+	const FVector Bob(0.0, 0.05 * FMath::Sin(Clock * 2.2), 0.0);
+	const double Scale = Def(EVariant::Apple).Radius * 0.75;
+	if (Practice == ESamuraiPractice::Cut)
+	{
+		PracticeMesh->SetVisibility(false);
+		PracticeHalo->SetVisibility(false);
+		if (Age > 1.3)
+		{
+			Practice = ESamuraiPractice::None;
+			bPracticeDone = true;
+		}
+		return;
+	}
+	const FVector At = W(PracticeWeb + Bob);
+	const double Pop = EaseOutBack(FMath::Clamp(Age / 0.35, 0.0, 1.0));
+	PracticeMesh->SetWorldTransform(FTransform(PracticeSpin, At, FVector(Scale * FMath::Max(0.01, Pop))));
+	PracticeMesh->SetVisibility(true);
+	PracticeHalo->SetWorldTransform(FTransform(FRotator::ZeroRotator, At + FVector(Scale * 60.0, 0.0, 0.0), FVector(Scale * (1.0 + 0.06 * FMath::Sin(Clock * 6.0)) * Pop)));
+	PracticeHalo->SetVisibility(true);
+	if (bPracticeDemo && Age > 1.6 && Age < 2.2)
+	{
+		// -SamuraiPracticeDemo (screenshots, tests): the local blade sweeps through the apple by itself.
+		Lane.TipGoal = FVector(Lane.LaneX - 1.1 + FMath::Clamp((Age - 1.6) / 0.22, 0.0, 1.0) * 2.6, 2.9 - FMath::Clamp((Age - 1.6) / 0.22, 0.0, 1.0) * 1.6, TargetDepth);
+	}
+	if (Lane.bIntent)
+	{
+		Lane.TrailAt = Clock;
+	}
+	const bool bTouch = Age > 0.35 && SweptBladeHits(Lane.Previous.Base, Lane.Previous.Tip, Lane.Blade.Base, Lane.Blade.Tip, PracticeWeb + Bob, Def(EVariant::Apple).Radius * 0.75);
+	if (bTouch && Lane.bIntent)
+	{
+		FTarget Fake;
+		Fake.Variant = EVariant::Apple;
+		Fake.Radius = Def(EVariant::Apple).Radius;
+		const FVector Cut = CutNormal(PracticeLane);
+		FQuat Rot = PracticeSpin;
+		if (!Cut.IsNearlyZero())
+		{
+			Rot = FQuat::FindBetweenNormals(Rot.RotateVector(FVector(0, 1, 0)), Cut) * Rot;
+		}
+		SpawnPiece(Fake, At, Rot, true);
+		SpawnPiece(Fake, At, Rot, false);
+		CutFx(EVariant::Apple, At, Rot.RotateVector(FVector(0, 1, 0)), Scale, true);
+		Cues.Play(this, TEXT("samurai.slice"), 1.f, 1.f);
+		Cues.Play(this, TEXT("samurai.hit"), 1.f);
+		Flash(MovecadeKart::Art::Hex(TEXT("#fff2d6")), 0.6, 0.3);
+		FrozenUntil = Clock + 0.07;
+		Punch = 0.16;
+		SlowMo(0.5);
+		Note(W(PracticeWeb + FVector(0.0, 0.55, 0.0)), NSLOCTEXT("Samurai", "PracticeCut", "Clean cut!"), MovecadeKart::Art::Hex(TEXT("#7cf0c4")), 1.2, 1.1f);
+		UE_LOG(LogSamurai, Log, TEXT("Practice apple cut after %.2f s"), Age);
+		Practice = ESamuraiPractice::Cut;
+		PracticeAt = Clock;
+		Lane.LastCutAt = Clock;
+		Lane.CutPower = 1.0;
+		return;
+	}
+	if (bTouch && Clock - Lane.HintAt > 1.0)
+	{
+		Lane.HintAt = Clock;
+		Practice = ESamuraiPractice::TooSlow;
+		Note(W(PracticeWeb + FVector(0.0, 0.55, 0.0)), NSLOCTEXT("Samurai", "TooSlow", "Swing faster!"), MovecadeKart::Art::Hex(TEXT("#ffd477")), 1.1, 0.9f);
+	}
+	if (Age > 12.0)
+	{
+		UE_LOG(LogSamurai, Log, TEXT("Practice timed out"));
+		Practice = ESamuraiPractice::None;
+		bPracticeDone = true;
+		PracticeMesh->SetVisibility(false);
+		PracticeHalo->SetVisibility(false);
+	}
+}
+
+void ASamuraiGame::UpdateMood(float RealDt)
+{
+	// The screen treatment: Focus warms and saturates while a featured swordsman's Focus burns; perfect cuts and
+	// bombs flash and fringe for a moment.
+	bool bFocus = false;
+	for (int32 i = 0; i < Match.Players.Num(); ++i)
+	{
+		bFocus |= IsFeatured(i) && Match.Players[i].FocusRemainingMs > 0.0 && Stage == ESamuraiStage::Match;
+	}
+	FocusMood = FMath::FInterpTo(FocusMood, bFocus ? 1.f : 0.f, RealDt, 4.f);
+	const double FlashAge = RealClock - FlashAt;
+	const float FlashNow = static_cast<float>(FlashPower * FMath::Exp(-9.0 * FMath::Max(0.0, FlashAge)));
+	const float FringeNow = static_cast<float>(FringePower * FMath::Exp(-7.0 * FMath::Max(0.0, FlashAge)));
+	FovKick *= FMath::Exp(-6.0 * RealDt);
+	if (Dojo)
+	{
+		const float Pulse = FocusMood * (0.85f + 0.15f * FMath::Sin(static_cast<float>(RealClock) * 5.f));
+		Dojo->SetMood(Pulse, FlashNow, FlashColor, FringeNow);
+	}
 }
 
 void ASamuraiGame::UpdateTargets(float Dt)
@@ -729,6 +1133,11 @@ void ASamuraiGame::UpdateTargets(float Dt)
 void ASamuraiGame::ReleaseSlot(int32 Index)
 {
 	FTargetSlot& Slot = Slots[Index];
+	// A fruit that fell out of a human's lane uncut: the rules only speak up when it breaks a combo.
+	if (Slot.LastProgress > 0.97 && Slot.Kind != EKind::Bomb && IsHuman(Slot.Lane) && Stage == ESamuraiStage::Match && Match.Phase == EMatchPhase::Playing)
+	{
+		Note(Slot.LastAt + FVector(0.0, 0.0, 40.0), NSLOCTEXT("Samurai", "Dropped", "Dropped"), MovecadeKart::Art::Hex(TEXT("#ff8a8a")), 0.8, 0.7f);
+	}
 	TargetSlots.Remove(Slot.TargetId);
 	Slot.TargetId = INDEX_NONE;
 	TargetPool[Index]->SetVisibility(false);
@@ -803,9 +1212,13 @@ void ASamuraiGame::UpdateSwordsmen(float Dt)
 		const FVector LeftShoulder = B.Shoulder - FVector(2.0 * FBladeRig::ShoulderSide, 0.0, 0.0);
 		Pose.Hand[0] = Frame(B.Hand - B.Direction * 0.13 - LeftShoulder);
 		Pose.HandWeight[0] = 1.f;
-		Pose.Crouch = static_cast<float>(0.22 + 0.15 * Lane.Energy);
-		Pose.Lean = static_cast<float>(0.06 + 0.16 * Lane.Energy + FMath::Max(0.0, -B.Direction.Y) * 0.18);
-		Pose.Twist = static_cast<float>(-B.Direction.X * 0.35);
+		// The cut: a step into the stroke and a follow-through, snapping in and settling over a third of a second.
+		const double CutAge = Clock - Lane.LastCutAt;
+		const double Strike = CutAge < 0.0 || CutAge > 0.6 ? 0.0 : Lane.CutPower * Smooth(0.0, 0.05, CutAge) * FMath::Exp(-5.5 * CutAge);
+		Pose.Crouch = static_cast<float>(0.22 + 0.15 * Lane.Energy + 0.22 * Strike);
+		Pose.Lean = static_cast<float>(0.06 + 0.16 * Lane.Energy + FMath::Max(0.0, -B.Direction.Y) * 0.18 + 0.2 * Strike);
+		Pose.Twist = static_cast<float>(-B.Direction.X * 0.35 - Lane.CutSide * 0.3 * Strike);
+		Pose.Lunge = static_cast<float>(0.7 * Strike);
 		// Eyes on the target nearest its apex in this lane.
 		FVector LookAt = W(FVector(Lane.LaneX, 1.55, -1.2));
 		double Nearest = TNumericLimits<double>::Max();
@@ -858,7 +1271,7 @@ void ASamuraiGame::UpdateTrails()
 		const bool bLive = Clock - Lane.TrailAt < 0.1;
 		if (bLive)
 		{
-			Lane.Trail.Add(TPair<FVector, FVector>(W(FMath::Lerp(Lane.Blade.Base, Lane.Blade.Tip, 0.3)), W(Lane.Blade.Tip)));
+			Lane.Trail.Add(TPair<FVector, FVector>(W(FMath::Lerp(Lane.Blade.Base, Lane.Blade.Tip, 0.55)), W(Lane.Blade.Tip)));
 			if (Lane.Trail.Num() > TrailSamples)
 			{
 				Lane.Trail.RemoveAt(0, Lane.Trail.Num() - TrailSamples, EAllowShrinking::No);
@@ -927,6 +1340,8 @@ void ASamuraiGame::UpdateCamera(float Dt)
 		Pos = FMath::Lerp(Pos, FVector(0.0, 2.4, Z * 0.72), T);
 		Look = FMath::Lerp(Look, FVector(0.0, 1.5, 0.6), T);
 	}
+	// Focus leans in a touch; perfect cuts and bombs kick the lens.
+	Fov += FovKick - 1.6 * FocusMood;
 	if (!bCamPlaced)
 	{
 		CamPos = Pos;
@@ -952,6 +1367,15 @@ void ASamuraiGame::UpdateCamera(float Dt)
 void ASamuraiGame::ResetPresentation()
 {
 	LastSeenEffectId = 0;
+	Notes.Reset();
+	BannerAt = -10.0;
+	FocusMood = 0.f;
+	for (FLane& Lane : Lanes)
+	{
+		Lane.bWasFocus = false;
+		Lane.bWasIntent = false;
+		Lane.LastCutAt = -10.0;
+	}
 	for (int32 i = 0; i < Slots.Num(); ++i)
 	{
 		if (Slots[i].TargetId != INDEX_NONE)

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "FX/KartFx.h"
 #include "SamuraiDojo.generated.h"
 
 class UDirectionalLightComponent;
@@ -39,6 +40,14 @@ public:
 	void SetLanes(int32 LaneCount);
 	int32 GetLanes() const { return Lanes; }
 
+	/**
+	 * The round's screen treatment over the grade: Focus 0..1 (gold, saturated, vignette), a Flash 0..1 in a colour
+	 * (a perfect cut, a bomb) and Fringe 0..1 (chromatic fringing on impacts).
+	 */
+	void SetMood(float Focus, float Flash, const FLinearColor& FlashColor, float Fringe);
+	/** A gust of cherry petals bursting from a point (web metres): Focus, big combos, the winner. */
+	void PetalBurst(const FVector& Web, int32 Count);
+
 	/** Web world (x, y, z) to UE cm. */
 	static FVector ToWorld(const FVector& Web);
 	double StageWidth() const;
@@ -47,6 +56,8 @@ private:
 	void Build();
 	void Clear();
 	void BuildLook();
+	void ApplyGrade();
+	MovecadeKart::Fx::FKartFxEmit Petal(const FVector& Web, int32 Count, double Speed);
 	void BuildGround();
 	void BuildStage();
 	void BuildTorii();
@@ -124,6 +135,10 @@ private:
 	bool bBuildPending = false;
 	bool bBuilt = false;
 	bool bLookBuilt = false;
+	float MoodFocus = 0.f;
+	float MoodFlash = 0.f;
+	float MoodFringe = 0.f;
+	FLinearColor MoodFlashColor = FLinearColor::White;
 	double PetalCarry = 0.0;
 	FRandomStream PetalRng;
 };
