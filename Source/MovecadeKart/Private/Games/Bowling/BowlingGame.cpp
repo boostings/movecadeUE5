@@ -16,6 +16,7 @@
 #include "InputCoreTypes.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/CommandLine.h"
+#include "Store/KartCosmetics.h" // store cosmetics: ball skin
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBowling, Log, All);
@@ -414,7 +415,8 @@ void ABowlingGame::BeginTurn()
 	PhoneCharge = 0.0;
 	if (const FBowlerSeat* Bowler = GetBowler())
 	{
-		BallMaterial->SetVectorParameterValue(ColorParam, Bowler->Color * 0.8f);
+		// Store cosmetics: a local bowler rolls their equipped ball skin.
+		FKartCosmetics::ApplyBowlingBall(BallMaterial, Bowler->Kind == EBowlerKind::Local, Bowler->Color * 0.8f);
 		if (Bowler->Id != DressedFor)
 		{
 			DressedFor = Bowler->Id;

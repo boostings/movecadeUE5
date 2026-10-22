@@ -381,6 +381,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 	static const TMap<FName, int32> Settle = {
 		{ TEXT("title"), 3 }, { TEXT("menu"), 2 }, { TEXT("racers"), 4 }, { TEXT("rules"), 2 }, { TEXT("tracks"), 3 },
 		{ TEXT("settings"), 2 }, { TEXT("audio"), 2 }, { TEXT("controls"), 2 }, { TEXT("credits"), 2 }, { TEXT("quit"), 2 }, { TEXT("arcade"), 2 },
+		{ TEXT("store"), 2 }, { TEXT("storeparty"), 2 }, { TEXT("storefree"), 2 }, { TEXT("storebuy"), 2 }, { TEXT("storedone"), 2 }, // store
 	};
 	const int32* Seconds = Settle.Find(Step);
 	UKartUISubsystem* UI = UKartUISubsystem::Get(this);
@@ -389,7 +390,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 		return false;
 	}
 	const TSharedPtr<FKartScreen>& Top = Screens->Top();
-	const FName Expected = Step == TEXT("quit") ? FName(TEXT("confirm")) : Step;
+	const FName Expected = Step == TEXT("quit") ? FName(TEXT("confirm")) : Step == TEXT("storebuy") ? FName(TEXT("store-buy")) : Step == TEXT("storedone") ? FName(TEXT("store-done")) : Step;
 	if (!Top.IsValid() || Top->GetId() != Expected)
 	{
 		if (SecondsInStep < 0.2)
@@ -423,6 +424,10 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 		else if (Step == TEXT("arcade"))
 		{
 			Screens->PushScreen(KartScreens::MakeArcade(this));
+		}
+		else if (Step.ToString().StartsWith(TEXT("store"))) // store
+		{
+			Screens->PushScreen(KartScreens::MakeStore(this, Step));
 		}
 		else if (Step == TEXT("credits"))
 		{
