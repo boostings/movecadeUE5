@@ -1,50 +1,46 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/GameModeBase.h"
-#include "Templates/SharedPointer.h"
+#include "Games/ArcadeGameModeBase.h"
+#include "Games/Samurai/SamuraiRules.h"
+#include "Games/Samurai/SamuraiTypes.h"
 #include "SamuraiGameMode.generated.h"
 
 class ASamuraiDojo;
 class ASamuraiGame;
-class SArcadeOverlay;
 
 /**
- * Samurai Slice's level mode (L_Samurai): finds the dojo (or builds one) and starts a round. Local play: one
- * swordsman on the mouse or a pad (the game is simultaneous, so a second person on the same keyboard has nothing
- * to hold) plus house bots, from ?Players=&Bots= or -SamuraiPlayers= -SamuraiBots= -SamuraiAuto, and the Kart test
- * hooks -KartShots= and -KartQuitAfter=.
+ * Samurai Slice's level mode (L_Samurai): finds the dojo (or builds one) and starts a round; AArcadeGameModeBase
+ * runs the shared loop (launch options, room binding, live scores, overlay, test hooks). Local play: one swordsman
+ * on the mouse or a pad (the game is simultaneous, so a second person on the same keyboard has nothing to hold;
+ * the catalog's MaxLocal is 1) plus house bots, from ?Players=&Bots= or -SamuraiPlayers= -SamuraiBots= -SamuraiAuto.
  *
- * Party Mode: when the room host plays a samurai match, every seat is a lane: phones swing their blades (their
- * attitude and sweep arrive as sensor frames), room bots cut by the house AI. The mode announces simultaneous play
- * (advance-turn null) and the match countdown, sends play:feedback for every cut, bomb and miss, scores each
- * second, completes the match and follows the room back to its lobby.
+ * Party Mode: every room seat is a lane: phones swing their blades (their attitude and sweep arrive as sensor
+ * frames), room bots cut by the house AI. The mode announces simultaneous play (advance-turn null) and the match
+ * countdown, and sends play:feedback for every cut, bomb and miss.
  */
 UCLASS()
-class MOVECADEKART_API ASamuraiGameMode : public AGameModeBase
+class MOVECADEKART_API ASamuraiGameMode : public AArcadeGameModeBase
 {
 	GENERATED_BODY()
 
 public:
 	ASamuraiGameMode();
 
-	virtual void StartPlay() override;
-	virtual void RestartPlayer(AController* NewPlayer) override {}
-	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
-
 	ASamuraiGame* GetGame() const { return Game; }
 
+protected:
+	virtual void SpawnVenue() override;
+	virtual void BuildRoomSeats(TConstArrayView<FMcSeat> Players) override;
+	virtual void BuildLocalSeats(const FArcadeLaunchOptions& InLaunch) override;
+	virtual void SpawnGame() override;
+	virtual void BindRoomCallbacks(URoomHostSubsystem& Room) override;
+	virtual void HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame) override;
+	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const override;
+
 private:
-	void SetupTestHooks();
-	bool SetupRoom(TArray<struct FSamuraiSeat>& OutSeats, uint32& OutSeed);
-	void BindRoom();
-	void PushScores(bool bFinal);
-
-	UFUNCTION()
-	void HandleRoomLobby();
-
-	UFUNCTION()
-	void HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId);
+	/** The phone's toast for a cut, bomb or miss (the room relays it as play:feedback). */
+	void SendEffectFeedback(URoomHostSubsystem& Room, const MovecadeKart::Samurai::FEffect& Effect) const;
 
 	UPROPERTY()
 	TObjectPtr<ASamuraiDojo> Dojo;
@@ -52,11 +48,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<ASamuraiGame> Game;
 
-	bool bRoomMatch = false;
-	/** Pause, results and the play-again / next-game loop over the game. */
-	TSharedPtr<SArcadeOverlay> Overlay;
-	FDelegateHandle SensorHandle;
-	FTimerHandle ScoreTimer;
-	/** The last live scores sent ("id=score;..."), so unchanged scores aren't resent each second. */
-	FString LastScores;
+	/** Filled by BuildRoomSeats / BuildLocalSeats, consumed by SpawnGame. */
+	UPROPERTY()
+	TArray<FSamuraiSeat> Seats;
+
+	uint32 Seed = MovecadeKart::Samurai::DefaultSeed;
 };
