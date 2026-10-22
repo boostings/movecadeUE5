@@ -627,6 +627,9 @@ void AKartRaceManager::RecordLaps(double RaceMs)
 			Racer.LapMs.Add(Lap);
 			Racer.BestLapMs = Racer.BestLapMs > 0.0 ? FMath::Min(Racer.BestLapMs, Lap) : Lap;
 			Racer.LapStartMs = RaceMs;
+			// Step-exact, so two runs of the same race log the same times (Tools/ue/play.ps1 and race_repeat.ps1 read them).
+			UE_LOG(LogKartRace, Display, TEXT("Kart lap %d: %.2f s (race %.2f s)%s [seat %d]"), Racer.LapsSeen, Lap / 1000.0, RaceMs / 1000.0,
+				Racer.LapsSeen >= Track->Laps ? TEXT(" FINISHED") : TEXT(""), Racer.Seat);
 			if (Racer.LapsSeen >= Track->Laps && !Racer.bFinished)
 			{
 				Racer.bFinished = true;

@@ -162,25 +162,6 @@ void AKartPawn::Tick(float DeltaSeconds)
 	UpdateDriver(DeltaSeconds);
 	UpdateNamePlate();
 	UpdateCamera(DeltaSeconds);
-	LogLaps();
-}
-
-void AKartPawn::LogLaps()
-{
-	// The lap times in the log are what Tools/ue/play.ps1 reports after a run.
-	const FKartState& S = Movement->SimState();
-	if (S.LapsCompleted < LoggedLaps)
-	{
-		// A restart put the kart back on the grid.
-		LoggedLaps = 0;
-		LastLapTime = 0.0;
-	}
-	if (S.LapsCompleted > LoggedLaps)
-	{
-		LoggedLaps = S.LapsCompleted;
-		UE_LOG(LogKartPawn, Display, TEXT("Kart lap %d: %.2f s (race %.2f s)%s"), LoggedLaps, S.Time - LastLapTime, S.Time, S.bFinished ? TEXT(" FINISHED") : TEXT(""));
-		LastLapTime = S.Time;
-	}
 }
 
 void AKartPawn::SetPaint(const FLinearColor& Color)

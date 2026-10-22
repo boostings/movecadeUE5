@@ -187,8 +187,6 @@ private:
 	bool ApplyOrbitShot();
 	void ApplyFieldOfView(double FovOffset);
 
-	void LogLaps();
-
 	UPROPERTY(VisibleAnywhere, Category = "Kart")
 	TObjectPtr<USphereComponent> Root;
 
@@ -331,7 +329,4 @@ private:
 
 	/** Chassis and camera juice on top of the sim's presentation layers (-KartWebFeel turns it off). */
 	MovecadeKart::FKartFeel Feel;
-
-	int32 LoggedLaps = 0;
-	double LastLapTime = 0.0;
 };
