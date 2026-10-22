@@ -7,7 +7,10 @@
 #include "Serialization/JsonSerializer.h"
 #include "Store/KartCosmetics.h"
 #include "Store/KartStore.h"
+#include "Store/KartStoreSave.h"
+#include "Store/MockStoreBackend.h"
 #include "Store/KartStoreSubsystem.h"
+#include "UI/Screens/Store/KartStorePresenter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -368,6 +371,62 @@ bool FKartStoreRestoreTest::RunTest(const FString& Parameters)
 	}
 	DeleteSlot(Slot);
 	DeleteSlot(MockSlot);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartStorePresenterTest, "MovecadeKart.Store.Presenter", StoreTestFlags)
+
+bool FKartStorePresenterTest::RunTest(const FString& Parameters)
+{
+	using namespace KartStoreUI;
+	// Tabs: every catalog item shows on its slot's tab, and every free one on Free Unlocks too.
+	int32 Listed = 0;
+	for (int32 Tab = 0; Tab < static_cast<int32>(ETab::Free); ++Tab)
+	{
+		Listed += ItemsFor(static_cast<ETab>(Tab)).Num();
+	}
+	TestEqual(TEXT("the slot tabs list the whole catalog"), Listed, Catalog().Num());
+	for (const FItem* Item : ItemsFor(ETab::Free))
+	{
+		TestTrue(TEXT("free tab lists free items"), Item->IsFree());
+	}
+
+	// The primary button follows the item's state.
+	const FItem& Chrome = *FindItem(FName(TEXT("paint.chrome")));
+	TestFalse(TEXT("no store, no button"), PrimaryFor(nullptr, Chrome).bEnabled);
+	FHarness H;
+	FPrimary Buy = PrimaryFor(H.Store.Get(), Chrome);
+	TestTrue(TEXT("for sale: buy"), Buy.bEnabled && Buy.Look == EPrimaryLook::Buy);
+	H.Mock->DevGrant({ Chrome.DefId });
+	H.Store->Restore();
+	H.Pump(1.0);
+	TestTrue(TEXT("owned: equip"), PrimaryFor(H.Store.Get(), Chrome).Look == EPrimaryLook::Equip);
+	H.Store->Equip(Chrome.DefId);
+	TestTrue(TEXT("worn: take off"), PrimaryFor(H.Store.Get(), Chrome).Look == EPrimaryLook::Unequip);
+	H.Mock->SetOnline(false);
+	TestTrue(TEXT("the mock reads as offline"), StatusFor(H.Store.Get()).Level == EStatusLevel::Offline);
+	H.Mock->SetOnline(true);
+	TestTrue(TEXT("the online mock reads as a demo"), StatusFor(H.Store.Get()).Level == EStatusLevel::Demo);
+	TestTrue(TEXT("no store reads as offline"), StatusFor(nullptr).Level == EStatusLevel::Offline);
+
+	// Grid moves: 12 items in rows of 5 (the last row has 2).
+	TestEqual(TEXT("right"), MoveInGrid(0, 12, 5, 1, 0), 1);
+	TestEqual(TEXT("left edge stays"), MoveInGrid(5, 12, 5, -1, 0), 5);
+	TestEqual(TEXT("right edge stays"), MoveInGrid(4, 12, 5, 1, 0), 4);
+	TestEqual(TEXT("past the short row's end stays"), MoveInGrid(11, 12, 5, 1, 0), 11);
+	TestEqual(TEXT("down onto the short row lands on its end"), MoveInGrid(8, 12, 5, 0, 1), 11);
+	TestEqual(TEXT("top stays"), MoveInGrid(2, 12, 5, 0, -1), 2);
+
+	// The dialog: ids the UI tour waits for, and what each checkout ending shows.
+	TestEqual(TEXT("confirm id"), DialogId(EDialogPhase::Confirm), FName(TEXT("store-buy")));
+	TestEqual(TEXT("success id"), DialogId(EDialogPhase::Success), FName(TEXT("store-done")));
+	TestTrue(TEXT("already owned counts as success"), PhaseAfter(EPurchaseResult::AlreadyOwned) == EDialogPhase::Success);
+	TestTrue(TEXT("cancelled"), PhaseAfter(EPurchaseResult::Cancelled) == EDialogPhase::Cancelled);
+	TestTrue(TEXT("unavailable fails"), PhaseAfter(EPurchaseResult::Unavailable) == EDialogPhase::Failed);
+	TestEqual(TEXT("success offers equip"), NumDialogButtons(EDialogPhase::Success, true), 2);
+	TestEqual(TEXT("a bundle's success just closes"), NumDialogButtons(EDialogPhase::Success, false), 1);
+	TestEqual(TEXT("button labels match"), DialogButtons(EDialogPhase::Failed, H.Store.Get(), Chrome).Num(), NumDialogButtons(EDialogPhase::Failed, true));
+	TestTrue(TEXT("a failure shows the backend's reason"), DialogLines(EDialogPhase::Failed, H.Store.Get(), Chrome, TEXT("offline")).Last().ToString().Contains(TEXT("offline")));
 	return true;
 }
 

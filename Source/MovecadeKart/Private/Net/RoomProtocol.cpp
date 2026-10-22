@@ -19,67 +19,6 @@ namespace MovecadeKart::Net
 			return static_cast<uint16>(Data[Offset]) | (static_cast<uint16>(Data[Offset + 1]) << 8);
 		}
 
-		/** Compact JSON object writer with stable key order. */
-		class FJsonOut
-		{
-		public:
-			explicit FJsonOut(const TCHAR* Type)
-			{
-				Out = FString::Printf(TEXT("{\"v\":%d,\"t\":"), ProtocolVersion);
-				AppendString(Type);
-			}
-
-			FJsonOut& Str(const TCHAR* Key, const FString& Value) { KeyPrefix(Key); AppendString(Value); return *this; }
-			FJsonOut& Int(const TCHAR* Key, int64 Value) { KeyPrefix(Key); Out += FString::Printf(TEXT("%lld"), Value); return *this; }
-			FJsonOut& Num(const TCHAR* Key, double Value) { KeyPrefix(Key); Out += FString::SanitizeFloat(Value, 0); return *this; }
-			FJsonOut& Bool(const TCHAR* Key, bool bValue) { KeyPrefix(Key); Out += bValue ? TEXT("true") : TEXT("false"); return *this; }
-			FJsonOut& Null(const TCHAR* Key) { KeyPrefix(Key); Out += TEXT("null"); return *this; }
-			FJsonOut& Raw(const TCHAR* Key, const FString& Json) { KeyPrefix(Key); Out += Json; return *this; }
-			FString Done() { return Out + TEXT("}"); }
-
-			static FString Quote(const FString& Value)
-			{
-				FString Result = TEXT("\"");
-				for (const TCHAR C : Value)
-				{
-					switch (C)
-					{
-					case TEXT('"'): Result += TEXT("\\\""); break;
-					case TEXT('\\'): Result += TEXT("\\\\"); break;
-					case TEXT('\n'): Result += TEXT("\\n"); break;
-					case TEXT('\r'): Result += TEXT("\\r"); break;
-					case TEXT('\t'): Result += TEXT("\\t"); break;
-					default:
-						if (C < 0x20)
-						{
-							Result += FString::Printf(TEXT("\\u%04x"), static_cast<uint32>(C));
-						}
-						else
-						{
-							Result.AppendChar(C);
-						}
-					}
-				}
-				return Result + TEXT("\"");
-			}
-
-		private:
-			void KeyPrefix(const TCHAR* Key) { Out += TEXT(","); AppendString(Key); Out += TEXT(":"); }
-			void AppendString(const FString& Value) { Out += Quote(Value); }
-
-			FString Out;
-		};
-
-		FString ScoresJson(const TArray<FMcScoreEntry>& Scores)
-		{
-			FString Out = TEXT("[");
-			for (int32 i = 0; i < Scores.Num(); ++i)
-			{
-				Out += FString::Printf(TEXT("%s{\"playerId\":%s,\"score\":%d}"), i ? TEXT(",") : TEXT(""), *FJsonOut::Quote(Scores[i].PlayerId), Scores[i].Score);
-			}
-			return Out + TEXT("]");
-		}
-
 		FString GetString(const FJsonObject& Object, const TCHAR* Key)
 		{
 			FString Value;
@@ -111,6 +50,11 @@ namespace MovecadeKart::Net
 		FLinearColor Hex(const TCHAR* Value)
 		{
 			return FLinearColor(FColor::FromHex(Value));
+		}
+
+		bool Is(const FString& Value, const TCHAR* Literal)
+		{
+			return Value.Equals(Literal, ESearchCase::CaseSensitive);
 		}
 
 		bool IsPlayerId(const FString& Id)
@@ -268,27 +212,6 @@ namespace MovecadeKart::Net
 		return false;
 	}
 
-	FString PadPromptData(const FString& PlayerId, const FString& Title, const FString& Subtitle,
-		const FString& A, const FString& B, const FString& AccentHex, const FString& Mode)
-	{
-		bool bAccent = AccentHex.Len() == 7 && AccentHex[0] == TEXT('#');
-		for (int32 i = 1; bAccent && i < 7; ++i)
-		{
-			bAccent = FChar::IsHexDigit(AccentHex[i]);
-		}
-		FString Data = FString::Printf(TEXT("{\"playerId\":%s,\"title\":%s,\"subtitle\":%s,\"a\":%s,\"b\":%s"),
-			*QuoteJson(PlayerId), *QuoteJson(Title.Left(80)), *QuoteJson(Subtitle.Left(160)), *QuoteJson(A.Left(16)), *QuoteJson(B.Left(16)));
-		if (bAccent)
-		{
-			Data += FString::Printf(TEXT(",\"accent\":%s"), *QuoteJson(AccentHex));
-		}
-		if (IsPadMode(Mode))
-		{
-			Data += FString::Printf(TEXT(",\"mode\":%s"), *QuoteJson(Mode));
-		}
-		return Data + TEXT("}");
-	}
-
 	FKartInputEvent ParseKartInput(const FJsonObject& Data)
 	{
 		FKartInputEvent Event;
@@ -440,12 +363,107 @@ namespace MovecadeKart::Net
 
 	EMcRoomStatus ParseStatus(const FString& Status)
 	{
-		if (Status == TEXT("lobby")) return EMcRoomStatus::Lobby;
-		if (Status == TEXT("countdown")) return EMcRoomStatus::Countdown;
-		if (Status == TEXT("in-progress")) return EMcRoomStatus::InProgress;
-		if (Status == TEXT("paused")) return EMcRoomStatus::Paused;
-		if (Status == TEXT("complete")) return EMcRoomStatus::Complete;
+		if (Is(Status, TEXT("lobby"))) return EMcRoomStatus::Lobby;
+		if (Is(Status, TEXT("countdown"))) return EMcRoomStatus::Countdown;
+		if (Is(Status, TEXT("in-progress"))) return EMcRoomStatus::InProgress;
+		if (Is(Status, TEXT("paused"))) return EMcRoomStatus::Paused;
+		if (Is(Status, TEXT("complete"))) return EMcRoomStatus::Complete;
 		return EMcRoomStatus::Unknown;
+	}
+
+	EServerMessage ParseServerMessageType(const FString& Type)
+	{
+		struct FEntry
+		{
+			const TCHAR* Type;
+			EServerMessage Message;
+		};
+		static constexpr FEntry Table[] = {
+			{ TEXT("ping"), EServerMessage::Ping },
+			{ TEXT("welcome"), EServerMessage::Welcome },
+			{ TEXT("state"), EServerMessage::State },
+			{ TEXT("game-event"), EServerMessage::GameEvent },
+			{ TEXT("error"), EServerMessage::Error },
+			{ TEXT("host-changed"), EServerMessage::HostChanged },
+			{ TEXT("signed-scores"), EServerMessage::SignedScores },
+			{ TEXT("room-closed"), EServerMessage::RoomClosed },
+			{ TEXT("action-ack"), EServerMessage::ActionAck },
+			{ TEXT("resume-countdown"), EServerMessage::ResumeCountdown },
+		};
+		for (const FEntry& Entry : Table)
+		{
+			if (Is(Type, Entry.Type))
+			{
+				return Entry.Message;
+			}
+		}
+		return EServerMessage::Unknown;
+	}
+
+	bool IsStartRejectedError(const FString& Code)
+	{
+		return Is(Code, TEXT("PLAYERS_NOT_READY")) || Is(Code, TEXT("NO_ACTIVE_PLAYERS")) || Is(Code, TEXT("INVALID_STATE_TRANSITION"))
+			|| Is(Code, TEXT("ENTITLEMENT_REQUIRED"));
+	}
+
+	FStartCheck EvaluateStart(const FMcRoomState& Room, bool bConnectionOpen, bool bIsHost, bool bPreparationReady)
+	{
+		FStartCheck Check;
+		if (!bConnectionOpen)
+		{
+			Check.Block = EStartBlock::NotConnected;
+			return Check;
+		}
+		if (!bIsHost)
+		{
+			Check.Block = EStartBlock::NotHost;
+			return Check;
+		}
+		if (Room.Status != EMcRoomStatus::Lobby)
+		{
+			Check.Block = EStartBlock::MatchRunning;
+			return Check;
+		}
+		int32 People = 0;
+		for (const FMcSeat& Seat : Room.Players)
+		{
+			People += Seat.bBot ? 0 : 1;
+			Check.NotReady += (Seat.bReady && Seat.bConnected && !Seat.bEliminated) ? 0 : 1;
+		}
+		if (Room.Players.Num() == 0)
+		{
+			Check.Block = EStartBlock::NobodySeated;
+		}
+		else if (People == 0)
+		{
+			Check.Block = EStartBlock::OnlyBots;
+		}
+		else if (!bPreparationReady)
+		{
+			Check.Block = EStartBlock::Preparing;
+		}
+		else if (Check.NotReady > 0)
+		{
+			Check.Block = EStartBlock::NotReady;
+		}
+		return Check;
+	}
+
+	FString DescribeStartBlock(const FStartCheck& Check, const FString& LastError)
+	{
+		switch (Check.Block)
+		{
+		case EStartBlock::None: return FString();
+		case EStartBlock::NotConnected: return LastError.IsEmpty() ? TEXT("Connecting to the room server...") : LastError;
+		case EStartBlock::NotHost: return TEXT("Another screen is hosting this room.");
+		case EStartBlock::MatchRunning: return TEXT("A match is in progress.");
+		case EStartBlock::NobodySeated: return TEXT("Scan the code with a phone to join.");
+		case EStartBlock::OnlyBots: return TEXT("Bots are ready. Scan the code to play with them.");
+		case EStartBlock::Preparing: return TEXT("Preparing Kart Racer...");
+		case EStartBlock::NotReady:
+			return FString::Printf(TEXT("Waiting for %d %s to get ready."), Check.NotReady, Check.NotReady == 1 ? TEXT("player") : TEXT("players"));
+		}
+		return FString();
 	}
 
 	FLinearColor PaintColor(const FString& KartPaint, int32 Seat)
@@ -595,114 +613,6 @@ namespace MovecadeKart::Net
 		return true;
 	}
 
-	namespace Msg
-	{
-		FString Hello(const FString& Client, const FString& GameId, const FString& Identity, const FString& HostToken)
-		{
-			FJsonOut J(TEXT("hello"));
-			J.Str(TEXT("role"), TEXT("host")).Str(TEXT("client"), Client.Left(64));
-			if (!HostToken.IsEmpty())
-			{
-				J.Str(TEXT("hostToken"), HostToken);
-			}
-			J.Str(TEXT("gameId"), GameId);
-			if (!Identity.IsEmpty())
-			{
-				J.Str(TEXT("identity"), Identity.ToLower());
-			}
-			return J.Done();
-		}
-
-		FString Pong() { return FJsonOut(TEXT("pong")).Done(); }
-		FString StateAck(int64 StateVersion) { return FJsonOut(TEXT("state-ack")).Int(TEXT("stateVersion"), StateVersion).Done(); }
-		FString ConfigureRoomMap(const FString& MapId) { return FJsonOut(TEXT("configure-room")).Str(TEXT("mapId"), MapId).Done(); }
-
-		FString SetCountdown(const FString& Kind, int32 DurationMs)
-		{
-			return FJsonOut(TEXT("set-countdown")).Str(TEXT("kind"), Kind).Int(TEXT("durationMs"), FMath::Clamp(DurationMs, 0, CountdownMaxMs)).Done();
-		}
-
-		FString StartGame() { return FJsonOut(TEXT("start-game")).Done(); }
-		FString AdvanceTurn(const FString& ActivePlayerId)
-		{
-			return FJsonOut(TEXT("advance-turn")).Str(TEXT("activePlayerId"), ActivePlayerId).Str(TEXT("phase"), TEXT("active")).Done();
-		}
-		FString GameEvent(const FString& Event, const FString& DataJson) { return FJsonOut(TEXT("game-event")).Str(TEXT("event"), Event).Raw(TEXT("data"), DataJson).Done(); }
-		FString ConfigureRoomGame(const FString& GameId) { return FJsonOut(TEXT("configure-room")).Str(TEXT("gameId"), GameId).Done(); }
-		FString PlayFeedback(const FString& GameId, int32 MatchNumber, const FString& PlayerId, const FString& Title,
-			const FString& Detail, const FString& Tone, const FString& Haptic, bool bMajor)
-		{
-			FString Data = FString::Printf(TEXT("{\"gameId\":%s,\"matchNumber\":%d,\"playerId\":%s,\"title\":%s,\"detail\":%s,\"tone\":%s"),
-				*FJsonOut::Quote(GameId), MatchNumber, *FJsonOut::Quote(PlayerId), *FJsonOut::Quote(Title.Left(80)), *FJsonOut::Quote(Detail.Left(160)), *FJsonOut::Quote(Tone));
-			if (!Haptic.IsEmpty())
-			{
-				Data += FString::Printf(TEXT(",\"haptic\":%s"), *FJsonOut::Quote(Haptic));
-			}
-			if (bMajor)
-			{
-				Data += TEXT(",\"prominence\":\"major\"");
-			}
-			return GameEvent(TEXT("play:feedback"), Data + TEXT("}"));
-		}
-		FString AdvanceTurnSimultaneous() { return FJsonOut(TEXT("advance-turn")).Null(TEXT("activePlayerId")).Str(TEXT("phase"), TEXT("active")).Done(); }
-		FString ScoreUpdate(const TArray<FMcScoreEntry>& Scores) { return FJsonOut(TEXT("score-update")).Raw(TEXT("scores"), ScoresJson(Scores)).Done(); }
-		FString CompleteGame(const TArray<FMcScoreEntry>& Scores) { return FJsonOut(TEXT("complete-game")).Raw(TEXT("scores"), ScoresJson(Scores)).Done(); }
-
-		FString RestartGame(const FString& ActionId)
-		{
-			FJsonOut J(TEXT("restart-game"));
-			if (!ActionId.IsEmpty()) J.Str(TEXT("actionId"), ActionId.Left(64));
-			return J.Done();
-		}
-
-		FString ReturnToLobby(const FString& ActionId)
-		{
-			FJsonOut J(TEXT("return-to-lobby"));
-			if (!ActionId.IsEmpty()) J.Str(TEXT("actionId"), ActionId.Left(64));
-			return J.Done();
-		}
-
-		FString KickPlayer(const FString& PlayerId) { return FJsonOut(TEXT("kick-player")).Str(TEXT("playerId"), PlayerId).Done(); }
-		FString DropPlayer(const FString& PlayerId) { return FJsonOut(TEXT("drop-player")).Str(TEXT("playerId"), PlayerId).Done(); }
-		FString CloseRoom() { return FJsonOut(TEXT("close-room")).Done(); }
-
-		FString Haptic(const FString& TargetPlayerId, double Intensity, const FString& CollisionType, bool bSustained)
-		{
-			const double Clamped = FMath::RoundToDouble(FMath::Clamp(FMath::IsFinite(Intensity) ? Intensity : 0.0, 0.0, 1.0) * 1000.0) / 1000.0;
-			const FString Data = FString::Printf(TEXT("{\"type\":\"collision\",\"targetPlayerId\":%s,\"intensity\":%s,\"collisionType\":%s,\"sustained\":%s}"),
-				*FJsonOut::Quote(TargetPlayerId), *FString::SanitizeFloat(Clamped, 0), *FJsonOut::Quote(CollisionType), bSustained ? TEXT("true") : TEXT("false"));
-			return FJsonOut(TEXT("game-event")).Str(TEXT("event"), TEXT("collision")).Raw(TEXT("data"), Data).Done();
-		}
-
-		FString ScoresAck(int32 MatchNumber) { return FJsonOut(TEXT("scores-ack")).Int(TEXT("matchNumber"), MatchNumber).Done(); }
-
-		FString PracticeAck(const FString& GameId, const FString& PlayerId, const FString& ActionId)
-		{
-			const FString Data = FString::Printf(TEXT("{\"gameId\":%s,\"playerId\":%s,\"actionId\":%s}"),
-				*FJsonOut::Quote(GameId), *FJsonOut::Quote(PlayerId), *FJsonOut::Quote(ActionId));
-			return FJsonOut(TEXT("game-event")).Str(TEXT("event"), TEXT("practice:ack")).Raw(TEXT("data"), Data).Done();
-		}
-	}
-
-	FString QuoteJson(const FString& Value)
-	{
-		return FJsonOut::Quote(Value);
-	}
-
-	bool IsMomentaryType(const FString& Type)
-	{
-		static const TCHAR* const Types[] = { TEXT("game-event"), TEXT("advance-turn"), TEXT("score-update"), TEXT("state-ack"), TEXT("host-lobby-visible"), TEXT("ping"), TEXT("pong") };
-		for (const TCHAR* T : Types)
-		{
-			if (Type == T) return true;
-		}
-		return false;
-	}
-
-	bool IsTerminalCloseCode(int32 Code)
-	{
-		return Code == 1008 || Code == 4000 || Code == 4003 || Code == 4008 || Code == 4100 || Code == 4101;
-	}
 }
 
 const FMcSeat* FMcRoomState::FindBySeat(int32 Seat) const

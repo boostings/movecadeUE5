@@ -11,10 +11,16 @@
 
 namespace
 {
+	/** The race in progress's overlay: one race runs at a time, and the menus reach it through GetActive. */
 	TWeakPtr<SKartRaceOverlay> GActiveOverlay;
 
 	/** How long the "race over" banner plays before the results board slides in. */
 	constexpr double ResultsDelaySeconds = 1.6;
+
+	const FName PauseScreenId(TEXT("pause"));
+	const FName ResultsScreenId(TEXT("results"));
+	/** The pause reason of the local pause menu (a room pause from a phone has its own). */
+	const TCHAR* LocalPauseReason = TEXT("local");
 }
 
 SKartRaceOverlay::~SKartRaceOverlay()
@@ -74,7 +80,7 @@ void SKartRaceOverlay::OpenPauseMenu()
 	{
 		return;
 	}
-	Race->SetPaused(true, TEXT("local"));
+	Race->SetPaused(true, LocalPauseReason);
 	Menus->Clear();
 	Menus->PushScreen(KartScreens::MakePause(Race));
 	Menus->SetVisibility(EVisibility::Visible);
@@ -86,15 +92,22 @@ void SKartRaceOverlay::ClosePauseMenu(bool bResume)
 {
 	AKartRaceManager* Race = Manager.Get();
 	CloseMenus();
-	if (Race && bResume && Race->IsPaused() && Race->GetPauseReason() == TEXT("local"))
+	if (Race && bResume && Race->IsPaused() && Race->GetPauseReason() == LocalPauseReason)
 	{
 		Race->SetPaused(false);
 		Menus->PlaySound(EKartUISound::Resume);
 	}
-	else if (Race && !bResume && Race->GetPauseReason() == TEXT("local"))
+	else if (Race && !bResume && Race->GetPauseReason() == LocalPauseReason)
 	{
 		Race->SetPaused(false);
 	}
+}
+
+void SKartRaceOverlay::ShowResults(AKartRaceManager& Race)
+{
+	Menus->PushScreen(KartScreens::MakeResults(&Race));
+	Menus->SetVisibility(EVisibility::Visible);
+	UpdateCursor();
 }
 
 void SKartRaceOverlay::CloseMenus()
@@ -146,17 +159,15 @@ void SKartRaceOverlay::Tick(const FGeometry& AllottedGeometry, const double InCu
 		// The results board follows the "race over" banner.
 		if (!AreMenusOpen() && Race->GetPhaseSeconds() >= ResultsDelaySeconds && Race->GetResults().Num() > 0)
 		{
-			Menus->PushScreen(KartScreens::MakeResults(Race));
-			Menus->SetVisibility(EVisibility::Visible);
-			UpdateCursor();
+			ShowResults(*Race);
 		}
 	}
-	else if (Top.IsValid() && Top->GetId() == TEXT("results"))
+	else if (Top.IsValid() && Top->GetId() == ResultsScreenId)
 	{
 		CloseMenus(); // restarted
 	}
 	// A room pause from a phone while the local menu is up, or an unpause from elsewhere.
-	if (Top.IsValid() && Top->GetId() == TEXT("pause") && !Race->IsPaused())
+	if (Top.IsValid() && Top->GetId() == PauseScreenId && !Race->IsPaused())
 	{
 		CloseMenus();
 	}
@@ -191,9 +202,7 @@ bool SKartRaceOverlay::HandleMenuEvent(const FKartMenuEvent& Event)
 	}
 	if (Phase == EKartRacePhase::Finished && bSkipKey && !Event.bRepeat && Race->GetResults().Num() > 0)
 	{
-		Menus->PushScreen(KartScreens::MakeResults(Race));
-		Menus->SetVisibility(EVisibility::Visible);
-		UpdateCursor();
+		ShowResults(*Race);
 		return true;
 	}
 	return false;

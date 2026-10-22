@@ -10,9 +10,9 @@ class UStaticMeshComponent;
 
 /**
  * Dresses an avatar4 driver (Content/Avatars, Tools/ue/import_karts.py) in an FKartLook: the face and body mesh,
- * one hair style (none under a cap or beanie), the accessory (a mesh section, or a prop built in code on the head), a paid outfit leader-posed over the stock clothes, and the
- * tints (skin, lips, hair, jersey, trousers, shoes, eyes). Shared by the karts' drivers and every party game's
- * player avatar, so a look reads the same in all of them.
+ * one hair style (none under a cap or beanie), the accessory (a mesh section, or a prop built in code on the head),
+ * a paid outfit leader-posed over the stock clothes, and the tints (skin, lips, hair, jersey, trousers, shoes, eyes).
+ * Shared by the karts' drivers and every party game's player avatar, so a look reads the same in all of them.
  */
 namespace MovecadeKart::Avatar
 {

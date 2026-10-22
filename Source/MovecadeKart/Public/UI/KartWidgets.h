@@ -58,6 +58,11 @@ namespace KartWidgets
 	MOVECADEKART_API void PrimaryButton(const FKartPainter& P, const FVector2D& Centre, const FText& Label, EKartMenuAction Action,
 		EKartInputDevice Device, const FItemState& State, int32 HitId, float Height = 76.f);
 
+	/** "P1".."P8" (clamped), for seat badges. */
+	MOVECADEKART_API const FString& SeatTag(int32 Seat);
+	/** The badge on a house player's seat. */
+	MOVECADEKART_API const FString& CpuTag();
+
 	/** A right-pointing (or left) chunky triangle. */
 	MOVECADEKART_API void Arrow(const FKartPainter& P, const FVector2D& Centre, float Size, bool bRight, const FLinearColor& Color);
 	/** A five-point star. */

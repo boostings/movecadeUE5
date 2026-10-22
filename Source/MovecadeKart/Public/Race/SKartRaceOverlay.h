@@ -46,6 +46,9 @@ public:
 	static FString OrdinalSuffix(int32 Place);
 
 private:
+	/** The results board over the finished race. */
+	void ShowResults(AKartRaceManager& Race);
+	/** Shows the mouse cursor (and lets the UI take input) while a menu is open. */
 	void UpdateCursor();
 
 	TWeakObjectPtr<AKartRaceManager> Manager;

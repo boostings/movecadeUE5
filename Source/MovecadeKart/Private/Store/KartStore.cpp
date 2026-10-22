@@ -1,6 +1,7 @@
 #include "Store/KartStore.h"
 
 #include "Kismet/GameplayStatics.h"
+#include "Store/KartStoreSave.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartStore, Log, All);
 

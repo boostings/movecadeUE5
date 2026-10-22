@@ -1,19 +1,19 @@
 #include "KartGameMode.h"
 
-#include "Games/ArcadeCatalog.h"
 #include "EngineUtils.h"
+#include "Games/ArcadeCatalog.h"
+#include "Games/ArcadeTestHooks.h"
 #include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "KartHUD.h"
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
 #include "Misc/CommandLine.h"
-#include "Race/KartRaceManager.h"
-#include "TimerManager.h"
 #include "Misc/PackageName.h"
 #include "Net/KartLobbyWidget.h"
 #include "Net/RoomHostSubsystem.h"
+#include "Race/KartRaceManager.h"
+#include "TimerManager.h"
 #include "TrackBuilder.h"
 #include "UI/KartFrontEnd.h"
 #include "UI/KartSessionSettings.h"
@@ -30,7 +30,44 @@ namespace
 		FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("f7c948"))),
 		FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("a67cf0"))),
 	};
-	const TCHAR* BotNames[] = { TEXT("Dante"), TEXT("Priya"), TEXT("Mika"), TEXT("Rosa") };
+	const TCHAR* const BotNames[] = { TEXT("Dante"), TEXT("Priya"), TEXT("Mika"), TEXT("Rosa") };
+
+	/** legacyBridge.ts: live scores once a second. */
+	constexpr float LiveScoreIntervalSeconds = 1.f;
+
+	/** -KartLaps=N: a shorter race for tests. */
+	TSharedPtr<const MovecadeKart::FTrack> WithLapOverride(TSharedPtr<const MovecadeKart::FTrack> Track)
+	{
+		int32 Laps = 0;
+		if (Track.IsValid() && FParse::Value(FCommandLine::Get(), TEXT("KartLaps="), Laps) && Laps > 0)
+		{
+			TSharedPtr<MovecadeKart::FTrack> Shorter = MakeShared<MovecadeKart::FTrack>(*Track);
+			Shorter->Laps = Laps;
+			return Shorter;
+		}
+		return Track;
+	}
+
+	/**
+	 * legacyBridge.ts:165-188: laps * 100 + (finished ? max(0, 1000 - place * 100) : floor(lap %)), always < 10000.
+	 */
+	int32 LiveRaceScore(const MovecadeKart::FKartState& State, bool bFinished, int32 Place)
+	{
+		return State.LapsCompleted * 100 + (bFinished ? FMath::Max(0, 1000 - Place * 100) : FMath::Clamp(FMath::FloorToInt32(State.ProgressPercent), 0, 99));
+	}
+
+	EMcRacePhase ToRoomPhase(EKartRacePhase Phase, bool& bOutKnown)
+	{
+		bOutKnown = true;
+		switch (Phase)
+		{
+		case EKartRacePhase::Intro: return EMcRacePhase::Intro;
+		case EKartRacePhase::Countdown: return EMcRacePhase::Countdown;
+		case EKartRacePhase::Racing: return EMcRacePhase::Racing;
+		case EKartRacePhase::Finished: return EMcRacePhase::Finished;
+		default: bOutKnown = false; return EMcRacePhase::Intro;
+		}
+	}
 }
 
 AKartGameMode::AKartGameMode()
@@ -44,7 +81,7 @@ ATrackBuilder* AKartGameMode::GetTrackBuilder()
 {
 	if (!TrackBuilder)
 	{
-		if (TActorIterator<ATrackBuilder> It{GetWorld()})
+		if (TActorIterator<ATrackBuilder> It{ GetWorld() })
 		{
 			TrackBuilder = *It;
 		}
@@ -63,7 +100,7 @@ ATrackBuilder* AKartGameMode::GetTrackBuilder()
 void AKartGameMode::StartPlay()
 {
 	Super::StartPlay();
-	SetupTestHooks();
+	FArcadeTestHooks::Parse(FCommandLine::Get()).Schedule(*this, TestHookTimers);
 
 	// Menus, a local race or the phone room (UI/KartSessionSettings): the test flags skip the menus.
 	UKartSessionSettings* Session = UKartSessionSettings::Get(this);
@@ -76,7 +113,7 @@ void AKartGameMode::StartPlay()
 		return;
 	}
 
-	TSharedPtr<const MovecadeKart::FTrack> Track = GetTrackBuilder() ? GetTrackBuilder()->GetTrack() : nullptr;
+	const TSharedPtr<const MovecadeKart::FTrack> Track = GetTrackBuilder() ? GetTrackBuilder()->GetTrack() : nullptr;
 	if (!Track.IsValid())
 	{
 		UE_LOG(LogKartGameMode, Error, TEXT("No track loaded; the race cannot start."));
@@ -90,19 +127,24 @@ void AKartGameMode::StartPlay()
 	SetupLocalRace(Track);
 }
 
-namespace
+void AKartGameMode::EndPlay(const EEndPlayReason::Type Reason)
 {
-	TSharedPtr<const MovecadeKart::FTrack> WithLapOverride(TSharedPtr<const MovecadeKart::FTrack> Track)
+	// The world's timer manager outlives level travel in practice: clear what this mode armed.
+	FTimerManager& Timers = GetWorldTimerManager();
+	Timers.ClearTimer(LiveScoreTimer);
+	for (FTimerHandle& Handle : TestHookTimers)
 	{
-		int32 Laps = 0;
-		if (Track.IsValid() && FParse::Value(FCommandLine::Get(), TEXT("KartLaps="), Laps) && Laps > 0)
-		{
-			TSharedPtr<MovecadeKart::FTrack> Shorter = MakeShared<MovecadeKart::FTrack>(*Track);
-			Shorter->Laps = Laps;
-			return Shorter;
-		}
-		return Track;
+		Timers.ClearTimer(Handle);
 	}
+	TestHookTimers.Reset();
+	StopListeningToRoom();
+	Super::EndPlay(Reason);
+}
+
+URoomHostSubsystem* AKartGameMode::GetRoom() const
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	return GameInstance ? GameInstance->GetSubsystem<URoomHostSubsystem>() : nullptr;
 }
 
 TArray<APlayerController*> AKartGameMode::MakeViewers(int32 Karts, int32 LocalPlayers, bool bSoloView)
@@ -142,11 +184,14 @@ void AKartGameMode::SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	bRaceBuilt = true;
 }
 
+// ───────────────────────────── Party Mode ─────────────────────────────
+
 void AKartGameMode::SetupRoom()
 {
-	URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>();
+	URoomHostSubsystem* Room = GetRoom();
 	if (!Room)
 	{
+		UE_LOG(LogKartGameMode, Error, TEXT("Party Mode without a room host subsystem."));
 		return;
 	}
 	Room->OnStartRequested.AddDynamic(this, &AKartGameMode::HandleRoomStart);
@@ -173,18 +218,15 @@ void AKartGameMode::SetupRoom()
 	}
 }
 
-namespace
+void AKartGameMode::StopListeningToRoom()
 {
-	/** Leaving this level: the room subsystem outlives this GameMode, and a state message that lands before teardown
-	 *  must not reach it (it would travel a second time). */
-	void StopListeningToRoom(AKartGameMode* Mode)
+	// Leaving this level: the room subsystem outlives this mode, and a state message that lands before teardown
+	// must not reach it (it would travel a second time).
+	if (URoomHostSubsystem* Room = GetRoom())
 	{
-		if (URoomHostSubsystem* Room = Mode->GetGameInstance()->GetSubsystem<URoomHostSubsystem>())
-		{
-			Room->OnStartRequested.RemoveAll(Mode);
-			Room->OnReturnedToLobby.RemoveAll(Mode);
-			Room->OnPauseChanged.RemoveAll(Mode);
-		}
+		Room->OnStartRequested.RemoveAll(this);
+		Room->OnReturnedToLobby.RemoveAll(this);
+		Room->OnPauseChanged.RemoveAll(this);
 	}
 }
 
@@ -195,7 +237,7 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 		return;
 	}
 	// A party game plays in its own level; the room (a game instance subsystem) survives the travel.
-	if (const URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>(); Room && Room->GetRoom().GameId != TEXT("kart"))
+	if (const URoomHostSubsystem* Room = GetRoom(); Room && Room->GetRoom().GameId != TEXT("kart"))
 	{
 		if (const MovecadeKart::Arcade::FGameInfo* Game = MovecadeKart::Arcade::Find(Room->GetRoom().GameId))
 		{
@@ -210,36 +252,27 @@ void AKartGameMode::HandleRoomStart(const FString& MapId)
 		const FString Level = FKartTrackCatalog::LevelFor(MapId);
 		if (FPackageName::DoesPackageExist(Level))
 		{
-			StopListeningToRoom(this);
+			StopListeningToRoom();
 			UGameplayStatics::OpenLevel(this, FName(*Level));
 			return;
 		}
 		UE_LOG(LogKartGameMode, Warning, TEXT("No level for track %s yet; racing on %s."), *MapId, *Builder->TrackId);
 	}
-	TSharedPtr<const MovecadeKart::FTrack> Track = Builder ? Builder->GetTrack() : nullptr;
+	const TSharedPtr<const MovecadeKart::FTrack> Track = Builder ? Builder->GetTrack() : nullptr;
 	if (Track.IsValid())
 	{
 		BuildRoomRace(WithLapOverride(Track));
 	}
 }
 
-void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
+TArray<FKartSeatSpec> AKartGameMode::BuildRoomSeats(const URoomHostSubsystem& Room, int32 GridSize, int32 Bots)
 {
-	URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>();
-	if (!Room)
-	{
-		return;
-	}
-	const TCHAR* Cmd = FCommandLine::Get();
-	int32 Bots = 0;
-	FParse::Value(Cmd, TEXT("KartBots="), Bots);
-
 	TArray<FKartSeatSpec> Seats;
 	RoomSeatOf.Reset();
 	RoomPlayerOf.Reset();
-	for (const FMcSeat& Player : Room->GetSeats())
+	for (const FMcSeat& Player : Room.GetSeats())
 	{
-		if (Player.bEliminated || Seats.Num() >= Track->Grid.Num())
+		if (Player.bEliminated || Seats.Num() >= GridSize)
 		{
 			continue;
 		}
@@ -252,7 +285,7 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 		RoomSeatOf.Add(Player.SeatIndex());
 		RoomPlayerOf.Add(Player.PlayerId);
 	}
-	for (int32 i = 0; i < Bots && Seats.Num() < Track->Grid.Num(); ++i)
+	for (int32 i = 0; i < Bots && Seats.Num() < GridSize; ++i)
 	{
 		FKartSeatSpec& Seat = Seats.AddDefaulted_GetRef();
 		Seat.Kind = EKartSeatKind::Bot;
@@ -261,6 +294,20 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 		RoomSeatOf.Add(INDEX_NONE);
 		RoomPlayerOf.Add(FString());
 	}
+	return Seats;
+}
+
+void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
+{
+	URoomHostSubsystem* Room = GetRoom();
+	if (!Room)
+	{
+		return;
+	}
+	const TCHAR* Cmd = FCommandLine::Get();
+	int32 Bots = 0;
+	FParse::Value(Cmd, TEXT("KartBots="), Bots);
+	const TArray<FKartSeatSpec> Seats = BuildRoomSeats(*Room, Track->Grid.Num(), Bots);
 	if (Seats.Num() == 0)
 	{
 		UE_LOG(LogKartGameMode, Warning, TEXT("The room started with nobody seated."));
@@ -270,11 +317,21 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	RaceManager = GetWorld()->SpawnActor<AKartRaceManager>();
 	RaceManager->bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
 	RaceManager->bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = Room;
-	RaceManager->ExternalInput = [this, WeakRoom](int32 RaceSeat, MovecadeKart::FKartInput& Out)
+	BindRaceToRoom(*Room);
+	RaceManager->Setup(Track, Seats, MakeViewers(Seats.Num(), 1, FParse::Param(Cmd, TEXT("KartSoloView"))));
+	GetWorldTimerManager().SetTimer(LiveScoreTimer, this, &AKartGameMode::SendLiveScores, LiveScoreIntervalSeconds, /*bLoop*/ true);
+	bRaceBuilt = true;
+}
+
+void AKartGameMode::BindRaceToRoom(URoomHostSubsystem& Room)
+{
+	const TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
+	const TWeakObjectPtr<AKartGameMode> WeakThis = this;
+	RaceManager->ExternalInput = [WeakThis, WeakRoom](int32 RaceSeat, MovecadeKart::FKartInput& Out)
 	{
+		const AKartGameMode* Mode = WeakThis.Get();
 		URoomHostSubsystem* R = WeakRoom.Get();
-		const int32 RoomSeat = RoomSeatOf.IsValidIndex(RaceSeat) ? RoomSeatOf[RaceSeat] : INDEX_NONE;
+		const int32 RoomSeat = Mode ? Mode->RoomSeatFor(RaceSeat) : INDEX_NONE;
 		if (!R || RoomSeat == INDEX_NONE || !R->GetSeatInput(RoomSeat, Out))
 		{
 			return false;
@@ -293,61 +350,65 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	};
 	RaceManager->OnPhaseChanged.AddLambda([WeakRoom](EKartRacePhase Phase)
 	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		if (!R)
+		bool bKnown = false;
+		const EMcRacePhase RoomPhase = ToRoomPhase(Phase, bKnown);
+		if (URoomHostSubsystem* R = WeakRoom.Get(); R && bKnown)
 		{
-			return;
-		}
-		switch (Phase)
-		{
-		case EKartRacePhase::Intro: R->PublishRacePhase(EMcRacePhase::Intro); break;
-		case EKartRacePhase::Countdown: R->PublishRacePhase(EMcRacePhase::Countdown); break;
-		case EKartRacePhase::Racing: R->PublishRacePhase(EMcRacePhase::Racing); break;
-		case EKartRacePhase::Finished: R->PublishRacePhase(EMcRacePhase::Finished); break;
-		default: break;
+			R->PublishRacePhase(RoomPhase);
 		}
 	});
-	RaceManager->OnHaptic.AddLambda([this, WeakRoom](int32 RaceSeat, float Intensity, FName Type, bool bSustained)
+	RaceManager->OnHaptic.AddLambda([WeakThis, WeakRoom](int32 RaceSeat, float Intensity, FName Type, bool bSustained)
 	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		if (R && RoomSeatOf.IsValidIndex(RaceSeat) && RoomSeatOf[RaceSeat] != INDEX_NONE)
+		const AKartGameMode* Mode = WeakThis.Get();
+		const int32 RoomSeat = Mode ? Mode->RoomSeatFor(RaceSeat) : INDEX_NONE;
+		if (URoomHostSubsystem* R = WeakRoom.Get(); R && RoomSeat != INDEX_NONE)
 		{
-			R->SendHaptic(RoomSeatOf[RaceSeat], Intensity, Type, bSustained);
+			R->SendHaptic(RoomSeat, Intensity, Type, bSustained);
 		}
 	});
-	RaceManager->OnResults.AddLambda([this, WeakRoom](const TArray<FKartResult>& Results)
+	RaceManager->OnResults.AddLambda([WeakThis](const TArray<FKartResult>& Results)
 	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		if (!R)
+		if (AKartGameMode* Mode = WeakThis.Get())
 		{
-			return;
+			Mode->SubmitRoomResults(Results);
 		}
-		GetWorldTimerManager().ClearTimer(LiveScoreTimer);
-		SendLiveScores();
-		TArray<FMcRaceResult> Out;
-		for (const FKartResult& Result : Results)
-		{
-			if (!RoomSeatOf.IsValidIndex(Result.Seat) || RoomSeatOf[Result.Seat] == INDEX_NONE)
-			{
-				continue; // bots are never scored
-			}
-			FMcRaceResult& Row = Out.AddDefaulted_GetRef();
-			Row.SeatIndex = RoomSeatOf[Result.Seat];
-			Row.PlayerId = RoomPlayerOf[Result.Seat];
-			Row.bFinished = Result.bFinished;
-			Row.FinishTimeMs = Result.TimeMs;
-		}
-		R->SubmitResults(Out);
 	});
-	RaceManager->Setup(Track, Seats, MakeViewers(Seats.Num(), 1, FParse::Param(Cmd, TEXT("KartSoloView"))));
-	GetWorldTimerManager().SetTimer(LiveScoreTimer, this, &AKartGameMode::SendLiveScores, 1.0f, true);
-	bRaceBuilt = true;
+}
+
+int32 AKartGameMode::RoomSeatFor(int32 RaceSeat) const
+{
+	return RoomSeatOf.IsValidIndex(RaceSeat) ? RoomSeatOf[RaceSeat] : INDEX_NONE;
+}
+
+void AKartGameMode::SubmitRoomResults(const TArray<FKartResult>& Results)
+{
+	URoomHostSubsystem* Room = GetRoom();
+	if (!Room)
+	{
+		return;
+	}
+	GetWorldTimerManager().ClearTimer(LiveScoreTimer);
+	SendLiveScores();
+	TArray<FMcRaceResult> Out;
+	for (const FKartResult& Result : Results)
+	{
+		const int32 RoomSeat = RoomSeatFor(Result.Seat);
+		if (RoomSeat == INDEX_NONE)
+		{
+			continue; // bots are never scored
+		}
+		FMcRaceResult& Row = Out.AddDefaulted_GetRef();
+		Row.SeatIndex = RoomSeat;
+		Row.PlayerId = RoomPlayerOf[Result.Seat];
+		Row.bFinished = Result.bFinished;
+		Row.FinishTimeMs = Result.TimeMs;
+	}
+	Room->SubmitResults(Out);
 }
 
 void AKartGameMode::SendLiveScores()
 {
-	// legacyBridge.ts:165-188: laps * 100 + (finished ? max(0, 1000 - place * 100) : floor(lap %)), always < 10000.
-	URoomHostSubsystem* Room = GetGameInstance()->GetSubsystem<URoomHostSubsystem>();
+	URoomHostSubsystem* Room = GetRoom();
 	if (!Room || !RaceManager || RaceManager->GetPhase() == EKartRacePhase::Waiting || RaceManager->GetPhase() == EKartRacePhase::Intro)
 	{
 		return;
@@ -359,10 +420,9 @@ void AKartGameMode::SendLiveScores()
 		{
 			continue;
 		}
-		const MovecadeKart::FKartState& S = Racer.Kart->GetKartMovement()->SimState();
 		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
 		Entry.PlayerId = RoomPlayerOf[Racer.Seat];
-		Entry.Score = S.LapsCompleted * 100 + (Racer.bFinished ? FMath::Max(0, 1000 - Racer.Place * 100) : FMath::Clamp(FMath::FloorToInt32(S.ProgressPercent), 0, 99));
+		Entry.Score = LiveRaceScore(Racer.Kart->GetKartMovement()->SimState(), Racer.bFinished, Racer.Place);
 	}
 	Room->UpdateLiveScores(Scores);
 }
@@ -372,7 +432,7 @@ void AKartGameMode::HandleRoomLobby()
 	if (bRaceBuilt)
 	{
 		// Back to the lobby: reload the level for a clean grid; the lobby shows on StartPlay.
-		StopListeningToRoom(this);
+		StopListeningToRoom();
 		UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this)));
 	}
 }
@@ -382,36 +442,5 @@ void AKartGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const F
 	if (RaceManager)
 	{
 		RaceManager->SetPaused(bPaused, Reason);
-	}
-}
-
-void AKartGameMode::SetupTestHooks()
-{
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartShots="), Shots, /*bShouldStopOnSeparator*/ false))
-	{
-		TArray<FString> Times;
-		Shots.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
-		{
-			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-			{
-				// Saved/Screenshots/<platform>/ScreenShotNNNNN.png, with the UI
-				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-				{
-					PC->ConsoleCommand(TEXT("Shot showui"));
-				}
-			}), FCString::Atof(*Time), false);
-		}
-	}
-	float QuitAfter = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
-	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}), QuitAfter, false);
 	}
 }

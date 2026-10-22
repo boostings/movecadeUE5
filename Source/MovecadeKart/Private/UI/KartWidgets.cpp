@@ -99,6 +99,18 @@ namespace KartWidgets
 		return (1.f - Ease::OutCubic(Frame.Presence)) * Distance * Frame.Direction;
 	}
 
+	const FString& SeatTag(int32 Seat)
+	{
+		static const FString Tags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4"), TEXT("P5"), TEXT("P6"), TEXT("P7"), TEXT("P8") };
+		return Tags[FMath::Clamp(Seat, 0, static_cast<int32>(UE_ARRAY_COUNT(Tags)) - 1)];
+	}
+
+	const FString& CpuTag()
+	{
+		static const FString Cpu(TEXT("CPU"));
+		return Cpu;
+	}
+
 	void Arrow(const FKartPainter& P, const FVector2D& C, float Size, bool bRight, const FLinearColor& Color)
 	{
 		const double S = bRight ? 1.0 : -1.0;
@@ -364,22 +376,23 @@ namespace KartWidgets
 
 	namespace
 	{
-		void RowBack(const FKartPainter& P, const FVector2D& Pos, const FVector2D& Size, const FText& Label, const FItemState& State, const FKartPainter*& OutPainter, FKartPainter& Storage)
+		/** An option or slider row's pill and label; returns the painter (popped when focused) the row's value uses. */
+		FKartPainter RowBack(const FKartPainter& P, const FVector2D& Pos, const FVector2D& Size, const FText& Label, const FItemState& State)
 		{
 			const FVector2D Centre = Pos + Size * 0.5;
-			Storage = State.bFocused ? P.Transformed(Centre, FocusScale(State, 0.025f)) : P;
-			OutPainter = &Storage;
+			const FKartPainter B = State.bFocused ? P.Transformed(Centre, FocusScale(State, 0.025f)) : P;
 			const float R = static_cast<float>(Size.Y * 0.5);
 			if (State.bFocused)
 			{
-				Storage.Box(Pos - FVector2D(6.0, 6.0), Size + FVector2D(12.0, 12.0), Color::WithAlpha(Color::Sun, 0.4f), R + 6.f);
-				Storage.Card(Pos, Size, Color::White, R, 6.f, Color::Sun, 4.f);
+				B.Box(Pos - FVector2D(6.0, 6.0), Size + FVector2D(12.0, 12.0), Color::WithAlpha(Color::Sun, 0.4f), R + 6.f);
+				B.Card(Pos, Size, Color::White, R, 6.f, Color::Sun, 4.f);
 			}
 			else
 			{
-				Storage.Card(Pos, Size, Color::WithAlpha(Color::Paper, State.bEnabled ? 0.94f : 0.7f), R, 5.f);
+				B.Card(Pos, Size, Color::WithAlpha(Color::Paper, State.bEnabled ? 0.94f : 0.7f), R, 5.f);
 			}
-			Storage.Text(Label, Font(EFont::Button, 28.f), FVector2D(Pos.X + 34.0, Centre.Y), State.bEnabled ? Color::Navy : Color::NavyDim, FVector2D(0.0, 0.5));
+			B.Text(Label, Font(EFont::Button, 28.f), FVector2D(Pos.X + 34.0, Centre.Y), State.bEnabled ? Color::Navy : Color::NavyDim, FVector2D(0.0, 0.5));
+			return B;
 		}
 	}
 
@@ -387,9 +400,7 @@ namespace KartWidgets
 		const FItemState& State, int32 HitId, const FLinearColor& Swatch)
 	{
 		P.Hit(HitId, Pos, Size);
-		const FKartPainter* B = nullptr;
-		FKartPainter Storage = P;
-		RowBack(P, Pos, Size, Label, State, B, Storage);
+		const FKartPainter B = RowBack(P, Pos, Size, Label, State);
 		const FVector2D Centre = Pos + Size * 0.5;
 		// The value sits between two arrows on the right half; the arrow nudges the way it changed.
 		const double ValueW = FMath::Min(380.0, Size.X * 0.46);
@@ -397,14 +408,14 @@ namespace KartWidgets
 		const double Left = Right - ValueW;
 		const double Nudge = State.ChangeAge < 0.15 ? (1.0 - State.ChangeAge / 0.15) * 7.0 : 0.0;
 		const FLinearColor ArrowColor = State.bFocused ? Color::SunDeep : Color::WithAlpha(Color::NavyDim, 0.6f);
-		Arrow(*B, FVector2D(Left + 14.0 - (State.ChangeDir < 0 ? Nudge : 0.0), Centre.Y), 12.f, false, ArrowColor);
-		Arrow(*B, FVector2D(Right - 14.0 + (State.ChangeDir > 0 ? Nudge : 0.0), Centre.Y), 12.f, true, ArrowColor);
+		Arrow(B, FVector2D(Left + 14.0 - (State.ChangeDir < 0 ? Nudge : 0.0), Centre.Y), 12.f, false, ArrowColor);
+		Arrow(B, FVector2D(Right - 14.0 + (State.ChangeDir > 0 ? Nudge : 0.0), Centre.Y), 12.f, true, ArrowColor);
 		P.Hit(HitId | LeftArrowFlag, FVector2D(Left - 6.0, Pos.Y), FVector2D(44.0, Size.Y));
 		P.Hit(HitId | RightArrowFlag, FVector2D(Right - 38.0, Pos.Y), FVector2D(44.0, Size.Y));
 		// The value pops a little when it changes.
 		const float Pop = State.ChangeAge < 0.2 ? 1.f + 0.12f * (1.f - Ease::OutCubic(static_cast<float>(State.ChangeAge / 0.2))) : 1.f;
 		const FVector2D ValueCentre((Left + Right) * 0.5, Centre.Y);
-		const FKartPainter V = B->Transformed(ValueCentre, Pop);
+		const FKartPainter V = B.Transformed(ValueCentre, Pop);
 		// Long values ("1 on this screen") shrink to fit between the arrows rather than run over them.
 		const double Room = ValueW - 64.0 - (Swatch.A > 0.f ? 36.0 : 0.0);
 		FSlateFontInfo ValueFont = Font(EFont::Button, 28.f);
@@ -428,9 +439,7 @@ namespace KartWidgets
 		const FItemState& State, int32 HitId, int32 Segments)
 	{
 		P.Hit(HitId, Pos, Size);
-		const FKartPainter* B = nullptr;
-		FKartPainter Storage = P;
-		RowBack(P, Pos, Size, Label, State, B, Storage);
+		const FKartPainter B = RowBack(P, Pos, Size, Label, State);
 		const double Right = Pos.X + Size.X - 136.0;
 		const double Width = FMath::Min(380.0, Size.X * 0.46) - 90.0;
 		const double Left = Right - Width;
@@ -444,9 +453,9 @@ namespace KartWidgets
 			const bool bOn = i < Lit;
 			const FLinearColor Fill = bOn ? (State.bFocused ? Color::SunDeep : Color::Sky) : Color::WithAlpha(Color::NavyDim, 0.25f);
 			const float Pop = (bOn && i == Lit - 1 && State.ChangeAge < 0.2) ? 1.25f - 0.25f * Ease::OutCubic(static_cast<float>(State.ChangeAge / 0.2)) : 1.f;
-			B->Transformed(SegPos + FVector2D(SegW * 0.5, H), Pop).Box(SegPos, FVector2D(SegW, H), Fill, 4.f);
+			B.Transformed(SegPos + FVector2D(SegW * 0.5, H), Pop).Box(SegPos, FVector2D(SegW, H), Fill, 4.f);
 		}
-		B->Text(PercentLabel(FMath::RoundToInt32(Value * 100.f)), Font(EFont::Button, 26.f),
+		B.Text(PercentLabel(FMath::RoundToInt32(Value * 100.f)), Font(EFont::Button, 26.f),
 			FVector2D(Pos.X + Size.X - 30.0, Pos.Y + Size.Y * 0.5), Color::Navy, FVector2D(1.0, 0.5));
 		P.Hit(HitId | LeftArrowFlag, FVector2D(Left - 10.0, Pos.Y), FVector2D(Width * 0.5 + 10.0, Size.Y));
 		P.Hit(HitId | RightArrowFlag, FVector2D(Left + Width * 0.5, Pos.Y), FVector2D(Width * 0.5 + 10.0, Size.Y));

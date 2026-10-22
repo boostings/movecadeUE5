@@ -1,25 +1,30 @@
 # Builds the editor target (optional) and runs every MovecadeKart automation test headless.
-#   .\Tools\ue\test.ps1            # build, then test
-#   .\Tools\ue\test.ps1 -NoBuild   # test only
+#   .\Tools\ue\test.ps1                            # build, then test
+#   .\Tools\ue\test.ps1 -NoBuild                   # test only
 #   .\Tools\ue\test.ps1 -Filter MovecadeKart.Feel
+# Log: Saved/Logs/Tests.log.
 param(
     [switch]$NoBuild,
-    [string]$Filter = 'MovecadeKart'
+    [string]$Filter = 'MovecadeKart',
+    [int]$TimeoutSeconds = 1800
 )
 $ErrorActionPreference = 'Stop'
-$project = (Resolve-Path "$PSScriptRoot\..\..").Path
-$engine = 'C:\Program Files\Epic Games\UE_5.8\Engine'
+. "$PSScriptRoot\common.ps1"
 
-if (-not $NoBuild) {
-    # -NoHotReloadFromIDE: build even while another editor (any project) holds Live Coding.
-    & "$engine\Build\BatchFiles\Build.bat" MyProjectEditor Win64 Development "-Project=$project\MyProject.uproject" -WaitMutex -NoHotReloadFromIDE |
-        Select-String -Pattern 'error|Result:' | ForEach-Object { $_.Line }
-    if ($LASTEXITCODE -ne 0) { Write-Output 'Build failed.'; exit 1 }
+if (-not $NoBuild -and -not (Invoke-KartBuild)) {
+    Write-Output 'Build failed.'
+    exit 1
 }
 
-$log = "$project\Saved\Logs\Tests.log"
-& "$engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$project\MyProject.uproject" "-ExecCmds=Automation RunTests $Filter; Quit" `
-    -unattended -nullrhi -nosplash -nosound "-abslog=$log" | Out-Null
+$log = "$KartLogs\Tests.log"
+# A stale log from an earlier run must never read as this run's results.
+if (Test-Path $log) { Remove-Item $log }
+$testArgs = @("`"$KartUProject`"", "`"-ExecCmds=Automation RunTests $Filter; Quit`"", '-unattended', '-nullrhi', '-nosplash', '-nosound', "`"-abslog=$log`"")
+Invoke-KartEditor -Exe $KartEditorCmd -Arguments $testArgs -TimeoutSeconds $TimeoutSeconds -Hidden
+if (-not (Test-Path $log)) {
+    Write-Output "No test log at ${log}: the editor didn't start."
+    exit 1
+}
 
 $results = Select-String -Path $log -Pattern 'Test Completed\. Result=\{(\w+)\}.*Path=\{([^}]*)\}' |
     ForEach-Object { [pscustomobject]@{ Result = $_.Matches[0].Groups[1].Value; Test = $_.Matches[0].Groups[2].Value } }

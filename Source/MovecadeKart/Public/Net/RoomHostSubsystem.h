@@ -11,6 +11,7 @@
 class IWebSocket;
 class FJsonObject;
 class UTexture2D;
+namespace UE::Tasks { class FPipe; }
 
 DECLARE_LOG_CATEGORY_EXTERN(LogRoomHost, Log, All);
 
@@ -38,11 +39,16 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FMcSensorFrameEvent, int32, const MovecadeK
  * Settings come from [/Script/MovecadeKart.RoomHostSubsystem] in DefaultGame.ini, then the command
  * line: -RoomLocal (127.0.0.1:1999 and http://localhost:5173), -RoomServer=host[:port] -RoomSecure/-RoomInsecure
  * (a local server defaults to plain ws, anything else to wss) -RoomJoinBase=<url> -RoomOrigin=...
- * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling -RoomAutoStart[=Seconds] -RoomShots=6,20 (UI screenshots)
- * -RoomSelfTest (plays the race layer's part after each start: phases, haptics, live scores, results, restart).
- * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -Room.
+ * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling. Test hooks (not in Shipping):
+ * -RoomAutoStart[=Seconds], -RoomShots=6,20 (UI screenshots), -RoomSelfTest (plays the race layer's part after
+ * each start: phases, haptics, live scores, results, restart).
+ * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -RoomOpen.
  *
- * Everything runs on the game thread (UE fires WebSocket events there).
+ * Everything runs on the game thread (UE fires WebSocket events there); only the saved-room file write is async.
+ * The implementation is split by job: RoomHostSubsystem.cpp (settings, lifecycle, tick), RoomHostConnection.cpp
+ * (socket, reconnect, outbox), RoomHostInbound.cpp (server frames, state, seat input), RoomHostLobby.cpp (start
+ * rules, lobby countdown, join URL), RoomHostPublishing.cpp (match frames to the room), RoomHostPersistence.cpp
+ * (the saved room) and RoomHostSelfTest.cpp.
  */
 UCLASS(Config = Game)
 class MOVECADEKART_API URoomHostSubsystem : public UGameInstanceSubsystem, public FTickableGameObject
@@ -50,6 +56,9 @@ class MOVECADEKART_API URoomHostSubsystem : public UGameInstanceSubsystem, publi
 	GENERATED_BODY()
 
 public:
+	URoomHostSubsystem();
+	virtual ~URoomHostSubsystem() override;
+
 	// Settings
 	/**
 	 * Party host and port: production by default. For a local server use 127.0.0.1 rather than localhost:
@@ -124,6 +133,12 @@ public:
 
 	const FMcRoomState& GetRoom() const { return Room; }
 
+	/**
+	 * Bumped whenever something the lobby shows changes: an applied state, the connection or its error, the
+	 * selected game, preparation. A lobby repaints its text only when this moves (the countdown it polls).
+	 */
+	uint32 GetLobbyRevision() const { return LobbyRevision; }
+
 	// Lobby
 	/** configure-room {mapId}; lobby only. The server answers with the new selectedMapId. */
 	UFUNCTION(BlueprintCallable, Category = "Room")
@@ -163,7 +178,7 @@ public:
 
 	/** The race layer clears this while the track loads; start waits for it (web `preparation.ready`). */
 	UFUNCTION(BlueprintCallable, Category = "Room")
-	void SetPreparationReady(bool bReady) { bPreparationReady = bReady; }
+	void SetPreparationReady(bool bReady);
 
 	// Input (Docs/Port/WORKSTREAMS.md "Seat input")
 	/**
@@ -184,9 +199,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Room")
 	void PublishMatchCountdown(int32 DurationMs);
 
-	/** Live points (laps*100 + ..., always < 10000). Sent at most once a second and only when changed. */
+	/**
+	 * Live points (laps*100 + ..., always < 10000). Sent at most once a second and only when changed. Returns true
+	 * when the room has this list (sent now, or the same as the last one sent), false when it was refused or throttled.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Room")
-	void UpdateLiveScores(const TArray<FMcScoreEntry>& Scores);
+	bool UpdateLiveScores(const TArray<FMcScoreEntry>& Scores);
 
 	/**
 	 * Ends the match: score-update then complete-game with finishers only, ascending whole-ms times,
@@ -276,6 +294,7 @@ public:
 	virtual ETickableTickType GetTickableTickType() const override { return ETickableTickType::Conditional; }
 
 private:
+	/** One seat's latest phone controls and the throttles that go with them. */
 	struct FSeatInput
 	{
 		double Steering = 0.0;
@@ -293,42 +312,87 @@ private:
 		double LastHapticTime = -1000.0;
 	};
 
-	struct FQueued
+	/** A frame held while the socket is down. Type is a TEXT() literal (the frame's `t`). */
+	struct FQueuedFrame
 	{
 		FString Json;
-		FString Type;
+		const TCHAR* Type = nullptr;
 		double Time = 0.0;
 	};
 
+	/** The test hooks, parsed once in Initialize (all off in Shipping). */
+	struct FDebugFlags
+	{
+		/** -RoomAutoStart[=Seconds]: start (solo too) once every seat has been ready for that long. */
+		bool bAutoStart = false;
+		double AutoStartDelay = 0.0;
+		/** -RoomSelfTest: plays the race layer's part after each match start. */
+		bool bSelfTest = false;
+		/** -RoomShots=t1,t2: UI screenshots (RoomHost_N.png) at these seconds after startup, ascending. */
+		TArray<double> ShotTimes;
+
+		static FDebugFlags Parse(const TCHAR* CommandLine);
+	};
+
+	// RoomHostSubsystem.cpp: settings, lifecycle, tick.
+	void ApplyServerSettings(const TCHAR* CommandLine);
+	void TakeDueScreenshot(double T);
+	double Now() const;
+	void MarkLobbyChanged() { ++LobbyRevision; }
+
+	// RoomHostConnection.cpp: the socket, reconnects and the outbox.
 	void Connect();
+	void BindSocketEvents();
+	void HandleSocketClosed(int32 Status, const FString& Reason, bool bWasClean);
+	void CloseSocket(const TCHAR* Reason);
 	void ScheduleReconnect(const FString& Why);
 	void SetConnection(EMcConnection State);
+	/** The room is over for good: forget its code and tokens so the next OpenRoom mints a new one. */
+	void ForgetRoom();
 	void Send(const FString& Json, const TCHAR* Type);
 	void FlushOutbox();
 
+	// RoomHostInbound.cpp: server frames, the room state and the seats' input.
 	void HandleText(const FString& Text);
-	void HandleBinary(const void* Data, SIZE_T Size, bool bIsLastFragment);
-	void HandleSensorFrame(const uint8* Data, int32 Size);
-	void HandleKartInput(const FString& FromPlayerId, const FJsonObject& Data);
-	void HandlePracticeAction(const FString& FromPlayerId, const FJsonObject& Data);
 	void HandleWelcome(const FJsonObject& Message);
 	void HandleError(const FJsonObject& Message);
+	void HandleHostChanged(const FJsonObject& Message);
+	void HandleSignedScores(const FString& Text);
+	void HandleGameEventMessage(const FJsonObject& Message);
+	void HandleKartInput(const FString& FromPlayerId, const FJsonObject& Data);
+	void HandlePracticeAction(const FString& FromPlayerId, const FJsonObject& Data);
+	void HandleBinary(const void* Data, SIZE_T Size, bool bIsLastFragment);
+	void HandleSensorFrame(const uint8* Data, int32 Size);
 	void ApplyState(const FJsonObject& State, bool bFromWelcome);
 	void OnStateApplied(const FMcRoomState& Previous);
+	/** Logs joins, leaves and readiness and resets the input of seats that changed hands. True if the lobby must redraw. */
+	bool ApplySeatChanges(const FMcRoomState& Previous);
+	/** Match start, pause, completion and the return to the lobby. */
+	void ApplyStatusChanges(const FMcRoomState& Previous);
+	void ResetSeatInput(int32 SeatIndex);
+	void ResetAllSeatInputs();
 
-	void UpdateJoinUrl();
-	void UpdateLobbyCountdown(double Now);
+	// RoomHostLobby.cpp: start rules, the lobby countdown, the join URL and QR.
+	MovecadeKart::Net::FStartCheck EvaluateStartCheck() const;
+	void UpdateLobbyCountdown(double T);
+	void UpdateAutoStart(double T, bool bSolo);
+	/** The roster key the lobby countdown restarts on (code, game, players, map): rebuilt on change only. */
+	void RefreshRosterKey();
 	/** Forgets everything about the previous room (a new code is about to be minted): versions, match numbers, seats. */
 	void ResetRoomState();
 	void StartGameNow();
-	void ResetSeatInput(int32 SeatIndex);
+	void UpdateJoinUrl();
 
-	void LoadSaved();
-	void Save();
+	// RoomHostPersistence.cpp: the saved room (code, host token, identity), one file per server.
+	void LoadSaved(bool bIgnoreSavedRoom);
+	/** Writes the saved room on a background pipe; bBlocking waits for it (shutdown). */
+	void Save(bool bBlocking = false);
 	FString SavePath() const;
 
-	double Now() const;
+	// RoomHostSelfTest.cpp
+	void RunSelfTest(double T);
 
+	// Connection
 	TSharedPtr<IWebSocket> Socket;
 	EMcConnection Connection = EMcConnection::Idle;
 	bool bInitialized = false;
@@ -336,8 +400,10 @@ private:
 	bool bWelcomed = false;
 	int32 ReconnectAttempt = 0;
 	double ReconnectAt = -1.0;
-	double LastSaveTime = -1000.0;
+	TArray<FQueuedFrame> Outbox;
+	TArray<uint8> BinaryAccumulator;
 
+	// The room
 	FString Code;
 	FString Identity;
 	FString HostToken;
@@ -345,26 +411,25 @@ private:
 	FString SessionId;
 	FString JoinUrl;
 	FString LastError;
-	int64 SavedAtUnixMs = 0;
 	int64 HighestStateVersion = -1;
-
 	FMcRoomState Room;
-	/** One per seat; equal to MovecadeKart::Net::MaxPlayers (checked in the .cpp). */
-	static constexpr int32 SeatCount = 4;
-	FSeatInput Inputs[SeatCount];
-	TArray<uint8> BinaryAccumulator;
-	TArray<FQueued> Outbox;
+	uint32 LobbyRevision = 0;
 
 	UPROPERTY()
 	TObjectPtr<UTexture2D> QrTexture;
 
+	// Seats' input: one slot per seat (MovecadeKart::Net::MaxPlayers, checked in RoomHostInbound.cpp).
+	static constexpr int32 SeatCount = 4;
+	FSeatInput Inputs[SeatCount];
+
 	// Lobby
 	bool bPreparationReady = true;
-	bool bAutoStart = false;
-	double AutoStartDelay = 0.0;
 	double AutoStartAt = -1.0;
 	FString PendingMapId;
 	FString PendingGameId;
+	/** Code, game, sorted player ids and map, as of the last state change. */
+	FString RosterKey;
+	/** RosterKey when the running lobby countdown started. */
 	FString LobbyCountdownKey;
 	double LobbyCountdownEndsAt = -1.0;
 	bool bStartSent = false;
@@ -376,7 +441,7 @@ private:
 	int32 StartedMatchNumber = -1;
 	int32 AckedMatchNumber = -1;
 
-	// Race publishing
+	// Publishing
 	TArray<FMcScoreEntry> LastLiveScores;
 	double LastLiveScoreTime = -1000.0;
 	int32 SubmittedMatchNumber = -1;
@@ -384,16 +449,17 @@ private:
 	double HapticRefillTime = 0.0;
 	int32 ActionCounter = 0;
 
-	// -RoomSelfTest: stands in for the race layer after each match start (phases, haptics, scores, results, restart).
-	void RunSelfTest(double T);
-	bool bSelfTest = false;
+	// Persistence
+	double LastSaveTime = -1000.0;
+	/** Serialises the background writes of the saved room (one at a time, in order). */
+	TUniquePtr<UE::Tasks::FPipe> SavePipe;
+
+	// Test hooks
+	FDebugFlags Debug;
 	int32 SelfTestStep = -1;
 	double SelfTestStart = 0.0;
 	double SelfTestRaceStart = 0.0;
 	double SelfTestLastPulse = 0.0;
-
-	// -RoomShots
-	TArray<double> ShotTimes;
 	int32 ShotCount = 0;
 	double StartTime = 0.0;
 };

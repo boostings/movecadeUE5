@@ -41,4 +41,10 @@ namespace MovecadeKart::Qr
 	MOVECADEKART_API uint32 VersionBits(int32 Version);
 	/** Reads the first copy of the format bits from a matrix (around the top-left finder). */
 	MOVECADEKART_API uint32 ReadFormatBits(const FQrMatrix& Matrix);
+
+	/**
+	 * The matrix as an opaque BGRA8 image (black modules on white) with a QuietModules white border, each module
+	 * PixelsPerModule pixels square. OutSize is the image's side in pixels.
+	 */
+	MOVECADEKART_API void RasterizeBgra(const FQrMatrix& Matrix, int32 QuietModules, int32 PixelsPerModule, TArray64<uint8>& OutPixels, int32& OutSize);
 }

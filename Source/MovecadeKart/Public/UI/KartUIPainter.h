@@ -104,7 +104,7 @@ private:
 	bool bTransformed = false;
 };
 
-/** Scoped item group: construct before the first item, call Next() before each further item. */
+/** Scoped item group: construct it before the list, and call Next() at the start of every item (the first call is free). */
 struct FKartPaintGroup
 {
 	explicit FKartPaintGroup(const FKartPainter& InPainter) : Painter(InPainter), bOwner(Painter.BeginGroup()) {}
