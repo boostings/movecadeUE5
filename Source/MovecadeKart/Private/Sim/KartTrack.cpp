@@ -162,18 +162,18 @@ namespace MovecadeKart
 	{
 		FCentreSegment MakeCentreSegment(const FVector2D& A, const FVector2D& B)
 		{
-			FCentreSegment S;
-			S.Start = A;
-			S.Delta = B - A;
-			S.LengthSq = S.Delta.SizeSquared();
-			return S;
+			FCentreSegment Segment;
+			Segment.Start = A;
+			Segment.Delta = B - A;
+			Segment.LengthSq = Segment.Delta.SizeSquared();
+			return Segment;
 		}
 
 		/** The closest point Q of a centre segment to P and its squared distance: NearestCentre's per-segment maths. */
-		FORCEINLINE double DistSqToSegment(const FVector2D& P, const FCentreSegment& S, FVector2D& OutQ)
+		FORCEINLINE double DistSqToSegment(const FVector2D& P, const FCentreSegment& Segment, FVector2D& OutQ)
 		{
-			const double T = S.LengthSq > 0.0 ? FMath::Clamp(FVector2D::DotProduct(P - S.Start, S.Delta) / S.LengthSq, 0.0, 1.0) : 0.0;
-			OutQ = S.Start + S.Delta * T;
+			const double Along = Segment.LengthSq > 0.0 ? FMath::Clamp(FVector2D::DotProduct(P - Segment.Start, Segment.Delta) / Segment.LengthSq, 0.0, 1.0) : 0.0;
+			OutQ = Segment.Start + Segment.Delta * Along;
 			return FVector2D::DistSquared(P, OutQ);
 		}
 
@@ -208,16 +208,16 @@ namespace MovecadeKart
 		OutPoint = P;
 		OutOffset = 0.0;
 		TArray<FCentreSegment> Scratch;
-		for (const FCentreSegment& S : CentreSegmentsOf(*this, Scratch))
+		for (const FCentreSegment& Segment : CentreSegmentsOf(*this, Scratch))
 		{
 			FVector2D Q;
-			const double DistSq = DistSqToSegment(P, S, Q);
+			const double DistSq = DistSqToSegment(P, Segment, Q);
 			if (DistSq < BestSq)
 			{
 				BestSq = DistSq;
 				OutPoint = Q;
 				// Right of travel is (-dz, dx) on the three.js ground plane.
-				const FVector2D Right = S.LengthSq > 0.0 ? FVector2D(-S.Delta.Y, S.Delta.X) / FMath::Sqrt(S.LengthSq) : FVector2D::ZeroVector;
+				const FVector2D Right = Segment.LengthSq > 0.0 ? FVector2D(-Segment.Delta.Y, Segment.Delta.X) / FMath::Sqrt(Segment.LengthSq) : FVector2D::ZeroVector;
 				OutOffset = FVector2D::DotProduct(P - Q, Right);
 			}
 		}
