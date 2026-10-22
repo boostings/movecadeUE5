@@ -1,7 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Art/KartMaterialCache.h"
 #include "GameFramework/Actor.h"
+#include "Games/ArcadeVenueKit.h"
 #include "DartsPub.generated.h"
 
 class UInstancedStaticMeshComponent;
@@ -10,6 +12,8 @@ class UMaterialInterface;
 class UStaticMesh;
 class UStaticMeshComponent;
 class UTextRenderComponent;
+struct FDartsPubBox;
+struct FDartsPubLooks;
 
 /**
  * Bullseye Bash's pub (movecade-v2 darts/DartsPub.tsx, DartsScene.tsx, pubLayout.ts; Docs/Port/07-darts.md §2, §6),
@@ -17,6 +21,9 @@ class UTextRenderComponent;
  * oche and its brass line, a chalkboard (which chalks the live scores), the bar with bottles and a lit back bar,
  * pendants, and the cabinet with its lamp hood. The board is a real clock board built from its sectors and rings,
  * with the wire spider, the number ring and the brass hoop; it hangs from a pivot that wobbles when darts land.
+ *
+ * L_Darts places one (ADartsGameMode spawns one if it doesn't); it rebuilds itself in OnConstruction. ADartsGame
+ * borrows its dart and reticle meshes, wobbles the board pivot, shows the bounty wedge and chalks the scores.
  *
  * Web world units map 1:1 to metres (UE cm via MovecadeKart::Coords). The board's centre is (0, 0.45, 0) facing
  * +z (the camera), so UE -X; the pub group sits at z -0.75 as on the web.
@@ -55,47 +62,60 @@ public:
 
 	/** The pivot the face, spider, numbers and bounty wedge hang from: the game wobbles it. */
 	USceneComponent* GetBoardPivot() const { return BoardPivot; }
-	/** The bounty wedge (one sector, oriented by the game). */
-	UStaticMeshComponent* GetBountyWedge() const { return BountyWedge; }
-	UMaterialInstanceDynamic* GetBountyMaterial() const { return BountyMaterial; }
 	UStaticMesh* GetDartMesh() const { return DartMesh; }
 	UMaterialInterface* GetDartMaterial(int32 Slot) const { return DartMaterials.IsValidIndex(Slot) ? DartMaterials[Slot].Get() : nullptr; }
 	int32 GetDartMaterialCount() const { return DartMaterials.Num(); }
 	UStaticMesh* GetRingMesh() const { return RingMesh; }
 
-	/** The wedge's glowing outline material (pulses with the wedge). */
-	UMaterialInstanceDynamic* GetBountyEdgeMaterial() const { return BountyEdgeMaterial; }
+	/** Lights the called sector (a board sector index): the wedge rolled into place, pulsing (Pulse 0..1). */
+	void ShowBounty(int32 SectorIndex, float Pulse);
+	void HideBounty();
 
 	/** Chalks "NAME  score" lines on the chalkboard (a line only re-renders when its text changes). */
 	void SetChalk(const TArray<FString>& Lines);
 
 private:
+	// DartsPub.cpp: the room.
 	void Build();
 	void Clear();
-	void BuildMeshes();
-	void BuildShell();
-	void BuildBar();
-	void BuildBoard();
-	void BuildLights();
-	void BuildProps();
+	void BuildShell(const FDartsPubLooks& Looks);
+	void BuildBar(const FDartsPubLooks& Looks);
+	void BuildBackBar(const FDartsPubLooks& Looks);
+	void BuildBoard(const FDartsPubLooks& Looks);
+	void BuildBoardFace(const FDartsPubLooks& Looks);
+	void BuildProps(const FDartsPubLooks& Looks);
+	void BuildLights(const FDartsPubLooks& Looks);
+	void BuildGrade();
+	/** The layout tables' boxes (pub-local, moved by Offset), and the side walls' (mirrored onto Side, moved along z). */
+	void AddBoxes(const FDartsPubLooks& Looks, TConstArrayView<FDartsPubBox> Boxes, const FVector& Offset = FVector::ZeroVector);
+	void AddSideBoxes(const FDartsPubLooks& Looks, TConstArrayView<FDartsPubBox> Boxes, double Side, double Z);
+	void AddPint(const FDartsPubLooks& Looks, double X, double Y, double Z);
+	void AddStool(const FDartsPubLooks& Looks, double X, double Z, double Yaw);
 
-	/** One material per key per Build(): instance groups key on the material, so a duplicate would split a group. */
-	UMaterialInterface* Cached(const TCHAR* Key, TFunctionRef<UMaterialInterface*()> Make);
-	/** An opaque emissive (a lit colour with emissive) for solid glowing parts: no translucency pass. */
-	UMaterialInterface* SolidGlow(const TCHAR* Key, const FLinearColor& Color, float Strength);
+	// DartsPubMeshes.cpp: the meshes modelled in code (the board, the spider, the wedge, the dart, the props).
+	void BuildMeshes();
+	void BuildBoardMeshes();
+	void BuildDartMesh();
+	void BuildPropMeshes();
 
 	/** A box centred at C with size S, in pub-local web units (z offset by PubZ). */
 	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, bool bShadows = true);
 	/** A cylinder along web Y, pub-local. */
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
-	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
 	UStaticMeshComponent* Part(UStaticMesh* Mesh, USceneComponent* Parent, const FTransform& Relative);
+	USceneComponent* Anchor(FName Name, EComponentMobility::Type Mobility, const FVector& RelativeCm);
 	/** Text reads from its +X side; by default it faces the camera, which looks down UE +X. */
 	UTextRenderComponent* Text(USceneComponent* Parent, const FString& Value, const FVector& RelativeCm, float SizeCm, const FLinearColor& Color,
 		const FRotator& Rotation = FRotator(0.0, 180.0, 0.0));
+	void AddPointLight(const FVector& Web, float Lumens, float RadiusM, const FLinearColor& Color);
 
+	/** Instanced groups by (mesh, materials, shadow): the room's few thousand boxes draw in a few dozen batches. */
 	UPROPERTY(Transient)
-	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+	FArcadeInstanceGroups Groups;
+
+	/** One material per look per build: groups key on the material, so a duplicate would split a group. */
+	UPROPERTY(Transient)
+	FKartMaterialCache Materials;
 
 	UPROPERTY(Transient)
 	TObjectPtr<USceneComponent> BoardPivot;
@@ -103,6 +123,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMeshComponent> BountyWedge;
 
+	/** The wedge's translucent fill and its opaque glowing outline, both pulsed by ShowBounty (their own instances). */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> BountyMaterial;
 
@@ -114,9 +135,6 @@ private:
 
 	/** What each chalk line shows now. */
 	TArray<FString> ChalkShown;
-
-	UPROPERTY(Transient)
-	TMap<FString, TObjectPtr<UMaterialInterface>> Materials;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> StoolMesh;
