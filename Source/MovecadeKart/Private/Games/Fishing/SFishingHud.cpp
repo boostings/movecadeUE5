@@ -43,36 +43,6 @@ namespace
 	constexpr double StandingsDelay = 0.6;
 	constexpr double StandingsStagger = 0.18;
 
-	/** The fixed labels, localized once: a repaint must not look them up again. */
-	struct FLabels
-	{
-		const FText Reel = NSLOCTEXT("Fishing", "Reel", "REEL!  keep it in the green");
-		const FText Run = NSLOCTEXT("Fishing", "Run", "IT'S RUNNING!  ease off");
-		const FText TooTight = NSLOCTEXT("Fishing", "TooTight", "TOO TIGHT!  stop reeling");
-		const FText TooSlack = NSLOCTEXT("Fishing", "TooSlack", "SLACK!  reel faster");
-		const FText LetGo = NSLOCTEXT("Fishing", "LetGo", "let go to cast");
-		const FText CastNow = NSLOCTEXT("Fishing", "CastNow", "CAST!");
-		const FText BiteNow = NSLOCTEXT("Fishing", "BiteNow", "BITE! HOOK IT!");
-		const FText Snapped = NSLOCTEXT("Fishing", "Snapped", "Line snapped!");
-		const FText Escaped = NSLOCTEXT("Fishing", "Escaped", "It got away...");
-		const FText Stolen = NSLOCTEXT("Fishing", "Stolen", "Bait stolen!");
-		const FText Junk = NSLOCTEXT("Fishing", "Junk", "Not quite a fish...");
-		const FText Record = NSLOCTEXT("Fishing", "Record", "NEW RECORD!");
-		const FText Trophy = NSLOCTEXT("Fishing", "Trophy", "TROPHY!");
-		const FText Go = NSLOCTEXT("Fishing", "Go", "FISH!");
-		const FText Controls1 = NSLOCTEXT("Fishing", "Controls1", "Hold Space / A / click and let go to cast  ·  press again when the bobber dips");
-		const FText Controls2 = NSLOCTEXT("Fishing", "Controls2", "Reel: spin the right stick, alternate A/D or scroll the wheel  ·  keep the line in the green");
-		const FText Title = NSLOCTEXT("Fishing", "Title", "FISHING FRENZY");
-		const FText Rules = NSLOCTEXT("Fishing", "Rules", "Cast far for the big ones. Hook on the bite. Keep the line in the green. Heaviest catch wins.");
-		const FText Final = NSLOCTEXT("Fishing", "Final", "THE WEIGH-IN");
-	};
-
-	const FLabels& Labels()
-	{
-		static const FLabels Built;
-		return Built;
-	}
-
 	const FLinearColor& BandColor(int32 Band)
 	{
 		static const FLinearColor Colors[] = { FLinearColor::FromSRGBColor(FColor(0x6f, 0xd8, 0xe8)), FLinearColor::FromSRGBColor(FColor(0x5f, 0xd0, 0x6a)),
@@ -344,21 +314,21 @@ void SFishingHud::PaintTension(const FFrame& F, int32 i, const FVector2D& Bar, f
 	{
 		P.Box(FVector2D(Bar.X, Under), FVector2D(BarW * Slack, 6.f * S), KC::Sky, 3.f * S);
 	}
-	const FText* Hint = &Labels().Reel;
+	const FText* Hint = &ARCADE_LABEL("Fishing", "Reel", "REEL!  keep it in the green");
 	FLinearColor Ink = KC::Mint;
 	if (bRun)
 	{
-		Hint = &Labels().Run;
+		Hint = &ARCADE_LABEL("Fishing", "Run", "IT'S RUNNING!  ease off");
 		Ink = KC::Sun;
 	}
 	else if (Snap > 0.15f)
 	{
-		Hint = &Labels().TooTight;
+		Hint = &ARCADE_LABEL("Fishing", "TooTight", "TOO TIGHT!  stop reeling");
 		Ink = KC::Hot;
 	}
 	else if (Slack > 0.25f)
 	{
-		Hint = &Labels().TooSlack;
+		Hint = &ARCADE_LABEL("Fishing", "TooSlack", "SLACK!  reel faster");
 		Ink = KC::Sky;
 	}
 	P.Text(*Hint, KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X, Under + 19.f * S), Ink, FVector2D(0.0, 0.5));
@@ -387,7 +357,7 @@ void SFishingHud::PaintCastMeter(const FFrame& F, int32 i, double Charge, const 
 	const int32 AimKey = static_cast<int32>(Band) * 1000 + ShownMetres(Metres);
 	const FString& Aim = TextsOf(i).CastAim.Get(AimKey, [](int32 Key) { return FString::Printf(TEXT("%s  ·  %d m"), BandName(static_cast<EBand>(Key / 1000)), Key % 1000); });
 	P.Text(Aim, KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X, Bar.Y + H + 30.f * S), BandColor(static_cast<int32>(Band)), FVector2D(0.0, 0.5));
-	P.Text(Labels().LetGo, KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X + BarW, Bar.Y + H + 30.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(1.0, 0.5));
+	P.Text(ARCADE_LABEL("Fishing", "LetGo", "let go to cast"), KartUI::Font(EFont::Label, 16.f * S), FVector2D(Bar.X + BarW, Bar.Y + H + 30.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(1.0, 0.5));
 }
 
 void SFishingHud::PaintLaneStatus(const FFrame& F, int32 i, const FVector2D& Pos, float Width) const
@@ -405,7 +375,7 @@ void SFishingHud::PaintLaneStatus(const FFrame& F, int32 i, const FVector2D& Pos
 	switch (A.State)
 	{
 	case EAnglerState::Idle:
-		Line = &Labels().CastNow;
+		Line = &ARCADE_LABEL("Fishing", "CastNow", "CAST!");
 		Ink = AFishingLake::LaneColor(i);
 		break;
 	case EAnglerState::Casting:
@@ -418,7 +388,7 @@ void SFishingHud::PaintLaneStatus(const FFrame& F, int32 i, const FVector2D& Pos
 		Size = 22.f;
 		break;
 	case EAnglerState::Bite:
-		Line = &Labels().BiteNow;
+		Line = &ARCADE_LABEL("Fishing", "BiteNow", "BITE! HOOK IT!");
 		Ink = FMath::Lerp(KC::Sun, KC::White, 0.5f + 0.5f * FMath::Sin(Clock * 20.f));
 		Size = 32.f;
 		break;
@@ -427,7 +397,7 @@ void SFishingHud::PaintLaneStatus(const FFrame& F, int32 i, const FVector2D& Pos
 		Ink = KC::Sun;
 		break;
 	case EAnglerState::Lost:
-		Line = A.LastLoss == ELoss::Snap ? &Labels().Snapped : (A.LastLoss == ELoss::Escape ? &Labels().Escaped : &Labels().Stolen);
+		Line = A.LastLoss == ELoss::Snap ? &ARCADE_LABEL("Fishing", "Snapped", "Line snapped!") : (A.LastLoss == ELoss::Escape ? &ARCADE_LABEL("Fishing", "Escaped", "It got away...") : &ARCADE_LABEL("Fishing", "Stolen", "Bait stolen!"));
 		Ink = KC::Hot;
 		break;
 	default:
@@ -537,7 +507,7 @@ void SFishingHud::PaintCatchCard(const FFrame& F, int32 i, const FVector2D& Anch
 	Card.Text(Name, KartUI::Font(EFont::Label, 18.f * S), Pos + FVector2D(Size.X / 2.f, 24.f * S), bJunk ? KC::Sun : KC::NavyDim, FVector2D(0.5, 0.5));
 	if (bJunk)
 	{
-		Card.Text(Labels().Junk, KartUI::Font(EFont::Title, 24.f * S), Pos + FVector2D(Size.X / 2.f, 64.f * S), KC::White, FVector2D(0.5, 0.5));
+		Card.Text(ARCADE_LABEL("Fishing", "Junk", "Not quite a fish..."), KartUI::Font(EFont::Title, 24.f * S), Pos + FVector2D(Size.X / 2.f, 64.f * S), KC::White, FVector2D(0.5, 0.5));
 	}
 	else
 	{
@@ -560,7 +530,7 @@ void SFishingHud::PaintCatchCard(const FFrame& F, int32 i, const FVector2D& Anch
 		const float Pop = 1.f + 0.06f * FMath::Sin(Clock * 9.f);
 		const FKartPainter Ribbon = Card.Transformed(R, Pop, -4.f);
 		Ribbon.Box(R - FVector2D(118.f, 20.f) * S, FVector2D(236.f, 40.f) * S, KC::Gold, 10.f * S, KC::Night, 3.f * S);
-		Ribbon.Text(C.bRecord ? Labels().Record : Labels().Trophy, KartUI::Font(EFont::Display, 28.f * S), R, KC::Night, FVector2D(0.5, 0.5));
+		Ribbon.Text(C.bRecord ? ARCADE_LABEL("Fishing", "Record", "NEW RECORD!") : ARCADE_LABEL("Fishing", "Trophy", "TROPHY!"), KartUI::Font(EFont::Display, 28.f * S), R, KC::Night, FVector2D(0.5, 0.5));
 	}
 }
 
@@ -584,7 +554,7 @@ void SFishingHud::PaintCountdown(const FFrame& F) const
 	if (M.Phase == EMatchPhase::Playing && M.ElapsedMs < GoShowMs)
 	{
 		const float A = FMath::Clamp(static_cast<float>((GoShowMs - M.ElapsedMs) / 300.0), 0.f, 1.f);
-		P.Faded(A).Text(Labels().Go, KartUI::Font(EFont::Display, 150.f * S, 8.f * S, KC::Night), Centre, KC::Sun, FVector2D(0.5, 0.5), 9.f * S);
+		P.Faded(A).Text(ARCADE_LABEL("Fishing", "Go", "FISH!"), KartUI::Font(EFont::Display, 150.f * S, 8.f * S, KC::Night), Centre, KC::Sun, FVector2D(0.5, 0.5), 9.f * S);
 	}
 	if (M.Phase == EMatchPhase::Playing && M.TimeRemainingMs <= LastCountdownMs && M.TimeRemainingMs > 0.0)
 	{
@@ -610,9 +580,9 @@ void SFishingHud::PaintControls(const FFrame& F) const
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.58f);
 	const FKartPainter Faded = P.Faded(A);
 	Faded.Card(Centre - FVector2D(520.f, 44.f) * S, FVector2D(1040.f, 88.f) * S, KC::WithAlpha(KC::Night, 0.78f), 22.f * S, 6.f * S, KC::Sun, 2.f * S);
-	Faded.Text(Labels().Controls1, KartUI::Font(EFont::Body, 21.f * S),
+	Faded.Text(ARCADE_LABEL("Fishing", "Controls1", "Hold Space / A / click and let go to cast  ·  press again when the bobber dips"), KartUI::Font(EFont::Body, 21.f * S),
 		Centre - FVector2D(0.f, 16.f * S), KC::White, FVector2D(0.5, 0.5));
-	Faded.Text(Labels().Controls2, KartUI::Font(EFont::Body, 21.f * S),
+	Faded.Text(ARCADE_LABEL("Fishing", "Controls2", "Reel: spin the right stick, alternate A/D or scroll the wheel  ·  keep the line in the green"), KartUI::Font(EFont::Body, 21.f * S),
 		Centre + FVector2D(0.f, 18.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.5, 0.5));
 }
 
@@ -624,7 +594,7 @@ void SFishingHud::PaintIntro(const FFrame& F) const
 	const float A = FMath::Clamp(static_cast<float>(Age / IntroFadeIn), 0.f, 1.f) * FMath::Clamp(static_cast<float>((AFishingGame::IntroSeconds - Age) / IntroFadeOut), 0.f, 1.f);
 	const FKartPainter Faded = P.Faded(A);
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.3f);
-	Faded.Text(Labels().Title, KartUI::Font(EFont::Display, 130.f * S, 7.f * S), Centre - FVector2D(0.f, 40.f * S), KC::Sun, FVector2D(0.5, 0.5), 9.f * S);
+	Faded.Text(ARCADE_LABEL("Fishing", "Title", "FISHING FRENZY"), KartUI::Font(EFont::Display, 130.f * S, 7.f * S), Centre - FVector2D(0.f, 40.f * S), KC::Sun, FVector2D(0.5, 0.5), 9.f * S);
 	const TArray<FFishingSeat>& Seats = F.Game.GetSeats();
 	const FString& Names = IntroNames.Get(Seats.Num(), [&Seats](int32)
 	{
@@ -636,7 +606,7 @@ void SFishingHud::PaintIntro(const FFrame& F) const
 		return Joined;
 	});
 	Faded.Text(Names, KartUI::Font(EFont::Title, 34.f * S, 2.f * S), Centre + FVector2D(0.f, 62.f * S), KC::White, FVector2D(0.5, 0.5), 4.f * S);
-	Faded.Text(Labels().Rules, KartUI::Font(EFont::Body, 24.f * S),
+	Faded.Text(ARCADE_LABEL("Fishing", "Rules", "Cast far for the big ones. Hook on the bite. Keep the line in the green. Heaviest catch wins."), KartUI::Font(EFont::Body, 24.f * S),
 		Centre + FVector2D(0.f, 110.f * S), KC::WithAlpha(KC::White, 0.9f), FVector2D(0.5, 0.5), 3.f * S);
 }
 
@@ -654,7 +624,7 @@ void SFishingHud::PaintStandings(const FFrame& F) const
 	const double Age = F.Game.GetFinishedAge();
 	const FKartPainter Faded = P.Faded(FMath::Clamp(static_cast<float>(Age / 0.5), 0.f, 1.f));
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.1f);
-	Faded.Text(Labels().Final, KartUI::Font(EFont::Display, 84.f * S, 5.f * S), Centre, KC::Sun, FVector2D(0.5, 0.5), 7.f * S);
+	Faded.Text(ARCADE_LABEL("Fishing", "Final", "THE WEIGH-IN"), KartUI::Font(EFont::Display, 84.f * S, 5.f * S), Centre, KC::Sun, FVector2D(0.5, 0.5), 7.f * S);
 	for (int32 Place = 0; Place < Order.Num(); ++Place)
 	{
 		const int32 Lane = Order[Place];

@@ -30,12 +30,6 @@ namespace
 	constexpr float BiteHaptic = 1.f;
 	constexpr float RunHaptic = 0.7f;
 
-	FString HexOf(const FLinearColor& Color)
-	{
-		const FColor S = Color.ToFColor(true);
-		return FString::Printf(TEXT("#%02x%02x%02x"), S.R, S.G, S.B);
-	}
-
 	const TCHAR* LossTitle(ELoss Loss)
 	{
 		return Loss == ELoss::Snap ? TEXT("Line snapped!") : (Loss == ELoss::Escape ? TEXT("It got away!") : TEXT("Bait stolen!"));
@@ -78,7 +72,7 @@ FString AFishingGameMode::PromptJson(const FAngler& A, const FLinearColor& Accen
 {
 	FString Title, Subtitle, ButtonA, Mode;
 	PromptFields(A, Title, Subtitle, ButtonA, Mode);
-	return MovecadeKart::Net::PadPromptData(A.PlayerId, Title, Subtitle, ButtonA, FString(), HexOf(Accent), Mode);
+	return MovecadeKart::Net::PadPromptData(A.PlayerId, Title, Subtitle, ButtonA, FString(), MovecadeKart::Net::HexColor(Accent), Mode);
 }
 
 void AFishingGameMode::PromptFields(const FAngler& A, FString& Title, FString& Subtitle, FString& ButtonA, FString& Mode)
@@ -182,7 +176,7 @@ void AFishingGameMode::SendPromptIfPhone(URoomHostSubsystem& Room, const FAngler
 	}
 	FString Title, Subtitle, ButtonA, Mode;
 	PromptFields(Angler, Title, Subtitle, ButtonA, Mode);
-	Room.SendPadPrompt(Angler.PlayerId, Title, Subtitle, ButtonA, FString(), HexOf(AFishingLake::LaneColor(Angler.LaneIndex)), Mode);
+	Room.SendPadPrompt(Angler.PlayerId, Title, Subtitle, ButtonA, FString(), MovecadeKart::Net::HexColor(AFishingLake::LaneColor(Angler.LaneIndex)), Mode);
 }
 
 void AFishingGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
