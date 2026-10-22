@@ -12,8 +12,6 @@ namespace KartRaceHud
 	constexpr double TopSpeedKmh = 144.0;
 	/** How long the finish, final-lap and "race over" banners stay up. */
 	constexpr double FinishBannerSeconds = 2.6;
-	/** The results board waits this long after the race ends (the banner's sweep and hold). */
-	constexpr double ResultsHoldSeconds = 1.4;
 	/** The shared minimap's height in four views, as a fraction of the screen height. */
 	constexpr double SharedMapFraction = 0.19;
 	/** The shared minimap's backing disc radius, as a multiple of the map's height. */

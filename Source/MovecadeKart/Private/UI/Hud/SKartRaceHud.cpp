@@ -39,11 +39,6 @@ void SKartRaceHud::Construct(const FArguments& InArgs)
 	ForceVolatile(true);
 }
 
-bool SKartRaceHud::IsShowingFinish() const
-{
-	return FSlateApplication::Get().GetCurrentTime() - RaceFinishedAt < ResultsHoldSeconds;
-}
-
 void SKartRaceHud::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
 	const AKartRaceManager* Race = Manager.Get();

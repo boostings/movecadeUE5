@@ -33,9 +33,6 @@ public:
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
 		FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
 
-	/** True while the results board should wait (the finish banner is on screen). */
-	bool IsShowingFinish() const;
-
 private:
 	/** Text a seat's widgets show, rebuilt when its value changes rather than every paint. */
 	struct FSeatText
