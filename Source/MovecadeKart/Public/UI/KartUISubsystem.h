@@ -61,7 +61,7 @@ public:
 	/** Quits the game (after the curtain closes). */
 	void QuitGame();
 
-	// -KartUiShots=title,menu,... -----------------------------------------------------------------------
+	// -KartUiShots=title,menu,... (and -KartUiPad): the screenshot tour, never started in Shipping --------
 	bool IsTourActive() const { return TourSteps.Num() > 0 || TourIndex >= 0; }
 	/** The step the tour is on, or NAME_None. */
 	FName GetTourStep() const;
@@ -71,6 +71,8 @@ public:
 private:
 	void HandleMapLoaded(UWorld* World);
 	bool HandleEvent(const FKartMenuEvent& Event);
+	/** Reads -KartUiShots and -KartUiPad; called from Initialize outside Shipping builds. */
+	void StartTourFromCommandLine();
 	bool TickTour(float DeltaTime);
 	UWorld* GetGameWorld() const;
 	USoundWave* LoadSound(EKartUISound Sound);

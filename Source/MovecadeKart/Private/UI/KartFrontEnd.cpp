@@ -25,7 +25,26 @@ using namespace MovecadeKart;
 
 namespace
 {
+	/** Camera moves between shots blend over this long. */
 	constexpr double ShotBlendSeconds = 1.2;
+	constexpr float MenuFieldOfView = 70.f;
+	/** The showroom shot frames the karts tighter. */
+	constexpr float ShowroomFieldOfView = 55.f;
+
+	// Shot speeds (radians per second) and framing, as fractions of the track's extent (web units).
+	/** Flyover: a low drone circling the circuit. */
+	constexpr double FlyoverStartAngle = 0.9;
+	constexpr double FlyoverTurnRate = 0.055;
+	constexpr double FlyoverRadius = 0.48;
+	constexpr double FlyoverHeight = 0.11;
+	/** Orbit: high above the whole circuit, turning slowly. */
+	constexpr double OrbitTurnRate = 0.035;
+	constexpr double OrbitRadius = 0.62;
+	constexpr double OrbitHeight = 0.32;
+	/** Showroom: in front of the karts on the grid, swaying slowly (web units). */
+	constexpr double ShowroomDistance = 9.0;
+	constexpr double ShowroomSwayRate = 0.25;
+	constexpr double ShowroomSway = 0.35;
 }
 
 AKartFrontEnd::AKartFrontEnd()
@@ -85,7 +104,7 @@ void AKartFrontEnd::BeginPlay()
 	}
 
 	Camera = World->SpawnActor<ACameraActor>();
-	Camera->GetCameraComponent()->SetFieldOfView(70.f);
+	Camera->GetCameraComponent()->SetFieldOfView(MenuFieldOfView);
 	Camera->GetCameraComponent()->bConstrainAspectRatio = false;
 	if (APlayerController* PC = GetPlayer())
 	{
@@ -240,9 +259,9 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 		// The attract shot: a low drone circling the circuit, looking across it, a little faster than the menus' orbit.
 		const FVector2D Centre = T.MinimapBounds.GetCenter();
 		const double Extent = FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y);
-		const double Angle = 0.9 + Time * 0.055;
+		const double Angle = FlyoverStartAngle + Time * FlyoverTurnRate;
 		const FVector2D Dir(FMath::Cos(Angle), FMath::Sin(Angle));
-		const FVector Eye = Coords::ToUE(Centre + Dir * Extent * 0.48, Extent * 0.11 + 6.0 * FMath::Sin(Time * 0.3));
+		const FVector Eye = Coords::ToUE(Centre + Dir * Extent * FlyoverRadius, Extent * FlyoverHeight + 6.0 * FMath::Sin(Time * 0.3));
 		return LookAt(Eye, Coords::ToUE(Centre - Dir * Extent * 0.12, -Extent * 0.02));
 	}
 	if (InShot == EKartFrontEndShot::Showroom && T.Grid.Num() > 0)
@@ -259,8 +278,8 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 		const FVector2D Forward(-FMath::Sin(Yaw), -FMath::Cos(Yaw)); // three.js yaw 0 faces -Z
 		const FVector2D Right(-Forward.Y, Forward.X);
 		const double Spread = Count > 1 ? 2.0 * Count : 0.0;
-		const double Distance = 9.0 + Spread;
-		const double Sway = FMath::Sin(Time * 0.25) * 0.35;
+		const double Distance = ShowroomDistance + Spread;
+		const double Sway = FMath::Sin(Time * ShowroomSwayRate) * ShowroomSway;
 		const FVector2D EyeXZ = Centre + (Forward * FMath::Cos(Sway) + Right * FMath::Sin(Sway)) * Distance;
 		const FVector Eye = Coords::ToUE(EyeXZ, 2.4 + Count * 0.3);
 		// Aim below the karts so they sit in the top half, above the player cards.
@@ -270,9 +289,9 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 	// Orbit: high above the whole circuit, turning slowly.
 	const FVector2D Centre = T.MinimapBounds.bIsValid ? T.MinimapBounds.GetCenter() : FVector2D::ZeroVector;
 	const double Extent = T.MinimapBounds.bIsValid ? FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y) : 200.0;
-	const double Angle = Time * 0.035;
-	const FVector2D EyeXZ = Centre + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Extent * 0.62;
-	const FVector Eye = Coords::ToUE(EyeXZ, Extent * 0.32);
+	const double Angle = Time * OrbitTurnRate;
+	const FVector2D EyeXZ = Centre + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Extent * OrbitRadius;
+	const FVector Eye = Coords::ToUE(EyeXZ, Extent * OrbitHeight);
 	return LookAt(Eye, Coords::ToUE(Centre, 0.0));
 }
 
@@ -291,7 +310,7 @@ void AKartFrontEnd::UpdateCamera(float DeltaSeconds)
 		Target.Blend(From, To, Blend);
 	}
 	Camera->SetActorLocationAndRotation(Target.GetLocation(), Target.GetRotation());
-	Camera->GetCameraComponent()->SetFieldOfView(Shot == EKartFrontEndShot::Showroom ? 55.f : 70.f);
+	Camera->GetCameraComponent()->SetFieldOfView(Shot == EKartFrontEndShot::Showroom ? ShowroomFieldOfView : MenuFieldOfView);
 }
 
 void AKartFrontEnd::SetShowroom(const TArray<FKartLook>& Looks)
@@ -376,81 +395,90 @@ void AKartFrontEnd::QuitGame()
 	}
 }
 
+namespace
+{
+	/** How a -KartUiShots step opens its screen: the stack it builds, the screen it expects on top, and how long it settles. */
+	struct FTourStep
+	{
+		/** Seconds the entry animations get before the capture. */
+		int32 SettleSeconds = 2;
+		/** The top screen's id once the step is showing (usually the step's own name). */
+		FName ScreenId;
+		/** Builds the stack (the main menu is already under it unless bFromTitle). */
+		void (*Build)(AKartFrontEnd& FrontEnd, SKartScreenStack& Screens, FName Step) = nullptr;
+		bool bFromTitle = false;
+	};
+
+	const TMap<FName, FTourStep>& TourSteps()
+	{
+		using FStack = SKartScreenStack;
+		static const TMap<FName, FTourStep> Steps = []()
+		{
+			TMap<FName, FTourStep> Out;
+			auto Add = [&Out](const TCHAR* Step, int32 Settle, void (*Build)(AKartFrontEnd&, FStack&, FName), const TCHAR* ScreenId = nullptr, bool bFromTitle = false)
+			{
+				Out.Add(FName(Step), FTourStep{ Settle, FName(ScreenId ? ScreenId : Step), Build, bFromTitle });
+			};
+			auto Racers = [](AKartFrontEnd& FE, FStack& S, FName) { S.PushScreen(KartScreens::MakeRacers(&FE)); };
+			auto Rules = [](AKartFrontEnd& FE, FStack& S, FName) { S.PushScreen(KartScreens::MakeRacers(&FE)); S.PushScreen(KartScreens::MakeRules(&FE)); };
+			auto Tracks = [](AKartFrontEnd& FE, FStack& S, FName)
+			{
+				S.PushScreen(KartScreens::MakeRacers(&FE));
+				S.PushScreen(KartScreens::MakeRules(&FE));
+				S.PushScreen(KartScreens::MakeTracks(&FE));
+			};
+			auto Store = [](AKartFrontEnd& FE, FStack& S, FName Step) { S.PushScreen(KartScreens::MakeStore(&FE, Step)); };
+			Add(TEXT("title"), 3, [](AKartFrontEnd&, FStack&, FName) {}, nullptr, true);
+			Add(TEXT("welcome"), 3, [](AKartFrontEnd& FE, FStack& S, FName) { S.PushScreen(KartScreens::MakeWelcome(&FE)); }, nullptr, true);
+			Add(TEXT("menu"), 2, [](AKartFrontEnd&, FStack&, FName) {});
+			Add(TEXT("racers"), 4, Racers);
+			Add(TEXT("rules"), 2, Rules);
+			Add(TEXT("tracks"), 3, Tracks);
+			Add(TEXT("settings"), 2, [](AKartFrontEnd&, FStack& S, FName) { S.PushScreen(KartScreens::MakeSettings(0)); });
+			Add(TEXT("audio"), 2, [](AKartFrontEnd&, FStack& S, FName) { S.PushScreen(KartScreens::MakeSettings(1)); });
+			Add(TEXT("controls"), 2, [](AKartFrontEnd&, FStack& S, FName) { S.PushScreen(KartScreens::MakeSettings(2)); });
+			Add(TEXT("accessibility"), 2, [](AKartFrontEnd&, FStack& S, FName) { S.PushScreen(KartScreens::MakeSettings(3)); });
+			Add(TEXT("arcade"), 2, [](AKartFrontEnd& FE, FStack& S, FName) { S.PushScreen(KartScreens::MakeArcade(&FE)); });
+			Add(TEXT("credits"), 2, [](AKartFrontEnd&, FStack& S, FName) { S.PushScreen(KartScreens::MakeCredits()); });
+			Add(TEXT("quit"), 2, [](AKartFrontEnd& FE, FStack& S, FName) { S.PushScreen(KartScreens::MakeQuitConfirm(&FE)); }, TEXT("confirm"));
+			// The store's own tour steps (KartStoreScreen.cpp).
+			Add(TEXT("store"), 2, Store);
+			Add(TEXT("storeparty"), 2, Store);
+			Add(TEXT("storefree"), 2, Store);
+			Add(TEXT("storebuy"), 2, Store, TEXT("store-buy"));
+			Add(TEXT("storedone"), 2, Store, TEXT("store-done"));
+			return Out;
+		}();
+		return Steps;
+	}
+}
+
 bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 {
-	static const TMap<FName, int32> Settle = {
-		{ TEXT("title"), 3 }, { TEXT("menu"), 2 }, { TEXT("racers"), 4 }, { TEXT("rules"), 2 }, { TEXT("tracks"), 3 },
-		{ TEXT("settings"), 2 }, { TEXT("audio"), 2 }, { TEXT("controls"), 2 }, { TEXT("credits"), 2 }, { TEXT("quit"), 2 }, { TEXT("arcade"), 2 },
-		{ TEXT("welcome"), 3 }, { TEXT("accessibility"), 2 },
-		{ TEXT("store"), 2 }, { TEXT("storeparty"), 2 }, { TEXT("storefree"), 2 }, { TEXT("storebuy"), 2 }, { TEXT("storedone"), 2 }, // store
-	};
-	const int32* Seconds = Settle.Find(Step);
+	const FTourStep* Tour = TourSteps().Find(Step);
 	UKartUISubsystem* UI = UKartUISubsystem::Get(this);
-	if (!Seconds || !UI || !Screens.IsValid())
+	if (!Tour || !UI || !Screens.IsValid())
 	{
 		return false;
 	}
 	const TSharedPtr<FKartScreen> Top = Screens->Top();
-	const FName Expected = Step == TEXT("quit") ? FName(TEXT("confirm")) : Step == TEXT("storebuy") ? FName(TEXT("store-buy")) : Step == TEXT("storedone") ? FName(TEXT("store-done")) : Step;
-	if (!Top.IsValid() || Top->GetId() != Expected)
+	if (Top.IsValid() && Top->GetId() == Tour->ScreenId)
 	{
-		if (SecondsInStep < 0.2)
+		if (Clock - TourShownAt >= Tour->SettleSeconds)
 		{
-			return true;
-		}
-		Screens->Clear();
-		TourShownAt = Clock;
-		if (Step == TEXT("title"))
-		{
-			Screens->PushScreen(KartScreens::MakeTitle(this));
-			return true;
-		}
-		if (Step == TEXT("welcome"))
-		{
-			Screens->PushScreen(KartScreens::MakeTitle(this));
-			Screens->PushScreen(KartScreens::MakeWelcome(this));
-			return true;
-		}
-		Screens->PushScreen(KartScreens::MakeMainMenu(this));
-		if (Step == TEXT("racers") || Step == TEXT("rules") || Step == TEXT("tracks"))
-		{
-			Screens->PushScreen(KartScreens::MakeRacers(this));
-			if (Step != TEXT("racers"))
-			{
-				Screens->PushScreen(KartScreens::MakeRules(this));
-			}
-			if (Step == TEXT("tracks"))
-			{
-				Screens->PushScreen(KartScreens::MakeTracks(this));
-			}
-		}
-		else if (Step == TEXT("settings") || Step == TEXT("audio") || Step == TEXT("controls") || Step == TEXT("accessibility"))
-		{
-			Screens->PushScreen(KartScreens::MakeSettings(Step == TEXT("settings") ? 0 : Step == TEXT("audio") ? 1 : Step == TEXT("controls") ? 2 : 3));
-		}
-		else if (Step == TEXT("arcade"))
-		{
-			Screens->PushScreen(KartScreens::MakeArcade(this));
-		}
-		else if (Step.ToString().StartsWith(TEXT("store"))) // store
-		{
-			Screens->PushScreen(KartScreens::MakeStore(this, Step));
-		}
-		else if (Step == TEXT("credits"))
-		{
-			Screens->PushScreen(KartScreens::MakeCredits());
-		}
-		else if (Step == TEXT("quit"))
-		{
-			Screens->PushScreen(KartScreens::MakeConfirm(FText::FromString(TEXT("Quit the game?")), FText::FromString(TEXT("See you on the track soon.")),
-				FText::FromString(TEXT("Quit")), FText::FromString(TEXT("Stay")), nullptr));
+			UI->TourShot(Step);
 		}
 		return true;
 	}
-	if (Clock - TourShownAt >= *Seconds)
+	// Give the previous step's capture a moment to be drawn before the stack changes.
+	if (SecondsInStep < 0.2)
 	{
-		UI->TourShot(Step);
+		return true;
 	}
+	Screens->Clear();
+	TourShownAt = Clock;
+	Screens->PushScreen(Tour->bFromTitle ? KartScreens::MakeTitle(this) : KartScreens::MakeMainMenu(this));
+	Tour->Build(*this, *Screens, Step);
 	return true;
 }
 
