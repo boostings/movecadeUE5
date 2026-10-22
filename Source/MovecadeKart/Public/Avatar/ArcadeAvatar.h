@@ -5,6 +5,7 @@
 #include "Avatar/ArcadeAvatarFace.h"
 #include "Avatar/ArcadeAvatarPose.h"
 #include "Avatar/AvatarDressing.h"
+#include "Avatar/AvatarFaceLife.h"
 // Games time their throws and swings with the rig's easing curves (Rig::Anticipate, Rig::TSpring).
 #include "Avatar/AvatarRig.h"
 #include "Components/SceneComponent.h"
@@ -15,8 +16,9 @@ class USkeletalMeshComponent;
 
 /**
  * A party game's player avatar: the avatar4 driver mesh (and paid outfit) dressed in an FKartLook, standing on the
- * component's origin and facing its +X, posed natively from an FArcadePoseInput the game fills every frame. It also
- * blinks and eases its face toward its mood. Games add one per seat and write Pose() each tick.
+ * component's origin and facing its +X, posed natively from an FArcadePoseInput the game fills every frame. Its face
+ * lives on its own (AvatarFaceLife.h): the eyes saccade ahead of the head, the lids blink and follow the eyes, and the
+ * expression eases toward its mood with secondary motion. Games add one per seat and write Pose() each tick.
  */
 UCLASS(ClassGroup = (Movecade))
 class MOVECADEKART_API UArcadeAvatarComponent : public USceneComponent
@@ -45,6 +47,13 @@ private:
 	/** Measures how the avatar moves through the world (its own frame), for the hair and hems. */
 	void UpdateMotion(float DeltaTime);
 	void UpdateFace(float DeltaTime);
+	/**
+	 * Steps the eyes toward the gaze, aims them through the eye materials (relative to where the head is now) and
+	 * returns their pitch relative to the head (radians, + up). bOutSaccade is set when a big eye jump starts.
+	 */
+	float UpdateEyes(float DeltaTime, bool& bOutSaccade);
+	/** Caches the head joint and its rest rotation for a new mesh. */
+	void CacheHead();
 
 	UPROPERTY()
 	TObjectPtr<USkeletalMeshComponent> Driver;
@@ -57,15 +66,22 @@ private:
 	FArcadePoseInput Input;
 	FKartLook CurrentLook;
 	bool bHasLook = false;
-	float NextBlink = 2.f;
-	float BlinkAt = -10.f;
 	float Clock = 0.f;
-	float Face[MovecadeKart::DriverFace::MorphCount] = {};
+	/** Picks this avatar's rhythms (blinks, glances, reactions), so two players never move in step. */
+	uint32 Seed = 0;
+	MovecadeKart::Avatar::FIdleGlance Glance;
+	MovecadeKart::Avatar::FSaccadeScheduler Saccades;
+	MovecadeKart::Avatar::FBlinkScheduler Blinks;
+	MovecadeKart::Avatar::FFaceLife FaceLife;
+	/** The emote that last held the arms, to catch a greeting as it starts. */
+	EArcadeEmote LastEmote = EArcadeEmote::None;
+	/** The head joint's mesh index and the inverse of its rest rotation (component space), for aiming the eyes. */
+	int32 HeadBone = INDEX_NONE;
+	FQuat HeadRestInverse = FQuat::Identity;
 	FTransform LastTransform = FTransform::Identity;
 	bool bHasLastTransform = false;
 	FVector SmoothedVelocity = FVector::ZeroVector;
 	float SmoothedYawRate = 0.f;
-	FVector LastLook = FVector::ForwardVector;
 };
 
 /** What the component measures about the avatar's movement for the proxy's secondary motion (not game input). */
