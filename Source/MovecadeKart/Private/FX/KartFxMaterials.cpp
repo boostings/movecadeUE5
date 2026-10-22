@@ -1,5 +1,6 @@
 #include "FX/KartFxMaterials.h"
 
+#include "KartAssetLoad.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 
@@ -14,7 +15,7 @@ namespace MovecadeKart::Fx
 	UMaterialInstanceDynamic* MakeItemMaterial(UObject* Outer, const FLinearColor& Base, const FLinearColor& Emissive, float EmissiveStrength,
 		float Metallic, float Roughness, TOptional<float> ClearCoat)
 	{
-		UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, ItemMaster);
+		UMaterialInterface* Parent = LoadKartAsset<UMaterialInterface>(ItemMaster, AssetSource::FxMaterials);
 		if (!Parent)
 		{
 			return nullptr;
@@ -34,7 +35,7 @@ namespace MovecadeKart::Fx
 
 	UMaterialInstanceDynamic* MakeGlowMaterial(UObject* Outer, float Power, float Core)
 	{
-		UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, GlowMaster);
+		UMaterialInterface* Parent = LoadKartAsset<UMaterialInterface>(GlowMaster, AssetSource::FxMaterials);
 		if (!Parent)
 		{
 			return nullptr;

@@ -1,6 +1,7 @@
 // AKartItemPresenter: the code-built item meshes, their materials, and the lightning bolt pool.
 #include "Race/KartItemPresenter.h"
 
+#include "KartAssetLoad.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -63,7 +64,7 @@ void AKartItemPresenter::SetupMaterials()
 	bMaterialsBuilt = true;
 	SetupItemMaterials();
 	SetupBoxMaterials();
-	if (UMaterialInterface* Fire = LoadObject<UMaterialInterface>(nullptr, FireballMaterialPath))
+	if (UMaterialInterface* Fire = LoadKartAsset<UMaterialInterface>(FireballMaterialPath, AssetSource::FxMaterials))
 	{
 		Blasts->SetMaterial(0, Fire);
 	}
@@ -122,7 +123,7 @@ void AKartItemPresenter::SetupItemMaterials()
 		SetSlot(M, TEXT("Band"), ItemPaint(this, C.Inner, C.Inner, 0.08f, 0.0f, 0.4f, 0.5f));
 		SetSlot(M, TEXT("Metal"), ItemPaint(this, Hex(TEXT("c9ccd2")), Hex(TEXT("000000")), 0.0f, 1.0f, 0.18f, 0.2f));
 	}
-	if (UMaterialInterface* Prism = LoadObject<UMaterialInterface>(nullptr, PrismMaterialPath))
+	if (UMaterialInterface* Prism = LoadKartAsset<UMaterialInterface>(PrismMaterialPath, AssetSource::FxMaterials))
 	{
 		MeshesFor(EKartItem::Prism)->SetMaterial(0, Prism);
 	}
@@ -155,7 +156,7 @@ void AKartItemPresenter::SetupBoxMaterials()
 	BoxCores->SetStaticMesh(BuildChamferCubeMesh(this));
 	BoxLabels->SetStaticMesh(BuildBoxLabelsMesh(this));
 	// Prize orb: violet glass with a cyan rim, an iridescent magenta gem inside, and a soft cyan halo.
-	if (UMaterialInterface* Glass = LoadObject<UMaterialInterface>(nullptr, BoxGlassMaterialPath))
+	if (UMaterialInterface* Glass = LoadKartAsset<UMaterialInterface>(BoxGlassMaterialPath, AssetSource::FxMaterials))
 	{
 		UMaterialInstanceDynamic* M = UMaterialInstanceDynamic::Create(Glass, this);
 		M->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("7a5cff")) * 0.6f);
@@ -163,7 +164,7 @@ void AKartItemPresenter::SetupBoxMaterials()
 		Boxes->SetMaterial(0, M);
 	}
 	BoxCores->SetMaterial(0, ItemPaint(this, Hex(TEXT("ff5fd2")), Hex(TEXT("b45cff")), 0.9f, 0.8f, 0.15f, 1.0f));
-	if (UMaterialInterface* Label = LoadObject<UMaterialInterface>(nullptr, BoxLabelMaterialPath))
+	if (UMaterialInterface* Label = LoadKartAsset<UMaterialInterface>(BoxLabelMaterialPath, AssetSource::FxMaterials))
 	{
 		BoxLabels->SetMaterial(0, Label);
 	}
@@ -179,7 +180,7 @@ void AKartItemPresenter::BuildStrikes()
 	{
 		return;
 	}
-	UMaterialInterface* Bolt = LoadObject<UMaterialInterface>(nullptr, BoltMaterialPath);
+	UMaterialInterface* Bolt = LoadKartAsset<UMaterialInterface>(BoltMaterialPath, AssetSource::FxMaterials);
 	for (int32 i = 0; i < ItemPresenter::StrikePool; ++i)
 	{
 		UStaticMeshComponent* C = NewObject<UStaticMeshComponent>(this, *FString::Printf(TEXT("Strike%d"), i));

@@ -13,8 +13,6 @@
 #include "KartPawnTuning.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
-
-
 using namespace MovecadeKart;
 using namespace MovecadeKart::Pawn;
 

@@ -9,6 +9,7 @@
 #include "Engine/StaticMesh.h"
 #include "MaterialShared.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "KartAssetLoad.h"
 #include "Track/TrackBuildHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTrackScenery, Log, All);
@@ -415,8 +416,8 @@ TArray<FTransform> ATrackBuilder::TakeOverPrefab(const FString& Prefab)
 
 void ATrackBuilder::EnableFoliageWind()
 {
-	UMaterialInterface* Windy = LoadObject<UMaterialInterface>(nullptr, *MaterialPath(TEXT("foliageWind")), nullptr, LOAD_NoWarn | LOAD_Quiet);
-	UMaterialInterface* Still = LoadObject<UMaterialInterface>(nullptr, *MaterialPath(TEXT("foliage")), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	UMaterialInterface* Windy = LoadKartAsset<UMaterialInterface>(*MaterialPath(TEXT("foliageWind")), AssetSource::TrackAssets);
+	UMaterialInterface* Still = LoadKartAsset<UMaterialInterface>(*MaterialPath(TEXT("foliage")), AssetSource::TrackAssets);
 	if (!Windy || !Still || Windy == Still)
 	{
 		return;

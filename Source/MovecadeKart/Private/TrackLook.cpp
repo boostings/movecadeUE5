@@ -9,6 +9,7 @@
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Texture.h"
+#include "KartAssetLoad.h"
 #include "KartDebugFlags.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Track/TrackBuildHelpers.h"
@@ -86,7 +87,7 @@ namespace
 		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), Tune.Number(TEXT("horizonGlow"), 0.4));
 		Sky->SetScalarParameterValue(TEXT("Brightness"), Tune.Number(TEXT("skyBrightness"), 1.0));
 		// Clouds: the generated density map, coverage from the web's mood (0 = clear).
-		if (UTexture* Clouds = LoadObject<UTexture>(nullptr, CloudTexturePath, nullptr, LOAD_NoWarn | LOAD_Quiet))
+		if (UTexture* Clouds = LoadKartAsset<UTexture>(CloudTexturePath, AssetSource::TrackAssets))
 		{
 			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
 		}
@@ -185,7 +186,7 @@ void ATrackBuilder::ApplyLook()
 	SkySphere->SetVisibility(bAddLighting);
 	const FLinearColor Horizon = Tune.Color(TEXT("skyHorizon"), ColorField(R.Mood, TEXT("skyHorizon"), TEXT("d4e6f5")));
 	const FLinearColor Top = Tune.Color(TEXT("skyTop"), ColorField(R.Mood, TEXT("skyTop"), TEXT("4f78b8")));
-	if (UMaterialInterface* SkyMaster = LoadObject<UMaterialInterface>(nullptr, SkyMaterialPath, nullptr, LOAD_NoWarn | LOAD_Quiet))
+	if (UMaterialInterface* SkyMaster = LoadKartAsset<UMaterialInterface>(SkyMaterialPath, AssetSource::TrackAssets))
 	{
 		UMaterialInstanceDynamic* Sky = UMaterialInstanceDynamic::Create(SkyMaster, this, TEXT("MID_Sky"));
 		PaintSky(Sky, R, Tune, SunDir, Horizon, Top);

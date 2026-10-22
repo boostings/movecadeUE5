@@ -7,6 +7,12 @@
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 
+namespace
+{
+	/** The left stick ignores the first tenth of its travel on each axis (worn sticks drift). */
+	constexpr float SteerDeadZone = 0.1f;
+}
+
 UInputAction* AKartPlayerController::MakeAction(const TCHAR* Name, bool bAxis)
 {
 	UInputAction* Action = NewObject<UInputAction>(this, Name);
@@ -30,7 +36,7 @@ void AKartPlayerController::BeginPlay()
 
 	FEnhancedActionKeyMapping& Stick = Context->MapKey(SteerAxis, EKeys::Gamepad_LeftX);
 	UInputModifierDeadZone* DeadZone = NewObject<UInputModifierDeadZone>(this);
-	DeadZone->LowerThreshold = 0.1f;
+	DeadZone->LowerThreshold = SteerDeadZone;
 	DeadZone->Type = EDeadZoneType::Axial;
 	Stick.Modifiers.Add(DeadZone);
 

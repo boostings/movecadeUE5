@@ -19,6 +19,19 @@ static TAutoConsoleVariable<int32> CVarKartAudioDebug(
 
 namespace
 {
+	/** A hitch longer than this is smoothed as if it were this long. */
+	constexpr double MaxFrameSeconds = 0.1;
+	/** EngineVoice.dispose: a short fade, then stop, so a stop never clicks. */
+	constexpr float StopFadeSeconds = 0.08f;
+	/** What a command may ask of a voice: gain up to 2x, playback rate 0.25-4x, a lowpass between 40 Hz and 20 kHz. */
+	constexpr double MaxGain = 2.0;
+	constexpr double MinRate = 0.25;
+	constexpr double MaxRate = 4.0;
+	constexpr double MinLowpassHz = 40.0;
+	constexpr double MaxLowpassHz = 20000.0;
+	/** kart.AudioDebug logs four times a second. */
+	constexpr double DebugLogSeconds = 0.25;
+
 	constexpr int32 NumEngineLayers = NumOnLayers + NumOffLayers;
 	const FName EngineCues[NumEngineLayers] = {
 		TEXT("kart.engine-on-1000"), TEXT("kart.engine-on-2500"), TEXT("kart.engine-on-4000"), TEXT("kart.engine-on-5500"),
@@ -136,7 +149,7 @@ void UKartAudioComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	{
 		StopAll();
 	}
-	const double Dt = FMath::Clamp(static_cast<double>(DeltaTime), 0.0, 0.1);
+	const double Dt = FMath::Clamp(static_cast<double>(DeltaTime), 0.0, MaxFrameSeconds);
 	if (Commands.bEngine && !Mixer->IsMuted())
 	{
 		ApplyEngine(*Mixer, Dt);
@@ -211,7 +224,7 @@ void UKartAudioComponent::ApplyEngine(UKartAudioSubsystem& Mixer, double Dt)
 		EngineOut = 0.0;
 	}
 
-	EngineTarget = EngineTargets(Commands.EngineRpm, Commands.EngineLoad, EngineGain * FMath::Clamp(Commands.EngineMix, 0.0, 2.0));
+	EngineTarget = EngineTargets(Commands.EngineRpm, Commands.EngineLoad, EngineGain * FMath::Clamp(Commands.EngineMix, 0.0, MaxGain));
 	OnBus = Approach(OnBus, EngineTarget.OnBus, EngineBusTau, Dt);
 	OffBus = Approach(OffBus, EngineTarget.OffBus, EngineBusTau, Dt);
 	EngineOut = Approach(EngineOut, EngineTarget.Out, EngineOutTau, Dt);
@@ -239,7 +252,7 @@ void UKartAudioComponent::StopEngine()
 		{
 			// EngineVoice.dispose: a short fade, then stop, so a stop never clicks.
 			Voice->bAutoDestroy = true;
-			Voice->FadeOut(0.08f, 0.f);
+			Voice->FadeOut(StopFadeSeconds, 0.f);
 		}
 	}
 	EngineVoices.Reset();
@@ -310,21 +323,21 @@ void UKartAudioComponent::ApplyLoops(UKartAudioSubsystem& Mixer, double Dt)
 			Loop.Cue = Command.Cue;
 			if (Command.Lowpass >= 0.0)
 			{
-				Loop.Lowpass = FMath::Clamp(Command.Lowpass, 40.0, 20000.0);
+				Loop.Lowpass = FMath::Clamp(Command.Lowpass, MinLowpassHz, MaxLowpassHz);
 				Voice->SetLowPassFilterEnabled(true);
 				Voice->SetLowPassFilterFrequency(static_cast<float>(Loop.Lowpass));
 			}
 		}
-		Loop.TargetGain = Cue->Gain * FMath::Clamp(Command.Gain, 0.0, 2.0);
+		Loop.TargetGain = Cue->Gain * FMath::Clamp(Command.Gain, 0.0, MaxGain);
 		Loop.Gain = Approach(Loop.Gain, Loop.TargetGain, LoopGainTau, Dt);
-		Loop.Rate = Approach(Loop.Rate, FMath::Clamp(Command.Rate, 0.25, 4.0), LoopRateTau, Dt);
+		Loop.Rate = Approach(Loop.Rate, FMath::Clamp(Command.Rate, MinRate, MaxRate), LoopRateTau, Dt);
 		UAudioComponent* Voice = LoopVoices[i];
 		SetVolume(*Voice, static_cast<float>(Loop.Gain * Output));
 		SetPitch(*Voice, static_cast<float>(Loop.Rate));
 		if (Loop.Lowpass >= 0.0 && Command.Lowpass >= 0.0)
 		{
 			// The component keeps no copy of its filter frequency; the last one sent is Loop.Lowpass.
-			const double Lowpass = Approach(Loop.Lowpass, FMath::Clamp(Command.Lowpass, 40.0, 20000.0), LoopLowpassTau, Dt);
+			const double Lowpass = Approach(Loop.Lowpass, FMath::Clamp(Command.Lowpass, MinLowpassHz, MaxLowpassHz), LoopLowpassTau, Dt);
 			if (static_cast<float>(Lowpass) != static_cast<float>(Loop.Lowpass))
 			{
 				Voice->SetLowPassFilterFrequency(static_cast<float>(Lowpass));
@@ -435,7 +448,7 @@ void UKartAudioComponent::LogDebug(double Now)
 	{
 		return;
 	}
-	NextDebugLog = Now + 0.25;
+	NextDebugLog = Now + DebugLogSeconds;
 	const FDrivetrainFrame& D = Commands.Drivetrain;
 	const MovecadeKart::FKartState& S = Movement->SimState();
 	// The Web Audio graph's per-layer output: layer gain x bus x engine output (before the SFX bus).

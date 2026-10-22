@@ -58,8 +58,7 @@ void ATrackLife::Init(ATrackBuilder* Builder)
 	Collection = LoadLife<UMaterialParameterCollection>(TEXT("MPC_TrackLife"));
 	if (!Collection)
 	{
-		UE_LOG(LogTrackLife, Warning, TEXT("No track life assets; run Tools/ue/make_track_life.py"));
-		return;
+		return; // no track life content (LoadLife has said so)
 	}
 	Karts.SetNum(MaxKarts);
 	FindFinishLine(*Track);

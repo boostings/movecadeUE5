@@ -44,6 +44,10 @@ namespace
 
 	/** An idle stream (rate 0) is deactivated after this long; every field's particles live under 1.5 s. */
 	constexpr double StreamIdleSeconds = 2.5;
+	/** A burst's emitter is deactivated this long after it spawned its particles (they live on to the end). */
+	constexpr double BurstSpawnSeconds = 0.1;
+	/** Destroyed streams (finished projectile trails, departed karts) are forgotten this often. */
+	constexpr double StreamSweepSeconds = 5.0;
 }
 
 UKartFxSubsystem* UKartFxSubsystem::Get(const UObject* WorldContext)
@@ -181,7 +185,7 @@ void UKartFxSubsystem::Emit(const FKartFxEmit& O)
 	C->SetVariableInt(PCount, O.Count);
 	C->SetVariableFloat(PRate, 0.f);
 	C->Activate(true);
-	Bursts.Add({ C, World->GetTimeSeconds() + 0.1 });
+	Bursts.Add({ C, World->GetTimeSeconds() + BurstSpawnSeconds });
 }
 
 void UKartFxSubsystem::Emit(const TArray<FKartFxEmit>& Options)
@@ -204,7 +208,7 @@ void UKartFxSubsystem::Tick(float DeltaTime)
 	if (Now >= NextStreamSweep)
 	{
 		// Forget streams that were destroyed (projectile trails, karts that left).
-		NextStreamSweep = Now + 5.0;
+		NextStreamSweep = Now + StreamSweepSeconds;
 		for (auto It = Streams.CreateIterator(); It; ++It)
 		{
 			if (!It.Key().ResolveObjectPtr())

@@ -1,5 +1,6 @@
 #include "FX/KartFxComponent.h"
 
+#include "KartAssetLoad.h"
 #include "Camera/CameraComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -165,7 +166,7 @@ void UKartFxComponent::BuildRocket(UKartFxSubsystem& Fx)
 void UKartFxComponent::BuildGlows()
 {
 	// One per rear wheel while drifting (Glow.jsx), and the prism shell (MultiplayerKart.tsx:1697-1713).
-	UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	UStaticMesh* Sphere = LoadKartAsset<UStaticMesh>(TEXT("/Engine/BasicShapes/Sphere.Sphere"), AssetSource::Engine);
 	for (int32 i = 0; i < 2; ++i)
 	{
 		UStaticMeshComponent* G = MakeFxMesh(VehicleRoot, *FString::Printf(TEXT("FxWheelGlow%d"), i), Sphere);
@@ -194,7 +195,7 @@ void UKartFxComponent::BuildSkidMarks()
 {
 	// One instanced quad per segment, in world space, faded by M_FX_SkidMark.
 	SkidMarks = NewObject<UInstancedStaticMeshComponent>(GetOwner(), TEXT("FxSkidMarks"));
-	SkidMarks->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")));
+	SkidMarks->SetStaticMesh(LoadKartAsset<UStaticMesh>(TEXT("/Engine/BasicShapes/Plane.Plane"), AssetSource::Engine));
 	SkidMarks->SetupAttachment(GetOwner()->GetRootComponent());
 	SkidMarks->SetUsingAbsoluteLocation(true);
 	SkidMarks->SetUsingAbsoluteRotation(true);
@@ -203,7 +204,7 @@ void UKartFxComponent::BuildSkidMarks()
 	SkidMarks->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SkidMarks->SetCastShadow(false);
 	SkidMarks->NumCustomDataFloats = 1;
-	if (UMaterialInterface* Skid = LoadObject<UMaterialInterface>(nullptr, SkidMaterialPath))
+	if (UMaterialInterface* Skid = LoadKartAsset<UMaterialInterface>(SkidMaterialPath, AssetSource::FxMaterials))
 	{
 		SkidMaterial = UMaterialInstanceDynamic::Create(Skid, this);
 		SkidMarks->SetMaterial(0, SkidMaterial);

@@ -6,6 +6,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "KartAssetLoad.h"
 #include "Track/TrackBuildHelpers.h"
 
 using namespace MovecadeKart;
@@ -77,7 +78,7 @@ UMaterialInterface* ATrackBuilder::MaterialFor(const TSharedPtr<FJsonObject>& Hi
 	{
 		return *Found;
 	}
-	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, *MaterialPath(Shader), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	UMaterialInterface* Parent = LoadKartAsset<UMaterialInterface>(*MaterialPath(Shader), AssetSource::TrackAssets);
 	if (!Parent)
 	{
 		return nullptr;

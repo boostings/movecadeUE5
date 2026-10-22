@@ -2,6 +2,7 @@
 // scrapes and kart bumps (kartFxBus 'wall', 'bump'), the respawn pop, landing puffs and boost pad flashes.
 #include "FX/KartFxComponent.h"
 
+#include "KartAssetLoad.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "FX/KartFxSubsystem.h"
@@ -173,11 +174,11 @@ UStaticMeshComponent* UKartFxComponent::PadFlash(int32 Pad, int32 PadCount)
 		AActor* Owner = GetOwner();
 		UStaticMeshComponent* C = MakeFxMesh(Owner->GetRootComponent(),
 			MakeUniqueObjectName(Owner, UStaticMeshComponent::StaticClass(), *FString::Printf(TEXT("FxPadFlash%d"), Pad)),
-			LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")));
+			LoadKartAsset<UStaticMesh>(TEXT("/Engine/BasicShapes/Plane.Plane"), AssetSource::Engine));
 		C->SetUsingAbsoluteLocation(true);
 		C->SetUsingAbsoluteRotation(true);
 		C->SetUsingAbsoluteScale(true);
-		if (UMaterialInterface* M = LoadObject<UMaterialInterface>(nullptr, PadMaterialPath))
+		if (UMaterialInterface* M = LoadKartAsset<UMaterialInterface>(PadMaterialPath, AssetSource::FxMaterials))
 		{
 			PadMaterials[Pad] = UMaterialInstanceDynamic::Create(M, this);
 			C->SetMaterial(0, PadMaterials[Pad]);

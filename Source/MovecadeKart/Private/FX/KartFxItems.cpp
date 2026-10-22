@@ -2,6 +2,7 @@
 // screen post-process (prism rainbow, hit flash, lightning, explosion flash and ink).
 #include "FX/KartFxComponent.h"
 
+#include "KartAssetLoad.h"
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "FX/KartFxSubsystem.h"
@@ -147,7 +148,7 @@ void UKartFxComponent::UpdateScreen(double Time, const FKartItemSlot* Slot, doub
 	if (!ScreenMaterial)
 	{
 		UCameraComponent* Camera = GetOwner()->FindComponentByClass<UCameraComponent>();
-		UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, ScreenMaterialPath);
+		UMaterialInterface* Parent = LoadKartAsset<UMaterialInterface>(ScreenMaterialPath, AssetSource::FxMaterials);
 		if (!Camera || !Parent)
 		{
 			return;
