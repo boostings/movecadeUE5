@@ -9,7 +9,7 @@
 //   node Tools/net-sim/phone-sim.mjs --from-log Saved/Logs/KartGame.log [options]
 //
 // Options: --party localhost:1999  --name Sim1  --paint cyan  --seconds 30  --sweep 60 (deg)
-//          --period 4 (s per sweep)  --hz 30  --game kart|bowling|darts|samurai|stacker
+//          --period 4 (s per sweep)  --hz 30  --game kart|bowling|darts|samurai|stacker|derby
 //
 // --game bowling: on its turn (state.game.activePlayerId) the phone streams a swing (accel frames) and sends
 // game-event bowling:release, as BowlingController.tsx does, every few seconds until the turn moves on.
@@ -137,7 +137,7 @@ const PAD_PROFILES = {
   pad: { hz: 60, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
   // Sumo Bumpers: a tilt that wanders the whole ring (two slow sines per axis, up to ~22 degrees) and A to dash.
   sumo: { hz: 60, attitude: wander, pressEvery: 1.7, hold: 0.12, turnBased: false },
-  derby: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: true },
+  // derby: its own mode below (the bat swung to each derby:pitch).
   fishing: { hz: 100, attitude: rock, pressEvery: 1.5, hold: 0.25, turnBased: false },
 };
 const padProfile = PAD_PROFILES[game] ?? null;
@@ -297,6 +297,95 @@ function startStacker() {
   }, 4);
 }
 
+// --game derby: the phone is the bat. On its turn (state.game.activePlayerId) it streams 60 Hz attitude frames (the
+// bat held up) and presses READY (pad:press a); on each derby:pitch for it, it swings so the swing peaks about when the
+// ball arrives (arriveInMs, a little jitter): the barrel sweeps level from behind round past the plate, gyro high.
+const qmul = (a, b) => [
+  a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+  a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+  a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+];
+const qaxis = (x, y, z, angle) => [x * Math.sin(angle / 2), y * Math.sin(angle / 2), z * Math.sin(angle / 2), Math.cos(angle / 2)];
+// v rotated by the inverse of q (world -> device).
+function qinvRotate(q, v) {
+  const c = [-q[0], -q[1], -q[2], q[3]];
+  const r = qmul(qmul(c, [v[0], v[1], v[2], 0]), q);
+  return [r[0], r[1], r[2]];
+}
+function batFrame(sequence, q, gyroWorld, dtMs) {
+  const buffer = new ArrayBuffer(38);
+  const view = new DataView(buffer);
+  const i16 = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
+  const CALIBRATED = 1, HAS_GYRO = 4, HAS_GRAVITY = 16, HAS_QUATERNION = 32;
+  view.setUint8(0, 0x02);
+  view.setUint8(1, CALIBRATED | HAS_GYRO | HAS_GRAVITY | HAS_QUATERNION);
+  view.setUint8(2, 0);
+  view.setUint8(3, sequence & 255);
+  const g = qinvRotate(q, gyroWorld);
+  const grav = qinvRotate(q, [0, -9.81, 0]);
+  for (let i = 0; i < 3; i += 1) view.setInt16(10 + i * 2, i16(g[i] * 20), true);
+  for (let i = 0; i < 3; i += 1) view.setInt16(22 + i * 2, i16(grav[i] * 1000), true);
+  view.setUint16(28, dtMs, true);
+  for (let i = 0; i < 4; i += 1) view.setInt16(30 + i * 2, i16(q[i] * 16384), true);
+  return buffer;
+}
+let derbyTimer = null;
+let derbyMine = false;
+let derbySwingAt = -1; // ms since started, when the next swing begins
+let derbySwingMs = 300;
+let derbyAim = 0;
+const derbyStarted = Date.now();
+let derbySent = 0;
+function startDerby() {
+  if (derbyTimer) return;
+  log('derby: streaming the bat at 60 Hz');
+  derbyTimer = setInterval(() => {
+    const t = Date.now() - derbyStarted;
+    const due = Math.floor(t / 16.667) + 1 - derbySent;
+    for (let i = 0; i < Math.min(due, 3); i += 1) {
+      const ft = (derbySent + 1) * 16.667;
+      let q = [0, 0, 0, 1];
+      let rate = 0;
+      if (derbySwingAt >= 0 && ft >= derbySwingAt && ft <= derbySwingAt + derbySwingMs) {
+        // From behind round to the follow-through, a sine-bell of speed: 270 degrees over derbySwingMs, square
+        // contact (heading 90) near the peak, give or take derbyAim.
+        const k = (ft - derbySwingAt) / derbySwingMs;
+        const heading = 225 + derbyAim - 270 * (1 - Math.cos(Math.PI * k)) / 2;
+        rate = 270 * (Math.PI / 2) * Math.sin(Math.PI * k) / (derbySwingMs / 1000);
+        q = qmul(qaxis(0, 1, 0, (-heading * Math.PI) / 180), qaxis(1, 0, 0, -Math.PI / 2));
+      } else if (derbySwingAt >= 0 && ft > derbySwingAt + derbySwingMs && ft < derbySwingAt + derbySwingMs + 400) {
+        q = qmul(qaxis(0, 1, 0, (90 * Math.PI) / 180), qaxis(1, 0, 0, -Math.PI / 4));
+      }
+      ws.send(batFrame(sequence, q, [0, rate, 0], 17));
+      sequence = (sequence + 1) & 255;
+      stats.frames += 1;
+      derbySent += 1;
+    }
+  }, 4);
+}
+function derbyPitch(data) {
+  if (!derbyMine || data?.playerId !== playerId) return;
+  // The host takes ~60 ms of latency off a phone's swing: peak that much after the arrival, with a human's jitter.
+  const jitter = (Math.random() - 0.5) * 90;
+  const peakIn = (data.arriveInMs ?? 450) + 60 + jitter;
+  derbySwingMs = 260 + Math.random() * 80;
+  derbyAim = (Math.random() - 0.5) * 50;
+  const now = Date.now() - derbyStarted;
+  derbySwingAt = now + peakIn - derbySwingMs / 2;
+  throws += 1;
+  log(`derby:pitch #${data.pitch} ${data.type} ${data.mph} mph: swinging to peak in ${peakIn.toFixed(0)} ms`);
+}
+function setDerbyTurn(active) {
+  if (active === derbyMine) return;
+  derbyMine = active;
+  log(active ? 'derby: my turn at the plate' : 'derby: turn over');
+  if (active) {
+    startDerby();
+    setTimeout(() => { send({ t: 'game-event', event: 'pad:press', data: { button: 'a' } }); stats.events += 1; log('pad:press a (READY)'); }, 900);
+  }
+}
+
 let dartsTimer = null;
 let dartsLeft = 0;
 let dartsMine = false;
@@ -408,6 +497,7 @@ ws.addEventListener('message', (event) => {
       if (m.state?.game?.status === 'in-progress') startDriving();
       if (game === 'samurai' && m.state?.game?.status === 'in-progress') startSamurai();
       if (game === 'stacker' && m.state?.game?.status === 'in-progress') startStacker();
+      if (game === 'derby') setDerbyTurn(m.state?.game?.status === 'in-progress' && !!playerId && m.state?.game?.activePlayerId === playerId);
       if (padProfile) {
         const running = m.state?.game?.status === 'in-progress';
         const mine = !padProfile.turnBased || (!!playerId && m.state?.game?.activePlayerId === playerId);
@@ -429,6 +519,7 @@ ws.addEventListener('message', (event) => {
         break;
       }
       if (m.event === 'darts:aim') break;
+      if (m.event === 'derby:pitch') { derbyPitch(m.data); break; }
       if (m.event === 'pad:prompt') {
         const to = m.data?.playerId;
         if (to === playerId || to === '*') {

@@ -25,6 +25,9 @@ namespace MovecadeKart::Arcade
 			{ TEXT("sumo"), LOCTEXT("Sumo", "Sumo Bumpers"), LOCTEXT("SumoTag", "Bumper-car sumo on a ring over the night sea. Tilt to roll, dash to shove, last one standing."),
 				LOCTEXT("SumoHow", "Stick or WASD roll your puck; A, Space or click dashes into whoever is in front. Knock them off the edge; the ring shrinks. Two rounds win."), TEXT("L_Sumo"), KC::Grape, 4, 1, 2.5,
 				LOCTEXT("SumoPhone", "Phones are your bumper car: scan the code, tilt to roll, tap A to dash.") },
+			{ TEXT("derby"), LOCTEXT("Derby", "Home Run Derby"), LOCTEXT("DerbyTag", "Night lights, ten pitches, one bat. Time the swing and send it into the seats."),
+				LOCTEXT("DerbyHow", "Hold Space, RT or click to load, let go to swing as the ball arrives. Mouse, A/D or stick aim pull or opposite field. Phones: swing it like a bat."), TEXT("L_Derby"), KC::Hot, 4, 4, 3.0,
+				LOCTEXT("DerbyPhone", "Phones are the bat: scan the code, then swing it as the pitch arrives.") },
 		};
 		return List;
 	}
