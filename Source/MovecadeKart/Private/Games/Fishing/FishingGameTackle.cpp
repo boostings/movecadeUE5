@@ -71,7 +71,7 @@ void AFishingGame::BuildLanes()
 	for (int32 i = 0; i < N; ++i)
 	{
 		const FLinearColor Color = AFishingLake::LaneColor(i);
-		UArcadeAvatarComponent* Avatar = NewObject<UArcadeAvatarComponent>(this, *FString::Printf(TEXT("Angler%d"), i));
+		UArcadeAvatarComponent* Avatar = NewObject<UArcadeAvatarComponent>(this, MakeUniqueObjectName(this, UArcadeAvatarComponent::StaticClass(), *FString::Printf(TEXT("Angler%d"), i)));
 		Avatar->AvatarScale = AnglerScale;
 		Avatar->SetupAttachment(RootComponent);
 		Avatar->RegisterComponent();

@@ -135,7 +135,8 @@ uint32 ADerbyGameMode::MatchSeed() const
 	{
 		if (const URoomHostSubsystem* Room = GetRoom())
 		{
-			return RoomSeedBase ^ (RoomSeedStep * static_cast<uint32>(Room->GetRoom().MatchNumber + 1));
+			// In uint32, where + 1 wraps (in int32 a MatchNumber of MAX_int32 overflowed). Same seed for every other value.
+			return RoomSeedBase ^ (RoomSeedStep * (static_cast<uint32>(Room->GetRoom().MatchNumber) + 1u));
 		}
 	}
 	return FDerbyDebugFlags::Parse(FCommandLine::Get()).Seed.Get(FPlatformTime::Cycles());

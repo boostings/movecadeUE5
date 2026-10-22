@@ -176,7 +176,7 @@ void URoomHostSubsystem::LoadSaved(bool bIgnoreSavedRoom)
 	FString SavedCode;
 	double SavedAt = 0.0;
 	Saved->TryGetStringField(TEXT("code"), SavedCode);
-	Saved->TryGetNumberField(TEXT("savedAt"), SavedAt);
+	SavedAt = Saved->TryGetNumberField(TEXT("savedAt"), SavedAt) && FMath::Abs(SavedAt) <= 1e15 ? SavedAt : 0.0; // NaN or past int64 would make the cast below undefined
 	const int64 AgeMs = RoomHost::UnixMs() - static_cast<int64>(SavedAt);
 	if (IsValidRoomCode(SavedCode) && AgeMs < RoomHost::SavedRoomMaxAgeMs)
 	{
