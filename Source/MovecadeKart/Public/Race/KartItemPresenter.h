@@ -5,6 +5,7 @@
 #include "Sim/KartItems.h"
 #include "KartItemPresenter.generated.h"
 
+class AKartPawn;
 class AKartRaceManager;
 class UInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
@@ -13,23 +14,27 @@ class UNiagaraComponent;
 class UPointLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
+namespace MovecadeKart::Fx
+{
+	struct FKartFxEmit;
+	struct FKartFxLight;
+}
 
 /**
- * Draws the item world (spec 02 §7) and its VFX. It only reads the race manager's item world and events; nothing
- * here feeds back into the sim.
- * - Item boxes: a translucent gold glass cube with a spinning chamfered core, "?" glyphs on every face, a soft halo
- *   and drifting twinkles; a pop-and-ring when a box comes back and a gold burst when one is collected.
+ * Draws the item world (spec 02 §7) and its VFX. AKartRaceManager spawns one and binds it to the race; it only reads
+ * the manager's item world and events, and nothing here feeds back into the sim.
+ * - Item boxes: a glass prize orb with a spinning gem, a soft halo and drifting twinkles; a pop and a ring when a box
+ *   comes back and a burst when one is collected.
  * - Items: a modelled mesh and clear-coat material for each of the eleven (KartItemMeshes). Thrown items fly with a
- *   glowing trail in their colour (the sky seeker with sparks too, the bomb with a lit fuse and an accelerating glow
- *   pulse); a used item pops up over its kart, spins and bursts; an item that runs out vanishes in a puff.
- * - Hits: bursts from the item events and kart contacts (kartFxBus.ts profiles), tinted by the item that hit.
- * - The bomb explosion: toon fire puffs, a smoke column, debris, a flash, shock rings to the blast radius,
- *   swelling fireball lobes and a light. Lightning: a bolt strikes each victim and every view flashes.
- * - Ink splashes, prism and rocket starts, finish-line confetti, and the item-driven kart visuals and camera shake.
- * Per-kart continuous FX (boosts, drift, skids, dust, impacts, aura, rocket, screen effects) live in UKartFxComponent.
+ *   glowing trail in their colour (seekers shed sparks, the bomb has a lit fuse and a pulsing glow); a used item pops
+ *   up over its kart, spins and bursts; an item that runs out vanishes in a puff.
+ * - Hits, explosions (fireball lobes, rings, a light), lightning strikes, ink, prism and rocket starts and the finish
+ *   (recipes in FX/KartItemFx.h), plus each kart's item-driven pose and camera shake (FKartItemVisual).
+ * Per-kart continuous FX (boosts, drift, skids, dust, aura, rocket, screen effects) live in UKartFxComponent.
  *
- * -KartFxShowcase[=beat] runs a cosmetic tour of the effects on seat 0 for screenshots (explosion, lightning,
- * prism, rocket, ink, hit, confetti, box), or with =items floats every item mesh in a row ahead of the grid.
+ * Source files: KartItemPresenter.cpp (setup and the frame), KartItemPresenterMaterials.cpp, KartItemPresenterEvents.cpp,
+ * KartItemPresenterWorld.cpp (boxes, projectiles, pop-ups, blasts, strikes, lights) and KartItemShowcase.cpp
+ * (-KartFxShowcase: a cosmetic tour of the effects for screenshots).
  */
 UCLASS()
 class MOVECADEKART_API AKartItemPresenter : public AActor
@@ -39,6 +44,7 @@ class MOVECADEKART_API AKartItemPresenter : public AActor
 public:
 	AKartItemPresenter();
 
+	/** Follows a race (again after a restart): the live boxes replace the track builder's preview ones. */
 	void Bind(AKartRaceManager* InManager);
 	virtual void Tick(float DeltaSeconds) override;
 
@@ -62,6 +68,7 @@ private:
 		bool bSeen = false;
 	};
 
+	/** One explosion's fireball: three lobes around the centre. */
 	struct FBlast
 	{
 		FVector Center;
@@ -74,6 +81,14 @@ private:
 	{
 		double Start = -1000.0;
 		FVector At = FVector::ZeroVector;
+	};
+
+	/** A pooled flash light's envelope (Start < 0: the light is free). */
+	struct FLightFlash
+	{
+		double Start = -1.0;
+		double Peak = 0.0;
+		double Seconds = 0.6;
 	};
 
 	/**
@@ -93,22 +108,45 @@ private:
 	};
 	static void Commit(UInstancedStaticMeshComponent* Component, FInstanceBatch& Batch);
 
+	// Setup (KartItemPresenter.cpp, KartItemPresenterMaterials.cpp).
 	UInstancedStaticMeshComponent* MakeMeshes(const TCHAR* Name, UStaticMesh* Mesh, int32 CustomFloats = 0);
 	UMaterialInstanceDynamic* ItemMaterial(const FLinearColor& Base, const FLinearColor& Emissive, float EmissiveStrength, float Metallic, float Roughness, float ClearCoat = 0.6f);
 	UMaterialInstanceDynamic* GlowMaterial(const FLinearColor& Color, float Intensity, float Power, float Core);
 	void SetupMaterials();
+	void SetupItemMaterials();
+	void SetupBoxMaterials();
+	void BuildStrikes();
+	void ResetBoxes();
+
+	// Events (KartItemPresenterEvents.cpp).
 	void HandleCue(int32 Seat, FName Cue);
 	void HandleEvents(const TArray<MovecadeKart::FKartItemEvent>& Events, double Time);
+	void Strike(const FVector& Ground, double Time);
+
+	// The item world, every frame (KartItemPresenterWorld.cpp).
 	void UpdateBoxes(double Time, double Now);
 	void UpdateItems(double Time);
+	void UpdateProjectiles(double Time, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
+	void UpdateTrails(const MovecadeKart::FKartItemProjectile& Projectile, const FVector& TrailAt);
+	void RetireTrails(double Time, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
+	void UpdatePopups(double Time, TArray<MovecadeKart::Fx::FKartFxEmit>& Out);
 	void UpdateBlasts(double Time);
+	void UpdateLights(double Time);
 	void UpdateStrikes(double Time);
+	void UpdateKartVisuals(double Time, double Now);
+	/** A pooled point light that pops up in 0.05 s and fades out over its seconds. */
+	void FlashLight(const MovecadeKart::Fx::FKartFxLight& Light, double Time);
+
+	// -KartFxShowcase (KartItemShowcase.cpp).
+	void StartShowcase(const AKartRaceManager& Race);
 	void UpdateShowcase(double Time);
-	void Strike(const FVector& Ground, double Time);
-	/** A pooled point light that pops up in 0.05 s and fades out over Seconds (candelas at the peak). */
-	void FlashLight(const FVector& At, const FLinearColor& Color, double RadiusCm, double PeakCandela, double Seconds, double Time);
+	void UpdateShowcaseCapture(double Time, float DeltaSeconds);
+	void AddShowcaseItems(double Time);
+
 	FVector KartGround(int32 Seat) const;
+	AKartPawn* KartAt(int32 Seat) const;
 	UInstancedStaticMeshComponent* MeshesFor(MovecadeKart::EKartItem Item) const;
+	FInstanceBatch& BatchFor(MovecadeKart::EKartItem Item) { return ItemBatches[static_cast<int32>(Item)]; }
 
 	TWeakObjectPtr<AKartRaceManager> Manager;
 	FDelegateHandle CueHandle;
@@ -120,9 +158,9 @@ private:
 	FInstanceBatch GlowBatch;
 	FInstanceBatch BombGlowBatch;
 	FInstanceBatch BlastBatch;
+	/** Orb, gem, halo and label instances, in that order. */
 	FInstanceBatch BoxBatches[4];
 
-	// Item boxes.
 	UPROPERTY()
 	TObjectPtr<UInstancedStaticMeshComponent> Boxes;
 
@@ -151,15 +189,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInstancedStaticMeshComponent> Blasts;
 
-	/** A small pool of flash lights (explosions, hits, the finish), reused oldest first (start < 0: free). */
+	/** A small pool of flash lights (explosions, hits, the finish), reused oldest first. */
 	UPROPERTY()
 	TArray<TObjectPtr<UPointLightComponent>> BlastLights;
-	struct FLightFlash
-	{
-		double Start = -1.0;
-		double Peak = 0.0;
-		double Seconds = 0.6;
-	};
 	TArray<FLightFlash> LightFlashes;
 
 	/** Lightning bolts: a few prebuilt jagged meshes, each shown for a moment where it strikes. */
