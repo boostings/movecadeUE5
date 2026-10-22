@@ -39,52 +39,150 @@ namespace
 	constexpr double JoinPopSeconds = 0.4;
 	constexpr double StampSeconds = 0.3;
 
+	/** The compact option rows on a player card: label left, the value between two arrows on the right. */
+	namespace CompactRowArt
+	{
+		/** The value's area starts this fraction of the way across the row. */
+		constexpr double ValueStart = 0.3;
+		constexpr double ArrowHitWidth = 50.0;
+		constexpr double GlowPad = 4.0;
+		constexpr float GlowAlpha = 0.45f;
+		constexpr float FocusRim = 3.f;
+		constexpr float IdleAlpha = 0.8f;
+		constexpr float LabelSize = 17.f;
+		constexpr double LabelX = 22.0;
+		constexpr double LeftArrowInset = 18.0;
+		constexpr double RightArrowInset = 22.0;
+		constexpr double NudgeSeconds = 0.15;
+		constexpr double NudgeDistance = 6.0;
+		constexpr float IdleArrowAlpha = 0.35f;
+		constexpr float ArrowSize = 10.f;
+		constexpr double PopSeconds = 0.2;
+		constexpr float Pop = 0.14f;
+		constexpr double SwatchX = 30.0;
+		constexpr float SwatchRadius = 13.f;
+		constexpr float SwatchOutline = 2.f;
+		constexpr double SwatchTextShift = 14.0;
+		/** Room kept clear of the arrows, plus the swatch when there is one. */
+		constexpr double ArrowRoom = 36.0;
+		constexpr double SwatchRoom = 28.0;
+		constexpr float ValueSize = 23.f;
+		constexpr float MinValueSize = 16.f;
+	}
+
 	/** An option row sized for the player cards (KartWidgets::OptionRow is too wide for four across). */
 	void CompactRow(const FKartPainter& P, const FVector2D& Pos, const FVector2D& Size, const FText& Label, const FText& Value,
 		const FItemState& State, int32 HitId, const FLinearColor& Swatch)
 	{
+		using namespace CompactRowArt;
 		if (HitId >= 0)
 		{
 			P.Hit(HitId, Pos, Size);
-			P.Hit(HitId | KartWidgets::LeftArrowFlag, FVector2D(Pos.X + Size.X * 0.3, Pos.Y), FVector2D(50.0, Size.Y));
-			P.Hit(HitId | KartWidgets::RightArrowFlag, FVector2D(Pos.X + Size.X - 50.0, Pos.Y), FVector2D(50.0, Size.Y));
+			P.Hit(HitId | KartWidgets::LeftArrowFlag, FVector2D(Pos.X + Size.X * ValueStart, Pos.Y), FVector2D(ArrowHitWidth, Size.Y));
+			P.Hit(HitId | KartWidgets::RightArrowFlag, FVector2D(Pos.X + Size.X - ArrowHitWidth, Pos.Y), FVector2D(ArrowHitWidth, Size.Y));
 		}
 		const float R = static_cast<float>(Size.Y * 0.5);
 		if (State.bFocused)
 		{
-			P.Box(Pos - FVector2D(4.0, 4.0), Size + FVector2D(8.0, 8.0), Color::WithAlpha(Color::Sun, 0.45f), R + 4.f);
-			P.Box(Pos, Size, Color::White, R, Color::SunDeep, 3.f);
+			P.Box(Pos - FVector2D(GlowPad, GlowPad), Size + FVector2D(2.0 * GlowPad, 2.0 * GlowPad), Color::WithAlpha(Color::Sun, GlowAlpha), R + static_cast<float>(GlowPad));
+			P.Box(Pos, Size, Color::White, R, Color::SunDeep, FocusRim);
 		}
 		else
 		{
-			P.Box(Pos, Size, Color::WithAlpha(Color::PaperShade, 0.8f), R);
+			P.Box(Pos, Size, Color::WithAlpha(Color::PaperShade, IdleAlpha), R);
 		}
-		P.Text(Label, Font(EFont::Label, 17.f), FVector2D(Pos.X + 22.0, Pos.Y + Size.Y * 0.5), Color::NavyDim, FVector2D(0.0, 0.5));
-		const double L = Pos.X + Size.X * 0.3 + 18.0;
-		const double Rt = Pos.X + Size.X - 22.0;
-		const double Nudge = State.ChangeAge < 0.15 ? (1.0 - State.ChangeAge / 0.15) * 6.0 : 0.0;
-		const FLinearColor ArrowColor = State.bFocused ? Color::SunDeep : Color::WithAlpha(Color::NavyDim, 0.35f);
-		KartWidgets::Arrow(P, FVector2D(L - (State.ChangeDir < 0 ? Nudge : 0.0), Pos.Y + Size.Y * 0.5), 10.f, false, ArrowColor);
-		KartWidgets::Arrow(P, FVector2D(Rt + (State.ChangeDir > 0 ? Nudge : 0.0), Pos.Y + Size.Y * 0.5), 10.f, true, ArrowColor);
+		P.Text(Label, Font(EFont::Label, LabelSize), FVector2D(Pos.X + LabelX, Pos.Y + Size.Y * 0.5), Color::NavyDim, FVector2D(0.0, 0.5));
+		const double L = Pos.X + Size.X * ValueStart + LeftArrowInset;
+		const double Rt = Pos.X + Size.X - RightArrowInset;
+		const double Nudge = State.ChangeAge < NudgeSeconds ? (1.0 - State.ChangeAge / NudgeSeconds) * NudgeDistance : 0.0;
+		const FLinearColor ArrowColor = State.bFocused ? Color::SunDeep : Color::WithAlpha(Color::NavyDim, IdleArrowAlpha);
+		KartWidgets::Arrow(P, FVector2D(L - (State.ChangeDir < 0 ? Nudge : 0.0), Pos.Y + Size.Y * 0.5), ArrowSize, false, ArrowColor);
+		KartWidgets::Arrow(P, FVector2D(Rt + (State.ChangeDir > 0 ? Nudge : 0.0), Pos.Y + Size.Y * 0.5), ArrowSize, true, ArrowColor);
 		const FVector2D VC((L + Rt) * 0.5, Pos.Y + Size.Y * 0.5);
-		const float Pop = State.ChangeAge < 0.2 ? 1.f + 0.14f * (1.f - Ease::OutCubic(static_cast<float>(State.ChangeAge / 0.2))) : 1.f;
-		const FKartPainter V = P.Transformed(VC, Pop);
+		const float ValuePop = State.ChangeAge < PopSeconds ? 1.f + Pop * (1.f - Ease::OutCubic(static_cast<float>(State.ChangeAge / PopSeconds))) : 1.f;
+		const FKartPainter V = P.Transformed(VC, ValuePop);
 		const bool bSwatch = Swatch.A > 0.f;
 		double TextX = VC.X;
 		if (bSwatch)
 		{
-			V.Circle(FVector2D(L + 30.0, VC.Y), 13.f, Swatch, Color::Navy, 2.f);
-			TextX += 14.0;
+			V.Circle(FVector2D(L + SwatchX, VC.Y), SwatchRadius, Swatch, Color::Navy, SwatchOutline);
+			TextX += SwatchTextShift;
 		}
 		// Long names ("Classic Jersey") shrink to stay between the arrows.
-		const double Room = (Rt - L) - 36.0 - (bSwatch ? 28.0 : 0.0);
-		FSlateFontInfo ValueFont = Font(EFont::Button, 23.f);
+		const double Room = (Rt - L) - ArrowRoom - (bSwatch ? SwatchRoom : 0.0);
+		FSlateFontInfo ValueFont = Font(EFont::Button, ValueSize);
 		const double Width = FKartPainter::Measure(Value.ToString(), ValueFont).X;
 		if (Width > Room)
 		{
-			ValueFont = Font(EFont::Button, FMath::Max(16.f, FMath::FloorToFloat(23.f * static_cast<float>(Room / Width))));
+			ValueFont = Font(EFont::Button, FMath::Max(MinValueSize, FMath::FloorToFloat(ValueSize * static_cast<float>(Room / Width))));
 		}
 		V.Text(Value, ValueFont, FVector2D(TextX, VC.Y), Color::Navy, FVector2D(0.5, 0.5));
+	}
+
+	/** A joined player's card: header band, rows and the ready bar. */
+	namespace CardArt
+	{
+		constexpr float InAt = 0.1f;
+		constexpr float Stagger = 0.06f;
+		constexpr float JoinOvershoot = 2.f;
+		constexpr float PopFrom = 0.85f;
+		constexpr float PopGrowth = 0.15f;
+		constexpr float Shadow = 10.f;
+		constexpr float Rim = 5.f;
+		/** The seat badge and the driver's name in the header band. */
+		const FVector2D BadgeCentre(66.0, 60.0);
+		constexpr float BadgeRadius = 34.f;
+		constexpr float BadgeOutline = 3.f;
+		constexpr float BadgeTagSize = 30.f;
+		const FVector2D NamePos(116.0, 60.0);
+		constexpr float NameSize = 46.f;
+		constexpr float NameOutline = 3.f;
+		constexpr double RowInset = 16.0;
+		/** Painting the other players' rows through a (barely) faded painter keeps them from registering hit regions. */
+		constexpr float NoHitFade = 0.999f;
+		/** The ready bar sits this far up from the card's bottom. */
+		constexpr double ReadyLift = 70.0;
+		constexpr float StampOvershoot = 3.f;
+		constexpr float StampGrow = 0.6f;
+		constexpr float StampTilt = -4.f;
+		constexpr float StampRim = 3.f;
+		constexpr float StampSize = 36.f;
+		constexpr float StampOutline = 2.f;
+		constexpr float StampShadow = 3.f;
+		constexpr float GlyphHeight = 36.f;
+		constexpr float LabelSize = 24.f;
+		constexpr float GlyphGap = 10.f;
+	}
+
+	/** The next free seat's "press start to join" card. */
+	namespace JoinArt
+	{
+		constexpr float InAt = 0.3f;
+		constexpr float PulseFloor = 0.75f;
+		constexpr float PulseAmount = 0.25f;
+		constexpr float PulseSpeed = 3.f;
+		constexpr float FillAlpha = 0.55f;
+		constexpr float RimAlpha = 0.8f;
+		constexpr float Rim = 3.f;
+		constexpr double TagY = 0.36;
+		constexpr float TagSize = 64.f;
+		constexpr float TagOutline = 3.f;
+		constexpr float TagAlpha = 0.9f;
+		constexpr double GlyphY = 0.56;
+		constexpr float GlyphHeight = 44.f;
+		constexpr double TextY = 0.7;
+		constexpr float TextSize = 26.f;
+		constexpr float TextOutline = 2.f;
+	}
+
+	/** The shade behind the cards and under the header. */
+	namespace ShadeArt
+	{
+		constexpr double BottomTop = 0.45;
+		constexpr double BottomHeight = 0.55;
+		constexpr float BottomAlpha = 0.7f;
+		constexpr double TopHeight = 260.0;
+		constexpr float TopAlpha = 0.6f;
 	}
 
 	/**
@@ -206,8 +304,9 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			P.Gradient(FVector2D(0.0, Frame.Size.Y * 0.45), FVector2D(Frame.Size.X, Frame.Size.Y * 0.55), Color::WithAlpha(Color::Night, 0.f), Color::WithAlpha(Color::Night, 0.7f));
-			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, 260.0), Color::WithAlpha(Color::Night, 0.6f), Color::WithAlpha(Color::Night, 0.f));
+			P.Gradient(FVector2D(0.0, Frame.Size.Y * ShadeArt::BottomTop), FVector2D(Frame.Size.X, Frame.Size.Y * ShadeArt::BottomHeight), Color::WithAlpha(Color::Night, 0.f),
+				Color::WithAlpha(Color::Night, ShadeArt::BottomAlpha));
+			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, ShadeArt::TopHeight), Color::WithAlpha(Color::Night, ShadeArt::TopAlpha), Color::WithAlpha(Color::Night, 0.f));
 			KartWidgets::Header(P, Frame, LOCTEXT("RacersTitle", "Choose your racer"),
 				LOCTEXT("RacersSub", "Players 2 to 4: press Start on your controller to join."), Color::Hot);
 			KartWidgets::Steps(P, Frame, RaceSetupSteps(), 0);
@@ -270,7 +369,7 @@ namespace
 		{
 			const int32 Joined = NumJoined();
 			const int32 Cards = FMath::Min(MaxSeats, Joined + 1);
-			const double CardW = FMath::Min(MaxCardWidth, (Frame.SafeSize().X - CardGap * 3) / 4.0);
+			const double CardW = FMath::Min(MaxCardWidth, (Frame.SafeSize().X - CardGap * (MaxSeats - 1)) / MaxSeats);
 			const double Total = Cards * CardW + (Cards - 1) * CardGap;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
 			const double Top = Frame.SafeMax.Y - CardHeight - CardsLift;
@@ -408,20 +507,21 @@ namespace
 
 		void PaintCard(const FKartPainter& P, const FKartScreenFrame& Frame, int32 Player, const FVector2D& Pos, const FVector2D& Size) const
 		{
+			using namespace CardArt;
 			const FSlot& Slot = Slots[Player];
 			const UKartSessionSettings* Settings = SessionOf(Host);
 			const FKartRacerChoice C = FKartRoster::Sanitize(Settings && Settings->GetSetup().Racers.IsValidIndex(Player) ? Settings->GetSetup().Racers[Player] : FKartRoster::DefaultChoice(Player));
 			const FLinearColor Paint = FKartCosmetics::PaintColor(Player, FKartRoster::PaintColor(C.Paint));
-			const float Join = Ease::OutBack(static_cast<float>((Frame.Now - Slot.JoinedAt) / JoinPopSeconds), 2.f);
-			const float In = FMath::Min(KartWidgets::Entrance(Frame, 0.1f + Player * 0.06f), FMath::Max(Join, 0.f));
-			const FKartPainter Card = P.Transformed(Pos + Size * 0.5, 0.85f + 0.15f * In).Faded(In);
-			Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, 10.f, Slot.bReady ? FKartAccessibility::Good() : Color::White, 5.f);
+			const float Join = Ease::OutBack(static_cast<float>((Frame.Now - Slot.JoinedAt) / JoinPopSeconds), JoinOvershoot);
+			const float In = FMath::Min(KartWidgets::Entrance(Frame, InAt + Player * Stagger), FMath::Max(Join, 0.f));
+			const FKartPainter Card = P.Transformed(Pos + Size * 0.5, PopFrom + PopGrowth * In).Faded(In);
+			Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, Shadow, Slot.bReady ? FKartAccessibility::Good() : Color::White, Rim);
 			// Header band in the kart's paint with the player tag and the driver's name.
 			const FText& Driver = FKartRoster::Characters()[C.Character].Name;
 			Card.Box(Pos + FVector2D(CardInset, CardInset), FVector2D(Size.X - 2.0 * CardInset, BandHeight), Paint, Metric::Radius);
-			Card.Circle(Pos + FVector2D(66.0, 60.0), 34.f, Color::White, Color::Navy, 3.f);
-			Card.Text(SeatTag(FMath::Clamp(Player, 0, MaxSeats - 1)), Font(EFont::Display, 30.f), Pos + FVector2D(66.0, 60.0), Color::Navy, FVector2D(0.5, 0.5));
-			Card.Text(Driver, Font(EFont::Display, 46.f, 3.f), Pos + FVector2D(116.0, 60.0), Color::White, FVector2D(0.0, 0.5), 3.f);
+			Card.Circle(Pos + BadgeCentre, BadgeRadius, Color::White, Color::Navy, BadgeOutline);
+			Card.Text(SeatTag(FMath::Clamp(Player, 0, MaxSeats - 1)), Font(EFont::Display, BadgeTagSize), Pos + BadgeCentre, Color::Navy, FVector2D(0.5, 0.5));
+			Card.Text(Driver, Font(EFont::Display, NameSize, NameOutline), Pos + NamePos, Color::White, FVector2D(0.0, 0.5), NameOutline);
 
 			static const FText Labels[NumRows] = { LOCTEXT("Driver", "Driver"), LOCTEXT("Outfit", "Outfit"), LOCTEXT("Vehicle", "Vehicle"), LOCTEXT("Paint", "Paint") };
 			const FText Values[NumRows] = { Driver, FKartRoster::OutfitName(C.Outfit), FKartRoster::VehicleName(C.Vehicle),
@@ -433,20 +533,21 @@ namespace
 					Group.Next();
 					FItemState State = Slot.Focus.State(Row, Frame.Now);
 					State.bFocused = State.bFocused && !Slot.bReady;
-					const FVector2D RowPos(Pos.X + 16.0, Pos.Y + RowsTop + Row * (RowHeight + RowGap));
+					const FVector2D RowPos(Pos.X + RowInset, Pos.Y + RowsTop + Row * (RowHeight + RowGap));
 					// Only P1's card is mouse-driven (the keyboard and mouse belong to player 1); a faded copy of the
 					// painter counts as transformed, so the other cards register no hit regions.
-					const FKartPainter RowPainter = Player == 0 ? Card : Card.Faded(0.999f);
-					CompactRow(RowPainter, RowPos, FVector2D(Size.X - 32.0, RowHeight), Labels[Row], Values[Row], State, Player == 0 ? Row : -1,
+					const FKartPainter RowPainter = Player == 0 ? Card : Card.Faded(NoHitFade);
+					CompactRow(RowPainter, RowPos, FVector2D(Size.X - 2.0 * RowInset, RowHeight), Labels[Row], Values[Row], State, Player == 0 ? Row : -1,
 						Row == PaintRow ? Paint : FLinearColor::Transparent);
 				}
 			}
-			PaintReadyBar(Card, Frame, Player, FVector2D(Pos.X + 16.0, Pos.Y + Size.Y - 70.0), FVector2D(Size.X - 32.0, ReadyHeight));
+			PaintReadyBar(Card, Frame, Player, FVector2D(Pos.X + RowInset, Pos.Y + Size.Y - ReadyLift), FVector2D(Size.X - 2.0 * RowInset, ReadyHeight));
 		}
 
 		/** The ready bar: "(A) when ready", or the READY! stamp. */
 		void PaintReadyBar(const FKartPainter& Card, const FKartScreenFrame& Frame, int32 Player, const FVector2D& ReadyPos, const FVector2D& ReadySize) const
 		{
+			using namespace CardArt;
 			const FSlot& Slot = Slots[Player];
 			if (Player == 0)
 			{
@@ -455,35 +556,37 @@ namespace
 			const float Round = static_cast<float>(ReadySize.Y * 0.5);
 			if (Slot.bReady)
 			{
-				const float Stamp = Ease::OutBack(static_cast<float>((Frame.Now - Slot.ReadyAt) / StampSeconds), 3.f);
+				const float Stamp = Ease::OutBack(static_cast<float>((Frame.Now - Slot.ReadyAt) / StampSeconds), StampOvershoot);
 				const float Motion = FKartAccessibility::MotionScale();
-				const FKartPainter S = Card.Transformed(ReadyPos + ReadySize * 0.5, 1.f + (0.6f - 0.6f * Stamp) * Motion, -4.f * Motion);
-				S.Box(ReadyPos, ReadySize, FKartAccessibility::Good(), Round, Color::White, 3.f);
-				S.Text(LOCTEXT("ReadyStamp", "READY!"), Font(EFont::Display, 36.f, 2.f), ReadyPos + ReadySize * 0.5, Color::White, FVector2D(0.5, 0.5), 3.f);
+				const FKartPainter S = Card.Transformed(ReadyPos + ReadySize * 0.5, 1.f + (StampGrow - StampGrow * Stamp) * Motion, StampTilt * Motion);
+				S.Box(ReadyPos, ReadySize, FKartAccessibility::Good(), Round, Color::White, StampRim);
+				S.Text(LOCTEXT("ReadyStamp", "READY!"), Font(EFont::Display, StampSize, StampOutline), ReadyPos + ReadySize * 0.5, Color::White, FVector2D(0.5, 0.5), StampShadow);
 				return;
 			}
 			Card.Box(ReadyPos, ReadySize, Color::PaperShade, Round);
 			const EKartInputDevice Device = Player == 0 ? Frame.Device : EKartInputDevice::Gamepad;
-			const float GlyphW = KartWidgets::GlyphWidth(EKartMenuAction::Accept, Device, 36.f);
-			const FSlateFontInfo LabelFont = Font(EFont::Button, 24.f);
+			const float GlyphW = KartWidgets::GlyphWidth(EKartMenuAction::Accept, Device, GlyphHeight);
+			const FSlateFontInfo LabelFont = Font(EFont::Button, LabelSize);
 			const FText Label = LOCTEXT("PressReady", "when ready");
-			const float W = GlyphW + 10.f + static_cast<float>(FKartPainter::Measure(Label.ToString(), LabelFont).X);
+			const float W = GlyphW + GlyphGap + static_cast<float>(FKartPainter::Measure(Label.ToString(), LabelFont).X);
 			const double X = ReadyPos.X + ReadySize.X * 0.5 - W * 0.5;
-			KartWidgets::Glyph(Card, EKartMenuAction::Accept, Device, FVector2D(X, ReadyPos.Y + ReadySize.Y * 0.5), 36.f);
-			Card.Text(Label, LabelFont, FVector2D(X + GlyphW + 10.0, ReadyPos.Y + ReadySize.Y * 0.5), Color::NavyDim, FVector2D(0.0, 0.5));
+			KartWidgets::Glyph(Card, EKartMenuAction::Accept, Device, FVector2D(X, ReadyPos.Y + ReadySize.Y * 0.5), GlyphHeight);
+			Card.Text(Label, LabelFont, FVector2D(X + GlyphW + GlyphGap, ReadyPos.Y + ReadySize.Y * 0.5), Color::NavyDim, FVector2D(0.0, 0.5));
 		}
 
 		/** The next free seat: a pulsing "press start to join" card. */
 		void PaintJoinCard(const FKartPainter& P, const FKartScreenFrame& Frame, int32 Player, const FVector2D& Pos, const FVector2D& Size) const
 		{
-			const float In = KartWidgets::Entrance(Frame, 0.3f);
-			const FKartPainter Card = P.Faded(In * (0.75f + 0.25f * FMath::Sin(static_cast<float>(Frame.Now) * 3.f)));
-			Card.Box(Pos, Size, Color::WithAlpha(Color::Night, 0.55f), Metric::RadiusLarge, Color::WithAlpha(Color::White, 0.8f), 3.f);
-			Card.Text(SeatTag(FMath::Clamp(Player, 0, MaxSeats - 1)), Font(EFont::Display, 64.f, 3.f), Pos + FVector2D(Size.X * 0.5, Size.Y * 0.36),
-				Color::WithAlpha(Color::White, 0.9f), FVector2D(0.5, 0.5));
-			const float GlyphW = KartWidgets::GlyphWidth(EKartMenuAction::Start, EKartInputDevice::Gamepad, 44.f);
-			KartWidgets::Glyph(Card, EKartMenuAction::Start, EKartInputDevice::Gamepad, Pos + FVector2D(Size.X * 0.5 - GlyphW * 0.5, Size.Y * 0.56), 44.f);
-			Card.Text(LOCTEXT("Join", "Press Start to join"), Font(EFont::Button, 26.f, 2.f), Pos + FVector2D(Size.X * 0.5, Size.Y * 0.7), Color::White, FVector2D(0.5, 0.5));
+			using namespace JoinArt;
+			const float In = KartWidgets::Entrance(Frame, InAt);
+			const FKartPainter Card = P.Faded(In * (PulseFloor + PulseAmount * FMath::Sin(static_cast<float>(Frame.Now) * PulseSpeed)));
+			Card.Box(Pos, Size, Color::WithAlpha(Color::Night, FillAlpha), Metric::RadiusLarge, Color::WithAlpha(Color::White, RimAlpha), Rim);
+			Card.Text(SeatTag(FMath::Clamp(Player, 0, MaxSeats - 1)), Font(EFont::Display, TagSize, TagOutline), Pos + FVector2D(Size.X * 0.5, Size.Y * TagY),
+				Color::WithAlpha(Color::White, TagAlpha), FVector2D(0.5, 0.5));
+			const float GlyphW = KartWidgets::GlyphWidth(EKartMenuAction::Start, EKartInputDevice::Gamepad, GlyphHeight);
+			KartWidgets::Glyph(Card, EKartMenuAction::Start, EKartInputDevice::Gamepad, Pos + FVector2D(Size.X * 0.5 - GlyphW * 0.5, Size.Y * GlyphY), GlyphHeight);
+			Card.Text(LOCTEXT("Join", "Press Start to join"), Font(EFont::Button, TextSize, TextOutline), Pos + FVector2D(Size.X * 0.5, Size.Y * TextY), Color::White,
+				FVector2D(0.5, 0.5));
 		}
 
 		TWeakObjectPtr<AKartFrontEnd> FrontEnd;

@@ -15,16 +15,50 @@ namespace
 	constexpr double LogoY = 0.3;
 	constexpr double PressY = 0.74;
 
-	/** The pill: when it appears, its type, and its press flash before the next screen. */
-	constexpr float PressInAt = 1.1f;
-	constexpr float PressInSeconds = 0.5f;
-	constexpr float PressFontSize = 52.f;
-	constexpr float PressGlyphHeight = 50.f;
-	constexpr double PressHeight = 92.0;
-	constexpr double PressFlashSeconds = 0.3;
+	/** The vignettes over the flyover: a shade fading down from the top, and one rising from the bottom. */
+	namespace VignetteArt
+	{
+		constexpr double TopHeight = 0.55;
+		constexpr float TopAlpha = 0.55f;
+		constexpr double BottomTop = 0.62;
+		constexpr double BottomHeight = 0.38;
+		constexpr float BottomAlpha = 0.75f;
+	}
+
+	/** The "PRESS START" pill: when it appears, its type, its idle pulse and its press flash. */
+	namespace PressArt
+	{
+		constexpr float InAt = 1.1f;
+		constexpr float InSeconds = 0.5f;
+		constexpr float FontSize = 52.f;
+		constexpr float FontOutline = 4.f;
+		constexpr float TextShadow = 4.f;
+		constexpr float GlyphHeight = 50.f;
+		constexpr double Height = 92.0;
+		constexpr float Padding = 100.f;
+		constexpr double ShadowDrop = 8.0;
+		constexpr float FillAlpha = 0.82f;
+		constexpr float Rim = 5.f;
+		constexpr float GlyphX = 36.f;
+		constexpr float GlyphGap = 24.f;
+		constexpr float IdlePulse = 0.035f;
+		constexpr float IdlePulseSpeed = 3.4f;
+		constexpr float FlashPulse = 0.15f;
+		constexpr double FlashSeconds = 0.3;
+	}
+
 	/** Seconds from the press to the next screen (the flash plays out first). */
 	constexpr double AdvanceSeconds = 0.32;
-	constexpr float FooterInAt = 1.4f;
+
+	/** The two footer lines in the safe area's bottom corners. */
+	namespace FooterArt
+	{
+		constexpr float InAt = 1.4f;
+		constexpr float InSeconds = 0.6f;
+		constexpr float Alpha = 0.8f;
+		constexpr float FontSize = 20.f;
+		constexpr float FontOutline = 1.f;
+	}
 
 	/** The attract screen: the logo over the flyover, "press start", and the way out (Back asks to quit). */
 	class FTitleScreen final : public FKartScreen
@@ -67,8 +101,10 @@ namespace
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
 			// Soft vignettes keep the type readable over the flyover.
-			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, Frame.Size.Y * 0.55), Color::WithAlpha(Color::Night, 0.55f), Color::WithAlpha(Color::Night, 0.f));
-			P.Gradient(FVector2D(0.0, Frame.Size.Y * 0.62), FVector2D(Frame.Size.X, Frame.Size.Y * 0.38), Color::WithAlpha(Color::Night, 0.f), Color::WithAlpha(Color::Night, 0.75f));
+			using namespace VignetteArt;
+			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, Frame.Size.Y * TopHeight), Color::WithAlpha(Color::Night, TopAlpha), Color::WithAlpha(Color::Night, 0.f));
+			P.Gradient(FVector2D(0.0, Frame.Size.Y * BottomTop), FVector2D(Frame.Size.X, Frame.Size.Y * BottomHeight), Color::WithAlpha(Color::Night, 0.f),
+				Color::WithAlpha(Color::Night, BottomAlpha));
 			P.Hit(0, FVector2D::ZeroVector, Frame.Size);
 
 			Logo(P, FVector2D(Frame.Size.X * 0.5, Frame.Size.Y * LogoY), 1.f, Frame.Age, Frame.Now);
@@ -86,7 +122,8 @@ namespace
 		/** "Press Start": a pulsing pill with the right glyph; it flashes white when pressed. */
 		void PaintPressStart(const FKartPainter& P, const FKartScreenFrame& Frame) const
 		{
-			const float In = KartWidgets::Entrance(Frame, PressInAt, PressInSeconds);
+			using namespace PressArt;
+			const float In = KartWidgets::Entrance(Frame, InAt, InSeconds);
 			if (In <= 0.f)
 			{
 				return;
@@ -95,26 +132,27 @@ namespace
 			const FVector2D C(Frame.Size.X * 0.5, Frame.Size.Y * PressY);
 			const bool bPressed = PressedAt >= 0.0;
 			const float Motion = FKartAccessibility::MotionScale();
-			const float Pulse = bPressed ? 1.f + 0.15f * Motion * Ease::Pulse(static_cast<float>((Now - PressedAt) / PressFlashSeconds))
-				: 1.f + 0.035f * Motion * FMath::Sin(static_cast<float>(Now) * 3.4f);
+			const float Pulse = bPressed ? 1.f + FlashPulse * Motion * Ease::Pulse(static_cast<float>((Now - PressedAt) / FlashSeconds))
+				: 1.f + IdlePulse * Motion * FMath::Sin(static_cast<float>(Now) * IdlePulseSpeed);
 			const FKartPainter B = P.Transformed(C, Pulse * In).Faded(In);
 			const bool bPad = Frame.Device == EKartInputDevice::Gamepad;
 			const FText Label = bPad ? LOCTEXT("PressStart", "PRESS START") : LOCTEXT("PressEnter", "PRESS ENTER");
-			const FSlateFontInfo LabelFont = Font(EFont::Display, PressFontSize, 4.f);
+			const FSlateFontInfo LabelFont = Font(EFont::Display, FontSize, FontOutline);
 			const EKartMenuAction Action = bPad ? EKartMenuAction::Start : EKartMenuAction::Accept;
-			const float W = static_cast<float>(FKartPainter::Measure(Label.ToString(), LabelFont).X) + KartWidgets::GlyphWidth(Action, Frame.Device, PressGlyphHeight) + 100.f;
-			const FVector2D Pos = C - FVector2D(W * 0.5, PressHeight * 0.5);
-			B.Box(Pos + FVector2D(0.0, 8.0), FVector2D(W, PressHeight), Color::Shadow, PressHeight * 0.5);
-			B.Box(Pos, FVector2D(W, PressHeight), bPressed ? Color::White : Color::WithAlpha(Color::Night, 0.82f), PressHeight * 0.5, Color::Sun, 5.f);
-			float X = static_cast<float>(Pos.X) + 36.f;
-			X += KartWidgets::Glyph(B, Action, Frame.Device, FVector2D(X, C.Y), PressGlyphHeight) + 24.f;
-			B.Text(Label, LabelFont, FVector2D(X, C.Y), bPressed ? Color::Navy : Color::Sun, FVector2D(0.0, 0.5), bPressed ? 0.f : 4.f);
+			const float W = static_cast<float>(FKartPainter::Measure(Label.ToString(), LabelFont).X) + KartWidgets::GlyphWidth(Action, Frame.Device, GlyphHeight) + Padding;
+			const FVector2D Pos = C - FVector2D(W * 0.5, Height * 0.5);
+			B.Box(Pos + FVector2D(0.0, ShadowDrop), FVector2D(W, Height), Color::Shadow, Height * 0.5);
+			B.Box(Pos, FVector2D(W, Height), bPressed ? Color::White : Color::WithAlpha(Color::Night, FillAlpha), Height * 0.5, Color::Sun, Rim);
+			float X = static_cast<float>(Pos.X) + GlyphX;
+			X += KartWidgets::Glyph(B, Action, Frame.Device, FVector2D(X, C.Y), GlyphHeight) + GlyphGap;
+			B.Text(Label, LabelFont, FVector2D(X, C.Y), bPressed ? Color::Navy : Color::Sun, FVector2D(0.0, 0.5), bPressed ? 0.f : TextShadow);
 		}
 
 		void PaintFooter(const FKartPainter& P, const FKartScreenFrame& Frame) const
 		{
-			const FKartPainter Foot = P.Faded(KartWidgets::Entrance(Frame, FooterInAt, 0.6f) * 0.8f);
-			const FSlateFontInfo FootFont = Font(EFont::Body, 20.f, 1.f);
+			using namespace FooterArt;
+			const FKartPainter Foot = P.Faded(KartWidgets::Entrance(Frame, InAt, InSeconds) * Alpha);
+			const FSlateFontInfo FootFont = Font(EFont::Body, FontSize, FontOutline);
 			Foot.Text(LOCTEXT("Footer", "A Movecade game  ·  Unreal Engine 5"), FootFont, FVector2D(Frame.SafeMin.X, Frame.SafeMax.Y), Color::White, FVector2D(0.0, 1.0));
 			Foot.Text(LOCTEXT("PhonesHint", "Phones can be controllers: try Party Mode"), FootFont, FVector2D(Frame.SafeMax.X, Frame.SafeMax.Y), Color::White, FVector2D(1.0, 1.0));
 		}

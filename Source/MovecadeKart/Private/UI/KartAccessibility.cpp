@@ -27,7 +27,9 @@ bool FKartAccessibility::ReduceMotion()
 
 float FKartAccessibility::MotionScale()
 {
-	return ReduceMotion() ? 0.25f : 1.f;
+	// Reduce motion keeps a quarter of each bounce and spin, so feedback still reads without the swing.
+	constexpr float ReducedMotionScale = 0.25f;
+	return ReduceMotion() ? ReducedMotionScale : 1.f;
 }
 
 float FKartAccessibility::UIScale()

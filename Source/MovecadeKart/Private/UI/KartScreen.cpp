@@ -6,6 +6,21 @@
 
 #define LOCTEXT_NAMESPACE "KartScreen"
 
+namespace
+{
+	/** Input (keys and clicks) is ignored for the first part of a transition, so a double press can't skip a screen. */
+	constexpr double InputLockFraction = 0.5;
+	/** Screens slide this far (canvas units) as they come and go. */
+	constexpr double TransitionSlide = 160.0;
+	/** An age well past every entrance animation: a screen drawn settled (leaving, or under a dialog). */
+	constexpr double SettledAge = 10.0;
+	/** The screen under a dialog paints through a (barely) faded painter, which registers no hit regions. */
+	constexpr float NoHitFade = 0.999f;
+	/** The hint bar is rebuilt at least this often even when nothing seems to have changed (seconds). */
+	constexpr double HintsRefreshSeconds = 0.5;
+	constexpr float MinFit = 0.01f;
+}
+
 bool FKartMenuCursor::Move(int32 Delta)
 {
 	if (Count <= 0)
@@ -149,7 +164,7 @@ bool SKartScreenStack::HandleMenuEvent(const FKartMenuEvent& Event)
 		return false;
 	}
 	// Input during the first part of a transition is dropped, so a double press can't skip a screen.
-	if (FSlateApplication::Get().GetCurrentTime() - ShownAt < TransitionSeconds * 0.5)
+	if (FSlateApplication::Get().GetCurrentTime() - ShownAt < TransitionSeconds * InputLockFraction)
 	{
 		return Event.Action != EKartMenuAction::None;
 	}
@@ -177,7 +192,7 @@ bool SKartScreenStack::HandleMenuEvent(const FKartMenuEvent& Event)
 
 FVector2D SKartScreenStack::ToCanvas(const FGeometry& Geometry, const FVector2D& ScreenPos) const
 {
-	return FVector2D(Geometry.AbsoluteToLocal(ScreenPos)) / FMath::Max(Fit, 0.01f);
+	return FVector2D(Geometry.AbsoluteToLocal(ScreenPos)) / FMath::Max(Fit, MinFit);
 }
 
 int32 SKartScreenStack::HitAt(const FVector2D& Local) const
@@ -239,7 +254,7 @@ FReply SKartScreenStack::OnMouseButtonUp(const FGeometry& MyGeometry, const FPoi
 		return FReply::Unhandled();
 	}
 	const int32 Id = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
-	if (Id != INDEX_NONE && Id == PressedId && FSlateApplication::Get().GetCurrentTime() - ShownAt > TransitionSeconds * 0.5)
+	if (Id != INDEX_NONE && Id == PressedId && FSlateApplication::Get().GetCurrentTime() - ShownAt > TransitionSeconds * InputLockFraction)
 	{
 		Screen->OnClick(Id);
 		bHintsDirty = true;
@@ -285,8 +300,8 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 		FKartScreenFrame Out = Frame;
 		Out.Presence = 1.f - T;
 		Out.Direction = -Direction;
-		Out.Age = 10.0;
-		const FVector2D Shift(-Direction * KartUI::Ease::InCubic(T) * 160.0, 0.0);
+		Out.Age = SettledAge;
+		const FVector2D Shift(-Direction * KartUI::Ease::InCubic(T) * TransitionSlide, 0.0);
 		Leaving->Paint(P.Transformed(Frame.Centre(), 1.f, 0.f, Shift).Faded(1.f - T), Out);
 	}
 	const TSharedPtr<FKartScreen> Screen = Top();
@@ -296,15 +311,15 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 		if (Screen->IsModal() && Stack.Num() > 1)
 		{
 			FKartScreenFrame Under = Frame;
-			Under.Age = 10.0;
-			Stack[Stack.Num() - 2]->Paint(P.Faded(0.999f), Under);
+			Under.Age = SettledAge;
+			Stack[Stack.Num() - 2]->Paint(P.Faded(NoHitFade), Under);
 			Hits.Reset();
 		}
 		Frame.Age = Since;
 		Frame.Presence = KartUI::Ease::OutCubic(T);
 		if (T < 1.f && !Screen->IsModal())
 		{
-			const FVector2D Shift(Direction * (1.f - KartUI::Ease::OutCubic(T)) * 160.0, 0.0);
+			const FVector2D Shift(Direction * (1.f - KartUI::Ease::OutCubic(T)) * TransitionSlide, 0.0);
 			Screen->Paint(P.Transformed(Frame.Centre(), 1.f, 0.f, Shift).Faded(Frame.Presence), Frame);
 		}
 		else
@@ -314,7 +329,7 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 		if (bShowHints)
 		{
 			// Hints are rebuilt only when something could change them (plus a slow safety refresh), not every paint.
-			if (bHintsDirty || HintsScreen != Screen.Get() || HintsDevice != Frame.Device || Frame.Now - HintsAt > 0.5)
+			if (bHintsDirty || HintsScreen != Screen.Get() || HintsDevice != Frame.Device || Frame.Now - HintsAt > HintsRefreshSeconds)
 			{
 				CachedHints = Screen->GetHints();
 				bHintsDirty = false;
