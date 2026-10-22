@@ -565,7 +565,8 @@ void ADerbyGame::Tick(float DeltaSeconds)
 		UpdateCamera(DeltaSeconds);
 		return;
 	}
-	float Dt = FMath::Min(DeltaSeconds, 0.1f);
+	// The pitch clock must keep pace with real time even at a low frame rate: a phone's swing is timed in real time.
+	float Dt = FMath::Min(DeltaSeconds, 0.25f);
 	// Hit-stop: the frame of contact holds a beat.
 	if (HitStop > 0.0)
 	{
@@ -1215,12 +1216,12 @@ void ADerbyGame::UpdateCamera(float Dt)
 		break;
 	case EDerbyPhase::Finished:
 		// The finale: round the winner at the plate, the park lit behind.
-		Pos = FVector(FMath::Cos(Clock * 0.16) * 6.5 + 1.0, FMath::Sin(Clock * 0.16) * 6.5 - 0.95, 2.3);
-		if (Pos.X < -2.0)
 		{
-			Pos.X = -2.0;
+			// Swung back and forth across the champion's front, the outfield and the stands behind.
+			const double A = UE_DOUBLE_HALF_PI + 0.75 * FMath::Sin(Age * 0.22) - 0.35;
+			Pos = FVector(FMath::Cos(A) * 6.8, -0.95 + FMath::Sin(A) * 6.8, 2.1);
 		}
-		Look = FVector(0.0, -0.95, 1.25);
+		Look = FVector(0.0, -0.95, 1.3);
 		Fov = 42.0;
 		Response = 2.0;
 		break;
