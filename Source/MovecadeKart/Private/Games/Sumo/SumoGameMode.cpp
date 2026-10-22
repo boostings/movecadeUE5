@@ -1,372 +1,330 @@
 #include "Games/Sumo/SumoGameMode.h"
 
 #include "Dom/JsonObject.h"
-#include "Engine/GameInstance.h"
 #include "EngineUtils.h"
-#include "GameFramework/PlayerController.h"
-#include "Games/ArcadeSession.h"
-#include "Games/SArcadeOverlay.h"
 #include "Games/Sumo/SumoArena.h"
 #include "Games/Sumo/SumoGame.h"
-#include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Net/RoomHostSubsystem.h"
 #include "Net/RoomProtocol.h"
-#include "TimerManager.h"
 
 using namespace MovecadeKart::Sumo;
 
 namespace
 {
 	const TCHAR* const HouseNames[] = { TEXT("Rosa"), TEXT("Mika"), TEXT("Dante"), TEXT("Priya") };
-	constexpr uint32 DefaultSeed = 0x50e0;
+	/** Every match seed starts here: a room adds its match number, a local launch a slice of the clock. */
+	constexpr uint32 BaseSeed = 0x50e0;
+	constexpr int64 ClockSeedMask = 0xffff;
+	/** A sumo needs an opponent. */
+	constexpr int32 MinWrestlers = 2;
 
-	URoomHostSubsystem* RoomOf(const UObject* Context)
-	{
-		const UGameInstance* GI = Context && Context->GetWorld() ? Context->GetWorld()->GetGameInstance() : nullptr;
-		return GI ? GI->GetSubsystem<URoomHostSubsystem>() : nullptr;
-	}
+	/** House bots of mixed skill, one keen, one steady, one wild: BaseSkill plus a step per bot, cycling. */
+	constexpr float HouseBaseSkill = 0.45f;
+	constexpr float HouseSkillStep = 0.17f;
+	constexpr int32 HouseSkillCycle = 3;
+	/** A local seat that plays itself (-SumoAuto) plays sharp. */
+	constexpr float AutoLocalSkill = 0.85f;
+	constexpr float RoomBotSkill = 0.6f;
+	constexpr float SparringSkill = 0.5f;
+	/** FKartLook::MakeVaried seeds: the local line-up from 11 (by seat), the room's sparring partner 12. */
+	constexpr int32 LocalLookBase = 11;
+	constexpr int32 SparringLook = 12;
+	const TCHAR* const SparringId = TEXT("house-1");
+	/** Room scores leave out the house players (only the room's own seats are ranked). */
+	const TCHAR* const HouseIdPrefix = TEXT("house-");
 
-	FString HexOf(const FLinearColor& C)
+	/** Hits buzz a phone this much (0..1) at least, full at this closing speed (m/s). */
+	constexpr double HapticFullStrength = 12.0;
+	constexpr double HapticMin = 0.2;
+
+	FString HexOf(const FLinearColor& Color)
 	{
-		const FColor S = C.ToFColor(true);
-		return FString::Printf(TEXT("#%02x%02x%02x"), S.R, S.G, S.B);
+		const FColor C = Color.ToFColor(true);
+		return FString::Printf(TEXT("#%02x%02x%02x"), C.R, C.G, C.B);
 	}
+}
+
+FSumoDebugFlags FSumoDebugFlags::Parse(const TCHAR* CommandLine)
+{
+	FSumoDebugFlags Flags;
+#if !UE_BUILD_SHIPPING
+	if (CommandLine)
+	{
+		FParse::Value(CommandLine, TEXT("SumoSkill="), Flags.BotSkill);
+		uint32 Seed = 0;
+		if (FParse::Value(CommandLine, TEXT("SumoSeed="), Seed))
+		{
+			Flags.Seed = Seed;
+		}
+	}
+#endif
+	return Flags;
 }
 
 ASumoGameMode::ASumoGameMode()
 {
-	DefaultPawnClass = nullptr;
-	PlayerControllerClass = APlayerController::StaticClass();
+	ArcadeId = TEXT("sumo");
+	CommandLinePrefix = TEXT("Sumo");
+	DefaultBots = 2;
 }
 
 void ASumoGameMode::StartPlay()
 {
+	DebugFlags = FSumoDebugFlags::Parse(FCommandLine::Get());
 	Super::StartPlay();
-	UWorld* World = GetWorld();
-	for (TActorIterator<ASumoArena> It(World); It; ++It)
-	{
-		Arena = *It;
-		break;
-	}
-	if (!Arena)
-	{
-		Arena = World->SpawnActor<ASumoArena>();
-	}
-	int32 Locals = UGameplayStatics::GetIntOption(OptionsString, TEXT("Players"), 1);
-	int32 Bots = UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 2);
-	FParse::Value(FCommandLine::Get(), TEXT("SumoPlayers="), Locals);
-	FParse::Value(FCommandLine::Get(), TEXT("SumoBots="), Bots);
-	float Skill = -1.f;
-	FParse::Value(FCommandLine::Get(), TEXT("SumoSkill="), Skill);
-	const bool bAuto = FParse::Param(FCommandLine::Get(), TEXT("SumoAuto"));
-	// One local player (a simultaneous game needs a pair of hands each); a sumo needs an opponent.
-	Locals = FMath::Clamp(Locals, 0, 1);
-	Bots = FMath::Clamp(Bots, 0, MaxPlayers - Locals);
-	if (Locals + Bots < 2)
-	{
-		Bots = 2 - Locals;
-	}
-	TArray<FSumoSeat> Seats;
-	uint32 Seed = DefaultSeed + static_cast<uint32>(FDateTime::Now().GetTicks() & 0xffff);
-	bRoomMatch = SetupRoom(Seats, Seed);
-	for (int32 i = 0; !bRoomMatch && i < Locals + Bots; ++i)
-	{
-		FSumoSeat& Seat = Seats.AddDefaulted_GetRef();
-		const bool bLocal = i < Locals;
-		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
-		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !bAuto ? ESumoPilot::Local : ESumoPilot::Bot;
-		// House bots of mixed skill: one keen, one steady, one wild.
-		Seat.Skill = bLocal ? 0.85f : (Skill >= 0.f ? Skill : 0.45f + 0.17f * ((i - Locals) % 3));
-		Seat.Color = ASumoArena::SlotColor(i);
-		Seat.Look = FKartLook::MakeVaried(i + 11);
-	}
-	Game = World->SpawnActor<ASumoGame>();
-	Game->Setup(Arena, Seats, World->GetFirstPlayerController(), Seed);
-	Game->OnQuit = [this]() { UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor")); };
-	if (bRoomMatch)
-	{
-		BindRoom();
-	}
-	if (APlayerController* PC = World->GetFirstPlayerController())
-	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
-	}
-	if (!bRoomMatch)
-	{
-		if (UArcadeSession* Session = UArcadeSession::Get(this))
-		{
-			Session->NoteLaunch(TEXT("sumo"), Locals, Bots);
-		}
-	}
-	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
-	SetupTestHooks();
 }
 
-bool ASumoGameMode::SetupRoom(TArray<FSumoSeat>& OutSeats, uint32& OutSeed)
+void ASumoGameMode::SpawnVenue()
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Room->IsMatchRunning(TEXT("sumo")))
-	{
-		return false;
-	}
-	TArray<FMcSeat> Players = Room->GetSeats();
-	Players.Sort([](const FMcSeat& A, const FMcSeat& B) { return A.Seat < B.Seat; });
+	UWorld* World = GetWorld();
+	TActorIterator<ASumoArena> Placed(World);
+	Arena = Placed ? *Placed : World->SpawnActor<ASumoArena>();
+}
+
+void ASumoGameMode::BuildRoomSeats(TConstArrayView<FMcSeat> Players)
+{
 	for (const FMcSeat& Player : Players)
 	{
-		if (Player.bEliminated || OutSeats.Num() >= MaxPlayers)
-		{
-			continue;
-		}
-		FSumoSeat& Seat = OutSeats.AddDefaulted_GetRef();
+		FSumoSeat& Seat = Seats.AddDefaulted_GetRef();
 		Seat.Id = Player.PlayerId;
 		Seat.Name = Player.Name;
 		Seat.Kind = Player.bBot ? ESumoPilot::Bot : ESumoPilot::Phone;
-		Seat.Skill = 0.6f;
-		Seat.Color = Player.PaintColor;
+		Seat.Skill = RoomBotSkill;
 		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Player.SeatIndex());
 	}
-	// A lone phone gets a house sparring partner: sumo needs two.
-	if (OutSeats.Num() == 1)
+	if (Seats.Num() == 1)
 	{
-		FSumoSeat& Seat = OutSeats.AddDefaulted_GetRef();
-		Seat.Id = TEXT("house-1");
-		Seat.Name = HouseNames[0];
-		Seat.Kind = ESumoPilot::Bot;
-		Seat.Skill = 0.5f;
-		Seat.Look = FKartLook::MakeVaried(12);
+		FSumoSeat& Partner = Seats.AddDefaulted_GetRef();
+		Partner.Id = SparringId;
+		Partner.Name = HouseNames[0];
+		Partner.Kind = ESumoPilot::Bot;
+		Partner.Skill = SparringSkill;
+		Partner.Look = FKartLook::MakeVaried(SparringLook);
 	}
-	OutSeed = DefaultSeed + static_cast<uint32>(FMath::Max(0, Room->GetRoom().MatchNumber));
-	UE_LOG(LogTemp, Display, TEXT("Sumo: room match %d with %d wrestler(s)"), Room->GetRoom().MatchNumber, OutSeats.Num());
-	return OutSeats.Num() > 0;
+	// Each room match replays the same way for everyone watching, and differs from the last.
+	const URoomHostSubsystem* Room = GetRoom();
+	Seed = BaseSeed + static_cast<uint32>(FMath::Max(0, Room ? Room->GetRoom().MatchNumber : 0));
+	if (DebugFlags.Seed.IsSet())
+	{
+		Seed = DebugFlags.Seed.GetValue();
+	}
 }
 
-void ASumoGameMode::BindRoom()
+void ASumoGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
+	const int32 Locals = InLaunch.Locals;
+	const int32 Bots = FMath::Max(InLaunch.Bots, MinWrestlers - Locals);
+	for (int32 i = 0; i < Locals + Bots; ++i)
 	{
-		return;
+		const bool bLocal = i < Locals;
+		const int32 House = i - Locals;
+		FSumoSeat& Seat = Seats.AddDefaulted_GetRef();
+		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
+		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[House % UE_ARRAY_COUNT(HouseNames)];
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? ESumoPilot::Local : ESumoPilot::Bot;
+		Seat.Skill = bLocal ? AutoLocalSkill : (DebugFlags.BotSkill >= 0.f ? DebugFlags.BotSkill : HouseBaseSkill + HouseSkillStep * (House % HouseSkillCycle));
+		Seat.Look = FKartLook::MakeVaried(i + LocalLookBase);
 	}
-	Room->SetPreparationReady(true);
-	Room->OnReturnedToLobby.AddDynamic(this, &ASumoGameMode::HandleRoomLobby);
-	Room->OnPauseChanged.AddDynamic(this, &ASumoGameMode::HandleRoomPause);
-	Game->SetPaused(Room->GetRoom().Status == EMcRoomStatus::Paused);
-	TWeakObjectPtr<ASumoGame> WeakGame = Game;
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = Room;
-	SensorHandle = Room->OnSensorFrame.AddLambda([WeakGame, WeakRoom](int32 SeatIndex, const MovecadeKart::Net::FSensorFrame& Frame)
+	Seed = DebugFlags.Seed.IsSet() ? DebugFlags.Seed.GetValue() : BaseSeed + static_cast<uint32>(FDateTime::Now().GetTicks() & ClockSeedMask);
+}
+
+void ASumoGameMode::SpawnGame()
+{
+	Game = SpawnArcadeGame<ASumoGame>();
+	Game->Setup(Arena, Seats, GetWorld()->GetFirstPlayerController(), Seed);
+	Game->OnQuit = MakeQuitCallback();
+	Game->OnRematch = MakeRematchCallback();
+}
+
+void ASumoGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
+{
+	const TWeakObjectPtr<ASumoGameMode> WeakThis(this);
+	Game->OnMatchStart = [WeakThis]()
 	{
-		ASumoGame* G = WeakGame.Get();
-		const URoomHostSubsystem* R = WeakRoom.Get();
-		const FMcSeat* Seat = R ? R->GetRoom().FindBySeat(SeatIndex + 1) : nullptr;
-		if (G && Seat)
+		if (const ASumoGameMode* Mode = WeakThis.Get())
 		{
-			G->FeedPhone(Seat->PlayerId, Frame);
+			Mode->StartRoomTurn();
 		}
-	});
+	};
+	Game->OnRoundStart = [WeakThis](int32)
+	{
+		if (const ASumoGameMode* Mode = WeakThis.Get())
+		{
+			Mode->SendPrompts();
+		}
+	};
+	Game->OnEvent = [WeakThis](const FRingEvent& Event)
+	{
+		if (const ASumoGameMode* Mode = WeakThis.Get())
+		{
+			Mode->SendEventFeedback(Event);
+		}
+	};
+	Game->OnFinished = [WeakThis]()
+	{
+		if (ASumoGameMode* Mode = WeakThis.Get())
+		{
+			Mode->CompleteRoomMatch();
+		}
+	};
+}
+
+void ASumoGameMode::HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame)
+{
+	Game->FeedPhone(Seat.PlayerId, Frame);
+}
+
+void ASumoGameMode::HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data)
+{
 	// The motion pad: its big A button dashes (B too, so either thumb works); releases are not needed.
-	GameEventHandle = Room->OnGameEvent.AddLambda([WeakGame](const FString& From, const FString& Event, const TSharedPtr<FJsonObject>& Data)
+	TCHAR Button = 0;
+	if (Event == MovecadeKart::Net::PadPressEvent && Data.IsValid() && MovecadeKart::Net::ReadPadButton(*Data, Button))
 	{
-		ASumoGame* G = WeakGame.Get();
-		TCHAR Button = 0;
-		if (G && Event == MovecadeKart::Net::PadPressEvent && Data.IsValid() && MovecadeKart::Net::ReadPadButton(*Data, Button))
-		{
-			G->PressDash(From);
-		}
-	});
-	Game->OnMatchStart = [WeakRoom]()
-	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->AdvanceTurn(FString());
-			R->PublishMatchCountdown(static_cast<int32>(CountdownMs));
-		}
-	};
-	Game->OnRoundStart = [this](int32 Round) { SendPrompts(); };
-	Game->OnEvent = [this, WeakRoom](const FRingEvent& E)
-	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		if (!R || !Game)
-		{
-			return;
-		}
-		const FMatch& M = Game->GetMatch();
-		auto IdOf = [&M](int32 Slot) { return M.Pucks.IsValidIndex(Slot) ? M.Pucks[Slot].Id : FString(); };
-		auto IsPhone = [this](int32 Slot) { const FSumoSeat* S = Game->SeatOf(Slot); return S && S->Kind == ESumoPilot::Phone; };
-		auto SeatOf = [R](const FString& Id) { const FMcSeat* S = R->GetRoom().FindByPlayerId(Id); return S ? S->SeatIndex() : INDEX_NONE; };
-		switch (E.Kind)
-		{
-		case EEventKind::Bump:
-		case EEventKind::DashHit:
-		case EEventKind::ShieldBlock:
-			for (const int32 Slot : { E.A, E.B })
-			{
-				const int32 Seat = IsPhone(Slot) ? SeatOf(IdOf(Slot)) : INDEX_NONE;
-				if (Seat != INDEX_NONE)
-				{
-					R->SendHaptic(Seat, static_cast<float>(FMath::Clamp(E.Strength / 12.0, 0.2, 1.0)));
-				}
-			}
-			break;
-		case EEventKind::RingOut:
-		{
-			const FPuck* Victim = M.Pucks.IsValidIndex(E.A) ? &M.Pucks[E.A] : nullptr;
-			const FPuck* Killer = M.Pucks.IsValidIndex(E.B) ? &M.Pucks[E.B] : nullptr;
-			if (Victim && IsPhone(E.A))
-			{
-				R->SendPlayFeedback(Victim->Id, Killer ? TEXT("Knocked out!") : TEXT("Ring out!"),
-					Killer ? FString::Printf(TEXT("%s pushed you in · round %d"), *Killer->Name, M.Round) : FString::Printf(TEXT("You rolled off · round %d"), M.Round), TEXT("warning"), TEXT("warning"));
-			}
-			if (Killer && IsPhone(E.B))
-			{
-				R->SendPlayFeedback(Killer->Id, TEXT("Knockout!"), FString::Printf(TEXT("+%d point · %s is in the sea · %d KOs"), KnockoutPoints, Victim ? *Victim->Name : TEXT(""), Killer->Knockouts),
-					TEXT("success"), TEXT("celebration"), true);
-			}
-			break;
-		}
-		case EEventKind::RoundWin:
-			if (M.Pucks.IsValidIndex(E.A) && IsPhone(E.A))
-			{
-				const FPuck& W = M.Pucks[E.A];
-				R->SendPlayFeedback(W.Id, TEXT("Round won!"), FString::Printf(TEXT("+%d points · %d of %d round wins"), RoundWinPoints, W.RoundWins, WinsForMatch), TEXT("success"), TEXT("celebration"), true);
-			}
-			break;
-		case EEventKind::PowerPickup:
-			if (M.Pucks.IsValidIndex(E.A) && IsPhone(E.A))
-			{
-				const TCHAR* Name = E.Power == EPower::Heavy ? TEXT("Heavy!") : E.Power == EPower::Shield ? TEXT("Shield!") : TEXT("Turbo!");
-				const TCHAR* Detail = E.Power == EPower::Heavy ? TEXT("Hard to move, hits like a truck") : E.Power == EPower::Shield ? TEXT("The next hit bounces off")
-					: TEXT("Dash recharges fast");
-				R->SendPlayFeedback(M.Pucks[E.A].Id, Name, Detail, TEXT("success"), TEXT("impact"));
-			}
-			break;
-		default:
-			break;
-		}
-	};
-	Game->OnFinished = [this]() { PushScores(true); };
-	Game->OnRematch = [WeakRoom]()
-	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->RestartGame();
-		}
-	};
-	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
+		Game->PressDash(FromPlayerId);
+	}
 }
 
-void ASumoGameMode::SendPrompts()
+bool ASumoGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const
 {
-	URoomHostSubsystem* Room = RoomOf(this);
+	for (const FPuck& Puck : Game->GetMatch().Pucks)
+	{
+		if (!Puck.Id.StartsWith(HouseIdPrefix))
+		{
+			FMcScoreEntry& Entry = OutScores.AddDefaulted_GetRef();
+			Entry.PlayerId = Puck.Id;
+			Entry.Score = Puck.Score;
+		}
+	}
+	return true;
+}
+
+void ASumoGameMode::StartRoomTurn() const
+{
+	// Simultaneous play: nobody's turn, everyone's countdown.
+	if (URoomHostSubsystem* Room = GetRoom())
+	{
+		Room->AdvanceTurn(FString());
+		Room->PublishMatchCountdown(static_cast<int32>(CountdownMs));
+	}
+}
+
+void ASumoGameMode::SendPrompts() const
+{
+	URoomHostSubsystem* Room = GetRoom();
 	if (!Room || !Game)
 	{
 		return;
 	}
-	// The motion pad contract: one prompt per phone, in its colour, with the tilt hint and the A label.
-	for (int32 i = 0; i < Game->GetSeats().Num(); ++i)
+	const TArray<FSumoSeat>& GameSeats = Game->GetSeats();
+	const FString Title = FString::Printf(TEXT("Sumo Bumpers · round %d"), Game->GetMatch().Round);
+	for (int32 i = 0; i < GameSeats.Num(); ++i)
 	{
-		const FSumoSeat& Seat = Game->GetSeats()[i];
-		if (Seat.Kind != ESumoPilot::Phone)
+		if (GameSeats[i].Kind == ESumoPilot::Phone)
 		{
-			continue;
+			Room->SendPadPrompt(GameSeats[i].Id, Title, TEXT("Tilt to roll · A: dash"), TEXT("DASH"), FString(), HexOf(Game->ColorOf(i)), TEXT("tilt"));
 		}
-		Room->SendPadPrompt(Seat.Id, FString::Printf(TEXT("Sumo Bumpers · round %d"), Game->GetMatch().Round), TEXT("Tilt to roll · A: dash"), TEXT("DASH"), FString(),
-			HexOf(Game->ColorOf(i)), TEXT("tilt"));
 	}
 }
 
-void ASumoGameMode::PushScores(bool bFinal)
+bool ASumoGameMode::IsPhone(int32 Slot) const
 {
-	URoomHostSubsystem* Room = RoomOf(this);
+	const FSumoSeat* Seat = Game ? Game->SeatOf(Slot) : nullptr;
+	return Seat && Seat->Kind == ESumoPilot::Phone;
+}
+
+void ASumoGameMode::SendEventFeedback(const FRingEvent& Event) const
+{
+	URoomHostSubsystem* Room = GetRoom();
 	if (!Room || !Game)
 	{
 		return;
 	}
-	TArray<FMcScoreEntry> Scores;
-	FString Key;
-	for (const FPuck& P : Game->GetMatch().Pucks)
+	switch (Event.Kind)
 	{
-		if (P.Id.StartsWith(TEXT("house-")))
+	case EEventKind::Bump:
+	case EEventKind::DashHit:
+	case EEventKind::ShieldBlock:
+		SendHitHaptics(*Room, Event);
+		break;
+	case EEventKind::RingOut:
+		SendRingOutFeedback(*Room, Event);
+		break;
+	case EEventKind::RoundWin:
+		SendRoundWinFeedback(*Room, Event);
+		break;
+	case EEventKind::PowerPickup:
+		SendPowerFeedback(*Room, Event);
+		break;
+	default:
+		break;
+	}
+}
+
+void ASumoGameMode::SendHitHaptics(URoomHostSubsystem& Room, const FRingEvent& Event) const
+{
+	const FMatch& M = Game->GetMatch();
+	for (const int32 Slot : { Event.A, Event.B })
+	{
+		if (!IsPhone(Slot) || !M.Pucks.IsValidIndex(Slot))
 		{
 			continue;
 		}
-		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
-		Entry.PlayerId = P.Id;
-		Entry.Score = P.Score;
-		Key += FString::Printf(TEXT("%s=%d;"), *P.Id, P.Score);
-	}
-	if (bFinal)
-	{
-		Room->CompleteGame(Scores);
-	}
-	else if (Key != LastScores)
-	{
-		LastScores = Key;
-		Room->UpdateLiveScores(Scores);
-	}
-}
-
-void ASumoGameMode::HandleRoomLobby()
-{
-	UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor"));
-}
-
-void ASumoGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId)
-{
-	if (Game)
-	{
-		Game->SetPaused(bPaused);
-	}
-}
-
-void ASumoGameMode::EndPlay(const EEndPlayReason::Type Reason)
-{
-	if (Overlay.IsValid())
-	{
-		Overlay->Detach();
-		Overlay.Reset();
-	}
-	GetWorldTimerManager().ClearTimer(ScoreTimer);
-	if (URoomHostSubsystem* Room = RoomOf(this))
-	{
-		Room->OnGameEvent.Remove(GameEventHandle);
-		Room->OnSensorFrame.Remove(SensorHandle);
-		Room->OnReturnedToLobby.RemoveDynamic(this, &ASumoGameMode::HandleRoomLobby);
-		Room->OnPauseChanged.RemoveDynamic(this, &ASumoGameMode::HandleRoomPause);
-	}
-	Super::EndPlay(Reason);
-}
-
-void ASumoGameMode::SetupTestHooks()
-{
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartShots="), Shots, false))
-	{
-		TArray<FString> Times;
-		Shots.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
+		if (const FMcSeat* Seat = Room.GetRoom().FindByPlayerId(M.Pucks[Slot].Id))
 		{
-			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-			{
-				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-				{
-					PC->ConsoleCommand(TEXT("Shot showui"));
-				}
-			}), FCString::Atof(*Time), false);
+			Room.SendHaptic(Seat->SeatIndex(), static_cast<float>(FMath::Clamp(Event.Strength / HapticFullStrength, HapticMin, 1.0)));
 		}
 	}
-	float QuitAfter = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
+}
+
+void ASumoGameMode::SendRingOutFeedback(URoomHostSubsystem& Room, const FRingEvent& Event) const
+{
+	const FMatch& M = Game->GetMatch();
+	const FPuck* Victim = M.Pucks.IsValidIndex(Event.A) ? &M.Pucks[Event.A] : nullptr;
+	const FPuck* Killer = M.Pucks.IsValidIndex(Event.B) ? &M.Pucks[Event.B] : nullptr;
+	if (Victim && IsPhone(Event.A))
 	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}), QuitAfter, false);
+		const FString Detail = Killer ? FString::Printf(TEXT("%s pushed you in · round %d"), *Killer->Name, M.Round) : FString::Printf(TEXT("You rolled off · round %d"), M.Round);
+		Room.SendPlayFeedback(Victim->Id, Killer ? TEXT("Knocked out!") : TEXT("Ring out!"), Detail, TEXT("warning"), TEXT("warning"));
 	}
+	if (Killer && IsPhone(Event.B))
+	{
+		Room.SendPlayFeedback(Killer->Id, TEXT("Knockout!"),
+			FString::Printf(TEXT("+%d point · %s is in the sea · %d KOs"), KnockoutPoints, Victim ? *Victim->Name : TEXT(""), Killer->Knockouts), TEXT("success"), TEXT("celebration"), true);
+	}
+}
+
+void ASumoGameMode::SendRoundWinFeedback(URoomHostSubsystem& Room, const FRingEvent& Event) const
+{
+	const FMatch& M = Game->GetMatch();
+	if (!M.Pucks.IsValidIndex(Event.A) || !IsPhone(Event.A))
+	{
+		return;
+	}
+	const FPuck& Winner = M.Pucks[Event.A];
+	Room.SendPlayFeedback(Winner.Id, TEXT("Round won!"), FString::Printf(TEXT("+%d points · %d of %d round wins"), RoundWinPoints, Winner.RoundWins, WinsForMatch), TEXT("success"),
+		TEXT("celebration"), true);
+}
+
+void ASumoGameMode::SendPowerFeedback(URoomHostSubsystem& Room, const FRingEvent& Event) const
+{
+	const FMatch& M = Game->GetMatch();
+	if (!M.Pucks.IsValidIndex(Event.A) || !IsPhone(Event.A))
+	{
+		return;
+	}
+	const TCHAR* Title = TEXT("Turbo!");
+	const TCHAR* Detail = TEXT("Dash recharges fast");
+	if (Event.Power == EPower::Heavy)
+	{
+		Title = TEXT("Heavy!");
+		Detail = TEXT("Hard to move, hits like a truck");
+	}
+	else if (Event.Power == EPower::Shield)
+	{
+		Title = TEXT("Shield!");
+		Detail = TEXT("The next hit bounces off");
+	}
+	Room.SendPlayFeedback(M.Pucks[Event.A].Id, Title, Detail, TEXT("success"), TEXT("impact"));
 }

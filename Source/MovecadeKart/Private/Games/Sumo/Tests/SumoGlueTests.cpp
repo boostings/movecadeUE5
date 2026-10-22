@@ -1,5 +1,7 @@
 // Tests for Sumo Bumpers' pure glue around the rules: whole bot matches fingerprinted bit for bit (so a refactor of
-// the rules or the bots can't drift silently), the standings key the HUD sorts by. The rules' own golden tests live in SumoTests.cpp.
+// the rules or the bots can't drift silently), the standings key the HUD sorts by and the debug
+// flags. The rules' own golden tests live in SumoTests.cpp.
+#include "Games/Sumo/SumoDebugFlags.h"
 #include "Games/Sumo/SumoRules.h"
 #include "Misc/AutomationTest.h"
 
@@ -104,6 +106,24 @@ bool FSumoStandingKeyTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("staged ties"), RankByKey(M) == Standings(M));
 	TestTrue(TEXT("staged order"), Standings(M) == TArray<int32>({ 2, 1, 3, 0 }));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSumoDebugFlagsTest, "MovecadeKart.Sumo.DebugFlags",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSumoDebugFlagsTest::RunTest(const FString& Parameters)
+{
+	const FSumoDebugFlags None = FSumoDebugFlags::Parse(TEXT("-SumoPlayers=0 -SumoBots=3"));
+	TestTrue(TEXT("defaults"), None.BotSkill < 0.f && !None.Seed.IsSet());
+	const FSumoDebugFlags Set = FSumoDebugFlags::Parse(TEXT("-SumoSkill=0.3 -SumoSeed=4242"));
+#if UE_BUILD_SHIPPING
+	TestTrue(TEXT("shipping ignores them"), Set.BotSkill < 0.f && !Set.Seed.IsSet());
+#else
+	TestTrue(TEXT("skill"), FMath::IsNearlyEqual(Set.BotSkill, 0.3f));
+	TestTrue(TEXT("seed"), Set.Seed.IsSet() && Set.Seed.GetValue() == 4242u);
+#endif
+	TestTrue(TEXT("null command line"), FSumoDebugFlags::Parse(nullptr).BotSkill < 0.f);
 	return true;
 }
 
