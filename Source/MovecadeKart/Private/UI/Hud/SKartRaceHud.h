@@ -48,7 +48,24 @@ private:
 		double LandedAt = -10.0;
 		MovecadeKart::EKartItem Held = MovecadeKart::EKartItem::None;
 		double ShownSpeed = 0.0;
+
+		// Text built when its value changes, not every paint.
+		int32 SpeedShown = -1;
+		FString SpeedText;
+		int32 LapTextLap = -1;
+		int32 LapTextLaps = -1;
+		FString LapText;
+		int32 PlaceTextPlace = -1;
+		FString PlaceNumber;
+		FString PlaceSuffix;
+		FText FinishText;
+		FString BoostKey;
+		FText BoostLabel;
 	};
+
+	/** Cached per seat: the item names shown beside the slot. */
+	const FText& ItemText(MovecadeKart::EKartItem Item, bool bUsed) const;
+	const FSeatAnim* SeatFor(int32 Seat) const { return Seats.IsValidIndex(Seat) ? &Seats[Seat] : nullptr; }
 
 	struct FView
 	{
@@ -57,7 +74,8 @@ private:
 		int32 Seat = 0;
 	};
 
-	TArray<FView> GatherViews(const FVector2D& Screen) const;
+	/** Fills Views (reused every paint). */
+	void GatherViews(const FVector2D& Screen) const;
 	void PaintView(const FKartPainter& P, const AKartRaceManager& Race, const FView& View, int32 NumViews, double Now) const;
 	void PaintItemSlot(const FKartPainter& P, const AKartRaceManager& Race, const FKartRacer& Racer, const FVector2D& Pos, float Scale, double Now) const;
 	void PaintPlace(const FKartPainter& P, const FKartRacer& Racer, const FVector2D& BottomRight, float Scale, double Now) const;
@@ -70,7 +88,21 @@ private:
 		double Age, double Hold, float Scale, bool bChequered) const;
 
 	TWeakObjectPtr<AKartRaceManager> Manager;
-	TArray<FSeatAnim> Seats;
+	mutable TArray<FSeatAnim> Seats;
+	mutable TArray<FView, TInlineAllocator<4>> Views;
+
+	/** The minimap road: the centreline sampled once per track (world units), and the per-paint screen copy. */
+	mutable const void* MinimapTrack = nullptr;
+	mutable TArray<FVector2D> MinimapRoad;
+	mutable TArray<FVector2D> MinimapScratch;
+
+	/** The race clock and the time-left warning, rebuilt once a second. */
+	mutable int64 ClockSecond = -1;
+	mutable FText ClockText;
+	mutable int32 WarnSecond = -1;
+	mutable FText WarnText;
+	mutable FString IntroFacts;
+	mutable int32 IntroFactsKey = -1;
 	double RaceFinishedAt = -10.0;
 	int32 LastPhase = -1;
 	double PhaseAt = 0.0;

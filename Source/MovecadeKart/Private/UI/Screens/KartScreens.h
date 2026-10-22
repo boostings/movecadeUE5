@@ -19,10 +19,15 @@ namespace KartScreens
 	TSharedRef<FKartScreen> MakeTracks(AKartFrontEnd* FrontEnd);
 	TSharedRef<FKartScreen> MakeCredits();
 
+	// First launch (KartWelcomeScreen.cpp): the one-time "How Movecade works" card between the title and the menu.
+	TSharedRef<FKartScreen> MakeWelcome(AKartFrontEnd* FrontEnd);
+	/** True until the player has seen the welcome card (UKartPlayerPrefs::bSeenHowItWorks). */
+	bool ShouldShowWelcome();
+
 	/** A yes/no dialog over the current screen. No has focus first; Back is No. Each callback runs after the dialog closes. */
 	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes, TFunction<void()> OnNo = nullptr);
 
-	// Settings (KartSettingsScreen.cpp): 0 Graphics, 1 Audio, 2 Controls.
+	// Settings (KartSettingsScreen.cpp): 0 Graphics, 1 Audio, 2 Controls, 3 Accessibility.
 	TSharedRef<FKartScreen> MakeSettings(int32 Tab = 0);
 
 	// Race (KartRaceScreens.cpp)

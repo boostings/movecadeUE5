@@ -1,6 +1,7 @@
 #include "UI/Screens/KartScreens.h"
 
 #include "Engine/World.h"
+#include "UI/KartAccessibility.h"
 #include "UI/KartFrontEnd.h"
 #include "UI/KartRoster.h"
 #include "UI/KartSessionSettings.h"
@@ -111,8 +112,9 @@ namespace
 				X += Widths[i];
 				continue;
 			}
-			const double Bob = FMath::Sin(Now * 2.6 - i * 0.55) * 7.0 * Scale;
-			const float Tilt = FMath::Sin(static_cast<float>(Now) * 1.8f - i * 0.7f) * 3.f + (i % 2 == 0 ? -3.f : 3.f);
+			const float Motion = FKartAccessibility::MotionScale();
+			const double Bob = FMath::Sin(Now * 2.6 - i * 0.55) * 7.0 * Scale * Motion;
+			const float Tilt = FMath::Sin(static_cast<float>(Now) * 1.8f - i * 0.7f) * 3.f * Motion + (i % 2 == 0 ? -3.f : 3.f);
 			const FVector2D C(X + Widths[i] * 0.5, Centre.Y + Bob - (1.f - FMath::Min(In, 1.f)) * 120.0 * Scale);
 			const FKartPainter L = P.Transformed(C, FMath::Max(In, 0.01f), Tilt).Faded(FMath::Min(1.f, In * 2.f));
 			const FString Ch = FString::Chr(Word[i]);
@@ -206,7 +208,8 @@ namespace
 			{
 				const FVector2D C(Frame.Size.X * 0.5, Frame.Size.Y * 0.74);
 				const bool bPressed = PressedAt >= 0.0;
-				const float Pulse = bPressed ? 1.f + 0.15f * Ease::Pulse(static_cast<float>((Now - PressedAt) / 0.3)) : 1.f + 0.035f * FMath::Sin(static_cast<float>(Now) * 3.4f);
+				const float Motion = FKartAccessibility::MotionScale();
+				const float Pulse = bPressed ? 1.f + 0.15f * Motion * Ease::Pulse(static_cast<float>((Now - PressedAt) / 0.3)) : 1.f + 0.035f * Motion * FMath::Sin(static_cast<float>(Now) * 3.4f);
 				const FKartPainter B = P.Transformed(C, Pulse * In).Faded(In);
 				const FText Label = Frame.Device == EKartInputDevice::Gamepad ? LOCTEXT("PressStart", "PRESS START") : LOCTEXT("PressEnter", "PRESS ENTER");
 				const FSlateFontInfo LabelFont = Font(EFont::Display, 52.f, 4.f);
@@ -227,7 +230,7 @@ namespace
 			if (PressedAt >= 0.0 && Now - PressedAt > 0.32 && !bAdvanced)
 			{
 				bAdvanced = true;
-				Host->PushScreen(KartScreens::MakeMainMenu(FrontEnd.Get()));
+				Host->PushScreen(KartScreens::ShouldShowWelcome() ? KartScreens::MakeWelcome(FrontEnd.Get()) : KartScreens::MakeMainMenu(FrontEnd.Get()));
 			}
 		}
 
@@ -409,8 +412,10 @@ namespace
 			const FVector2D ButtonSize(560.0, 88.0);
 			const double Gap = 18.0;
 			const double Top = Frame.Size.Y * 0.5 - (6 * ButtonSize.Y + 5 * Gap) * 0.5 + 50.0;
+			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < 6; ++i)
 			{
+				Group.Next();
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
 				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + Gap));
 				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Names[i], Focus.State(i, Frame.Now), Accents[i], i);
@@ -435,8 +440,8 @@ namespace
 				}
 			}
 			MenuIcon(Card, IconOf[Item], CardPos + FVector2D(CardSize.X * 0.5, 153.0), 110.f, Frame.Now);
-			Card.Text(Names[Item], Font(EFont::Title, 46.f), CardPos + FVector2D(36.0, 312.0), Color::Navy);
-			Card.TextWrapped(Details[Item], Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 368.0), CardSize.X - 76.0, Color::NavyDim);
+			Card.Text(Names[Item], Font(EFont::Title, 46.f), CardPos + FVector2D(36.0, 306.0), Color::Navy);
+			Card.TextWrapped(Details[Item], Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 380.0), CardSize.X - 76.0, Color::NavyDim);
 		}
 
 	private:
@@ -668,8 +673,11 @@ namespace
 
 			const double Top = Frame.SafeMin.Y + 190.0;
 			const FVector2D ButtonSize(600.0, 84.0);
+			{
+			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Games.Num(); ++i)
 			{
+				Group.Next();
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.05f, 0.4f);
 				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 260.0 + KartWidgets::SlideX(Frame), Top + i * (ButtonSize.Y + 16.0));
 				KartWidgets::Button(P.Faded(In), Pos, ButtonSize, Games[i].Name, Focus.State(i, Frame.Now, Games[i].Map != nullptr), Games[i].Accent, i);
@@ -682,15 +690,21 @@ namespace
 					P.Faded(In).Text(LOCTEXT("Soon", "SOON"), Font(EFont::Label, 19.f), ChipPos + ChipSize * 0.5, Color::TextOn(Games[i].Accent), FVector2D(0.5, 0.5));
 				}
 			}
-			const FText Labels[] = { LOCTEXT("ArcadePlayers", "Players"), LOCTEXT("ArcadeHouse", "House players") };
-			const FText Values[] = {
-				FText::Format(LOCTEXT("PlayersN", "{0} on this screen"), Pick.Players),
-				Pick.House == 0 ? LOCTEXT("NoHouse", "None") : FText::Format(LOCTEXT("HouseN", "{0} {0}|plural(one=bot,other=bots)"), Pick.House),
-			};
+			}
+			static const FText Labels[] = { LOCTEXT("ArcadePlayers", "Players"), LOCTEXT("ArcadeHouse", "House players") };
+			if (Pick.Players != ValuesPlayers || Pick.House != ValuesHouse)
+			{
+				ValuesPlayers = Pick.Players;
+				ValuesHouse = Pick.House;
+				Values[0] = FText::Format(LOCTEXT("PlayersN", "{0} on this screen"), Pick.Players);
+				Values[1] = Pick.House == 0 ? LOCTEXT("NoHouse", "None") : FText::Format(LOCTEXT("HouseN", "{0} {0}|plural(one=bot,other=bots)"), Pick.House);
+			}
 			const FVector2D RowSize(600.0, 76.0);
 			const double OptTop = Top + Games.Num() * (ButtonSize.Y + 16.0) + 24.0;
+			const FKartPaintGroup Rows(P);
 			for (int32 i = 0; i < 2; ++i)
 			{
+				Rows.Next();
 				const int32 Row = PlayersRow + i;
 				const float In = KartWidgets::Entrance(Frame, 0.25f + i * 0.05f);
 				const FVector2D Pos(Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * 200.0, OptTop + i * (RowSize.Y + 14.0));
@@ -701,13 +715,15 @@ namespace
 			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - PickedAt) / 0.35), 2.f);
 			const FVector2D CardSize(620.0, 560.0);
 			const FVector2D CardPos(Frame.SafeMax.X - CardSize.X, Top);
-			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, 0.92f + 0.08f * Pop, (1.f - Pop) * -3.f).Faded(KartWidgets::Entrance(Frame, 0.2f));
+			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, 0.92f + 0.08f * Pop, (1.f - Pop) * -3.f * FKartAccessibility::MotionScale()).Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
 			Card.Gradient(CardPos + FVector2D(18.0, 18.0), FVector2D(CardSize.X - 36.0, 250.0), Game.Accent, FMath::Lerp(Game.Accent, Color::Night, 0.35f), true, Metric::Radius);
 			GameIcon(Card, Pick.Game, CardPos + FVector2D(CardSize.X * 0.5, 143.0), 100.f, Frame.Now);
 			Card.Text(Game.Name, Font(EFont::Display, 54.f), CardPos + FVector2D(36.0, 290.0), Color::Navy);
-			Card.TextWrapped(Game.Tagline, Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 362.0), CardSize.X - 76.0, Color::NavyDim);
+			Card.TextWrapped(Game.Tagline, Font(EFont::Body, 22.f), CardPos + FVector2D(38.0, 372.0), CardSize.X - 76.0, Color::NavyDim);
 			const int32 Seats = Pick.Players + Pick.House;
+			static const FString SeatTags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4"), TEXT("P5"), TEXT("P6"), TEXT("P7"), TEXT("P8") };
+			static const FString Cpu(TEXT("CPU"));
 			for (int32 i = 0; i < Game.MaxPlayers; ++i)
 			{
 				const FVector2D C(CardPos.X + 70.0 + i * 76.0, CardPos.Y + CardSize.Y - 66.0);
@@ -716,7 +732,7 @@ namespace
 					const bool bLocal = i < Pick.Players;
 					const FLinearColor Fill = bLocal ? Game.Accent : Color::NavyDim;
 					Card.Circle(C, 28.f, Fill, Color::Navy, 3.f);
-					Card.Text(bLocal ? FString::Printf(TEXT("P%d"), i + 1) : FString(TEXT("CPU")), Font(EFont::Label, bLocal ? 18.f : 14.f), C, Color::TextOn(Fill), FVector2D(0.5, 0.5));
+					Card.Text(bLocal ? SeatTags[FMath::Min(i, 7)] : Cpu, Font(EFont::Label, bLocal ? 18.f : 14.f), C, Color::TextOn(Fill), FVector2D(0.5, 0.5));
 				}
 				else
 				{
@@ -802,6 +818,10 @@ namespace
 		FFocus Focus;
 		double PickedAt = -10.0;
 		bool bStarting = false;
+		/** The option rows' values, rebuilt when the pick changes. */
+		int32 ValuesPlayers = -1;
+		int32 ValuesHouse = -1;
+		FText Values[2];
 	};
 
 
@@ -831,6 +851,7 @@ namespace
 			}
 			if (UKartSessionSettings* S = Session(Host))
 			{
+				S->MutableSetup().Sanitize();
 				for (int32 i = 0; i < 4; ++i)
 				{
 					Slots[i].bJoined = i < S->GetSetup().LocalPlayers;
@@ -1116,23 +1137,28 @@ namespace
 		void PaintCard(const FKartPainter& P, const FKartScreenFrame& Frame, int32 Player, const FVector2D& Pos, const FVector2D& Size)
 		{
 			const FSlot& Slot = Slots[Player];
-			const FKartRacerChoice C = FKartRoster::Sanitize(Session(Host) ? Choice(Player) : FKartRoster::DefaultChoice(Player));
+			const UKartSessionSettings* Settings = Session(Host);
+			const FKartRacerChoice C = FKartRoster::Sanitize(Settings && Settings->GetSetup().Racers.IsValidIndex(Player) ? Settings->GetSetup().Racers[Player] : FKartRoster::DefaultChoice(Player));
 			const FLinearColor Paint = FKartRoster::PaintColor(C.Paint);
 			const float Join = Ease::OutBack(static_cast<float>((Frame.Now - Slot.JoinedAt) / 0.4), 2.f);
 			const float In = FMath::Min(KartWidgets::Entrance(Frame, 0.1f + Player * 0.06f), FMath::Max(Join, 0.f));
 			const FKartPainter Card = P.Transformed(Pos + Size * 0.5, 0.85f + 0.15f * In).Faded(In);
-			Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, 10.f, Slot.bReady ? Color::Mint : Color::White, 5.f);
+			Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, 10.f, Slot.bReady ? FKartAccessibility::Good() : Color::White, 5.f);
 			// Header band in the kart's paint with the player tag and the driver's name.
 			Card.Box(Pos + FVector2D(14.0, 14.0), FVector2D(Size.X - 28.0, 92.0), Paint, Metric::Radius);
 			Card.Circle(Pos + FVector2D(66.0, 60.0), 34.f, Color::White, Color::Navy, 3.f);
-			Card.Text(FString::Printf(TEXT("P%d"), Player + 1), Font(EFont::Display, 30.f), Pos + FVector2D(66.0, 60.0), Color::Navy, FVector2D(0.5, 0.5));
+			static const FString Tags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4") };
+			Card.Text(Tags[FMath::Clamp(Player, 0, 3)], Font(EFont::Display, 30.f), Pos + FVector2D(66.0, 60.0), Color::Navy, FVector2D(0.5, 0.5));
 			Card.Text(FKartRoster::Characters()[C.Character].Name, Font(EFont::Display, 46.f, 3.f), Pos + FVector2D(116.0, 60.0), Color::White, FVector2D(0.0, 0.5), 3.f);
 
-			const FText Labels[NumRows] = { LOCTEXT("Driver", "Driver"), LOCTEXT("Outfit", "Outfit"), LOCTEXT("Vehicle", "Vehicle"), LOCTEXT("Paint", "Paint") };
+			static const FText Labels[NumRows] = { LOCTEXT("Driver", "Driver"), LOCTEXT("Outfit", "Outfit"), LOCTEXT("Vehicle", "Vehicle"), LOCTEXT("Paint", "Paint") };
 			const FText Values[NumRows] = { FKartRoster::Characters()[C.Character].Name, FKartRoster::OutfitName(C.Outfit), FKartRoster::VehicleName(C.Vehicle), FKartRoster::Paints()[C.Paint].Name };
 			const double RowH = 58.0;
+			{
+			const FKartPaintGroup Group(Card);
 			for (int32 Row = 0; Row < NumRows; ++Row)
 			{
+				Group.Next();
 				FItemState State = Slot.Focus.State(Row, Frame.Now);
 				State.bFocused = State.bFocused && !Slot.bReady;
 				const FVector2D RowPos(Pos.X + 16.0, Pos.Y + 122.0 + Row * (RowH + 10.0));
@@ -1140,6 +1166,7 @@ namespace
 				const FKartPainter RowPainter = Player == 0 ? Card : Card.Faded(0.999f);
 				CompactRow(RowPainter, RowPos, FVector2D(Size.X - 32.0, RowH), Labels[Row], Values[Row], State, Player == 0 ? Row : -1,
 					Row == 3 ? FKartRoster::PaintColor(C.Paint) : FLinearColor::Transparent);
+			}
 			}
 			// Ready bar / stamp.
 			const FVector2D ReadyPos(Pos.X + 16.0, Pos.Y + Size.Y - 70.0);
@@ -1151,8 +1178,9 @@ namespace
 			if (Slot.bReady)
 			{
 				const float Stamp = Ease::OutBack(static_cast<float>((Frame.Now - Slot.ReadyAt) / 0.3), 3.f);
-				const FKartPainter S = Card.Transformed(ReadyPos + ReadySize * 0.5, 1.6f - 0.6f * Stamp, -4.f);
-				S.Box(ReadyPos, ReadySize, Color::Mint, 27.f, Color::White, 3.f);
+				const float Motion = FKartAccessibility::MotionScale();
+				const FKartPainter S = Card.Transformed(ReadyPos + ReadySize * 0.5, 1.f + (0.6f - 0.6f * Stamp) * Motion, -4.f * Motion);
+				S.Box(ReadyPos, ReadySize, FKartAccessibility::Good(), 27.f, Color::White, 3.f);
 				S.Text(LOCTEXT("ReadyStamp", "READY!"), Font(EFont::Display, 36.f, 2.f), ReadyPos + ReadySize * 0.5, Color::White, FVector2D(0.5, 0.5), 3.f);
 			}
 			else
@@ -1205,7 +1233,15 @@ namespace
 				V.Circle(FVector2D(L + 30.0, VC.Y), 13.f, Swatch, Color::Navy, 2.f);
 				TextX += 14.0;
 			}
-			V.Text(Value, Font(EFont::Button, 23.f), FVector2D(TextX, VC.Y), Color::Navy, FVector2D(0.5, 0.5));
+			// Long names ("Classic Jersey") shrink to stay between the arrows.
+			const double Room = (Rt - L) - 36.0 - (Swatch.A > 0.f ? 28.0 : 0.0);
+			FSlateFontInfo ValueFont = Font(EFont::Button, 23.f);
+			const double Width = FKartPainter::Measure(Value.ToString(), ValueFont).X;
+			if (Width > Room)
+			{
+				ValueFont = Font(EFont::Button, FMath::Max(16.f, FMath::FloorToFloat(23.f * static_cast<float>(Room / Width))));
+			}
+			V.Text(Value, ValueFont, FVector2D(TextX, VC.Y), Color::Navy, FVector2D(0.5, 0.5));
 		}
 
 		void PaintJoinCard(const FKartPainter& P, const FKartScreenFrame& Frame, int32 Player, const FVector2D& Pos, const FVector2D& Size)
@@ -1213,7 +1249,8 @@ namespace
 			const float In = KartWidgets::Entrance(Frame, 0.3f);
 			const FKartPainter Card = P.Faded(In * (0.75f + 0.25f * FMath::Sin(static_cast<float>(Frame.Now) * 3.f)));
 			Card.Box(Pos, Size, Color::WithAlpha(Color::Night, 0.55f), Metric::RadiusLarge, Color::WithAlpha(Color::White, 0.8f), 3.f);
-			Card.Text(FString::Printf(TEXT("P%d"), Player + 1), Font(EFont::Display, 64.f, 3.f), Pos + FVector2D(Size.X * 0.5, Size.Y * 0.36), Color::WithAlpha(Color::White, 0.9f), FVector2D(0.5, 0.5));
+			static const FString JoinTags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4") };
+			Card.Text(JoinTags[FMath::Clamp(Player, 0, 3)], Font(EFont::Display, 64.f, 3.f), Pos + FVector2D(Size.X * 0.5, Size.Y * 0.36), Color::WithAlpha(Color::White, 0.9f), FVector2D(0.5, 0.5));
 			const float GW = KartWidgets::GlyphWidth(EKartMenuAction::Start, EKartInputDevice::Gamepad, 44.f);
 			KartWidgets::Glyph(Card, EKartMenuAction::Start, EKartInputDevice::Gamepad, Pos + FVector2D(Size.X * 0.5 - GW * 0.5, Size.Y * 0.56), 44.f);
 			Card.Text(LOCTEXT("Join", "Press Start to join"), Font(EFont::Button, 26.f, 2.f), Pos + FVector2D(Size.X * 0.5, Size.Y * 0.7), Color::White, FVector2D(0.5, 0.5));
@@ -1241,6 +1278,11 @@ namespace
 		virtual void OnShown() override
 		{
 			Focus.FocusAt = NowSeconds();
+			if (UKartSessionSettings* S = Session(Host))
+			{
+				S->MutableSetup().Sanitize(Grid());
+			}
+			ValuesKey = -1;
 			if (AKartFrontEnd* FE = FrontEnd.Get())
 			{
 				FE->SetShot(EKartFrontEndShot::Orbit);
@@ -1307,27 +1349,35 @@ namespace
 			{
 				return;
 			}
-			FKartRaceSetup& Setup = S->MutableSetup();
-			Setup.Sanitize(Grid());
+			const FKartRaceSetup& Setup = S->GetSetup();
 			LeftPanel(P, Frame, 1040.f, 0.72f);
 			KartWidgets::Header(P, Frame, LOCTEXT("RulesTitle", "Race rules"), LOCTEXT("RulesSub", "Set up the grid."), Color::Sky);
 			KartWidgets::Steps(P, Frame, SetupSteps(), 1);
 
-			const FText Skill[] = { LOCTEXT("Easy", "Easy"), LOCTEXT("Normal", "Normal"), LOCTEXT("Hard", "Hard") };
-			const FText Labels[] = { LOCTEXT("Opponents", "Opponents"), LOCTEXT("BotSkill", "Bot skill"), LOCTEXT("Laps", "Laps"), LOCTEXT("Screens", "Screens") };
-			const FText Values[] = {
-				Setup.Bots == 0 ? LOCTEXT("NoBots", "None") : FText::Format(LOCTEXT("BotsN", "{0} {0}|plural(one=bot,other=bots)"), Setup.Bots),
-				Skill[FMath::Clamp(Setup.BotSkill, 0, 2)],
-				FText::AsNumber(Setup.Laps),
-				Setup.bViewEveryKart ? LOCTEXT("EveryKart", "Every kart (TV)") : LOCTEXT("PerPlayer", "One per player"),
-			};
+			static const FText Skill[] = { LOCTEXT("Easy", "Easy"), LOCTEXT("Normal", "Normal"), LOCTEXT("Hard", "Hard") };
+			static const FText Labels[] = { LOCTEXT("Opponents", "Opponents"), LOCTEXT("BotSkill", "Bot skill"), LOCTEXT("Laps", "Laps"), LOCTEXT("Screens", "Screens") };
+			const int32 Key = ((Setup.Bots * 8 + FMath::Clamp(Setup.BotSkill, 0, 2)) * 64 + Setup.Laps) * 2 + (Setup.bViewEveryKart ? 1 : 0) + Setup.LocalPlayers * 100000;
+			if (Key != ValuesKey)
+			{
+				ValuesKey = Key;
+				Values[0] = Setup.Bots == 0 ? LOCTEXT("NoBots", "None") : FText::Format(LOCTEXT("BotsN", "{0} {0}|plural(one=bot,other=bots)"), Setup.Bots);
+				Values[1] = Skill[FMath::Clamp(Setup.BotSkill, 0, 2)];
+				Values[2] = FText::AsNumber(Setup.Laps);
+				Values[3] = Setup.bViewEveryKart ? LOCTEXT("EveryKart", "Every kart (TV)") : LOCTEXT("PerPlayer", "One per player");
+				RacersText = FText::Format(LOCTEXT("RacersCount", "{0} racers"), Setup.LocalPlayers + Setup.Bots);
+				SummaryText = FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, Skill[FMath::Clamp(Setup.BotSkill, 0, 2)]);
+			}
 			const FVector2D RowSize(880.0, 84.0);
 			const double Top = Frame.SafeMin.Y + 200.0;
+			{
+			const FKartPaintGroup Group(P);
 			for (int32 Row = 0; Row < 4; ++Row)
 			{
+				Group.Next();
 				const float In = KartWidgets::Entrance(Frame, 0.05f + Row * 0.05f);
 				const FVector2D Pos(Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * 200.0, Top + Row * (RowSize.Y + 18.0));
 				KartWidgets::OptionRow(P.Faded(In), Pos, RowSize, Labels[Row], Values[Row], Focus.State(Row, Frame.Now, Row != 1 || Setup.Bots > 0), Row);
+			}
 			}
 			const float In = KartWidgets::Entrance(Frame, 0.3f);
 			KartWidgets::Button(P.Faded(In), FVector2D(Frame.SafeMin.X + KartWidgets::SlideX(Frame), Top + 4 * (RowSize.Y + 18.0) + 20.0),
@@ -1339,9 +1389,10 @@ namespace
 			const FVector2D CardSize(600.0, 262.0);
 			const FKartPainter Card = P.Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 4.f);
-			Card.Text(FText::Format(LOCTEXT("RacersCount", "{0} racers"), Racers), Font(EFont::Display, 56.f), CardPos + FVector2D(36.0, 26.0), Color::Navy);
-			Card.Text(FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, Skill[Setup.BotSkill]),
-				Font(EFont::Body, 26.f), CardPos + FVector2D(38.0, 104.0), Color::NavyDim);
+			Card.Text(RacersText, Font(EFont::Display, 56.f), CardPos + FVector2D(36.0, 26.0), Color::Navy);
+			Card.Text(SummaryText, Font(EFont::Body, 26.f), CardPos + FVector2D(38.0, 104.0), Color::NavyDim);
+			static const FString DotTags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4") };
+			static const FString Cpu(TEXT("CPU"));
 			for (int32 i = 0; i < 8; ++i)
 			{
 				const FVector2D C(CardPos.X + 70.0 + i * 66.0, CardPos.Y + 210.0);
@@ -1352,7 +1403,7 @@ namespace
 					const FKartPainter Dot = bNew ? Card.Transformed(C, Pop) : Card;
 					const FLinearColor Paint = i < Setup.LocalPlayers ? FKartRoster::PaintColor(Setup.Racers[i].Paint) : Color::NavyDim;
 					Dot.Circle(C, 26.f, Paint, Color::Navy, 3.f);
-					Dot.Text(i < Setup.LocalPlayers ? FString::Printf(TEXT("P%d"), i + 1) : FString(TEXT("CPU")), Font(EFont::Label, i < Setup.LocalPlayers ? 17.f : 13.f),
+					Dot.Text(i < Setup.LocalPlayers ? DotTags[FMath::Clamp(i, 0, 3)] : Cpu, Font(EFont::Label, i < Setup.LocalPlayers ? 17.f : 13.f),
 						C, Color::White, FVector2D(0.5, 0.5));
 				}
 				else
@@ -1385,6 +1436,7 @@ namespace
 			case 2: Setup.Laps = FMath::Clamp(Setup.Laps + Dir, 1, FKartRaceSetup::MaxLaps); break;
 			default: Setup.bViewEveryKart = !Setup.bViewEveryKart; break;
 			}
+			Setup.Sanitize(Grid());
 			const bool bChanged = Setup.Bots != Before.Bots || Setup.BotSkill != Before.BotSkill || Setup.Laps != Before.Laps || Setup.bViewEveryKart != Before.bViewEveryKart;
 			if (bChanged)
 			{
@@ -1401,6 +1453,11 @@ namespace
 
 		TWeakObjectPtr<AKartFrontEnd> FrontEnd;
 		FFocus Focus;
+		/** The rows' values and the summary card, rebuilt when the setup changes. */
+		int32 ValuesKey = -1;
+		FText Values[4];
+		FText RacersText;
+		FText SummaryText;
 	};
 
 	// ---------------------------------------------------------------------------------------------- Tracks
@@ -1488,14 +1545,17 @@ namespace
 			const double Total = Tracks.Num() * CardSize.X + (Tracks.Num() - 1) * Gap;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
 			const double Top = Frame.Size.Y * 0.5 - CardSize.Y * 0.5 - 30.0;
+			{
+			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Tracks.Num(); ++i)
 			{
+				Group.Next();
 				const FKartTrackInfo& Track = Tracks[i];
 				const bool bFocused = i == Focus.Cursor.Index;
 				const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.08f, 0.45f);
 				const FVector2D Pos(Left + i * (CardSize.X + Gap) + KartWidgets::SlideX(Frame), Top + (1.0 - In) * 120.0);
 				P.Hit(i, Pos, CardSize);
-				const float Pop = bFocused ? 1.f + 0.04f * Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / 0.25), 3.f) : 0.95f;
+				const float Pop = bFocused ? 1.f + 0.04f * Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / 0.25), FKartAccessibility::ReduceMotion() ? 0.f : 3.f) : 0.95f;
 				const FKartPainter Card = P.Transformed(Pos + CardSize * 0.5, Pop, bFocused ? -1.f : 0.f).Faded(In);
 				if (bFocused)
 				{
@@ -1517,7 +1577,7 @@ namespace
 					Card.Text(LOCTEXT("Loading", "..."), Font(EFont::Display, 60.f), MapPos + MapSize * 0.5, Color::White, FVector2D(0.5, 0.5));
 				}
 				Card.Text(Track.Name, Font(EFont::Display, 56.f), Pos + FVector2D(34.0, 364.0), Color::Navy);
-				Card.TextWrapped(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 438.0), CardSize.X - 72.0, Color::NavyDim);
+				Card.TextWrapped(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 446.0), CardSize.X - 72.0, Color::NavyDim);
 				// Stat chips.
 				double ChipX = Pos.X + 34.0;
 				auto Chip = [&](const FString& Text, const FLinearColor& Fill)
@@ -1530,17 +1590,27 @@ namespace
 				};
 				if (Preview.IsValid())
 				{
-					Chip(FString::Printf(TEXT("%.2f km lap"), Preview->LapMetres / 1000.0), Color::PaperShade);
+					if (!LapChips.Contains(Track.Id))
+					{
+						LapChips.Add(Track.Id, FString::Printf(TEXT("%.2f km lap"), Preview->LapMetres / 1000.0));
+					}
+					Chip(LapChips[Track.Id], Color::PaperShade);
 				}
 				if (Setup)
 				{
-					Chip(FString::Printf(TEXT("%d %s"), Setup->Laps, Setup->Laps == 1 ? TEXT("LAP") : TEXT("LAPS")), Track.Accent);
+					if (Setup->Laps != LapsChipValue)
+					{
+						LapsChipValue = Setup->Laps;
+						LapsChip = FString::Printf(TEXT("%d %s"), Setup->Laps, Setup->Laps == 1 ? TEXT("LAP") : TEXT("LAPS"));
+					}
+					Chip(LapsChip, Track.Accent);
 				}
 				if (!bFocused)
 				{
 					// The card not picked steps back: dimmed rather than see-through.
 					Card.Box(Pos, CardSize, Color::WithAlpha(Color::Night, 0.28f), Metric::RadiusLarge);
 				}
+			}
 			}
 			// Arrows either side when there is more to pick.
 			const FVector2D Mid(Frame.Size.X * 0.5, Top + CardSize.Y * 0.5);
@@ -1594,6 +1664,10 @@ namespace
 		TWeakObjectPtr<AKartFrontEnd> FrontEnd;
 		FFocus Focus;
 		bool bStarting = false;
+		/** Chip labels, built once per track / laps value. */
+		TMap<FString, FString> LapChips;
+		int32 LapsChipValue = -1;
+		FString LapsChip;
 	};
 
 	// --------------------------------------------------------------------------------------------- Credits
@@ -1695,18 +1769,22 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			const float In = Ease::OutBack(static_cast<float>(Frame.Age / 0.3), 1.8f);
+			const float In = FKartAccessibility::ReduceMotion() ? Ease::OutCubic(static_cast<float>(Frame.Age / 0.2)) : Ease::OutBack(static_cast<float>(Frame.Age / 0.3), 1.8f);
 			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.6f * FMath::Min(1.f, static_cast<float>(Frame.Age / 0.2))));
 			const FVector2D Size(760.0, 360.0);
 			const FVector2D Pos = Frame.Centre() - Size * 0.5;
 			const FKartPainter D = P.Transformed(Frame.Centre(), 0.7f + 0.3f * In);
 			D.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, 12.f, Color::White, 5.f);
-			D.Box(Pos + FVector2D(0.0, 0.0), FVector2D(Size.X, 16.0), Color::Hot, 8.f);
+			D.Box(Pos + FVector2D(Size.X * 0.5 - 60.0, 14.0), FVector2D(120.0, 10.0), Color::Hot, 5.f);
 			D.Text(Title, Font(EFont::Display, 54.f), Pos + FVector2D(Size.X * 0.5, 84.0), Color::Navy, FVector2D(0.5, 0.5));
 			D.Text(Body, Font(EFont::Body, 26.f), Pos + FVector2D(Size.X * 0.5, 150.0), Color::NavyDim, FVector2D(0.5, 0.5));
 			const FVector2D ButtonSize(310.0, 84.0);
-			KartWidgets::Button(D, Pos + FVector2D(40.0, Size.Y - 124.0), ButtonSize, Yes, Focus.State(0, Frame.Now), Color::Hot, 0);
-			KartWidgets::Button(D, Pos + FVector2D(Size.X - 40.0 - ButtonSize.X, Size.Y - 124.0), ButtonSize, No, Focus.State(1, Frame.Now), Color::Mint, 1);
+			{
+				const FKartPaintGroup Group(D);
+				KartWidgets::Button(D, Pos + FVector2D(40.0, Size.Y - 124.0), ButtonSize, Yes, Focus.State(0, Frame.Now), Color::Hot, 0);
+				Group.Next();
+				KartWidgets::Button(D, Pos + FVector2D(Size.X - 40.0 - ButtonSize.X, Size.Y - 124.0), ButtonSize, No, Focus.State(1, Frame.Now), Color::Mint, 1);
+			}
 			// Hit regions from a transformed painter are skipped; register the settled ones.
 			P.Hit(0, Pos + FVector2D(40.0, Size.Y - 124.0), ButtonSize);
 			P.Hit(1, Pos + FVector2D(Size.X - 40.0 - ButtonSize.X, Size.Y - 124.0), ButtonSize);

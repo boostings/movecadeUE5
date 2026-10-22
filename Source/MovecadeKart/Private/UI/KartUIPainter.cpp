@@ -3,6 +3,7 @@
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/IConsoleManager.h"
 #include "Hash/CityHash.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
@@ -40,8 +41,14 @@ namespace
 		int32 Base = 0;
 		int32 Plane = 0;
 		int32 Planes = 0;
+		/** The previous primitive's key in this item: a repeat stays on its plane (a card and its shadow). */
+		uint64 LastKey = 0;
 	};
 	thread_local FGroup GGroup;
+
+	/** 0 turns off layer runs and item groups (one layer per primitive, as before): for measuring with stat Slate. */
+	TAutoConsoleVariable<int32> CVarBatching(TEXT("Kart.UI.Batching"), 3,
+		TEXT("Painter layer batching: 0 off, 1 runs only, 2 groups only, 3 both (default)."));
 
 	constexpr uint64 Mix(uint64 Hash, uint64 Value)
 	{
@@ -118,15 +125,21 @@ FKartPainter::FKartPainter(const FGeometry& InGeometry, FSlateWindowElementList&
 
 int32 FKartPainter::LayerFor(uint64 Key, bool bNewRun) const
 {
-	if (GGroup.Counter == Layer)
+	const int32 Mode = CVarBatching.GetValueOnAnyThread();
+	if (GGroup.Counter == Layer && (Mode & 2))
 	{
+		if ((Mode & 1) && !bNewRun && Key != 0 && Key == GGroup.LastKey && GGroup.Plane > 0)
+		{
+			return GGroup.Base + GGroup.Plane - 1;
+		}
+		GGroup.LastKey = Key;
 		const int32 Id = GGroup.Base + GGroup.Plane++;
 		GGroup.Planes = FMath::Max(GGroup.Planes, GGroup.Plane);
 		*Layer = FMath::Max(*Layer, Id + 1);
 		GRun = FLayerRun();
 		return Id;
 	}
-	if (!bNewRun && Key != 0 && GRun.Counter == Layer && GRun.After == *Layer && GRun.Key == Key)
+	if ((Mode & 1) && !bNewRun && Key != 0 && GRun.Counter == Layer && GRun.After == *Layer && GRun.Key == Key)
 	{
 		return *Layer - 1;
 	}
@@ -416,6 +429,7 @@ void FKartPainter::NextItem() const
 	if (GGroup.Counter == Layer)
 	{
 		GGroup.Plane = 0;
+		GGroup.LastKey = 0;
 	}
 }
 

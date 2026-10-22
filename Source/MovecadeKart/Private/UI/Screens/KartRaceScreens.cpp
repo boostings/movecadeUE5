@@ -7,6 +7,7 @@
 #include "Net/RoomHostSubsystem.h"
 #include "Race/KartRaceManager.h"
 #include "Race/SKartRaceOverlay.h"
+#include "UI/KartAccessibility.h"
 #include "UI/KartRoster.h"
 #include "UI/KartSessionSettings.h"
 #include "UI/KartTrackCatalog.h"
@@ -128,7 +129,7 @@ namespace
 			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.55f * In));
 			const FVector2D Size(640.0, 640.0);
 			const FVector2D Pos = Frame.Centre() - Size * 0.5;
-			const float Pop = Ease::OutBack(static_cast<float>(Frame.Age / 0.32), 2.f);
+			const float Pop = FKartAccessibility::ReduceMotion() ? Ease::OutCubic(static_cast<float>(Frame.Age / 0.2)) : Ease::OutBack(static_cast<float>(Frame.Age / 0.32), 2.f);
 			const FKartPainter Card = P.Transformed(Frame.Centre(), 0.8f + 0.2f * Pop);
 			Card.Card(Pos, Size, Color::WithAlpha(Color::Night, 0.92f), Metric::RadiusLarge, 12.f, Color::Sun, 5.f);
 			Card.Text(LOCTEXT("Paused", "PAUSED"), Font(EFont::Display, 84.f, 5.f), Pos + FVector2D(Size.X * 0.5, 82.0), Color::Sun, FVector2D(0.5, 0.5), 5.f);
@@ -138,11 +139,13 @@ namespace
 				Card.Text(Track ? Track->Name : FText::FromString(R->GetTrack()->Name), Font(EFont::Body, 24.f), Pos + FVector2D(Size.X * 0.5, 156.0),
 					Color::WithAlpha(Color::White, 0.8f), FVector2D(0.5, 0.5));
 			}
-			const FText Names[] = { LOCTEXT("ResumeButton", "Resume"), LOCTEXT("Restart", "Restart race"), LOCTEXT("Settings", "Settings"), LOCTEXT("QuitMenu", "Quit to menu") };
+			static const FText Names[] = { LOCTEXT("ResumeButton", "Resume"), LOCTEXT("Restart", "Restart race"), LOCTEXT("Settings", "Settings"), LOCTEXT("QuitMenu", "Quit to menu") };
 			const FLinearColor Accents[] = { Color::Mint, Color::Sky, Color::Grape, Color::Hot };
 			const FVector2D ButtonSize(520.0, 86.0);
+			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < 4; ++i)
 			{
+				Group.Next();
 				const FVector2D BPos(Pos.X + 60.0, Pos.Y + 196.0 + i * (ButtonSize.Y + 18.0));
 				KartWidgets::Button(Frame.Age > 0.32 ? P : Card, BPos, ButtonSize, Names[i], Buttons.State(i, Frame.Now), Accents[i], i);
 			}
@@ -162,6 +165,7 @@ namespace
 				}
 				break;
 			case 1:
+				Host->PlaySound(EKartUISound::Accept);
 				Host->PushScreen(KartScreens::MakeConfirm(LOCTEXT("RestartTitle", "Restart the race?"), LOCTEXT("RestartBody", "Everyone goes back to the grid."),
 					LOCTEXT("RestartYes", "Restart"), LOCTEXT("RestartNo", "Cancel"), [WeakRace = Race]()
 					{
@@ -180,6 +184,7 @@ namespace
 				Host->PushScreen(KartScreens::MakeSettings(0));
 				break;
 			default:
+				Host->PlaySound(EKartUISound::Accept);
 				Host->PushScreen(KartScreens::MakeConfirm(LOCTEXT("QuitTitle", "Quit to the menu?"), LOCTEXT("QuitBody", "This race won't count."),
 					LOCTEXT("QuitYes", "Quit"), LOCTEXT("QuitNo", "Keep racing"), [WeakRace = Race]()
 					{
@@ -258,13 +263,14 @@ namespace
 			// Title: the winner (or a photo finish) over a burst of stars.
 			const float TitleIn = Ease::OutBack(static_cast<float>(Frame.Age / 0.5), 2.f);
 			const FVector2D TitlePos(Frame.SafeMin.X, Frame.SafeMin.Y);
-			const bool bPhoto = Results.Num() > 1 && Results[1].bFinished && FMath::Abs(Results[1].TimeMs - Results[0].TimeMs) < 1.0;
-			const FText Title = Results.Num() == 0 ? LOCTEXT("Results", "Results")
-				: bPhoto ? LOCTEXT("Photo", "Photo finish!")
-				: Results[0].bFinished ? FText::Format(LOCTEXT("Wins", "{0} wins!"), FText::FromString(Results[0].Name)) : LOCTEXT("TimeUp", "Time's up!");
-			const FKartPainter T = P.Transformed(TitlePos + FVector2D(300.0, 60.0), TitleIn, (1.f - TitleIn) * -8.f);
+			if (CachedRows != Results.Num())
+			{
+				BuildText(*R);
+			}
+			const FText& Title = TitleText;
+			const FKartPainter T = P.Transformed(TitlePos + FVector2D(300.0, 60.0), TitleIn, (1.f - TitleIn) * -8.f * FKartAccessibility::MotionScale());
 			T.Text(LOCTEXT("FinalStandings", "FINAL STANDINGS"), Font(EFont::Label, 22.f, 2.f), TitlePos + FVector2D(4.0, -6.0), Color::Sun);
-			KartWidgets::Star(T, TitlePos + FVector2D(36.0, 68.0), 40.f, 18.f, Color::Sun, static_cast<float>(Frame.Now * 40.0));
+			KartWidgets::Star(T, TitlePos + FVector2D(36.0, 68.0), 40.f, 18.f, Color::Sun, static_cast<float>(Frame.Now * 40.0 * FKartAccessibility::MotionScale()));
 			T.Text(Title, Font(EFont::Display, 78.f, 5.f), TitlePos + FVector2D(90.0, 20.0), Color::White, FVector2D::ZeroVector, 6.f);
 
 			// Rows, staggered in.
@@ -272,8 +278,11 @@ namespace
 			const double RowH = FMath::Min(96.0, (Frame.SafeSize().Y - 360.0) / FMath::Max(1, Rows));
 			const double RowW = 1080.0;
 			const double Top = Frame.SafeMin.Y + 160.0;
+			{
+			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Rows; ++i)
 			{
+				Group.Next();
 				const FKartResult& Result = Results[i];
 				const float In = KartWidgets::Entrance(Frame, 0.25f + i * 0.07f, 0.35f);
 				if (In <= 0.f)
@@ -291,38 +300,38 @@ namespace
 				const FVector2D Badge(Pos.X + Size.Y * 0.5 + 6.0, Pos.Y + Size.Y * 0.5);
 				const float BadgeR = static_cast<float>(Size.Y * 0.5 - 6.0);
 				Row.Circle(Badge, BadgeR, Color::ForPlace(Result.Rank), Color::Navy, 3.f);
-				Row.Text(FString::FromInt(Result.Rank), Font(EFont::Display, BadgeR * 1.15f), Badge + FVector2D(0.0, 1.0), Color::Navy, FVector2D(0.5, 0.5));
+				Row.Text(RowText[i].Rank, Font(EFont::Display, BadgeR * 1.15f), Badge + FVector2D(0.0, 1.0), Color::Navy, FVector2D(0.5, 0.5));
 				// Paint swatch + name + character / vehicle.
 				const double NameX = Badge.X + BadgeR + 22.0;
 				Row.Box(FVector2D(NameX, Pos.Y + 12.0), FVector2D(10.0, Size.Y - 24.0), Result.Paint, 5.f);
 				Row.Text(Result.Name, Font(EFont::Title, FMath::Min(32.f, static_cast<float>(Size.Y * 0.4))), FVector2D(NameX + 24.0, Pos.Y + Size.Y * 0.5 + 8.0), Color::Navy, FVector2D(0.0, 1.0));
-				if (Racer && Racer->Kart)
+				if (!RowText[i].Sub.IsEmpty())
 				{
-					const FKartLook& Look = Racer->Kart->GetLook();
-					const FText Sub = FText::Format(LOCTEXT("CharacterVehicle", "{0}  ·  {1}"), FKartRoster::CharacterNameOf(Look), FKartRoster::VehicleName(Look.Vehicle));
-					Row.Text(Sub, Font(EFont::Body, 18.f), FVector2D(NameX + 26.0, Pos.Y + Size.Y * 0.5 + 4.0), Color::NavyDim);
+					Row.Text(RowText[i].Sub, Font(EFont::Body, 18.f), FVector2D(NameX + 26.0, Pos.Y + Size.Y * 0.5 + 4.0), Color::NavyDim);
 				}
 				// Time and best lap on the right.
-				const FString Time = Result.bFinished ? SKartRaceOverlay::FormatRaceTime(Result.TimeMs) : FString(TEXT("DNF"));
-				Row.Text(Time, Font(EFont::Display, FMath::Min(36.f, static_cast<float>(Size.Y * 0.5))), FVector2D(Pos.X + Size.X - 230.0, Pos.Y + Size.Y * 0.5),
+				Row.Text(RowText[i].Time, Font(EFont::Display, FMath::Min(36.f, static_cast<float>(Size.Y * 0.5))), FVector2D(Pos.X + Size.X - 230.0, Pos.Y + Size.Y * 0.5),
 					Result.bFinished ? Color::Navy : Color::NavyDim, FVector2D(1.0, 0.5));
 				if (Result.BestLapMs > 0.0 && R->GetTrack() && R->GetTrack()->Laps > 1)
 				{
 					Row.Text(LOCTEXT("Best", "BEST LAP"), Font(EFont::Label, 13.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0), Color::NavyDim, FVector2D(1.0, 1.0));
-					Row.Text(SKartRaceOverlay::FormatRaceTime(Result.BestLapMs), Font(EFont::Button, 22.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0),
+					Row.Text(RowText[i].BestLap, Font(EFont::Button, 22.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0),
 						Color::Navy, FVector2D(1.0, 0.0));
 				}
 			}
 
 			// The buttons along the bottom.
+			}
 			const float ButtonsIn = KartWidgets::Entrance(Frame, 0.4f + Rows * 0.07f);
-			const FText Names[] = { LOCTEXT("RaceAgain", "Race again"), LOCTEXT("ChangeTrack", "Change track"), LOCTEXT("MainMenu", "Main menu") };
-			const FText RoomNames[] = { LOCTEXT("BackToLobby", "Back to lobby"), LOCTEXT("LeaveParty", "Leave party") };
+			static const FText Names[] = { LOCTEXT("RaceAgain", "Race again"), LOCTEXT("ChangeTrack", "Change track"), LOCTEXT("MainMenu", "Main menu") };
+			static const FText RoomNames[] = { LOCTEXT("BackToLobby", "Back to lobby"), LOCTEXT("LeaveParty", "Leave party") };
 			const FLinearColor Accents[] = { Color::Hot, Color::Mint, Color::Sky };
 			const FVector2D ButtonSize(400.0, 88.0);
 			const double Y = Frame.SafeMax.Y - ButtonSize.Y - 70.0;
+			const FKartPaintGroup Buttons_(P);
 			for (int32 i = 0; i < Buttons.Cursor.Count; ++i)
 			{
+				Buttons_.Next();
 				const FVector2D Pos(Frame.SafeMin.X + i * (ButtonSize.X + 22.0), Y + (1.0 - ButtonsIn) * 80.0);
 				KartWidgets::Button(P.Faded(ButtonsIn), Pos, ButtonSize, bRoom ? RoomNames[i] : Names[i], Buttons.State(i, Frame.Now), Accents[i], i);
 			}
@@ -367,9 +376,46 @@ namespace
 			}
 		}
 
+		/** The board's text, built once when the results arrive (they don't change while it shows). */
+		void BuildText(const AKartRaceManager& R)
+		{
+			const TArray<FKartResult>& Results = R.GetResults();
+			CachedRows = Results.Num();
+			const bool bPhoto = Results.Num() > 1 && Results[1].bFinished && FMath::Abs(Results[1].TimeMs - Results[0].TimeMs) < 1.0;
+			TitleText = Results.Num() == 0 ? LOCTEXT("Results", "Results")
+				: bPhoto ? LOCTEXT("Photo", "Photo finish!")
+				: Results[0].bFinished ? FText::Format(LOCTEXT("Wins", "{0} wins!"), FText::FromString(Results[0].Name)) : LOCTEXT("TimeUp", "Time's up!");
+			RowText.SetNum(Results.Num());
+			for (int32 i = 0; i < Results.Num(); ++i)
+			{
+				const FKartResult& Result = Results[i];
+				FRowText& Text = RowText[i];
+				Text.Rank = FString::FromInt(Result.Rank);
+				Text.Time = Result.bFinished ? SKartRaceOverlay::FormatRaceTime(Result.TimeMs) : FString(TEXT("DNF"));
+				Text.BestLap = Result.BestLapMs > 0.0 ? SKartRaceOverlay::FormatRaceTime(Result.BestLapMs) : FString();
+				const FKartRacer* Racer = R.GetRacers().IsValidIndex(Result.Seat) ? &R.GetRacers()[Result.Seat] : nullptr;
+				if (Racer && Racer->Kart)
+				{
+					const FKartLook& Look = Racer->Kart->GetLook();
+					Text.Sub = FText::Format(LOCTEXT("CharacterVehicle", "{0}  ·  {1}"), FKartRoster::CharacterNameOf(Look), FKartRoster::VehicleName(Look.Vehicle));
+				}
+			}
+		}
+
+		struct FRowText
+		{
+			FString Rank;
+			FString Time;
+			FString BestLap;
+			FText Sub;
+		};
+
 		TWeakObjectPtr<AKartRaceManager> Race;
 		FButtonList Buttons;
 		bool bRoom = false;
+		int32 CachedRows = -1;
+		FText TitleText;
+		TArray<FRowText> RowText;
 	};
 }
 

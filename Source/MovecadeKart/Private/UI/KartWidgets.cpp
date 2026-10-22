@@ -1,5 +1,7 @@
 #include "UI/KartWidgets.h"
 
+#include "UI/KartAccessibility.h"
+
 using namespace KartUI;
 
 namespace
@@ -11,7 +13,9 @@ namespace
 		{
 			return 1.f;
 		}
-		return 1.f + Amount * Ease::OutBack(static_cast<float>(State.FocusAge / 0.22), 3.f);
+		// Reduce motion: a smaller pop with no overshoot.
+		const float T = static_cast<float>(State.FocusAge / 0.22);
+		return FKartAccessibility::ReduceMotion() ? 1.f + Amount * 0.5f * Ease::OutCubic(T) : 1.f + Amount * Ease::OutBack(T, 3.f);
 	}
 
 	const TCHAR* KeyboardLabel(EKartMenuAction Action)
@@ -62,6 +66,21 @@ namespace
 		if (bRight) P.Box(C + FVector2D(Len - In - Tip, -Cell.Y * 0.5), FVector2D(Tip, Cell.Y), Color::SunDeep, 2.f);
 	}
 
+	/** "0%" .. "100%", built once. */
+	const FString& PercentLabel(int32 Percent)
+	{
+		static const TArray<FString> Labels = []()
+		{
+			TArray<FString> Out;
+			for (int32 i = 0; i <= 100; ++i)
+			{
+				Out.Add(FString::Printf(TEXT("%d%%"), i));
+			}
+			return Out;
+		}();
+		return Labels[FMath::Clamp(Percent, 0, 100)];
+	}
+
 	bool IsArrowAction(EKartMenuAction Action)
 	{
 		return FKartMenuInputProcessor::IsDirectional(Action);
@@ -88,7 +107,7 @@ namespace KartWidgets
 
 	void Star(const FKartPainter& P, const FVector2D& C, float Outer, float Inner, const FLinearColor& Color, float Degrees)
 	{
-		TArray<FVector2D> Points;
+		TArray<FVector2D, TInlineAllocator<10>> Points;
 		for (int32 i = 0; i < 10; ++i)
 		{
 			const double A = FMath::DegreesToRadians(Degrees - 90.0 + i * 36.0);
@@ -227,13 +246,17 @@ namespace KartWidgets
 		};
 		for (const FKartHint& Hint : List)
 		{
-			Total += Width(Hint.Action) + 10.f + static_cast<float>(FKartPainter::Measure(Hint.Label.ToString(), LabelFont).X) + 30.f;
+			// A glyph without a label (the Q of "Q E Tabs") sits right next to the following one.
+			Total += Hint.Label.IsEmpty() ? Width(Hint.Action) + 8.f
+				: Width(Hint.Action) + 10.f + static_cast<float>(FKartPainter::Measure(Hint.Label.ToString(), LabelFont).X) + 30.f;
 		}
 		const FVector2D Origin(Frame.SafeMax.X - Total, Frame.SafeMax.Y - H * 0.5);
 		P.Box(Origin - FVector2D(22.0, H * 0.5 + 10.0), FVector2D(Total + 30.0, H + 20.0), Color::WithAlpha(Color::Night, 0.55f), (H + 20.f) * 0.5f);
 		float X = Origin.X;
+		const FKartPaintGroup Group(P);
 		for (const FKartHint& Hint : List)
 		{
+			Group.Next();
 			if (Hint.Action == EKartMenuAction::Left && Frame.Device == EKartInputDevice::Gamepad)
 			{
 				DPad(P, FVector2D(X + H * 0.5, Origin.Y), H * 0.5f, false, false, true, true);
@@ -243,6 +266,11 @@ namespace KartWidgets
 			{
 				X += Glyph(P, EKartMenuAction::Left, Frame.Device, FVector2D(X, Origin.Y), H) + 4.f;
 				X += Glyph(P, EKartMenuAction::Right, Frame.Device, FVector2D(X, Origin.Y), H) + 10.f;
+			}
+			else if (Hint.Label.IsEmpty())
+			{
+				X += Glyph(P, Hint.Action, Frame.Device, FVector2D(X, Origin.Y), H) + 8.f;
+				continue;
 			}
 			else
 			{
@@ -271,17 +299,28 @@ namespace KartWidgets
 		const FSlateFontInfo StepFont = Font(EFont::Button, 22.f);
 		float X = Frame.SafeMax.X;
 		const float Y = Frame.SafeMin.Y + 30.f;
+		static const FString Numbers[] = { TEXT("1"), TEXT("2"), TEXT("3"), TEXT("4"), TEXT("5"), TEXT("6"), TEXT("7"), TEXT("8"), TEXT("9") };
+		const FKartPaintGroup Group(P);
 		for (int32 i = Names.Num() - 1; i >= 0; --i)
 		{
+			Group.Next();
 			const bool bOn = i == Current;
 			const bool bDone = i < Current;
-			const FString Label = Names[i].ToString();
+			const FString& Label = Names[i].ToString();
 			const float W = static_cast<float>(FKartPainter::Measure(Label, StepFont).X) + 64.f;
 			X -= W;
-			const FLinearColor Fill = bOn ? Color::Sun : bDone ? Color::Mint : Color::WithAlpha(Color::Night, 0.6f);
+			// Done steps get a tick as well as the colour, so the state never rests on colour alone.
+			const FLinearColor Fill = bOn ? Color::Sun : bDone ? FKartAccessibility::Good() : Color::WithAlpha(Color::Night, 0.6f);
 			P.Box(FVector2D(X, Y - 22.0), FVector2D(W, 44.0), Fill, 22.f, Color::White, bOn ? 3.f : 0.f);
 			P.Circle(FVector2D(X + 22.0, Y), 14.f, bOn || bDone ? Color::Navy : Color::White);
-			P.Text(FString::FromInt(i + 1), Font(EFont::Label, 17.f), FVector2D(X + 22.0, Y), bOn || bDone ? Color::White : Color::Navy, FVector2D(0.5, 0.5));
+			if (bDone)
+			{
+				P.Lines({ FVector2D(X + 15.0, Y), FVector2D(X + 20.0, Y + 5.0), FVector2D(X + 29.0, Y - 5.0) }, Color::White, 3.f);
+			}
+			else
+			{
+				P.Text(Numbers[FMath::Clamp(i, 0, 8)], Font(EFont::Label, 17.f), FVector2D(X + 22.0, Y), bOn ? Color::White : Color::Navy, FVector2D(0.5, 0.5));
+			}
 			P.Text(Label, StepFont, FVector2D(X + 42.0, Y), bOn || bDone ? Color::Navy : Color::White, FVector2D(0.0, 0.5));
 			X -= 12.f;
 		}
@@ -297,12 +336,12 @@ namespace KartWidgets
 		if (State.bFocused)
 		{
 			// Glow, the sunny fill, a white rim and a bouncing chevron.
-			const float Glow = 0.35f + 0.15f * FMath::Sin(static_cast<float>(State.FocusAge) * 5.f);
+			const float Glow = 0.35f + 0.15f * FKartAccessibility::MotionScale() * FMath::Sin(static_cast<float>(State.FocusAge) * 5.f);
 			B.Box(Pos - FVector2D(8.0, 8.0), Size + FVector2D(16.0, 16.0), Color::WithAlpha(Color::Sun, Glow), R + 8.f);
 			B.Box(Pos + FVector2D(0.0, 7.0), Size, Color::WithAlpha(Color::SunDeep, 1.f), R);
 			B.Gradient(Pos, Size, Color::Sun, FLinearColor::LerpUsingHSV(Color::Sun, Color::SunDeep, 0.55f), true, R);
 			B.Box(Pos, Size, FLinearColor::Transparent, R, Color::White, 4.f);
-			const double Bob = FMath::Sin(State.FocusAge * 9.0) * 4.0;
+			const double Bob = FMath::Sin(State.FocusAge * 9.0) * 4.0 * FKartAccessibility::MotionScale();
 			Arrow(B, FVector2D(Pos.X + 34.0 + Bob, Centre.Y), 13.f, true, Color::Navy);
 		}
 		else
@@ -366,8 +405,15 @@ namespace KartWidgets
 		const float Pop = State.ChangeAge < 0.2 ? 1.f + 0.12f * (1.f - Ease::OutCubic(static_cast<float>(State.ChangeAge / 0.2))) : 1.f;
 		const FVector2D ValueCentre((Left + Right) * 0.5, Centre.Y);
 		const FKartPainter V = B->Transformed(ValueCentre, Pop);
-		const FSlateFontInfo ValueFont = Font(EFont::Button, 28.f);
-		const FVector2D ValueSize = FKartPainter::Measure(Value.ToString(), ValueFont);
+		// Long values ("1 on this screen") shrink to fit between the arrows rather than run over them.
+		const double Room = ValueW - 64.0 - (Swatch.A > 0.f ? 36.0 : 0.0);
+		FSlateFontInfo ValueFont = Font(EFont::Button, 28.f);
+		FVector2D ValueSize = FKartPainter::Measure(Value.ToString(), ValueFont);
+		if (ValueSize.X > Room)
+		{
+			ValueFont = Font(EFont::Button, FMath::Max(18.f, FMath::FloorToFloat(28.f * static_cast<float>(Room / ValueSize.X))));
+			ValueSize = FKartPainter::Measure(Value.ToString(), ValueFont);
+		}
 		double TextX = ValueCentre.X;
 		if (Swatch.A > 0.f)
 		{
@@ -400,7 +446,7 @@ namespace KartWidgets
 			const float Pop = (bOn && i == Lit - 1 && State.ChangeAge < 0.2) ? 1.25f - 0.25f * Ease::OutCubic(static_cast<float>(State.ChangeAge / 0.2)) : 1.f;
 			B->Transformed(SegPos + FVector2D(SegW * 0.5, H), Pop).Box(SegPos, FVector2D(SegW, H), Fill, 4.f);
 		}
-		B->Text(FString::Printf(TEXT("%d%%"), FMath::RoundToInt32(Value * 100.f)), Font(EFont::Button, 26.f),
+		B->Text(PercentLabel(FMath::RoundToInt32(Value * 100.f)), Font(EFont::Button, 26.f),
 			FVector2D(Pos.X + Size.X - 30.0, Pos.Y + Size.Y * 0.5), Color::Navy, FVector2D(1.0, 0.5));
 		P.Hit(HitId | LeftArrowFlag, FVector2D(Left - 10.0, Pos.Y), FVector2D(Width * 0.5 + 10.0, Size.Y));
 		P.Hit(HitId | RightArrowFlag, FVector2D(Left + Width * 0.5, Pos.Y), FVector2D(Width * 0.5 + 10.0, Size.Y));
@@ -415,7 +461,7 @@ namespace KartWidgets
 		const float W = TextW + GlyphWidth(Action, Device, GlyphH) + 90.f;
 		const FVector2D Pos = Centre - FVector2D(W, Height) * 0.5;
 		P.Hit(HitId, Pos, FVector2D(W, Height));
-		const float Breath = State.bFocused ? 1.f + 0.03f * FMath::Sin(static_cast<float>(State.FocusAge) * 4.f) : 1.f;
+		const float Breath = State.bFocused ? 1.f + 0.03f * FKartAccessibility::MotionScale() * FMath::Sin(static_cast<float>(State.FocusAge) * 4.f) : 1.f;
 		const FKartPainter B = P.Transformed(Centre, FocusScale(State, 0.06f) * Breath);
 		const float R = Height * 0.5f;
 		B.Box(Pos + FVector2D(0.0, 8.0), FVector2D(W, Height), Color::Shadow, R);
@@ -441,8 +487,8 @@ namespace KartWidgets
 		}
 		const double Fit = FMath::Min(Size.X / FMath::Max(Max.X, 1e-3), Size.Y / FMath::Max(Max.Y, 1e-3));
 		const FVector2D Offset = Pos + (Size - Max * Fit) * 0.5;
-		TArray<FVector2D> Points;
-		Points.Reserve(Outline.Num());
+		thread_local TArray<FVector2D> Points; // reused: the outline is redrawn every frame
+		Points.Reset(Outline.Num());
 		for (const FVector2D& Pt : Outline)
 		{
 			Points.Add(Offset + Pt * Fit);
