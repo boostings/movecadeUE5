@@ -22,6 +22,9 @@ namespace MovecadeKart::Arcade
 			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop each block on the last, trim the overhang, lean the tower against the wind."),
 				LOCTEXT("StackerHow", "A, Space or click drops the sweeping block; the overhang is cut away. Stick, A/D or mouse lean the tower against the wind."), TEXT("L_Stacker"), KC::Sky, 4, 1, 3.0,
 				LOCTEXT("StackerPhone", "Phones are your palm: scan the code, keep it level and tap DROP.") },
+			{ TEXT("sumo"), LOCTEXT("Sumo", "Sumo Bumpers"), LOCTEXT("SumoTag", "Bumper-car sumo on a ring over the night sea. Tilt to roll, dash to shove, last one standing."),
+				LOCTEXT("SumoHow", "Stick or WASD roll your puck; A, Space or click dashes into whoever is in front. Knock them off the edge; the ring shrinks. Two rounds win."), TEXT("L_Sumo"), KC::Grape, 4, 1, 2.5,
+				LOCTEXT("SumoPhone", "Phones are your bumper car: scan the code, tilt to roll, tap A to dash.") },
 		};
 		return List;
 	}

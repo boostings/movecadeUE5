@@ -561,6 +561,23 @@ namespace
 			P.Polygon({ C + FVector2D(-0.9 * S, 0.6 * S), C + FVector2D(0.8 * S, -0.7 * S), C + FVector2D(0.9 * S, -0.62 * S), C + FVector2D(-0.82 * S, 0.68 * S) }, Color::White);
 			break;
 		}
+		case 4: // Two bumper pucks colliding on a ring, sparks between them.
+		{
+			const double Bump = FMath::Abs(FMath::Sin(Now * 2.4)) * 0.12 * S;
+			P.Circle(C + FVector2D(0.0, 0.18 * S), 0.92f * S, Color::WithAlpha(Color::Navy, 0.85f), Color::Sky, 0.05f * S);
+			P.Circle(C + FVector2D(0.0, 0.18 * S), 0.5f * S, FLinearColor::Transparent, Color::WithAlpha(Color::Sky, 0.5f), 0.03f * S);
+			P.Circle(C + FVector2D(-0.36 * S - Bump, 0.05 * S), 0.33f * S, Color::Hot, Color::Navy, 0.05f * S);
+			P.Circle(C + FVector2D(0.36 * S + Bump, 0.05 * S), 0.33f * S, Color::Sky, Color::Navy, 0.05f * S);
+			P.Circle(C + FVector2D(-0.36 * S - Bump, -0.05 * S), 0.12f * S, Color::White);
+			P.Circle(C + FVector2D(0.36 * S + Bump, -0.05 * S), 0.12f * S, Color::White);
+			for (int32 i = 0; i < 4; ++i)
+			{
+				const double A = -0.9 + i * 0.6;
+				const FVector2D D(FMath::Sin(A), -FMath::Cos(A));
+				P.Lines({ C + D * (0.12 * S + Bump), C + D * (0.34 * S + Bump * 2.0) }, Color::Sun, 0.05f * S);
+			}
+			break;
+		}
 		default: // A swaying tower of blocks.
 		{
 			const FLinearColor Fills[] = { Color::Navy, Color::Sky, Color::Sun, Color::Hot, Color::Mint };
@@ -579,12 +596,12 @@ namespace
 	{
 	public:
 		/** Rows: the games, then Players and House players. */
-		static constexpr int32 PlayersRow = 4;
-		static constexpr int32 HouseRow = 5;
+		static inline const int32 PlayersRow = MovecadeKart::Arcade::Games().Num();
+		static inline const int32 HouseRow = PlayersRow + 1;
 
 		explicit FArcadeScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
 		{
-			Focus.Cursor.Count = 6;
+			Focus.Cursor.Count = PlayersRow + 2;
 		}
 
 		virtual FName GetId() const override { return TEXT("arcade"); }
