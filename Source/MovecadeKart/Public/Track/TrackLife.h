@@ -9,8 +9,13 @@ class UInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class UMaterialParameterCollection;
+class UStaticMesh;
 class UTextureRenderTarget2D;
-namespace MovecadeKart { struct FTrack; }
+namespace MovecadeKart
+{
+	struct FDirtGrid;
+	struct FTrack;
+}
 
 /**
  * The living track: everything around the circuit that reacts to the race, without ever touching it. It reads
@@ -30,6 +35,9 @@ namespace MovecadeKart { struct FTrack; }
  *
  * ATrackBuilder spawns one at BeginPlay in game worlds. Test hook: -KartLifeDemo with -KartTrackCam sends a phantom
  * kart round the camera's look-at point, so a fixed screenshot shows the grass and butterflies reacting.
+ *
+ * Source files: TrackLife.cpp (setup, the frame, the karts, cheers), TrackLifeGrass.cpp (lawn and trample field),
+ * TrackLifeCrowd.cpp (spectators and butterflies) and TrackLifeFireworks.cpp.
  */
 UCLASS(NotPlaceable, Transient)
 class MOVECADEKART_API ATrackLife : public AActor
@@ -56,11 +64,7 @@ public:
 	void LaunchFirework(const FVector& Cm, const FLinearColor& Color, double Delay = 0.0);
 
 private:
-	void BuildGrass(ATrackBuilder* Builder, const MovecadeKart::FTrack& Track);
-	void BuildCrowds(ATrackBuilder* Builder);
-	void BuildButterflies(const MovecadeKart::FTrack& Track);
-	void BindRace();
-
+	/** What the life layer knows about one kart this frame (UE cm, cm/s; speed in SU). */
 	struct FKartView
 	{
 		FVector Position = FVector::ZeroVector;
@@ -68,13 +72,32 @@ private:
 		double Speed = 0.0;
 		bool bOnDirt = false;
 	};
+
+	// Setup and the frame (TrackLife.cpp).
+	void FindFinishLine(const MovecadeKart::FTrack& Track);
+	void BindRace();
 	void GatherKarts(float DeltaSeconds);
 	void UpdateShared(float DeltaSeconds);
-	void UpdateTrample(float DeltaSeconds);
-	void UpdateButterflies(float DeltaSeconds);
-	void UpdateFireworks(float DeltaSeconds);
 	void OnRaceCue(int32 Seat, FName Cue);
+
+	// Lawn (TrackLifeGrass.cpp).
+	void BuildGrass(const MovecadeKart::FTrack& Track);
+	void BuildTrampleField(const MovecadeKart::FDirtGrid& Dirt, UTextureRenderTarget2D* TargetA, UTextureRenderTarget2D* TargetB,
+		UMaterialInterface* Decay, UMaterialInterface* Stamp);
+	UInstancedStaticMeshComponent* MakeGrassGroup(UStaticMesh* Mesh, const TCHAR* Name, int32 CustomFloats, UMaterialInterface* Material, double CullCm);
+	void UpdateTrample(float DeltaSeconds);
+	void StampKarts(UTextureRenderTarget2D* Target, float DeltaSeconds);
+
+	// Spectators and butterflies (TrackLifeCrowd.cpp).
+	void BuildCrowds(ATrackBuilder* Builder);
+	void BuildButterflies();
+	void UpdateButterflies(float DeltaSeconds);
+
+	// Fireworks (TrackLifeFireworks.cpp).
 	void FireworkShow(int32 Shells, double Over);
+	void UpdateFireworks();
+	/** The rising shell's spark stream: a free one from the pool, or a new one. INDEX_NONE without FX. */
+	int32 AcquireTrail();
 
 	UPROPERTY()
 	TObjectPtr<UMaterialParameterCollection> Collection;
