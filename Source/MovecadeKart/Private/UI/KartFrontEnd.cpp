@@ -37,6 +37,11 @@ namespace
 	constexpr double FlyoverTurnRate = 0.055;
 	constexpr double FlyoverRadius = 0.48;
 	constexpr double FlyoverHeight = 0.11;
+	/** The drone bobs a few metres (web units) and looks across the circuit to a point past its centre. */
+	constexpr double FlyoverBob = 6.0;
+	constexpr double FlyoverBobRate = 0.3;
+	constexpr double FlyoverAimAhead = 0.12;
+	constexpr double FlyoverAimDepth = 0.02;
 	/** Orbit: high above the whole circuit, turning slowly. */
 	constexpr double OrbitTurnRate = 0.035;
 	constexpr double OrbitRadius = 0.62;
@@ -45,6 +50,23 @@ namespace
 	constexpr double ShowroomDistance = 9.0;
 	constexpr double ShowroomSwayRate = 0.25;
 	constexpr double ShowroomSway = 0.35;
+	/** More karts: the camera backs off and rises. */
+	constexpr double ShowroomSpreadPerKart = 2.0;
+	constexpr double ShowroomHeight = 2.4;
+	constexpr double ShowroomHeightPerKart = 0.3;
+	/** It aims behind and below the karts so they sit in the top half, above the player cards. */
+	constexpr double ShowroomAimBehind = 1.5;
+	constexpr double ShowroomAimDepth = -0.9;
+	/** Without a track: a plain look down from above, and the orbit's fallback size. */
+	constexpr double NoTrackPitch = -20.0;
+	constexpr double NoTrackHeight = 2000.0;
+	constexpr double NoTrackExtent = 200.0;
+
+	/** The backdrop's vignettes, so white type never sits on a bright sky or sea edge. */
+	constexpr double BackdropEdge = 0.18;
+	constexpr double BackdropBottomTop = 0.82;
+	constexpr float BackdropTopAlpha = 0.35f;
+	constexpr float BackdropBottomAlpha = 0.4f;
 }
 
 AKartFrontEnd::AKartFrontEnd()
@@ -210,8 +232,8 @@ void AKartFrontEnd::PaintBackdrop(const FKartPainter& P, const FKartScreenFrame&
 {
 	// A soft vignette so white type never sits on a bright sky edge.
 	using namespace KartUI;
-	P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, Frame.Size.Y * 0.18), Color::WithAlpha(Color::Night, 0.35f), Color::WithAlpha(Color::Night, 0.f));
-	P.Gradient(FVector2D(0.0, Frame.Size.Y * 0.82), FVector2D(Frame.Size.X, Frame.Size.Y * 0.18), Color::WithAlpha(Color::Night, 0.f), Color::WithAlpha(Color::Night, 0.4f));
+	P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, Frame.Size.Y * BackdropEdge), Color::WithAlpha(Color::Night, BackdropTopAlpha), Color::WithAlpha(Color::Night, 0.f));
+	P.Gradient(FVector2D(0.0, Frame.Size.Y * BackdropBottomTop), FVector2D(Frame.Size.X, Frame.Size.Y * BackdropEdge), Color::WithAlpha(Color::Night, 0.f), Color::WithAlpha(Color::Night, BackdropBottomAlpha));
 }
 
 void AKartFrontEnd::Tick(float DeltaSeconds)
@@ -246,7 +268,7 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 {
 	if (!Track.IsValid())
 	{
-		return FTransform(FRotator(-20.0, 0.0, 0.0), FVector(0.0, 0.0, 2000.0));
+		return FTransform(FRotator(NoTrackPitch, 0.0, 0.0), FVector(0.0, 0.0, NoTrackHeight));
 	}
 	auto LookAt = [](const FVector& Eye, const FVector& Target)
 	{
@@ -261,8 +283,8 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 		const double Extent = FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y);
 		const double Angle = FlyoverStartAngle + Time * FlyoverTurnRate;
 		const FVector2D Dir(FMath::Cos(Angle), FMath::Sin(Angle));
-		const FVector Eye = Coords::ToUE(Centre + Dir * Extent * FlyoverRadius, Extent * FlyoverHeight + 6.0 * FMath::Sin(Time * 0.3));
-		return LookAt(Eye, Coords::ToUE(Centre - Dir * Extent * 0.12, -Extent * 0.02));
+		const FVector Eye = Coords::ToUE(Centre + Dir * Extent * FlyoverRadius, Extent * FlyoverHeight + FlyoverBob * FMath::Sin(Time * FlyoverBobRate));
+		return LookAt(Eye, Coords::ToUE(Centre - Dir * Extent * FlyoverAimAhead, -Extent * FlyoverAimDepth));
 	}
 	if (InShot == EKartFrontEndShot::Showroom && T.Grid.Num() > 0)
 	{
@@ -277,18 +299,18 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 		const double Yaw = T.Grid[0].Yaw;
 		const FVector2D Forward(-FMath::Sin(Yaw), -FMath::Cos(Yaw)); // three.js yaw 0 faces -Z
 		const FVector2D Right(-Forward.Y, Forward.X);
-		const double Spread = Count > 1 ? 2.0 * Count : 0.0;
+		const double Spread = Count > 1 ? ShowroomSpreadPerKart * Count : 0.0;
 		const double Distance = ShowroomDistance + Spread;
 		const double Sway = FMath::Sin(Time * ShowroomSwayRate) * ShowroomSway;
 		const FVector2D EyeXZ = Centre + (Forward * FMath::Cos(Sway) + Right * FMath::Sin(Sway)) * Distance;
-		const FVector Eye = Coords::ToUE(EyeXZ, 2.4 + Count * 0.3);
+		const FVector Eye = Coords::ToUE(EyeXZ, ShowroomHeight + Count * ShowroomHeightPerKart);
 		// Aim below the karts so they sit in the top half, above the player cards.
-		const FVector Target = Coords::ToUE(Centre - Forward * 1.5, -0.9);
+		const FVector Target = Coords::ToUE(Centre - Forward * ShowroomAimBehind, ShowroomAimDepth);
 		return LookAt(Eye, Target);
 	}
 	// Orbit: high above the whole circuit, turning slowly.
 	const FVector2D Centre = T.MinimapBounds.bIsValid ? T.MinimapBounds.GetCenter() : FVector2D::ZeroVector;
-	const double Extent = T.MinimapBounds.bIsValid ? FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y) : 200.0;
+	const double Extent = T.MinimapBounds.bIsValid ? FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y) : NoTrackExtent;
 	const double Angle = Time * OrbitTurnRate;
 	const FVector2D EyeXZ = Centre + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Extent * OrbitRadius;
 	const FVector Eye = Coords::ToUE(EyeXZ, Extent * OrbitHeight);

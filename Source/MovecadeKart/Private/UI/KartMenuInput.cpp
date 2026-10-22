@@ -80,7 +80,9 @@ bool FKartMenuInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, co
 
 bool FKartMenuInputProcessor::HandleAnalogInputEvent(FSlateApplication& SlateApp, const FAnalogInputEvent& InAnalogInputEvent)
 {
-	if (FMath::Abs(InAnalogInputEvent.GetAnalogValue()) > 0.45f)
+	// A stick or trigger counts as gamepad use once it is pushed past a dead zone (resting drift stays quiet).
+	constexpr float DeviceSwitchDeadZone = 0.45f;
+	if (FMath::Abs(InAnalogInputEvent.GetAnalogValue()) > DeviceSwitchDeadZone)
 	{
 		SetDevice(EKartInputDevice::Gamepad);
 	}

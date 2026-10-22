@@ -395,7 +395,7 @@ bool FKartStorePresenterTest::RunTest(const FString& Parameters)
 	const FItem& Chrome = *FindItem(FName(TEXT("paint.chrome")));
 	TestFalse(TEXT("no store, no button"), PrimaryFor(nullptr, Chrome).bEnabled);
 	FHarness H;
-	FPrimary Buy = PrimaryFor(H.Store.Get(), Chrome);
+	FPrimaryAction Buy = PrimaryFor(H.Store.Get(), Chrome);
 	TestTrue(TEXT("for sale: buy"), Buy.bEnabled && Buy.Look == EPrimaryLook::Buy);
 	H.Mock->DevGrant({ Chrome.DefId });
 	H.Store->Restore();

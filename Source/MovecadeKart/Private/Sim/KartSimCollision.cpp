@@ -12,6 +12,44 @@ namespace MovecadeKart
 	using namespace KartTuning;
 	using SimMath::NormalizeOrZero;
 
+	namespace
+	{
+		/** The travel direction with its component into the wall removed, renormalised. */
+		FVector2D SlideAlongWall(const FVector2D& MoveDir, const FVector2D& WallNormal)
+		{
+			return NormalizeOrZero(MoveDir - WallNormal * FVector2D::DotProduct(MoveDir, WallNormal));
+		}
+
+		/** Pushes the kart's disc at P out of one wall segment; false if they don't overlap. Old is where this substep
+		 *  started, which picks the side for a segment-normal push. */
+		bool PushDiscOutOfWall(const FWallSegment& Wall, bool bRadialPush, double Radius, const FVector2D& Old, FVector2D& P)
+		{
+			const double U = FMath::Clamp(FVector2D::DotProduct(P - Wall.Start, Wall.Delta) / Wall.LengthSq, 0.0, 1.0);
+			const FVector2D Proj = Wall.Start + Wall.Delta * U;
+			const FVector2D V = P - Proj;
+			const double DistSq = V.SizeSquared();
+			if (DistSq >= Radius * Radius)
+			{
+				return false;
+			}
+			if (bRadialPush)
+			{
+				// meshBoundary.ts pushOutOfMesh: away from the closest point, or along the face normal dead on it.
+				const double Dist = FMath::Sqrt(DistSq);
+				P += Dist > RadialPushEpsilon ? V * ((Radius - Dist) / Dist) : NormalizeOrZero(Wall.FaceNormal) * Radius;
+				return true;
+			}
+			// harborBoundary.ts: out along the segment normal, on the side the substep came from.
+			FVector2D Normal = FVector2D(-Wall.Delta.Y, Wall.Delta.X) / FMath::Sqrt(Wall.LengthSq);
+			if (FVector2D::DotProduct(Old - Proj, Normal) < 0.0)
+			{
+				Normal = -Normal;
+			}
+			P += Normal * (Radius - FVector2D::DotProduct(V, Normal));
+			return true;
+		}
+	}
+
 	void FKartSim::ApplyRadialPush(const FStepMotion& Motion)
 	{
 		const uint64 Interval = Kart.NearestWall < CollisionSoftDistance ? FastCheckInterval : ContinuousCheckInterval;
@@ -151,51 +189,11 @@ namespace MovecadeKart
 		const double AbsSpeed = FMath::Abs(Kart.Speed);
 		if (Motion.bHopping)
 		{
-			// In the air: no wall response, but a hop straight into a wall loses its speed.
-			double Distance = 0.0;
-			FVector2D Normal;
-			if (TrackData->RayWalls().Raycast(Kart.Pos, NormalizeOrZero(Motion.MoveDir), HopWallProbeDistance, Distance, Normal) && Distance < HopWallStopDistance)
-			{
-				Kart.Speed *= HopWallSpeedKeep;
-			}
-			else
-			{
-				Kart.Pos += Kart.Dir * Kart.Speed * Dt;
-			}
-			return;
+			AdvanceAirborne(Motion, Dt);
 		}
-		if (Barrier.bBlocked && AbsSpeed > 0.0)
+		else if (Barrier.bBlocked && AbsSpeed > 0.0)
 		{
-			const double Closeness = Barrier.Distance != 0.0 ? 1.0 - FMath::Min(Barrier.Distance / BarrierCollisionDistance, 1.0) : UnknownCloseness;
-			const double LegacyMult = Motion.bNearWall
-				? FMath::Max(NearWallMinSpeedMult, MinCollisionSpeedMult - Closeness * NearWallClosenessPenalty)
-				: FMath::Max(MinCollisionSpeedMult, 1.0 - Closeness * ClosenessPenalty);
-			const double Reverse = Motion.bReversing ? -1.0 : 1.0;
-			if (bLegacyStickyWalls)
-			{
-				if (Barrier.bHasNormal && AbsSpeed > LegacyBounceMinSpeed)
-				{
-					Kart.Pos += Barrier.Normal * ((AbsSpeed / MaxSpeed) * BounceStrength);
-				}
-				Kart.Speed *= LegacyMult;
-				if (Barrier.bHasNormal)
-				{
-					const FVector2D Slide = NormalizeOrZero(Motion.MoveDir - Barrier.Normal * FVector2D::DotProduct(Motion.MoveDir, Barrier.Normal));
-					Kart.Pos += Slide * (AbsSpeed * (Motion.bNearWall ? NearWallSlideRate : SlideRate) * Dt) * Reverse;
-				}
-			}
-			else
-			{
-				// B11: scale the web's wall response by how square-on the kart meets the wall. Head-on still bites
-				// as hard; a glancing hit keeps its speed and slides along the wall.
-				const double HeadOn = Barrier.bHasNormal ? FMath::Abs(FVector2D::DotProduct(NormalizeOrZero(Motion.MoveDir), Barrier.Normal)) : 1.0;
-				Kart.Speed *= 1.0 - (1.0 - LegacyMult) * HeadOn;
-				if (Barrier.bHasNormal)
-				{
-					const FVector2D Slide = NormalizeOrZero(Motion.MoveDir - Barrier.Normal * FVector2D::DotProduct(Motion.MoveDir, Barrier.Normal));
-					Kart.Pos += Slide * (AbsSpeed * (1.0 - HeadOnSlideLoss * HeadOn) * Dt) * Reverse;
-				}
-			}
+			ApplyBlockedResponse(Barrier, Motion, AbsSpeed, Dt);
 		}
 		// The second clause can't be true when the first is false (Hard < Soft); kept as the web wrote it (spec 01 bug 10).
 		else if (!Motion.bNearWall || Kart.NearestWall > CollisionSoftDistance)
@@ -205,6 +203,51 @@ namespace MovecadeKart
 		else
 		{
 			Kart.Pos += Kart.Dir * Kart.Speed * Dt * FMath::Min(1.0, Kart.NearestWall / CollisionSoftDistance);
+		}
+	}
+
+	void FKartSim::AdvanceAirborne(const FStepMotion& Motion, double Dt)
+	{
+		// In the air: no wall response, but a hop straight into a wall loses its speed.
+		double Distance = 0.0;
+		FVector2D Normal;
+		if (TrackData->RayWalls().Raycast(Kart.Pos, NormalizeOrZero(Motion.MoveDir), HopWallProbeDistance, Distance, Normal) && Distance < HopWallStopDistance)
+		{
+			Kart.Speed *= HopWallSpeedKeep;
+		}
+		else
+		{
+			Kart.Pos += Kart.Dir * Kart.Speed * Dt;
+		}
+	}
+
+	void FKartSim::ApplyBlockedResponse(const FBarrier& Barrier, const FStepMotion& Motion, double AbsSpeed, double Dt)
+	{
+		const double Closeness = Barrier.Distance != 0.0 ? 1.0 - FMath::Min(Barrier.Distance / BarrierCollisionDistance, 1.0) : UnknownCloseness;
+		const double LegacyMult = Motion.bNearWall
+			? FMath::Max(NearWallMinSpeedMult, MinCollisionSpeedMult - Closeness * NearWallClosenessPenalty)
+			: FMath::Max(MinCollisionSpeedMult, 1.0 - Closeness * ClosenessPenalty);
+		const double Reverse = Motion.bReversing ? -1.0 : 1.0;
+		if (bLegacyStickyWalls)
+		{
+			if (Barrier.bHasNormal && AbsSpeed > LegacyBounceMinSpeed)
+			{
+				Kart.Pos += Barrier.Normal * ((AbsSpeed / MaxSpeed) * BounceStrength);
+			}
+			Kart.Speed *= LegacyMult;
+			if (Barrier.bHasNormal)
+			{
+				Kart.Pos += SlideAlongWall(Motion.MoveDir, Barrier.Normal) * (AbsSpeed * (Motion.bNearWall ? NearWallSlideRate : SlideRate) * Dt) * Reverse;
+			}
+			return;
+		}
+		// B11: scale the web's wall response by how square-on the kart meets the wall. Head-on still bites as hard;
+		// a glancing hit keeps its speed and slides along the wall.
+		const double HeadOn = Barrier.bHasNormal ? FMath::Abs(FVector2D::DotProduct(NormalizeOrZero(Motion.MoveDir), Barrier.Normal)) : 1.0;
+		Kart.Speed *= 1.0 - (1.0 - LegacyMult) * HeadOn;
+		if (Barrier.bHasNormal)
+		{
+			Kart.Pos += SlideAlongWall(Motion.MoveDir, Barrier.Normal) * (AbsSpeed * (1.0 - HeadOnSlideLoss * HeadOn) * Dt) * Reverse;
 		}
 	}
 
@@ -236,25 +279,18 @@ namespace MovecadeKart
 	bool FKartSim::ConstrainMovement(const FVector2D& Start, FVector2D& InOutDesired) const
 	{
 		const FVector2D Delta = InOutDesired - Start;
-		const int32 Steps = FMath::Max(1, FMath::CeilToInt32(Delta.Size() / TrackData->SweepSubstep));
+		const double SubstepCount = Delta.Size() / TrackData->SweepSubstep;
+		// A kart moves a few metres a step; anything near this limit (or NaN) is a bug upstream, and sweeping it would
+		// stall the game thread. Hold the kart where it was instead.
+		if (!ensureMsgf(SubstepCount <= MaxSweepSubsteps, TEXT("Kart asked to move %f m in one step; holding it in place"), Delta.Size()))
+		{
+			InOutDesired = Start;
+			return false;
+		}
+		const int32 Steps = FMath::Max(1, FMath::CeilToInt32(SubstepCount));
 		const double Radius = TrackData->KartRadius;
 		FVector2D P = Start;
-		bool bCollided = false;
-
-		// Almost every step starts inside the walls, which IsNearCentre settles in a few segments; only a start
-		// outside them needs the full nearest-point scan.
-		if (TrackData->bAnalyticWalls && !TrackData->IsNearCentre(Start, TrackData->WallOffset + Radius, CentreHint))
-		{
-			FVector2D Nearest;
-			double Offset = 0.0;
-			const double Distance = TrackData->NearestCentre(Start, Nearest, Offset);
-			if (Distance > TrackData->WallOffset + Radius)
-			{
-				const double Limit = TrackData->WallOffset - Radius;
-				P = Nearest + (P - Nearest) * (Limit / Distance);
-				bCollided = true;
-			}
-		}
+		bool bCollided = PullInsideAnalyticWalls(Start, P);
 
 		const double Margin = Radius * SweepQueryMarginRadii;
 		FWallSet::FCandidates Candidates;
@@ -265,34 +301,32 @@ namespace MovecadeKart
 			TrackData->Walls.Query(P - FVector2D(Margin), P + FVector2D(Margin), Candidates);
 			for (const int32 Index : Candidates)
 			{
-				const FWallSegment& Wall = TrackData->Walls.Segments()[Index];
-				const double U = FMath::Clamp(FVector2D::DotProduct(P - Wall.A, Wall.D) / Wall.LengthSq, 0.0, 1.0);
-				const FVector2D Proj = Wall.A + Wall.D * U;
-				const FVector2D V = P - Proj;
-				const double DistSq = V.SizeSquared();
-				if (DistSq >= Radius * Radius)
-				{
-					continue;
-				}
-				bCollided = true;
-				if (TrackData->bRadialWallPush)
-				{
-					// meshBoundary.ts pushOutOfMesh: away from the closest point, or along the face normal dead on it.
-					const double Dist = FMath::Sqrt(DistSq);
-					P += Dist > RadialPushEpsilon ? V * ((Radius - Dist) / Dist) : NormalizeOrZero(Wall.FaceNormal) * Radius;
-					continue;
-				}
-				// harborBoundary.ts: out along the segment normal, on the side the substep came from.
-				FVector2D Normal = FVector2D(-Wall.D.Y, Wall.D.X) / FMath::Sqrt(Wall.LengthSq);
-				if (FVector2D::DotProduct(Old - Proj, Normal) < 0.0)
-				{
-					Normal = -Normal;
-				}
-				P += Normal * (Radius - FVector2D::DotProduct(V, Normal));
+				bCollided |= PushDiscOutOfWall(TrackData->Walls.Segments()[Index], TrackData->bRadialWallPush, Radius, Old, P);
 			}
 		}
 		InOutDesired = P;
 		return bCollided;
+	}
+
+	bool FKartSim::PullInsideAnalyticWalls(const FVector2D& Start, FVector2D& InOutP) const
+	{
+		const double Radius = TrackData->KartRadius;
+		// Almost every step starts inside the walls, which IsNearCentre settles in a few segments; only a start
+		// outside them needs the full nearest-point scan.
+		if (!TrackData->bAnalyticWalls || TrackData->IsNearCentre(Start, TrackData->WallOffset + Radius, CentreHint))
+		{
+			return false;
+		}
+		FVector2D Nearest;
+		double Offset = 0.0;
+		const double Distance = TrackData->NearestCentre(Start, Nearest, Offset);
+		if (!(Distance > TrackData->WallOffset + Radius))
+		{
+			return false;
+		}
+		const double Limit = TrackData->WallOffset - Radius;
+		InOutP = Nearest + (InOutP - Nearest) * (Limit / Distance);
+		return true;
 	}
 
 	void FKartSim::UpdateCollisionFeedback(const FBarrier& Barrier, const FStepMotion& Motion)

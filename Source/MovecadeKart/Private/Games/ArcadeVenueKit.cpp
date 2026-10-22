@@ -55,20 +55,3 @@ void FArcadeInstanceGroups::Reset()
 	Components.Reset();
 	IndexByKey.Reset();
 }
-
-UMaterialInterface* FArcadeMaterialCache::FindOrAdd(FName Look, TFunctionRef<UMaterialInterface*()> Make)
-{
-	if (const TObjectPtr<UMaterialInterface>* Found = Materials.Find(Look))
-	{
-		return *Found;
-	}
-	UMaterialInterface* Material = Make();
-	Materials.Add(Look, Material);
-	return Material;
-}
-
-UMaterialInterface* FArcadeMaterialCache::Find(FName Look) const
-{
-	const TObjectPtr<UMaterialInterface>* Found = Materials.Find(Look);
-	return Found ? Found->Get() : nullptr;
-}

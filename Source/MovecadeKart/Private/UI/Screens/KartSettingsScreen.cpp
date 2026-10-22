@@ -39,13 +39,70 @@ namespace
 	constexpr double RowGap = 12.0;
 	constexpr double TabSlide = 60.0;
 	constexpr double TabSwitchSeconds = 0.25;
-	/** The tab strip over the rows. */
-	constexpr double TabWidth = 250.0;
-	constexpr double TabHeight = 66.0;
-	constexpr double TabGap = 14.0;
-	constexpr double TabsTop = 120.0;
+	constexpr float DimSeconds = 0.3f;
+	constexpr float DimAlpha = 0.66f;
+	/** Sliders are taller than option rows, so they step further apart. */
+	constexpr double SliderHeight = 84.0;
+	constexpr double SliderExtraGap = 12.0;
+	/** The buttons under the rows (Apply, Replay the guide) and the note under the accessibility rows. */
+	constexpr double ButtonGap = 10.0;
+	const FVector2D ApplyButtonSize(520.0, 80.0);
+	const FVector2D ReplayButtonSize(620.0, 80.0);
+	constexpr float NoteSize = 24.f;
+	constexpr float NoteOutline = 2.f;
+	constexpr double NoteInset = 8.0;
+	constexpr double NoteGap = 40.0;
+
+	/** The tab strip over the rows, with the shoulder glyphs either side. */
+	namespace TabArt
+	{
+		constexpr double Width = 250.0;
+		constexpr double Height = 66.0;
+		constexpr double Gap = 14.0;
+		constexpr double Top = 120.0;
+		constexpr float InAt = 0.05f;
+		constexpr double DropIn = 40.0;
+		constexpr float Pop = 0.06f;
+		constexpr float PopOvershoot = 3.f;
+		constexpr float FontSize = 28.f;
+		constexpr float IdleAlpha = 0.9f;
+		constexpr float Shadow = 6.f;
+		constexpr float Rim = 4.f;
+		constexpr float GlyphHeight = 40.f;
+		constexpr double GlyphGap = 24.0;
+	}
 	/** Hit ids from here up are the tabs. */
 	constexpr int32 TabHit = 900;
+
+	/** The controls reference card: three columns, striped rows and a note. */
+	namespace ControlsArt
+	{
+		/** The card sits a little higher than the other tabs' rows. */
+		constexpr double Lift = 10.0;
+		const FVector2D Size(1040.0, 640.0);
+		constexpr float FillAlpha = 0.96f;
+		constexpr float Shadow = 10.f;
+		constexpr double ActionX = 40.0;
+		constexpr double KeysX = 420.0;
+		constexpr double PadX = 760.0;
+		constexpr float HeadSize = 20.f;
+		constexpr double HeadY = 28.0;
+		constexpr double FirstRowY = 88.0;
+		constexpr double RowHeight = 60.0;
+		constexpr double StripeInset = 16.0;
+		constexpr float StripeAlpha = 0.7f;
+		constexpr float StripeRound = 14.f;
+		constexpr float ActionSize = 28.f;
+		constexpr float SlashSize = 24.f;
+		constexpr double SlashGap = 6.0;
+		constexpr double SlashAfter = 14.0;
+		constexpr float KeyCapHeight = 42.f;
+		constexpr float PadGlyphHeight = 44.f;
+		constexpr double PadGap = 12.0;
+		constexpr float NoteFontSize = 20.f;
+		constexpr double NoteDrop = 18.0;
+		constexpr double NoteSideInset = 40.0;
+	}
 
 	struct FBinding
 	{
@@ -184,8 +241,8 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			const float Dim = KartWidgets::Entrance(Frame, 0.f, 0.3f);
-			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.66f * Dim));
+			const float Dim = KartWidgets::Entrance(Frame, 0.f, DimSeconds);
+			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, DimAlpha * Dim));
 			KartWidgets::Header(P, Frame, LOCTEXT("SettingsTitle", "Settings"), FText::GetEmpty(), Color::Grape);
 			PaintTabs(P, Frame);
 			const double Left = Frame.Size.X * 0.5 - ColumnHalfWidth + KartWidgets::SlideX(Frame);
@@ -198,7 +255,7 @@ namespace
 			{
 			case GraphicsTab: PaintGraphics(Body, Frame, Group, Pos); break;
 			case AudioTab: PaintAudio(Body, Frame, Group, Pos); break;
-			case ControlsTab: PaintControls(Body, Frame, FVector2D(Pos.X, Pos.Y - 10.0)); break;
+			case ControlsTab: PaintControls(Body, Frame, FVector2D(Pos.X, Pos.Y - ControlsArt::Lift)); break;
 			default: PaintAccessibility(Body, Frame, Group, Pos); break;
 			}
 		}
@@ -271,7 +328,7 @@ namespace
 				KartWidgets::OptionRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), RowSize, Labels[Row], GraphicsValues[Row], Focus.State(Row, Frame.Now, bEnabled), Row);
 			}
 			Group.Next();
-			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ApplyDisplay, Step) + 10.0), FVector2D(520.0, 80.0),
+			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ApplyDisplay, Step) + ButtonGap), ApplyButtonSize,
 				bPending ? LOCTEXT("ApplyChanges", "Apply changes") : LOCTEXT("Applied", "All changes applied"), Focus.State(ApplyDisplay, Frame.Now, bPending), Color::Mint, ApplyDisplay);
 		}
 
@@ -280,12 +337,11 @@ namespace
 			static const FText Labels[AudioRows] = { LOCTEXT("Master", "Master volume"), LOCTEXT("MusicVol", "Music"), LOCTEXT("Sfx", "Sound effects") };
 			const UKartPlayerPrefs* Prefs = GetDefault<UKartPlayerPrefs>();
 			const float Values[AudioRows] = { Prefs->MasterVolume, Prefs->MusicVolume, Prefs->SfxVolume };
-			// Sliders are taller than option rows, so they step further apart.
-			const double Step = RowSize.Y + RowGap + 12.0;
+			const double Step = RowSize.Y + RowGap + SliderExtraGap;
 			for (int32 Row = 0; Row < AudioRows; ++Row)
 			{
 				Group.Next();
-				KartWidgets::SliderRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), FVector2D(RowSize.X, 84.0), Labels[Row], Values[Row], Focus.State(Row, Frame.Now), Row);
+				KartWidgets::SliderRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), FVector2D(RowSize.X, SliderHeight), Labels[Row], Values[Row], Focus.State(Row, Frame.Now), Row);
 			}
 		}
 
@@ -317,12 +373,13 @@ namespace
 					Row == ColorVisionRow ? FKartAccessibility::Good() : FLinearColor::Transparent);
 			}
 			Group.Next();
-			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ReplayWelcomeRow, Step) + 10.0), FVector2D(620.0, 80.0),
+			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ReplayWelcomeRow, Step) + ButtonGap), ReplayButtonSize,
 				Prefs->bSeenHowItWorks ? LOCTEXT("ReplayWelcome", "Replay the welcome guide") : LOCTEXT("WelcomeQueued", "Guide shows at next start"),
 				Focus.State(ReplayWelcomeRow, Frame.Now, Prefs->bSeenHowItWorks), Color::Sky, ReplayWelcomeRow);
 			Group.Next();
 			const FText& Note = Notes[FMath::Clamp(Focus.Cursor.Index, 0, AccessRows - 1)];
-			P.TextWrapped(Note, Font(EFont::Body, 24.f, 2.f), FVector2D(Pos.X + 8.0, RowY(Pos.Y, AccessRows, Step) + 40.0), RowSize.X - 16.0, Color::White);
+			P.TextWrapped(Note, Font(EFont::Body, NoteSize, NoteOutline), FVector2D(Pos.X + NoteInset, RowY(Pos.Y, AccessRows, Step) + NoteGap), RowSize.X - 2.0 * NoteInset,
+				Color::White);
 		}
 
 		void ResetCursor()
@@ -545,45 +602,46 @@ namespace
 
 		void PaintTabs(const FKartPainter& P, const FKartScreenFrame& Frame) const
 		{
+			using namespace TabArt;
 			static const FText Names[NumTabs] = { LOCTEXT("Graphics", "Graphics"), LOCTEXT("Audio", "Audio"), LOCTEXT("Controls", "Controls"), LOCTEXT("Accessibility", "Accessibility") };
-			const FSlateFontInfo TabFont = Font(EFont::Button, 28.f);
-			const FVector2D TabSize(TabWidth, TabHeight);
-			const double Total = static_cast<int32>(NumTabs) * TabWidth + (NumTabs - 1) * TabGap;
+			const FSlateFontInfo TabFont = Font(EFont::Button, FontSize);
+			const FVector2D TabSize(Width, Height);
+			const double Total = static_cast<int32>(NumTabs) * Width + (NumTabs - 1) * Gap;
 			const double X0 = Frame.Size.X * 0.5 - Total * 0.5;
-			const double Y = Frame.SafeMin.Y + TabsTop;
-			const float In = KartWidgets::Entrance(Frame, 0.05f);
+			const double Y = Frame.SafeMin.Y + Top;
+			const float In = KartWidgets::Entrance(Frame, InAt);
 			{
 				const FKartPaintGroup Group(P);
 				for (int32 i = 0; i < NumTabs; ++i)
 				{
 					Group.Next();
-					const FVector2D Pos(X0 + i * (TabWidth + TabGap), Y + (1.0 - In) * -40.0);
+					const FVector2D Pos(X0 + i * (Width + Gap), Y + (1.0 - In) * -DropIn);
 					const bool bOn = i == Tab;
 					P.Hit(TabHit + i, Pos, TabSize);
-					const float Pop = bOn ? 1.f + 0.06f * Ease::OutBack(static_cast<float>((Frame.Now - TabAt) / TabSwitchSeconds), 3.f) : 1.f;
-					const FKartPainter T = P.Transformed(Pos + TabSize * 0.5, Pop).Faded(In);
-					T.Card(Pos, TabSize, bOn ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f), TabHeight * 0.5f, 6.f, bOn ? Color::White : FLinearColor::Transparent, 4.f);
+					const float TabPop = bOn ? 1.f + Pop * Ease::OutBack(static_cast<float>((Frame.Now - TabAt) / TabSwitchSeconds), PopOvershoot) : 1.f;
+					const FKartPainter T = P.Transformed(Pos + TabSize * 0.5, TabPop).Faded(In);
+					T.Card(Pos, TabSize, bOn ? Color::Sun : Color::WithAlpha(Color::Paper, IdleAlpha), Height * 0.5f, Shadow, bOn ? Color::White : FLinearColor::Transparent, Rim);
 					T.Text(Names[i], TabFont, Pos + TabSize * 0.5, Color::Navy, FVector2D(0.5, 0.5));
 				}
 			}
-			const float GlyphH = 40.f;
-			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::PrevTab, Frame.Device, FVector2D(X0 - 24.0 - KartWidgets::GlyphWidth(EKartMenuAction::PrevTab, Frame.Device, GlyphH), Y + TabHeight * 0.5), GlyphH);
-			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::NextTab, Frame.Device, FVector2D(X0 + Total + 24.0, Y + TabHeight * 0.5), GlyphH);
+			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::PrevTab, Frame.Device,
+				FVector2D(X0 - GlyphGap - KartWidgets::GlyphWidth(EKartMenuAction::PrevTab, Frame.Device, GlyphHeight), Y + Height * 0.5), GlyphHeight);
+			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::NextTab, Frame.Device, FVector2D(X0 + Total + GlyphGap, Y + Height * 0.5), GlyphHeight);
 		}
 
 		/** The read-only controls reference: every action's keys and pad buttons. */
 		void PaintControls(const FKartPainter& P, const FKartScreenFrame& Frame, const FVector2D& Pos) const
 		{
+			using namespace ControlsArt;
 			static const FString Slash(TEXT("/"));
-			const FVector2D Size(1040.0, 640.0);
-			P.Card(Pos, Size, Color::WithAlpha(Color::Paper, 0.96f), Metric::RadiusLarge, 10.f);
-			const double ColAction = Pos.X + 40.0, ColKeys = Pos.X + 420.0, ColPad = Pos.X + 760.0;
-			const FSlateFontInfo HeadFont = Font(EFont::Label, 20.f);
-			P.Text(LOCTEXT("ColAction", "ACTION"), HeadFont, FVector2D(ColAction, Pos.Y + 28.0), Color::NavyDim);
-			P.Text(LOCTEXT("ColKeyboard", "KEYBOARD"), HeadFont, FVector2D(ColKeys, Pos.Y + 28.0), Color::NavyDim);
-			P.Text(LOCTEXT("ColGamepad", "GAMEPAD"), HeadFont, FVector2D(ColPad, Pos.Y + 28.0), Color::NavyDim);
-			const double RowH = 60.0;
-			double Y = Pos.Y + 88.0;
+			P.Card(Pos, Size, Color::WithAlpha(Color::Paper, FillAlpha), Metric::RadiusLarge, Shadow);
+			const double ColAction = Pos.X + ActionX, ColKeys = Pos.X + KeysX, ColPad = Pos.X + PadX;
+			const FSlateFontInfo HeadFont = Font(EFont::Label, HeadSize);
+			P.Text(LOCTEXT("ColAction", "ACTION"), HeadFont, FVector2D(ColAction, Pos.Y + HeadY), Color::NavyDim);
+			P.Text(LOCTEXT("ColKeyboard", "KEYBOARD"), HeadFont, FVector2D(ColKeys, Pos.Y + HeadY), Color::NavyDim);
+			P.Text(LOCTEXT("ColGamepad", "GAMEPAD"), HeadFont, FVector2D(ColPad, Pos.Y + HeadY), Color::NavyDim);
+			const double RowH = RowHeight;
+			double Y = Pos.Y + FirstRowY;
 			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Bindings().Num(); ++i)
 			{
@@ -591,28 +649,28 @@ namespace
 				const FBinding& B = Bindings()[i];
 				if (i % 2 == 0)
 				{
-					P.Box(FVector2D(Pos.X + 16.0, Y - RowH * 0.5), FVector2D(Size.X - 32.0, RowH), Color::WithAlpha(Color::PaperShade, 0.7f), 14.f);
+					P.Box(FVector2D(Pos.X + StripeInset, Y - RowH * 0.5), FVector2D(Size.X - 2.0 * StripeInset, RowH), Color::WithAlpha(Color::PaperShade, StripeAlpha), StripeRound);
 				}
-				P.Text(B.Action, Font(EFont::Button, 28.f), FVector2D(ColAction, Y), Color::Navy, FVector2D(0.0, 0.5));
+				P.Text(B.Action, Font(EFont::Button, ActionSize), FVector2D(ColAction, Y), Color::Navy, FVector2D(0.0, 0.5));
 				double X = ColKeys;
 				for (int32 k = 0; k < B.Keys.Num(); ++k)
 				{
 					if (k > 0)
 					{
-						X += P.Text(Slash, Font(EFont::Body, 24.f), FVector2D(X + 6.0, Y), Color::NavyDim, FVector2D(0.0, 0.5)).X + 14.0;
+						X += P.Text(Slash, Font(EFont::Body, SlashSize), FVector2D(X + SlashGap, Y), Color::NavyDim, FVector2D(0.0, 0.5)).X + SlashAfter;
 					}
-					X += KartWidgets::KeyCap(P, B.Keys[k], FVector2D(X, Y), 42.f);
+					X += KartWidgets::KeyCap(P, B.Keys[k], FVector2D(X, Y), KeyCapHeight);
 				}
 				X = ColPad;
 				for (const FKey& Key : B.Pad)
 				{
-					X += KartWidgets::PadGlyph(P, Key, FVector2D(X, Y), 44.f) + 12.0;
+					X += KartWidgets::PadGlyph(P, Key, FVector2D(X, Y), PadGlyphHeight) + PadGap;
 				}
 				Y += RowH;
 			}
 			Group.Next();
 			P.TextWrapped(LOCTEXT("ControlsNote", "Gamepads 2 to 4 drive players 2 to 4. Hold drift through a corner and let go for a boost."),
-				Font(EFont::Body, 20.f), FVector2D(Pos.X + Size.X * 0.5, Y - RowH * 0.5 + 18.0), Size.X - 80.0, Color::NavyDim, 0.5);
+				Font(EFont::Body, NoteFontSize), FVector2D(Pos.X + Size.X * 0.5, Y - RowH * 0.5 + NoteDrop), Size.X - 2.0 * NoteSideInset, Color::NavyDim, 0.5);
 		}
 
 		/** Everything the graphics rows' text depends on. */

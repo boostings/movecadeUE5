@@ -13,12 +13,12 @@ class FJsonObject;
  */
 namespace MovecadeKart
 {
-	/** One wall segment from A to A + D, with the direction and length precomputed for the hot-path tests. */
+	/** One wall segment from Start to Start + Delta, with its length precomputed for the hot-path tests. */
 	struct FWallSegment
 	{
-		FVector2D A = FVector2D::ZeroVector;
-		/** B - A. */
-		FVector2D D = FVector2D::ZeroVector;
+		FVector2D Start = FVector2D::ZeroVector;
+		/** End - Start. */
+		FVector2D Delta = FVector2D::ZeroVector;
 		double LengthSq = 0.0;
 		/** The face normal a three.js raycast reports. Harbor's barrier winding faces away from the road. */
 		FVector2D FaceNormal = FVector2D::ZeroVector;
@@ -89,9 +89,9 @@ namespace MovecadeKart
 	/** One closed-centreline segment, precomputed from Centre with the exact operations NearestCentre used inline. */
 	struct FCentreSegment
 	{
-		FVector2D A = FVector2D::ZeroVector;
-		/** Centre[i + 1] - A (wrapping). */
-		FVector2D D = FVector2D::ZeroVector;
+		FVector2D Start = FVector2D::ZeroVector;
+		/** Centre[i + 1] - Start (wrapping). */
+		FVector2D Delta = FVector2D::ZeroVector;
 		double LengthSq = 0.0;
 	};
 

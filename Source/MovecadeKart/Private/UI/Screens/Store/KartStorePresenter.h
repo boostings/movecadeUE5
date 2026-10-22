@@ -28,14 +28,14 @@ namespace KartStoreUI
 	enum class EPrimaryLook : uint8 { Buy, Equip, Unequip, Unavailable };
 
 	/** What the primary button offers for an item right now. */
-	struct FPrimary
+	struct FPrimaryAction
 	{
 		FText Label;
 		EPrimaryLook Look = EPrimaryLook::Unavailable;
 		bool bEnabled = true;
 	};
 
-	FPrimary PrimaryFor(const FKartStore* Store, const FItem& Item);
+	FPrimaryAction PrimaryFor(const FKartStore* Store, const FItem& Item);
 
 	/** The connection line in the corner: which backend, and whether it's reachable. */
 	enum class EStatusLevel : uint8 { Live, Demo, Offline };

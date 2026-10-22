@@ -190,6 +190,8 @@ namespace MovecadeKart::Net
 	constexpr const TCHAR* PadPromptEveryone = TEXT("*");
 	/** pad:press / pad:release data. True with OutButton 'a' or 'b'; any other shape is refused. */
 	MOVECADEKART_API bool ReadPadButton(const FJsonObject& Data, TCHAR& OutButton);
+	/** "#rrggbb" (lower case, sRGB) for a pad prompt's accent, from a linear colour. */
+	MOVECADEKART_API FString HexColor(const FLinearColor& Color);
 	/** True for a hint animation the phone knows: tilt, swing, aim, flick. */
 	MOVECADEKART_API bool IsPadMode(const FString& Mode);
 	/**

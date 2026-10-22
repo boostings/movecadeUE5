@@ -21,13 +21,55 @@ namespace
 {
 	/** The speed readout eases towards the kart's speed at this rate (FInterpTo speed). */
 	constexpr double SpeedEaseRate = 12.0;
-	/** The race clock in one view sits under the lap counter. */
-	constexpr double ClockDrop = 118.0;
-	/** Three views: the standings rail's scale and row pitch in its corner panel. */
-	constexpr float CornerRailScale = 0.85f;
-	constexpr double CornerRailRow = 52.0;
-	/** Four views: the shared minimap sits this far above the centre clock. */
-	constexpr double FourViewClockLift = 0.17;
+	/** The race clock: under the lap counter in one view, on the split line otherwise; the warning chip above (or below) it. */
+	namespace ClockArt
+	{
+		constexpr double SoloDrop = 118.0;
+		/** Four views: the clock sits this fraction of the screen above the centre minimap. */
+		constexpr double FourViewLift = 0.17;
+		constexpr float WarnPulse = 0.06f;
+		constexpr float WarnPulseSpeed = 8.f;
+		constexpr double SoloWarnDrop = 24.0;
+		constexpr double SplitWarnDrop = 44.0;
+	}
+
+	/** Three views: the two empty bottom corners become striped panels, the minimap left and the standings right. */
+	namespace CornerArt
+	{
+		constexpr int32 Stripes = 7;
+		/** The stripes are spread over the panel in this many steps and start this far left of it. */
+		constexpr double StripeSteps = 6.0;
+		constexpr double StripeLead = 60.0;
+		constexpr double StripeTopWidth = 40.0;
+		constexpr double StripeBottomFrom = 60.0;
+		constexpr double StripeBottomTo = 100.0;
+		constexpr float StripeAlpha = 0.03f;
+		/** The minimap's height as a fraction of the panel's, and its box's left offset in map heights. */
+		constexpr double MapHeight = 0.62;
+		constexpr double MapLead = 0.6;
+		constexpr double Middle = 0.75;
+		constexpr float RailScale = 0.85f;
+		constexpr double RailRow = 52.0;
+		constexpr double RailOffset = 125.0;
+		constexpr float TitleSize = 20.f;
+		constexpr double TitleLift = 40.0;
+	}
+
+	/** Four views: the shared minimap's backing disc. */
+	namespace DiscArt
+	{
+		constexpr float FillAlpha = 0.7f;
+		constexpr float RimAlpha = 0.6f;
+		constexpr float Rim = 3.f;
+	}
+
+	/** The "RACE OVER" banner across the whole screen. */
+	namespace RaceOverArt
+	{
+		constexpr double Height = 190.0;
+		constexpr double Centre = 0.42;
+		constexpr double Hold = 1.6;
+	}
 }
 
 void SKartRaceHud::Construct(const FArguments& InArgs)
@@ -171,8 +213,9 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 	}
 	if (Phase == EKartRacePhase::Finished && Now - RaceFinishedAt < FinishBannerSeconds)
 	{
-		const FVector2D Size(Screen.X, 190.0);
-		PaintBanner(P, FVector2D(0.0, Screen.Y * 0.42 - Size.Y * 0.5), Size, LOCTEXT("RaceOver", "RACE OVER"), Color::Hot, Now - RaceFinishedAt, 1.6, 1.f, true);
+		const FVector2D Size(Screen.X, RaceOverArt::Height);
+		PaintBanner(P, FVector2D(0.0, Screen.Y * RaceOverArt::Centre - Size.Y * 0.5), Size, LOCTEXT("RaceOver", "RACE OVER"), Color::Hot, Now - RaceFinishedAt,
+			RaceOverArt::Hold, 1.f, true);
 	}
 	if (Race->IsPaused() && Race->GetPauseReason() != TEXT("local"))
 	{
@@ -183,6 +226,7 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 
 void SKartRaceHud::PaintClock(const FKartPainter& P, const AKartRaceManager& Race, const FVector2D& Screen, double Now) const
 {
+	using namespace ClockArt;
 	const FVector2D Margin = Screen * Metric::SafeFraction;
 	const bool bSingle = Views.Num() == 1;
 	const float Scale = bSingle ? 1.f : SplitScale;
@@ -193,8 +237,8 @@ void SKartRaceHud::PaintClock(const FKartPainter& P, const AKartRaceManager& Rac
 		ClockSecond = Second;
 		ClockText = FText::FromString(SKartRaceOverlay::FormatRaceTime(Race.GetRaceMs(), false));
 	}
-	const FVector2D ClockAnchor = bSingle ? FVector2D(Screen.X - Margin.X, Margin.Y + ClockDrop)
-		: FVector2D(Screen.X * 0.5, Screen.Y * 0.5 - (Views.Num() >= 4 ? Screen.Y * FourViewClockLift : 0.0));
+	const FVector2D ClockAnchor = bSingle ? FVector2D(Screen.X - Margin.X, Margin.Y + SoloDrop)
+		: FVector2D(Screen.X * 0.5, Screen.Y * 0.5 - (Views.Num() >= 4 ? Screen.Y * FourViewLift : 0.0));
 	const FVector2D ClockAlign = bSingle ? FVector2D(1.0, 0.0) : FVector2D(0.5, 0.5);
 	KartRaceHud::Chip(P, ClockAnchor, ClockAlign, LOCTEXT("Time", "TIME"), ClockText, Color::White, Scale);
 
@@ -203,14 +247,14 @@ void SKartRaceHud::PaintClock(const FKartPainter& P, const AKartRaceManager& Rac
 	{
 		return;
 	}
-	const float Pulse = 1.f + 0.06f * FKartAccessibility::MotionScale() * FMath::Sin(static_cast<float>(Now) * 8.f);
+	const float Pulse = 1.f + WarnPulse * FKartAccessibility::MotionScale() * FMath::Sin(static_cast<float>(Now) * WarnPulseSpeed);
 	const int32 Left = FMath::CeilToInt32(Remaining / 1000.0);
 	if (Left != WarnSecond)
 	{
 		WarnSecond = Left;
 		WarnText = FText::FromString(FString::Printf(TEXT("%ds"), Left));
 	}
-	const FVector2D WarnAnchor(Screen.X * 0.5, bSingle ? Margin.Y + 24.0 : Screen.Y * 0.5 + 44.0 * Scale);
+	const FVector2D WarnAnchor(Screen.X * 0.5, bSingle ? Margin.Y + SoloWarnDrop : Screen.Y * 0.5 + SplitWarnDrop * Scale);
 	KartRaceHud::Chip(P.Transformed(WarnAnchor, Pulse), WarnAnchor, FVector2D(0.5, 0.0), LOCTEXT("EndsIn", "RACE ENDS IN"), WarnText, FKartAccessibility::Bad(), Scale);
 }
 
@@ -218,29 +262,32 @@ void SKartRaceHud::PaintSharedSpace(const FKartPainter& P, const AKartRaceManage
 {
 	if (Views.Num() == 3)
 	{
-		// The two empty bottom corners become panels: the minimap on the left, the standings on the right.
+		using namespace CornerArt;
+		// Three views fill the top half and the bottom middle, leaving a quarter-screen panel in each bottom corner.
 		const FVector2D Corner(Screen.X * 0.25, Screen.Y * 0.5);
 		for (int32 Side = 0; Side < 2; ++Side)
 		{
 			const FVector2D Pos(Side == 0 ? 0.0 : Screen.X - Corner.X, Screen.Y * 0.5);
 			P.Gradient(Pos, Corner, Color::NightSoft, Color::Night);
-			for (int32 Stripe = 0; Stripe < 7; ++Stripe)
+			for (int32 Stripe = 0; Stripe < Stripes; ++Stripe)
 			{
-				const double X = Pos.X + Stripe * Corner.X / 6.0 - 60.0;
-				P.Polygon({ FVector2D(X, Pos.Y), FVector2D(X + 40.0, Pos.Y), FVector2D(X + 100.0, Screen.Y), FVector2D(X + 60.0, Screen.Y) }, Color::WithAlpha(Color::White, 0.03f));
+				const double X = Pos.X + Stripe * Corner.X / StripeSteps - StripeLead;
+				P.Polygon({ FVector2D(X, Pos.Y), FVector2D(X + StripeTopWidth, Pos.Y), FVector2D(X + StripeBottomTo, Screen.Y), FVector2D(X + StripeBottomFrom, Screen.Y) },
+					Color::WithAlpha(Color::White, StripeAlpha));
 			}
 		}
-		const double H = Corner.Y * 0.62;
-		PaintMinimap(P, Race, FVector2D(Corner.X * 0.5 - H * 0.6, Screen.Y * 0.75 - H * 0.5), static_cast<float>(H), INDEX_NONE);
-		const double RailH = Race.GetStandings().Num() * CornerRailRow * CornerRailScale;
-		P.Text(LOCTEXT("Standings", "STANDINGS"), Font(EFont::Label, 20.f), FVector2D(Screen.X - Corner.X * 0.5, Screen.Y * 0.75 - RailH * 0.5 - 40.0), Color::Sun, FVector2D(0.5, 0.0));
-		PaintStandings(P, Race, FVector2D(Screen.X - Corner.X * 0.5 + 125.0 * CornerRailScale, Screen.Y * 0.75 - RailH * 0.5), CornerRailScale);
+		const double H = Corner.Y * MapHeight;
+		PaintMinimap(P, Race, FVector2D(Corner.X * 0.5 - H * MapLead, Screen.Y * Middle - H * 0.5), static_cast<float>(H), INDEX_NONE);
+		const double RailH = Race.GetStandings().Num() * RailRow * RailScale;
+		P.Text(LOCTEXT("Standings", "STANDINGS"), Font(EFont::Label, TitleSize), FVector2D(Screen.X - Corner.X * 0.5, Screen.Y * Middle - RailH * 0.5 - TitleLift), Color::Sun,
+			FVector2D(0.5, 0.0));
+		PaintStandings(P, Race, FVector2D(Screen.X - Corner.X * 0.5 + RailOffset * RailScale, Screen.Y * Middle - RailH * 0.5), RailScale);
 	}
 	else if (Views.Num() >= 4)
 	{
 		const double H = Screen.Y * SharedMapFraction;
 		const FVector2D Centre = Screen * 0.5;
-		P.Circle(Centre, static_cast<float>(H * SharedMapDisc), Color::WithAlpha(Color::Night, 0.7f), Color::WithAlpha(Color::White, 0.6f), 3.f);
+		P.Circle(Centre, static_cast<float>(H * SharedMapDisc), Color::WithAlpha(Color::Night, DiscArt::FillAlpha), Color::WithAlpha(Color::White, DiscArt::RimAlpha), DiscArt::Rim);
 		PaintMinimap(P, Race, Centre - FVector2D(H * 0.5, H * 0.5), static_cast<float>(H), INDEX_NONE);
 	}
 }

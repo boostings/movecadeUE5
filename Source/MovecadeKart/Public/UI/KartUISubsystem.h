@@ -71,7 +71,7 @@ public:
 private:
 	void HandleMapLoaded(UWorld* World);
 	bool HandleEvent(const FKartMenuEvent& Event);
-	/** Reads -KartUiShots and -KartUiPad; called from Initialize outside Shipping builds. */
+	/** Starts the tour from FKartUiDebugFlags (-KartUiShots, -KartUiPad), which read as empty in Shipping. */
 	void StartTourFromCommandLine();
 	bool TickTour(float DeltaTime);
 	UWorld* GetGameWorld() const;
