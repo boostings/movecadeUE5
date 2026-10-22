@@ -86,7 +86,7 @@ the base compares the score list and sends at most once a second, which is what 
   `const TArray<int32>& Order = Ranks.Update(Towers.Num(), [&](int32 i) { return Towers[i].Score; });` best first,
   ties in seat order (stable), re-sorted only when a key changes. Return a composite `int64` key for tie-breaks.
 
-## 3. Venue helpers (`Games/ArcadeVenueKit.h`)
+## 3. Venue helpers (`Games/ArcadeVenueKit.h` and `Art/KartMaterialCache.h`)
 
 - `FArcadeInstanceGroups` (USTRUCT; keep as a `UPROPERTY()` on the venue): replaces each venue's
   `TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups` + `Group(...)`.
@@ -94,9 +94,18 @@ the base compares the score list and sends at most once a second, which is what 
   `Groups.Find(Mesh, Material, bShadows, Parent = nullptr, Material2 = nullptr)->AddInstance(...)`. Keys are object
   keys, not formatted strings. Components are created with unique names, mobility set before attaching, no collision,
   tagged, registered.
-- `FArcadeMaterialCache` (USTRUCT, `UPROPERTY()`): replaces `TMap<FString, TObjectPtr<UMaterialInterface>> Materials`
-  + `Cached(Key, Make)`: `Materials.FindOrAdd(TEXT("wood"), [&] { return Art::Plain(this, ...); })` (FName keys).
-- Call `Reset()` on both when the venue rebuilds.
+- Materials: use Art's `FKartMaterialCache` (`Art/KartMaterialCache.h`, USTRUCT; keep as a `UPROPERTY()` on the
+  venue). It replaces each venue's `TMap<FString, TObjectPtr<UMaterialInterface>> Materials` + `Cached(Key, Make)`:
+  - the standard looks are cached on their exact arguments, no key needed:
+    `Materials.Plain(this, Color, Roughness, Metallic, Emissive)`, `.Surface(this, Look)`, `.Glass(...)`, `.Glow(...)`,
+    `.GlowOpaque(...)`, `.Unlit(this, TexturePath, Tint)`;
+  - anything else under your own look name: `Materials.FindOrMake(TEXT("wood"), [&] { return MakeWood(); })`
+    (a null result is not kept, so it is retried).
+  - The instances are shared: never change their parameters per use (make a separate `Art::` material for that).
+- Solid glowing surfaces (lamps, neon, lenses that never fade): `Art::GlowOpaque` (or `Materials.GlowOpaque`), drawn
+  opaque (no translucency pass, correct depth, shows in ray-traced reflections). Keep `Art::Glow` only for glows that
+  fade or must be translucent.
+- Call `Reset()` on both the groups and the material cache when the venue rebuilds.
 
 ## 4. Test hooks (`Games/ArcadeTestHooks.h`)
 
