@@ -6,6 +6,33 @@ namespace MovecadeKart::Samurai
 	{
 		/** Web up (y), not UE's. */
 		const FVector WebUp(0.0, 1.0, 0.0);
+
+		// bladeContact.ts: a blade that moved less than this (m) can't cut; contact assistance (m).
+		constexpr double MinBladeTravel = 0.0005;
+		constexpr double ContactAssist = 0.02;
+
+		// bladeIntent.ts: rates in deg/s, acceleration in m/s^2, times in s, travel in degrees.
+		/** Frames longer than this (or not positive) reset the gate: the stream stalled. */
+		constexpr double MaxFrameSeconds = 0.1;
+		/** Below both, the blade is resting; resting this long ends the sweep. */
+		constexpr double QuietRate = 45.0;
+		constexpr double QuietAccel = 0.8;
+		constexpr double QuietSeconds = 0.08;
+		/** A sweep only starts past one of these. */
+		constexpr double StartRate = 90.0;
+		constexpr double StartAccel = 2.5;
+		/** A sweep longer than this was an adjustment, not a cut. */
+		constexpr double MaxSweepSeconds = 0.55;
+		/** A sweep is meant once it has lasted this long and travelled this far (or pushed this hard). */
+		constexpr double MinSweepSeconds = 0.08;
+		constexpr double MinTravel = 18.0;
+		constexpr double MinImpulse = 0.45;
+
+		// handTarget.ts samurai: the hand's rest direction (web).
+		const FVector HandRest(0.1, -0.23, -0.28);
+		/** BladeDirectionToward: settling iterations and the damping of each. */
+		constexpr int32 AimIterations = 24;
+		constexpr double AimDamping = 0.6;
 	}
 
 	FVector ClosestPointOnTriangle(const FVector& P, const FVector& A, const FVector& B, const FVector& C)
@@ -51,11 +78,11 @@ namespace MovecadeKart::Samurai
 	bool SweptBladeHits(const FVector& A, const FVector& B, const FVector& C, const FVector& D, const FVector& Centre, double Radius)
 	{
 		// A blade that hasn't moved can't cut; 2 cm of contact assistance, no speed gate.
-		if (FMath::Max(FVector::Dist(A, C), FVector::Dist(B, D)) < 0.0005)
+		if (FMath::Max(FVector::Dist(A, C), FVector::Dist(B, D)) < MinBladeTravel)
 		{
 			return false;
 		}
-		const double Tolerance = FMath::Max(0.0, Radius) + 0.02;
+		const double Tolerance = FMath::Max(0.0, Radius) + ContactAssist;
 		return FVector::Dist(ClosestPointOnTriangle(Centre, A, B, D), Centre) <= Tolerance
 			|| FVector::Dist(ClosestPointOnTriangle(Centre, A, D, C), Centre) <= Tolerance;
 	}
@@ -69,34 +96,34 @@ namespace MovecadeKart::Samurai
 	bool FBladeIntent::Feed(double Rate, double Accel, double DtMs)
 	{
 		const double Dt = DtMs / 1000.0;
-		if (!(Dt > 0.0 && Dt <= 0.1) || !FMath::IsFinite(Rate + Accel))
+		if (!(Dt > 0.0 && Dt <= MaxFrameSeconds) || !FMath::IsFinite(Rate + Accel))
 		{
 			Reset();
 			return false;
 		}
-		if (Rate < 45.0 && Accel < 0.8)
+		if (Rate < QuietRate && Accel < QuietAccel)
 		{
 			Quiet += Dt;
-			if (Quiet >= 0.08)
+			if (Quiet >= QuietSeconds)
 			{
 				Reset();
 			}
 			return bActive;
 		}
 		Quiet = 0.0;
-		if (Duration == 0.0 && Rate < 90.0 && Accel < 2.5)
+		if (Duration == 0.0 && Rate < StartRate && Accel < StartAccel)
 		{
 			return false;
 		}
 		Duration += Dt;
 		Travel += Rate * Dt;
-		Impulse += FMath::Max(0.0, Accel - 0.8) * Dt;
-		if (Duration > 0.55)
+		Impulse += FMath::Max(0.0, Accel - QuietAccel) * Dt;
+		if (Duration > MaxSweepSeconds)
 		{
 			Reset();
 			return false;
 		}
-		if (Duration >= 0.08 && (Travel >= 18.0 || Impulse >= 0.45))
+		if (Duration >= MinSweepSeconds && (Travel >= MinTravel || Impulse >= MinImpulse))
 		{
 			bActive = true;
 		}
@@ -114,8 +141,8 @@ namespace MovecadeKart::Samurai
 		FBlade B;
 		B.Shoulder = ShoulderFor(LaneX);
 		B.Direction = Direction.GetSafeNormal(UE_SMALL_NUMBER, WebUp);
-		// handTarget.ts samurai: the hand rests low and in front (.1, -.23, -.28) and follows the blade by .7.
-		const FVector Rest = FVector(0.1, -0.23, -0.28).GetSafeNormal();
+		// handTarget.ts samurai: the hand rests low and in front and follows the blade by ElbowFollow.
+		const FVector Rest = HandRest.GetSafeNormal();
 		const FVector Arm = FMath::Lerp(Rest, B.Direction, FBladeRig::ElbowFollow).GetSafeNormal(UE_SMALL_NUMBER, Rest);
 		B.Hand = B.Shoulder + Arm * FBladeRig::Reach;
 		B.Base = B.Hand + B.Direction * FBladeRig::BladeBase;
@@ -141,11 +168,11 @@ namespace MovecadeKart::Samurai
 	{
 		// Aim from the shoulder, then from where that puts the hand, until it settles.
 		FVector Dir = (TipGoal - ShoulderFor(LaneX)).GetSafeNormal(UE_SMALL_NUMBER, WebUp);
-		for (int32 i = 0; i < 24; ++i)
+		for (int32 i = 0; i < AimIterations; ++i)
 		{
 			const FBlade B = BladeFor(LaneX, Dir);
 			// Damped: the hand moves with the blade, so a full step overshoots.
-			Dir = FMath::Lerp(Dir, (TipGoal - B.Hand).GetSafeNormal(UE_SMALL_NUMBER, WebUp), 0.6).GetSafeNormal(UE_SMALL_NUMBER, WebUp);
+			Dir = FMath::Lerp(Dir, (TipGoal - B.Hand).GetSafeNormal(UE_SMALL_NUMBER, WebUp), AimDamping).GetSafeNormal(UE_SMALL_NUMBER, WebUp);
 		}
 		return Dir;
 	}

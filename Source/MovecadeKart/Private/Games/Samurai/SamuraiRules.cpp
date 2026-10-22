@@ -14,24 +14,82 @@ namespace MovecadeKart::Samurai
 		};
 		const EVariant Fruits[] = { EVariant::Apple, EVariant::Melon, EVariant::Lantern, EVariant::Bamboo };
 
+		// engine.ts, all in ms unless named otherwise. The round ramps with P = elapsed / round (0..1).
+		/** Launch interval: from 1150 ms down to 520 ms, jittered 0.75..1.25x. */
+		constexpr double SpawnIntervalStartMs = 1150.0;
+		constexpr double SpawnIntervalRampMs = 630.0;
+		constexpr double SpawnJitterMin = 0.75;
+		constexpr double SpawnJitterRange = 0.5;
+		/** A lane at its target cap, or with no room for a launch, tries again this soon. */
+		constexpr double SpawnRetryMs = 200.0;
+		/** Lane i's first launch, staggered so four lanes don't launch in lockstep. */
+		constexpr double FirstSpawnMs = 400.0;
+		constexpr double FirstSpawnStaggerMs = 220.0;
+		/** Bombs ramp 12% to 24% (none in the first 5 s); the bonus scroll stays rare and steady. */
+		constexpr double BombChanceStart = 0.12;
+		constexpr double BombChanceRamp = 0.12;
+		constexpr double BombFreeMs = 5000.0;
+		constexpr double ScrollChance = 0.08;
+		/** From 15 s every fourth launch is a pair of apples or melons, side by side. */
+		constexpr double PairsFromMs = 15000.0;
+		constexpr int32 LaunchCycle = 4;
+		constexpr double PairOffset = 0.60;
+		/** Flight time: 2800 ms down to 2100 ms, plus up to 250 ms. */
+		constexpr double FlightStartMs = 2800.0;
+		constexpr double FlightRampMs = 700.0;
+		constexpr double FlightJitterMs = 250.0;
+		/** Where launches go across the lane (-1..1): a preferred slot per launch, then the fallbacks. */
+		constexpr double LateralSlot = 0.56;
+		constexpr double LateralFallback = 0.72;
+		/** Targets past this progress no longer block a launch of the same kind. */
+		constexpr double ClearOfLaunchProgress = 0.30;
+		constexpr double ClearanceScale = 1.15;
+		constexpr double ClearanceMargin = 0.10;
+		/** Lateral is -1..1 but spans 1.1 m either side (TargetCentre). */
+		constexpr double LateralMetres = 1.1;
+		constexpr double MaxSpin = 0.85;
+		/** Effects live this long. */
+		constexpr double SlashEffectMs = 260.0;
+		constexpr double ComboEffectMs = 1200.0;
+		constexpr double EffectMs = 800.0;
+		/** A step longer than this is played as this long. */
+		constexpr double MaxStepMs = 100.0;
+		/** Scoring: timing pays up to +10, the matching direction a quarter of the target, power 8 per target, every
+		 *  extra target 12; the combo multiplier tops out near 2x at 12. */
+		constexpr double TimingBonus = 10.0;
+		constexpr double DirectionalShare = 0.25;
+		constexpr double PowerBonusPerTarget = 8.0;
+		constexpr double MultiCutBonus = 12.0;
+		constexpr int32 MaxComboSteps = 12;
+		constexpr double ComboStep = 0.0833;
+		/** A cut this precise is Perfect (and charges Focus). */
+		constexpr double PerfectQuality = 0.85;
+		/** A swing that cuts this many, or reaches this combo, is a Combo effect (the big callout). */
+		constexpr int32 ComboEffectCuts = 3;
+		constexpr int32 ComboEffectCombo = 6;
+		/** SamuraiScene.tsx: the arc's height (m) at progress P, and the lanes' spacing (m). */
+		constexpr double ArcBase = -1.6;
+		constexpr double ArcRise = 14.0;
+		constexpr double ArcFall = 13.0;
+		constexpr double LaneSpacing = 3.6;
+
 		double SpawnIntervalMs(FMatch& Match)
 		{
 			const double P = FMath::Min(1.0, Match.ElapsedMs / RoundDurationMs);
-			const double Base = 1150.0 - P * 630.0;
-			return Base * (0.75 + Match.Rng.Next() * 0.5);
+			const double Base = SpawnIntervalStartMs - P * SpawnIntervalRampMs;
+			return Base * (SpawnJitterMin + Match.Rng.Next() * SpawnJitterRange);
 		}
 
 		EVariant PickVariant(FMatch& Match)
 		{
 			const double P = FMath::Min(1.0, Match.ElapsedMs / RoundDurationMs);
 			const double Roll = Match.Rng.Next();
-			// Bombs ramp 12% to 24%; the bonus scroll stays rare and steady.
-			const double BombChance = 0.12 + P * 0.12;
-			if (Roll < BombChance && Match.ElapsedMs >= 5000.0)
+			const double BombChance = BombChanceStart + P * BombChanceRamp;
+			if (Roll < BombChance && Match.ElapsedMs >= BombFreeMs)
 			{
 				return EVariant::Bomb;
 			}
-			if (Roll < BombChance + 0.08)
+			if (Roll < BombChance + ScrollChance)
 			{
 				return EVariant::Scroll;
 			}
@@ -48,18 +106,18 @@ namespace MovecadeKart::Samurai
 					InLane.Add(&T);
 				}
 			}
-			const bool bPair = Match.ElapsedMs >= 15000.0 && Player.Launches % 4 == 3;
+			const bool bPair = Match.ElapsedMs >= PairsFromMs && Player.Launches % LaunchCycle == LaunchCycle - 1;
 			// A breath before a volley, so the pair arrives together.
 			if (bPair && InLane.Num() > 0)
 			{
 				return false;
 			}
-			const EVariant Variant = bPair ? ((Player.Launches / 4) % 2 == 0 ? EVariant::Apple : EVariant::Melon) : PickVariant(Match);
+			const EVariant Variant = bPair ? ((Player.Launches / LaunchCycle) % 2 == 0 ? EVariant::Apple : EVariant::Melon) : PickVariant(Match);
 			const FTargetDef& D = Def(Variant);
 			const double P = FMath::Min(1.0, Match.ElapsedMs / RoundDurationMs);
-			const double FlightMs = 2800.0 - P * 700.0 + Match.Rng.Next() * 250.0;
-			const double Preferred[] = { 0.0, -0.56, 0.56, 0.0 };
-			const double Candidates[] = { Preferred[Player.Launches % 4], -0.72, 0.72, 0.0 };
+			const double FlightMs = FlightStartMs - P * FlightRampMs + Match.Rng.Next() * FlightJitterMs;
+			const double Preferred[] = { 0.0, -LateralSlot, LateralSlot, 0.0 };
+			const double Candidates[] = { Preferred[Player.Launches % LaunchCycle], -LateralFallback, LateralFallback, 0.0 };
 			TOptional<double> Lateral;
 			for (const double Position : Candidates)
 			{
@@ -67,12 +125,12 @@ namespace MovecadeKart::Samurai
 				for (const FTarget* T : InLane)
 				{
 					const bool bOpposite = (T->Kind == EKind::Bomb) != (D.Kind == EKind::Bomb);
-					if (!bOpposite && T->Progress > 0.30)
+					if (!bOpposite && T->Progress > ClearOfLaunchProgress)
 					{
 						continue;
 					}
-					const double Clearance = (T->Radius + D.Radius) * 1.15 + 0.10;
-					if (FMath::Abs(T->Lateral - Position) * 1.1 < Clearance)
+					const double Clearance = (T->Radius + D.Radius) * ClearanceScale + ClearanceMargin;
+					if (FMath::Abs(T->Lateral - Position) * LateralMetres < Clearance)
 					{
 						bFits = false;
 						break;
@@ -91,7 +149,7 @@ namespace MovecadeKart::Samurai
 			TArray<double> Offsets;
 			if (bPair)
 			{
-				Offsets = { -0.60, 0.60 };
+				Offsets = { -PairOffset, PairOffset };
 			}
 			else
 			{
@@ -107,7 +165,7 @@ namespace MovecadeKart::Samurai
 				T.Kind = D.Kind;
 				T.Speed = 1.0 / FlightMs;
 				T.Lateral = Offset;
-				T.Spin = (Match.Rng.Next() * 2.0 - 1.0) * 0.85;
+				T.Spin = (Match.Rng.Next() * 2.0 - 1.0) * MaxSpin;
 				T.Radius = D.Radius;
 				T.Score = D.Score;
 				T.Preferred = D.Preferred;
@@ -123,7 +181,7 @@ namespace MovecadeKart::Samurai
 			E.PlayerId = Player.Id;
 			E.LaneIndex = Player.LaneIndex;
 			E.Kind = Kind;
-			E.DurationMs = Kind == EEffectKind::Slash ? 260.0 : (Kind == EEffectKind::Combo ? 1200.0 : 800.0);
+			E.DurationMs = Kind == EEffectKind::Slash ? SlashEffectMs : (Kind == EEffectKind::Combo ? ComboEffectMs : EffectMs);
 			E.TtlMs = E.DurationMs;
 			return E;
 		}
@@ -189,8 +247,7 @@ namespace MovecadeKart::Samurai
 			P.Id = Seeds[i].Id;
 			P.Name = Seeds[i].Name;
 			P.LaneIndex = i;
-			// Staggered, so four lanes don't launch in lockstep.
-			Match.SpawnCooldownMs.Add(400.0 + i * 220.0);
+			Match.SpawnCooldownMs.Add(FirstSpawnMs + i * FirstSpawnStaggerMs);
 		}
 		return Match;
 	}
@@ -201,7 +258,7 @@ namespace MovecadeKart::Samurai
 		{
 			return;
 		}
-		const double Dt = FMath::Clamp(DtMs, 0.0, 100.0);
+		const double Dt = FMath::Clamp(DtMs, 0.0, MaxStepMs);
 		if (Match.Phase == EMatchPhase::Countdown)
 		{
 			Match.CountdownRemainingMs -= Dt;
@@ -276,11 +333,11 @@ namespace MovecadeKart::Samurai
 			}
 			if (InLane >= MaxTargetsPerLane)
 			{
-				Cooldown = 200.0;
+				Cooldown = SpawnRetryMs;
 				continue;
 			}
 			const bool bSpawned = SpawnTarget(Match, P);
-			Cooldown = bSpawned ? SpawnIntervalMs(Match) : 200.0;
+			Cooldown = bSpawned ? SpawnIntervalMs(Match) : SpawnRetryMs;
 		}
 		bool bAllOut = Match.Players.Num() > 0;
 		for (const FPlayer& P : Match.Players)
@@ -376,24 +433,22 @@ namespace MovecadeKart::Samurai
 		{
 			const double Q = CutQuality(T.Progress);
 			Quality = FMath::Min(Quality, Q);
-			// Timing pays up to +10; the matching direction pays a quarter of the target.
-			Base += T.Score + JsRound(Q * 10.0);
+			Base += T.Score + JsRound(Q * TimingBonus);
 			if (T.Preferred != EDirection::None && T.Preferred == Swing.Direction)
 			{
-				Directional += JsRound(T.Score * 0.25);
+				Directional += JsRound(T.Score * DirectionalShare);
 			}
 		}
-		const double PowerBonus = JsRound(Swing.Power * 8.0) * Cut.Num();
-		const double MultiBonus = Cut.Num() > 1 ? (Cut.Num() - 1) * 12.0 : 0.0;
-		// The combo multiplier tops out near 2x.
-		const double Multiplier = 1.0 + FMath::Min(12, Player->Combo) * 0.0833;
+		const double PowerBonus = JsRound(Swing.Power * PowerBonusPerTarget) * Cut.Num();
+		const double MultiBonus = Cut.Num() > 1 ? (Cut.Num() - 1) * MultiCutBonus : 0.0;
+		const double Multiplier = 1.0 + FMath::Min(MaxComboSteps, Player->Combo) * ComboStep;
 		const bool bFocused = Player->FocusRemainingMs > 0.0;
 		const int32 Delta = static_cast<int32>(JsRound((Base + Directional + PowerBonus + MultiBonus) * Multiplier)) * (bFocused ? 2 : 1);
 		Player->Combo += Cut.Num();
 		Player->BestCombo = FMath::Max(Player->BestCombo, Player->Combo);
 		Player->Hits += Cut.Num();
 		Player->Score += Delta;
-		const bool bPerfect = Quality >= 0.85;
+		const bool bPerfect = Quality >= PerfectQuality;
 		const bool bRestored = Cut.ContainsByPredicate([](const FTarget& T) { return T.Variant == EVariant::Scroll; }) && Player->Lives < StartingLives;
 		if (bRestored)
 		{
@@ -416,7 +471,7 @@ namespace MovecadeKart::Samurai
 			: Cut.Num() > 1 ? FString::Printf(TEXT("%d cut! +%d"), Cut.Num(), Delta)
 			: bPerfect ? FString(TEXT("Perfect!"))
 			: FString::Printf(TEXT("+%d"), Delta);
-		FEffect& E = PushEffect(Match, *Player, bFocusStarted || Cut.Num() >= 3 || Player->Combo >= 6 ? EEffectKind::Combo : EEffectKind::Hit);
+		FEffect& E = PushEffect(Match, *Player, bFocusStarted || Cut.Num() >= ComboEffectCuts || Player->Combo >= ComboEffectCombo ? EEffectKind::Combo : EEffectKind::Hit);
 		E.Direction = Swing.Direction;
 		E.Intensity = Swing.Power;
 		E.Color = Def(Cut[0].Variant).Color;
@@ -440,16 +495,16 @@ namespace MovecadeKart::Samurai
 
 	double TargetHeight(double P)
 	{
-		return -1.6 + 14.0 * P - 13.0 * P * P;
+		return ArcBase + ArcRise * P - ArcFall * P * P;
 	}
 
 	double LaneX(int32 Lane, int32 LaneCount)
 	{
-		return (Lane - (LaneCount - 1) / 2.0) * 3.6;
+		return (Lane - (LaneCount - 1) / 2.0) * LaneSpacing;
 	}
 
 	FVector TargetCentre(const FTarget& Target, int32 LaneCount)
 	{
-		return FVector(LaneX(Target.LaneIndex, LaneCount) + Target.Lateral * 1.1, TargetHeight(Target.Progress), TargetDepth);
+		return FVector(LaneX(Target.LaneIndex, LaneCount) + Target.Lateral * LateralMetres, TargetHeight(Target.Progress), TargetDepth);
 	}
 }
