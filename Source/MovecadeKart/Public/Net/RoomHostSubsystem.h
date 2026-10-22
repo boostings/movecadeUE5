@@ -39,7 +39,8 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FMcSensorFrameEvent, int32, const MovecadeK
  * Settings come from [/Script/MovecadeKart.RoomHostSubsystem] in DefaultGame.ini, then the command
  * line: -RoomLocal (127.0.0.1:1999 and http://localhost:5173), -RoomServer=host[:port] -RoomSecure/-RoomInsecure
  * (a local server defaults to plain ws, anything else to wss) -RoomJoinBase=<url> -RoomOrigin=...
- * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling. Test hooks (not in Shipping):
+ * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling. Shipping ignores the server settings in
+ * both places and always uses production over wss (F-09; Net::ResolveServerSettings). Test hooks (not in Shipping):
  * -RoomAutoStart[=Seconds], -RoomShots=6,20 (UI screenshots), -RoomSelfTest (plays the race layer's part after
  * each start: phases, haptics, live scores, results, restart).
  * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -RoomOpen.
@@ -65,14 +66,14 @@ public:
 	 * UE's libwebsockets tries ::1 for "localhost" and `partykit dev` listens on IPv4 only.
 	 */
 	UPROPERTY(Config)
-	FString PartyHost = TEXT("party.movecade.com");
+	FString PartyHost = MovecadeKart::Net::ProductionPartyHost;
 
 	UPROPERTY(Config)
 	bool bSecure = true;
 
 	/** The web app phones open; it must talk to the same party server. Production: movecade.com. */
 	UPROPERTY(Config)
-	FString JoinBaseUrl = TEXT("https://movecade.com");
+	FString JoinBaseUrl = MovecadeKart::Net::ProductionJoinBaseUrl;
 
 	/** True for a room server on this machine (`npm run dev:party`), which speaks plain ws. */
 	static bool IsLocalPartyHost(const FString& Host);

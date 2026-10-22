@@ -212,12 +212,46 @@ namespace MovecadeKart::Net
 	MOVECADEKART_API FString BuildJoinUrl(const FString& BaseUrl, const FString& Code, const FString& JoinToken);
 	/** application/x-www-form-urlencoded, as URLSearchParams.toString() writes it. */
 	MOVECADEKART_API FString FormEncode(const FString& Value);
+	/** A join URL for the log: the fragment's t= (the join token) reads `<redacted>` (F-10). */
+	MOVECADEKART_API FString RedactJoinUrl(const FString& Url);
 
 	/**
 	 * True when a host (or URL) names this machine: exactly localhost, 127.0.0.1, ::1 or a *.localhost name once the
 	 * scheme, user info, port and path are stripped. localhost.example.com and 127.0.0.1.example.com are not local.
 	 */
 	MOVECADEKART_API bool IsLocalHost(const FString& HostOrUrl);
+
+	// The room server and the web app phones join.
+	constexpr const TCHAR* ProductionPartyHost = TEXT("party.movecade.com");
+	constexpr const TCHAR* ProductionJoinBaseUrl = TEXT("https://movecade.com");
+	/** `npm run dev:party` and `npm run dev` on this machine (-RoomLocal). */
+	constexpr const TCHAR* LocalPartyHost = TEXT("127.0.0.1:1999");
+	constexpr const TCHAR* LocalJoinBaseUrl = TEXT("http://localhost:5173");
+
+	struct FRoomServerSettings
+	{
+		/** host[:port] of the room server. */
+		FString PartyHost = ProductionPartyHost;
+		FString JoinBaseUrl = ProductionJoinBaseUrl;
+		/** An extra Origin upgrade header; empty sends none. */
+		FString Origin;
+		bool bSecure = true;
+	};
+
+	/** Whether the ini and the command line may point the host away from production. */
+	enum class EServerOverrides : uint8
+	{
+		/** Development: the ini, then -RoomLocal, -RoomServer=, -RoomJoinBase=, -RoomOrigin=, -RoomSecure, -RoomInsecure. */
+		Allowed,
+		/** Shipping (F-09): production over TLS, whatever the ini or the command line say. */
+		Pinned,
+	};
+
+	/**
+	 * The room server to use: Configured (the ini) with the command line on top, or production when Pinned. A server on
+	 * this machine speaks plain ws and is joined from the local web app unless told otherwise; anything else is TLS.
+	 */
+	MOVECADEKART_API FRoomServerSettings ResolveServerSettings(const FRoomServerSettings& Configured, const TCHAR* CommandLine, EServerOverrides Overrides);
 
 	/** A lower-case v4 UUID (the server's identity regex requires v4). */
 	MOVECADEKART_API FString MakeIdentity();

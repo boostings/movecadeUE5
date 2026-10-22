@@ -90,30 +90,25 @@ void URoomHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void URoomHostSubsystem::ApplyServerSettings(const TCHAR* Cmd)
 {
-	// -RoomLocal: `npm run dev:party` and `npm run dev` on this machine instead of production.
-	if (FParse::Param(Cmd, TEXT("RoomLocal")))
-	{
-		PartyHost = TEXT("127.0.0.1:1999");
-		JoinBaseUrl = TEXT("http://localhost:5173");
-	}
-	const bool bServerGiven = FParse::Value(Cmd, TEXT("RoomServer="), PartyHost);
-	const bool bJoinBaseGiven = FParse::Value(Cmd, TEXT("RoomJoinBase="), JoinBaseUrl);
-	FParse::Value(Cmd, TEXT("RoomOrigin="), Origin);
+	// F-09: a shipped game only ever talks to production over TLS; nothing on the command line or in an ini can point
+	// it (and the host token it sends) at another server.
+#if UE_BUILD_SHIPPING
+	constexpr EServerOverrides Overrides = EServerOverrides::Pinned;
+#else
+	constexpr EServerOverrides Overrides = EServerOverrides::Allowed;
+#endif
+	const FRoomServerSettings Configured{ PartyHost, JoinBaseUrl, Origin, bSecure };
+	const FRoomServerSettings Settings = ResolveServerSettings(Configured, Cmd, Overrides);
+	PartyHost = Settings.PartyHost;
+	JoinBaseUrl = Settings.JoinBaseUrl;
+	Origin = Settings.Origin;
+	bSecure = Settings.bSecure;
+
 	FParse::Value(Cmd, TEXT("RoomMap="), PendingMapId);
 	if (FString Game; FParse::Value(Cmd, TEXT("RoomGame="), Game) && IsPlayableGame(Game))
 	{
 		GameId = Game;
 	}
-	// A server on this machine speaks plain ws and is joined from the local web app; anything else is TLS.
-	if (IsLocalPartyHost(PartyHost))
-	{
-		bSecure = false;
-		if (bServerGiven && !bJoinBaseGiven && !IsLocalHost(JoinBaseUrl))
-		{
-			JoinBaseUrl = TEXT("http://localhost:5173");
-		}
-	}
-	bSecure = (bSecure || FParse::Param(Cmd, TEXT("RoomSecure"))) && !FParse::Param(Cmd, TEXT("RoomInsecure"));
 	UE_LOG(LogRoomHost, Display, TEXT("Room server %s://%s, phones join at %s"), bSecure ? TEXT("wss") : TEXT("ws"), *PartyHost, *JoinBaseUrl);
 }
 

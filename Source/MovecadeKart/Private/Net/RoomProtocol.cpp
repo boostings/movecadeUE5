@@ -3,6 +3,7 @@
 #include "Algo/NoneOf.h"
 #include "Dom/JsonObject.h"
 #include "Misc/Guid.h"
+#include "Misc/Parse.h"
 
 namespace MovecadeKart::Net
 {
@@ -508,6 +509,52 @@ namespace MovecadeKart::Net
 		static constexpr int32 LocalhostSuffixLength = 10; // ".localhost"
 		return Host == TEXT("localhost") || Host == TEXT("127.0.0.1") || Host == TEXT("::1")
 			|| (Host.Len() > LocalhostSuffixLength && Host.EndsWith(TEXT(".localhost")));
+	}
+
+	FRoomServerSettings ResolveServerSettings(const FRoomServerSettings& Configured, const TCHAR* CommandLine, EServerOverrides Overrides)
+	{
+		if (Overrides == EServerOverrides::Pinned)
+		{
+			return FRoomServerSettings();
+		}
+		FRoomServerSettings Settings = Configured;
+		if (FParse::Param(CommandLine, TEXT("RoomLocal")))
+		{
+			Settings.PartyHost = LocalPartyHost;
+			Settings.JoinBaseUrl = LocalJoinBaseUrl;
+		}
+		const bool bServerGiven = FParse::Value(CommandLine, TEXT("RoomServer="), Settings.PartyHost);
+		const bool bJoinBaseGiven = FParse::Value(CommandLine, TEXT("RoomJoinBase="), Settings.JoinBaseUrl);
+		FParse::Value(CommandLine, TEXT("RoomOrigin="), Settings.Origin);
+		if (IsLocalHost(Settings.PartyHost))
+		{
+			Settings.bSecure = false;
+			if (bServerGiven && !bJoinBaseGiven && !IsLocalHost(Settings.JoinBaseUrl))
+			{
+				Settings.JoinBaseUrl = LocalJoinBaseUrl;
+			}
+		}
+		Settings.bSecure = (Settings.bSecure || FParse::Param(CommandLine, TEXT("RoomSecure"))) && !FParse::Param(CommandLine, TEXT("RoomInsecure"));
+		return Settings;
+	}
+
+	FString RedactJoinUrl(const FString& Url)
+	{
+		// The token is the fragment's t= parameter (BuildJoinUrl); the fragment never reaches a server, the log might.
+		const int32 Fragment = Url.Find(TEXT("#"));
+		if (Fragment == INDEX_NONE)
+		{
+			return Url;
+		}
+		FString Out = Url.Left(Fragment + 1);
+		TArray<FString> Params;
+		Url.RightChop(Fragment + 1).ParseIntoArray(Params, TEXT("&"), /*bCullEmpty*/ false);
+		for (int32 i = 0; i < Params.Num(); ++i)
+		{
+			Out += i ? TEXT("&") : TEXT("");
+			Out += Params[i].StartsWith(TEXT("t="), ESearchCase::CaseSensitive) ? FString(TEXT("t=<redacted>")) : Params[i];
+		}
+		return Out;
 	}
 
 	FString MakeIdentity()

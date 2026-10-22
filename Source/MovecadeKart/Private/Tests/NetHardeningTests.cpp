@@ -183,4 +183,53 @@ bool FNetHardeningLocalHostTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningServerSettingsTest, "MovecadeKart.Net.Hardening.ServerSettings", HardeningTestFlags)
+bool FNetHardeningServerSettingsTest::RunTest(const FString&)
+{
+	const FRoomServerSettings Production;
+	FRoomServerSettings Ini;
+	Ini.PartyHost = TEXT("rooms.example.test");
+	Ini.JoinBaseUrl = TEXT("https://join.example.test");
+	Ini.Origin = TEXT("https://join.example.test");
+	const TCHAR* Hostile = TEXT("-RoomServer=evil.example:80 -RoomJoinBase=http://evil.example -RoomInsecure -RoomOrigin=http://evil.example -RoomLocal");
+
+	// F-09: Shipping pins production over TLS, whatever the ini and the command line say.
+	const FRoomServerSettings Pinned = ResolveServerSettings(Ini, Hostile, EServerOverrides::Pinned);
+	TestEqual(TEXT("pinned: production server"), Pinned.PartyHost, FString(ProductionPartyHost));
+	TestEqual(TEXT("pinned: production join base"), Pinned.JoinBaseUrl, FString(ProductionJoinBaseUrl));
+	TestTrue(TEXT("pinned: wss, no extra Origin"), Pinned.bSecure && Pinned.Origin.IsEmpty());
+	TestTrue(TEXT("pinned: the join base is https"), Pinned.JoinBaseUrl.StartsWith(TEXT("https://")));
+
+	// Development keeps every flag.
+	const FRoomServerSettings Dev = ResolveServerSettings(Ini, Hostile, EServerOverrides::Allowed);
+	TestEqual(TEXT("dev: -RoomServer"), Dev.PartyHost, FString(TEXT("evil.example:80")));
+	TestEqual(TEXT("dev: -RoomJoinBase"), Dev.JoinBaseUrl, FString(TEXT("http://evil.example")));
+	TestEqual(TEXT("dev: -RoomOrigin"), Dev.Origin, FString(TEXT("http://evil.example")));
+	TestFalse(TEXT("dev: -RoomInsecure"), Dev.bSecure);
+	TestTrue(TEXT("dev: the ini alone is used as it is"), ResolveServerSettings(Ini, TEXT(""), EServerOverrides::Allowed).PartyHost == Ini.PartyHost);
+
+	const FRoomServerSettings Local = ResolveServerSettings(Production, TEXT("-RoomLocal"), EServerOverrides::Allowed);
+	TestTrue(TEXT("dev: -RoomLocal is the local server over ws"), Local.PartyHost == LocalPartyHost && Local.JoinBaseUrl == LocalJoinBaseUrl && !Local.bSecure);
+	const FRoomServerSettings LocalServer = ResolveServerSettings(Production, TEXT("-RoomServer=127.0.0.1:2899"), EServerOverrides::Allowed);
+	TestTrue(TEXT("dev: a local -RoomServer joins from the local web app"), LocalServer.JoinBaseUrl == LocalJoinBaseUrl && !LocalServer.bSecure);
+	const FRoomServerSettings LookAlike = ResolveServerSettings(Production, TEXT("-RoomServer=localhost.evil.com"), EServerOverrides::Allowed);
+	TestTrue(TEXT("dev: a look-alike local name stays on TLS"), LookAlike.bSecure && LookAlike.JoinBaseUrl == ProductionJoinBaseUrl);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetHardeningJoinUrlLogTest, "MovecadeKart.Net.Hardening.JoinUrlRedaction", HardeningTestFlags)
+bool FNetHardeningJoinUrlLogTest::RunTest(const FString&)
+{
+	// F-10: the log line never carries the join token; the QR payload (BuildJoinUrl) still does.
+	const FString Url = BuildJoinUrl(TEXT("https://movecade.com"), TEXT("ABCDEF"), TEXT("s3cr3t+token/=="));
+	TestTrue(TEXT("the join URL carries the token"), Url.Contains(TEXT("&t=s3cr3t")));
+	const FString Logged = RedactJoinUrl(Url);
+	TestEqual(TEXT("token redacted, the rest kept"), Logged, FString(TEXT("https://movecade.com/join/ABCDEF#v=2&t=<redacted>")));
+	TestEqual(TEXT("t= first in the fragment"), RedactJoinUrl(TEXT("http://x/join/A#t=abc&v=2")), FString(TEXT("http://x/join/A#t=<redacted>&v=2")));
+	TestEqual(TEXT("no token, unchanged"), RedactJoinUrl(BuildJoinUrl(TEXT("https://movecade.com"), TEXT("ABCDEF"), FString())),
+		FString(TEXT("https://movecade.com/join/ABCDEF#v=2")));
+	TestEqual(TEXT("a t= outside the fragment is not the token"), RedactJoinUrl(TEXT("http://x/join/A?t=1")), FString(TEXT("http://x/join/A?t=1")));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
