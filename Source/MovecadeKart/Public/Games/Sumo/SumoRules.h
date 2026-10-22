@@ -222,8 +222,13 @@ namespace MovecadeKart::Sumo
 
 	/** The circle contact between two pucks: separation, impulse, dash shove, shield; events into Match. */
 	MOVECADEKART_API void ResolveContact(FMatch& Match, int32 A, int32 B);
-	/** Places: round wins, then score, then knockouts (slot order breaks ties). Indices into Pucks. */
+	/** Places: round wins, then score, then knockouts, then fewer falls (slot order breaks the rest). Indices into Pucks. */
 	MOVECADEKART_API TArray<int32> Standings(const FMatch& Match);
+	/**
+	 * Standings' order as one number per puck, higher placing first: ranking the slots by it (stable, descending) is
+	 * Standings, so a HUD can re-sort only when a key changes (FArcadeStandingsOrder). Counts are clamped to 16 bits.
+	 */
+	MOVECADEKART_API int64 StandingKey(const FPuck& Puck);
 	/** A hash of the whole state, to prove two runs identical. */
 	MOVECADEKART_API uint64 Fingerprint(const FMatch& Match);
 
