@@ -29,6 +29,12 @@ struct MOVECADEKART_API FArcadeLaunchOptions
 	 */
 	static FArcadeLaunchOptions Parse(const MovecadeKart::Arcade::FGameInfo& Game, const FString& TravelOptions, const TCHAR* CommandLine,
 		const FString& Prefix, int32 DefaultLocals, int32 DefaultBots);
+
+	/** Adds house bots until there are at least MinSeats seats (a game that needs an opponent). Locals are kept. */
+	void EnsureMinimumSeats(int32 MinSeats)
+	{
+		Bots = FMath::Max(Bots, MinSeats - Locals);
+	}
 };
 
 /**
@@ -79,6 +85,12 @@ protected:
 
 	/** Finds the venue actor in the level, or builds one. Called first. */
 	virtual void SpawnVenue() {}
+	/**
+	 * The game's own seat rules on top of the catalog's clamp (e.g. InOutLaunch.EnsureMinimumSeats(2)), applied before
+	 * BuildLocalSeats and before the launch is noted in UArcadeSession, so "play again" / "next game" carry the seats
+	 * that were actually played. Local launches only.
+	 */
+	virtual void AdjustLaunchSeats(FArcadeLaunchOptions& InOutLaunch) const {}
 	/** Party Mode: one seat per room player (sorted by seat, none eliminated, at most the catalog's MaxPlayers). */
 	virtual void BuildRoomSeats(TConstArrayView<FMcSeat> Players) PURE_VIRTUAL(AArcadeGameModeBase::BuildRoomSeats, );
 	/** Local play: Launch.Locals people then Launch.Bots house bots. */

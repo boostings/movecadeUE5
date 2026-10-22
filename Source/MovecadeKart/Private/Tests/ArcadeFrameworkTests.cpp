@@ -87,6 +87,18 @@ bool FArcadeLaunchOptionsTest::RunTest(const FString&)
 	L = FArcadeLaunchOptions::Parse(*Stacker, TEXT(""), TEXT("-BowlPlayers=0"), TEXT("Stacker"), 1, 2);
 	TestEqual(TEXT("another game's flags are ignored"), L.Locals, 1);
 	TestEqual(TEXT("the game's own default bots"), L.Bots, 2);
+
+	// A game's own minimum (Sumo: two wrestlers) raises the bots, and that is what the session records.
+	L = FArcadeLaunchOptions::Parse(*Stacker, TEXT("?Players=1?Bots=0"), TEXT(""), TEXT("Sumo"), 1, 2);
+	TestEqual(TEXT("solo launch: no bots asked"), L.Bots, 0);
+	L.EnsureMinimumSeats(2);
+	TestEqual(TEXT("a sparring partner added"), L.Bots, 1);
+	TestEqual(TEXT("the local is kept"), L.Locals, 1);
+	L.EnsureMinimumSeats(2);
+	TestEqual(TEXT("idempotent"), L.Bots, 1);
+	L.Bots = 3;
+	L.EnsureMinimumSeats(2);
+	TestEqual(TEXT("never lowers"), L.Bots, 3);
 	return true;
 }
 

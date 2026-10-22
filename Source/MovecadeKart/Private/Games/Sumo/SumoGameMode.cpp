@@ -107,10 +107,16 @@ void ASumoGameMode::BuildRoomSeats(TConstArrayView<FMcSeat> Players)
 	}
 }
 
+void ASumoGameMode::AdjustLaunchSeats(FArcadeLaunchOptions& InOutLaunch) const
+{
+	InOutLaunch.EnsureMinimumSeats(MinWrestlers);
+}
+
 void ASumoGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 {
+	// AdjustLaunchSeats already added the sparring partner a lone wrestler needs.
 	const int32 Locals = InLaunch.Locals;
-	const int32 Bots = FMath::Max(InLaunch.Bots, MinWrestlers - Locals);
+	const int32 Bots = InLaunch.Bots;
 	for (int32 i = 0; i < Locals + Bots; ++i)
 	{
 		const bool bLocal = i < Locals;

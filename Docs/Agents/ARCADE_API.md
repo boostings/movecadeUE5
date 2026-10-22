@@ -9,7 +9,8 @@ behaviour: same seats, same room traffic, same visuals, golden tests untouched.
 What the base does (in this order, in `StartPlay`):
 1. `SpawnVenue()` (yours).
 2. Parses the launch once: `FArcadeLaunchOptions` = travel URL `?Players=&Bots=`, then `-<Prefix>Players=`,
-   `-<Prefix>Bots=`, `-<Prefix>Auto` (not in Shipping), clamped with `Arcade::ClampSeats` (catalog MaxLocal/MaxPlayers).
+   `-<Prefix>Bots=`, `-<Prefix>Auto` (not in Shipping), clamped with `Arcade::ClampSeats` (catalog MaxLocal/MaxPlayers),
+   then your `AdjustLaunchSeats` (a game's own minimum).
 3. Party Mode if the room runs a match of `ArcadeId`: room players sorted by seat, eliminated skipped, capped at the
    catalog's MaxPlayers, passed to `BuildRoomSeats`; otherwise `BuildLocalSeats(Launch)`.
 4. `SpawnGame()` (yours; must call `SpawnArcadeGame<T>()`).
@@ -35,6 +36,7 @@ Virtuals:
 | Virtual | Required | Notes |
 |---|---|---|
 | `SpawnVenue()` | no | find-or-spawn your venue actor |
+| `AdjustLaunchSeats(FArcadeLaunchOptions&) const` | no | your own seat rules after the catalog clamp, before `BuildLocalSeats` and `UArcadeSession::NoteLaunch` (so "play again" / "next game" carry what was played): e.g. `InOutLaunch.EnsureMinimumSeats(2)` for a game that needs an opponent |
 | `BuildRoomSeats(TConstArrayView<FMcSeat> Players)` | yes | one seat per player (`PlayerId`, `Name`, `PaintColor`, `bBot`, `SeatIndex()`) |
 | `BuildLocalSeats(const FArcadeLaunchOptions&)` | yes | `Locals` people then `Bots` house players; `bAutoPlay` makes locals bots |
 | `SpawnGame()` | yes | `Game = SpawnArcadeGame<AMyGame>(); Game->Setup(...); Game->OnQuit = MakeQuitCallback(); Game->OnRematch = MakeRematchCallback();` |

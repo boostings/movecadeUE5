@@ -58,6 +58,7 @@ void AArcadeGameModeBase::StartPlay()
 	}
 	SpawnVenue();
 	Launch = FArcadeLaunchOptions::Parse(*Info, OptionsString, FCommandLine::Get(), CommandLinePrefix, DefaultLocals, DefaultBots);
+	AdjustLaunchSeats(Launch);
 
 	const TArray<FMcSeat> RoomPlayers = GatherRoomPlayers();
 	bRoomMatch = RoomPlayers.Num() > 0;
