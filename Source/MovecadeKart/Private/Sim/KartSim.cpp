@@ -1,219 +1,31 @@
 #include "Sim/KartSim.h"
 
+#include "Sim/KartSimMath.h"
+#include "Sim/KartSimTuning.h"
+
+// The step order and the driving phases: speed, steering, hop and drift, boost pads, wrong way, terrain,
+// checkpoints and the visual layers. Walls are in KartSimCollision.cpp, respawns in KartSimRecovery.cpp.
+
 namespace MovecadeKart
 {
-	namespace
-	{
-		// legacy/Experience/kart/engine/constants.ts:2-20
-		constexpr double MaxSpeed = 40.0;
-		constexpr double ReverseSpeed = -15.0;
-		constexpr double LambdaThrottle = 1.8;
-		constexpr double LambdaBrake = 6.0;
-		constexpr double LambdaCoast = 1.1;
-		constexpr double TurboBonus = 40.0;
-		constexpr double DirtMultiplier = 0.75;
-		constexpr double DriftMinSpeed = 20.0;
-		constexpr double DriftTurn = 1.4;
-		constexpr double DriftPowerCap = 10.0;
-		// MultiplayerKart.tsx
-		constexpr double TurnPerStep = 0.018;
-		constexpr double TurnSpeedReference = 40.0;
-		constexpr double DirLerp = 12.0;
-		constexpr double HopDuration = 0.25;
-		constexpr double HopHeight = 0.3;
-		constexpr double WallSpeedDecay = 8.0;
-		// MultiplayerKart.tsx:88-109
-		constexpr double BarrierCollisionDistance = 2.5;
-		constexpr double CollisionPushStrength = 0.8;
-		constexpr double CollisionSoftDistance = 0.85;
-		constexpr double CollisionHardDistance = 0.7;
-		constexpr double CollisionCriticalDistance = 0.4;
-		constexpr double SteeringAssistStrength = 0.01;
-		constexpr double MinCollisionSpeedMult = 0.3;
-		constexpr double BounceStrength = 1.2;
-		constexpr double ContinuousProbeDistance = 1.5;
-		constexpr int32 NumRadialProbes = 4;
-		constexpr double EmergencyPushStrength = 1.5;
-		constexpr double KartContactDistance = 1.8;
-		constexpr double KartBumpForce = 0.5;
-		constexpr uint64 ContinuousCheckInterval = 6;
-		constexpr uint64 FastCheckInterval = 3;
-		constexpr uint64 WrongWayInterval = 15;
-		constexpr uint64 TerrainInterval = 10;
-		// trackRecovery.ts, recoveryWatchdogs.ts
-		constexpr double OffTrackRespawnSeconds = 2.0;
-		constexpr double StuckAnchorDistance = 4.0;
-		constexpr double StuckAnchorSeconds = 2.5;
-		constexpr double CheckpointStallSeconds = 8.0;
-		constexpr double WatchGapSeconds = 1.0;
+	using namespace KartTuning;
+	using SimMath::Damp;
+	using SimMath::Forward;
+	using SimMath::PowerTwoOut;
 
-		/** three.js MathUtils.damp. */
-		double Damp(double X, double Y, double Lambda, double Dt)
-		{
-			return X + (Y - X) * (1.0 - FMath::Exp(-Lambda * Dt));
-		}
-
-		FVector2D Forward(double Yaw)
-		{
-			return FVector2D(-FMath::Sin(Yaw), -FMath::Cos(Yaw));
-		}
-
-		/** three.js Vector3.normalize(): a zero vector stays zero. */
-		FVector2D Normalize(const FVector2D& V)
-		{
-			const double Len = V.Size();
-			return Len > 0.0 ? V / Len : FVector2D::ZeroVector;
-		}
-
-		double PowerTwoOut(double X)
-		{
-			X = FMath::Clamp(X, 0.0, 1.0);
-			return 1.0 - (1.0 - X) * (1.0 - X);
-		}
-	}
-
-	bool DriftExitBoost(double DriftPower, double DriftDurationMs, double SteeringInput, double DriftDirection, FDriftBoost& Out)
-	{
-		if (!FMath::IsFinite(DriftPower) || !FMath::IsFinite(DriftDurationMs) || DriftPower < 0.35 || DriftDurationMs < 650.0)
-		{
-			return false;
-		}
-
-		enum class EGrade { Mini, Super, Ultra };
-		EGrade Grade = EGrade::Mini;
-		Out = { 1.18, 0.85, TEXT("DRIFT_MINI") };
-		if (DriftPower >= 0.9 && DriftDurationMs >= 1800.0)
-		{
-			Grade = EGrade::Ultra;
-			Out = { 1.55, 1.6, TEXT("DRIFT_ULTRA") };
-		}
-		else if (DriftPower >= 0.65 && DriftDurationMs >= 1150.0)
-		{
-			Grade = EGrade::Super;
-			Out = { 1.35, 1.25, TEXT("DRIFT_SUPER") };
-		}
-
-		if (!FMath::IsFinite(SteeringInput) || !FMath::IsFinite(DriftDirection) || FMath::Abs(DriftDirection) < 0.01)
-		{
-			return true;
-		}
-
-		const double Alignment = FMath::Sign(SteeringInput) * FMath::Sign(DriftDirection);
-		if (Alignment < 0.0)
-		{
-			// Counter-steered at release: drop a grade.
-			if (Grade == EGrade::Ultra)
-			{
-				Out = { 1.35, 1.25, TEXT("DRIFT_SLOPPY_SUPER") };
-			}
-			else if (Grade == EGrade::Super)
-			{
-				Out = { 1.18, 0.85, TEXT("DRIFT_SLOPPY_MINI") };
-			}
-			return true;
-		}
-
-		const double Magnitude = FMath::Abs(SteeringInput);
-		if (Alignment > 0.0 && Grade == EGrade::Ultra && DriftPower >= 0.96 && DriftDurationMs >= 2200.0 && Magnitude >= 0.62 && Magnitude <= 0.9)
-		{
-			Out = { 1.7, 1.88, TEXT("DRIFT_APEX_ULTRA") };
-			return true;
-		}
-		if (Alignment > 0.0 && Grade != EGrade::Mini)
-		{
-			Out.Multiplier = FMath::RoundToDouble((Out.Multiplier + 0.07) * 100.0) / 100.0;
-			Out.Time = FMath::RoundToDouble((Out.Time + 0.13) * 100.0) / 100.0;
-			Out.Label = Grade == EGrade::Ultra ? TEXT("DRIFT_CLEAN_ULTRA") : TEXT("DRIFT_CLEAN_SUPER");
-		}
-		return true;
-	}
-
-	bool RocketStartBoost(double HeldMs, FDriftBoost& Out)
-	{
-		if (!FMath::IsFinite(HeldMs) || HeldMs < 500.0)
-		{
-			return false;
-		}
-		if (HeldMs > 2000.0)
-		{
-			Out = { 0.82, 0.75, TEXT("START_BOGGED") };
-		}
-		else if (HeldMs >= 800.0 && HeldMs <= 1200.0)
-		{
-			Out = { 1.6, 1.75, TEXT("START_PERFECT") };
-		}
-		else if (HeldMs < 800.0)
-		{
-			Out = { 1.35, 1.25, TEXT("START_CLEAN") };
-		}
-		else
-		{
-			Out = { 1.25, 1.1, TEXT("START_LATE") };
-		}
-		return true;
-	}
-
-	void FKartSim::ApplyBoost(double Multiplier, double Seconds, const FString& Label)
-	{
-		S.BoostMultiplier = Multiplier;
-		S.BoostTimeRemaining = Seconds;
-		S.ActiveBoost = Label;
-	}
-
-	double FKartSim::UpdateSlipstream(const FKartRaceContext& Race, double Dt)
-	{
-		// performanceQuality.ts:867-983, with speed thresholds and boosts scaled to the 40 SU range (B4).
-		constexpr double K = SlipstreamScale;
-		double Boost = 0.0;
-		double Rate = 0.0;
-		bool bActive = false;
-		if (Race.bRacing && Race.bHasAhead)
-		{
-			const FVector2D ToRival = Race.AheadPosition - S.Pos;
-			const double Distance = ToRival.Size();
-			const double AlignDot = Distance > 0.0 ? FVector2D::DotProduct(ToRival / Distance, Forward(S.Yaw)) : 0.0;
-			const double Speed = S.Speed;
-			const bool bBump = Distance < 6.0 && AlignDot >= 0.96 && Speed >= 105.0 * K;
-			bActive = !(Distance < 4.5 || Distance > 28.0 || AlignDot < 0.72 || Speed < 70.0 * K) && !(Distance < 6.0 && !bBump);
-			if (bActive)
-			{
-				const double DScore = FMath::Clamp((28.0 - Distance) / 22.0, 0.0, 1.0);
-				const double AScore = FMath::Clamp((AlignDot - 0.72) / 0.28, 0.0, 1.0);
-				const double SScore = FMath::Clamp((Speed - 70.0 * K) / (70.0 * K), 0.0, 1.0);
-				const bool bPocket = !bBump && Distance <= 8.5 && AlignDot >= 0.97 && Speed >= 130.0 * K;
-				const bool bStrong = Distance <= 14.0 && AlignDot >= 0.9 && Speed >= 110.0 * K;
-				const bool bComeback = !bBump && !bPocket && !bStrong && Race.LeaderGapRatio >= 0.65;
-				if (bPocket) { Boost = 11.5 + DScore * 3.5 + AScore * 1.3 + SScore * 0.8; Rate = 1.15; }
-				else if (bBump) { Boost = 9.1 + DScore * 2.2 + AScore * 1.1 + SScore * 0.45; Rate = 1.35; }
-				else if (bStrong) { Boost = 9.2 + DScore * 3.5 + AScore * 1.3 + SScore * 0.5; Rate = 0.92; }
-				else if (bComeback) { Boost = 4.7 + DScore * 4.8 + AScore * 2.4 + SScore * 0.8 + Race.LeaderGapRatio * 1.45; Rate = 1.2; }
-				else { Boost = 2.9 + DScore * 5.0 + AScore * 3.0 + SScore * 0.5; Rate = 0.55; }
-				Boost *= K;
-			}
-		}
-		S.SlipstreamCharge = bActive
-			? FMath::Min(1.0, S.SlipstreamCharge + Dt * Rate)
-			: FMath::Max(0.0, S.SlipstreamCharge - Dt * 1.15);
-		if (!bActive)
-		{
-			return 0.0;
-		}
-		return S.SlipstreamCharge < 0.65 ? Boost : Boost * (1.0 + ((S.SlipstreamCharge - 0.65) / 0.35) * 0.35);
-	}
-
-	void FKartSim::Init(const FTrack* InTrack, int32 GridSlot)
+	void FKartSim::Init(const FTrack* InTrack, int32 InGridSlot)
 	{
 		// FTrack::LoadFromJsonString validates these; a hand-built track must too.
 		check(InTrack && InTrack->Grid.Num() > 0 && InTrack->Checkpoints.IsValidIndex(InTrack->StartCheckpoint));
-		T = InTrack;
-		Slot = FMath::Clamp(GridSlot, 0, T->Grid.Num() - 1);
-		S = FKartState();
-		S.Pos = T->Grid[Slot].Position;
-		S.Yaw = T->Grid[Slot].Yaw;
-		S.Dir = Forward(S.Yaw);
-		S.NextCheckpoint = T->StartCheckpoint;
-		S.PadLastBoostTime.Init(-1000.0, T->BoostPads.Num());
-		S.AnchorPos = S.Pos;
+		TrackData = InTrack;
+		GridIndex = FMath::Clamp(InGridSlot, 0, TrackData->Grid.Num() - 1);
+		Kart = FKartState();
+		Kart.Pos = TrackData->Grid[GridIndex].Position;
+		Kart.Yaw = TrackData->Grid[GridIndex].Yaw;
+		Kart.Dir = Forward(Kart.Yaw);
+		Kart.NextCheckpoint = TrackData->StartCheckpoint;
+		Kart.PadLastBoostTime.Init(-1000.0, TrackData->BoostPads.Num());
+		Kart.AnchorPos = Kart.Pos;
 	}
 
 	void FKartSim::Teleport(const FVector2D& Position, double Yaw)
@@ -221,15 +33,11 @@ namespace MovecadeKart
 		Respawn(Position, Yaw, TEXT("teleport"));
 	}
 
-	void FKartSim::Respawn(const FVector2D& Position, double Yaw, const TCHAR* Reason)
+	void FKartSim::ApplyBoost(double Multiplier, double Seconds, const FString& Label)
 	{
-		S.Pos = Position;
-		S.Yaw = Yaw;
-		S.Speed = 0.0;
-		S.DriftDirection = 0.0;
-		S.DriftPower = 0.0;
-		++S.TeleportCount;
-		S.LastRespawnReason = Reason;
+		Kart.BoostMultiplier = Multiplier;
+		Kart.BoostTimeRemaining = Seconds;
+		Kart.ActiveBoost = Label;
 	}
 
 	void FKartSim::Step(const FKartInput& Input)
@@ -239,52 +47,40 @@ namespace MovecadeKart
 
 	void FKartSim::Step(const FKartInput& Input, const FKartRaceContext& Race)
 	{
-		check(T);
+		check(TrackData);
 		const double Dt = StepSeconds;
 		BeginStep(Dt);
 		UpdateOffTrack();
 
-		FStepControls C;
-		C.SteeringX = FMath::Clamp(Input.SteeringX, -1.0, 1.0);
-		C.Keys = (Input.bLeft ? 1.0 : 0.0) - (Input.bRight ? 1.0 : 0.0);
-		C.bLeft = Input.bLeft;
-		C.bRight = Input.bRight;
-		C.bForward = Input.bForward;
-		C.bBackward = Input.bBackward;
-		C.bJump = Input.bJump;
+		const FStepControls Controls = DecodeControls(Input);
+		UpdateWatchdogs(Controls.bForward && !Controls.bBackward);
+		UpdateSpeed(Controls, Race, Dt);
+		UpdateYaw(Controls);
+		UpdateHopAndDrift(Controls, Dt);
 
-		UpdateWatchdogs(C.bForward && !C.bBackward);
-		UpdateSpeed(C, Race, Dt);
-		UpdateYaw(C);
-		UpdateHopAndDrift(C, Dt);
+		const FVector2D Start = Kart.Pos;
+		UpdateHeading(Dt);
 
-		// Heading lag (:1249-1263): an unclamped, unnormalised lerp toward the nose.
-		const FVector2D Start = S.Pos;
-		const FVector2D Desired = Forward(S.Yaw);
-		S.Dir = S.Dir + (Desired - S.Dir) * (DirLerp * Dt);
-		const double SlipAngle = FMath::Atan2(Desired.X * S.Dir.Y - Desired.Y * S.Dir.X, Desired.X * S.Dir.X + Desired.Y * S.Dir.Y);
-		S.SlipYaw = Damp(S.SlipYaw, SlipAngle * 1.3 + S.DriftDirection * 0.1, 6.0, Dt);
-
-		FStepMotion M;
-		M.bReversing = S.Speed < 0.0;
-		M.MoveDir = M.bReversing ? -S.Dir : S.Dir;
-		M.bHopping = S.HopTime >= 0.0 || S.HopOffset > 0.05;
+		FStepMotion Motion;
+		Motion.bReversing = Kart.Speed < 0.0;
+		Motion.MoveDir = Motion.bReversing ? -Kart.Dir : Kart.Dir;
+		Motion.bHopping = Kart.HopTime >= 0.0 || Kart.HopOffset > HopAirborneOffset;
 
 		// Collision steps 1-5 (:1280-1425), then kart contact and the swept constraint.
-		++S.Frame;
-		ApplyRadialPush(M);
-		const FBarrier Barrier = M.bHopping ? FBarrier() : ProbeBarrier(M.MoveDir);
-		ApplyBarrierResponse(Barrier, M, C);
-		M.bNearWall = !M.bHopping && S.NearestWall < CollisionHardDistance;
-		Advance(Barrier, M, Dt);
+		++Kart.Frame;
+		ApplyRadialPush(Motion);
+		const FBarrier Barrier = Motion.bHopping ? FBarrier() : ProbeBarrier(Motion.MoveDir);
+		ApplyBarrierResponse(Barrier, Motion, Controls);
+		Motion.bNearWall = !Motion.bHopping && Kart.NearestWall < CollisionHardDistance;
+		Advance(Barrier, Motion, Dt);
 		ApplyKartContact(Race, Dt);
-		if (ConstrainMovement(Start, S.Pos))
+		if (ConstrainMovement(Start, Kart.Pos))
 		{
 			// Swept wall constraint over the whole step (:1440-1445).
-			S.Speed *= FMath::Exp(-WallSpeedDecay * Dt);
-			S.bHitWallThisStep = true;
+			Kart.Speed *= FMath::Exp(-WallSpeedDecay * Dt);
+			Kart.bHitWallThisStep = true;
 		}
-		UpdateCollisionFeedback(Barrier, M);
+		UpdateCollisionFeedback(Barrier, Motion);
 
 		UpdateBoostPads();
 		UpdateWrongWayAndTerrain();
@@ -292,488 +88,201 @@ namespace MovecadeKart
 		UpdatePresentation(Dt);
 	}
 
+	FKartSim::FStepControls FKartSim::DecodeControls(const FKartInput& Input)
+	{
+		FStepControls Controls;
+		Controls.SteeringX = FMath::Clamp(Input.SteeringX, -1.0, 1.0);
+		Controls.Keys = (Input.bLeft ? 1.0 : 0.0) - (Input.bRight ? 1.0 : 0.0);
+		Controls.bLeft = Input.bLeft;
+		Controls.bRight = Input.bRight;
+		Controls.bForward = Input.bForward;
+		Controls.bBackward = Input.bBackward;
+		Controls.bJump = Input.bJump;
+		return Controls;
+	}
+
 	void FKartSim::BeginStep(double Dt)
 	{
-		S.Time += Dt;
+		Kart.Time += Dt;
 		// One-step pulses.
-		S.bHitWallThisStep = false;
-		S.BarrierEvent = 0.0;
-		S.bBarrierEventSustained = false;
-		S.BumpEvent = 0.0;
-		if (S.HopTime >= 0.0)
+		Kart.bHitWallThisStep = false;
+		Kart.BarrierEvent = 0.0;
+		Kart.bBarrierEventSustained = false;
+		Kart.BumpEvent = 0.0;
+		if (Kart.HopTime >= 0.0)
 		{
-			S.HopTime += Dt;
-			if (S.HopTime >= HopDuration)
+			Kart.HopTime += Dt;
+			if (Kart.HopTime >= HopDuration)
 			{
-				S.HopTime = -1.0;
+				Kart.HopTime = -1.0;
 			}
 		}
 	}
 
-	void FKartSim::UpdateOffTrack()
-	{
-		// Off-track: two seconds to steer back, then return to the next checkpoint's approach (:862-880).
-		const FCheckpoint* Next = T->Checkpoints.IsValidIndex(S.NextCheckpoint) ? &T->Checkpoints[S.NextCheckpoint] : nullptr;
-		FVector2D RecoverPos;
-		double RecoverYaw = 0.0;
-		if (!RecoveryPose(S.Pos, Next, RecoverPos, RecoverYaw))
-		{
-			S.OffTrackSince = -1.0;
-		}
-		else if (S.OffTrackSince < 0.0)
-		{
-			S.OffTrackSince = S.Time;
-		}
-		else if (S.Time - S.OffTrackSince >= OffTrackRespawnSeconds)
-		{
-			Respawn(RecoverPos, RecoverYaw, TEXT("offtrack"));
-			S.OffTrackSince = -1.0;
-		}
-	}
-
-	void FKartSim::UpdateSpeed(const FStepControls& C, const FKartRaceContext& Race, double Dt)
+	void FKartSim::UpdateSpeed(const FStepControls& Controls, const FKartRaceContext& Race, double Dt)
 	{
 		// Boost timer (:1092-1106). This step still uses the multiplier it started with.
-		const double Multiplier = S.BoostMultiplier;
-		if (S.BoostTimeRemaining > 0.0)
+		const double Multiplier = Kart.BoostMultiplier;
+		if (Kart.BoostTimeRemaining > 0.0)
 		{
-			S.BoostTimeRemaining -= Dt;
-			if (S.BoostTimeRemaining <= 0.0)
+			Kart.BoostTimeRemaining -= Dt;
+			if (Kart.BoostTimeRemaining <= 0.0)
 			{
-				S.BoostTimeRemaining = 0.0;
-				S.BoostMultiplier = 1.0;
-				S.ActiveBoost.Reset();
+				Kart.BoostTimeRemaining = 0.0;
+				Kart.BoostMultiplier = 1.0;
+				Kart.ActiveBoost.Reset();
 			}
 		}
 
 		// Rubber band (:1112-1129): at most +2 SU for the last kart, scaled down in small lobbies.
-		S.RubberBandBoost = 0.0;
+		Kart.RubberBandBoost = 0.0;
 		if (Race.PlayerCount > 1 && Race.bRacing)
 		{
 			const double PositionRatio = static_cast<double>(Race.RacePosition - 1) / (Race.PlayerCount - 1);
-			const double LobbyScale = Race.PlayerCount <= 2 ? 0.4 : Race.PlayerCount == 3 ? 0.7 : 1.0;
-			S.RubberBandBoost = MaxSpeed * PositionRatio * Race.LeaderGapRatio * 0.05 * LobbyScale;
+			const double LobbyScale = Race.PlayerCount <= 2 ? RubberBandTwoPlayerScale
+				: Race.PlayerCount == 3 ? RubberBandThreePlayerScale : RubberBandFullScale;
+			Kart.RubberBandBoost = MaxSpeed * PositionRatio * Race.LeaderGapRatio * RubberBandScale * LobbyScale;
 		}
-		S.SlipstreamBoost = UpdateSlipstream(Race, Dt);
+		Kart.SlipstreamBoost = UpdateSlipstream(Race, Dt);
 
 		// Speed (:1108-1181). B1: a multiplier below 1 slows the kart instead of being ignored.
 		const double PowerupBoost = Multiplier > 1.0 ? MaxSpeed * (Multiplier - 1.0) : 0.0;
 		const double Slowdown = Multiplier < 1.0 ? Multiplier : 1.0;
-		const double Terrain = S.bOnDirt ? DirtMultiplier : 1.0;
-		const double Max = (MaxSpeed + (S.Turbo > 0.0 ? TurboBonus : 0.0) + PowerupBoost + S.RubberBandBoost + S.SlipstreamBoost) * Terrain * Slowdown;
-		const double Target = C.bBackward ? ReverseSpeed : C.bForward ? Max : 0.0;
-		const double Lambda = C.bBackward ? LambdaBrake : C.bForward ? LambdaThrottle : LambdaCoast;
-		S.Speed = Damp(S.Speed, Target, Lambda, Dt);
-		if (S.Speed < DriftMinSpeed)
+		const double Terrain = Kart.bOnDirt ? DirtMultiplier : 1.0;
+		const double Max = (MaxSpeed + (Kart.Turbo > 0.0 ? TurboBonus : 0.0) + PowerupBoost + Kart.RubberBandBoost + Kart.SlipstreamBoost) * Terrain * Slowdown;
+		const double Target = Controls.bBackward ? ReverseSpeed : Controls.bForward ? Max : 0.0;
+		const double Lambda = Controls.bBackward ? LambdaBrake : Controls.bForward ? LambdaThrottle : LambdaCoast;
+		Kart.Speed = Damp(Kart.Speed, Target, Lambda, Dt);
+		if (Kart.Speed < DriftMinSpeed)
 		{
-			S.DriftDirection = 0.0;
-			S.DriftPower = 0.0;
+			Kart.DriftDirection = 0.0;
+			Kart.DriftPower = 0.0;
 		}
-		S.Turbo -= Dt;
+		Kart.Turbo -= Dt;
 	}
 
-	void FKartSim::UpdateYaw(const FStepControls& C)
+	void FKartSim::UpdateYaw(const FStepControls& Controls)
 	{
 		// A direct per-step turn (:1188-1199).
-		S.InputTurn = (C.SteeringX + C.Keys + S.DriftDirection) * TurnPerStep;
+		Kart.InputTurn = (Controls.SteeringX + Controls.Keys + Kart.DriftDirection) * TurnPerStep;
 		// B11: a kart pressed against a wall on the gas can still turn away (the web left it wedged).
-		const bool bWedged = !bLegacyStickyWalls && S.bCollidingBarrier && C.bForward && !C.bBackward;
-		const double TurnSpeed = bWedged ? FMath::Max(S.Speed, 10.0) : S.Speed;
-		S.Yaw += S.InputTurn * FMath::Min(TurnSpeed, TurnSpeedReference) / TurnSpeedReference;
+		const bool bWedged = !bLegacyStickyWalls && Kart.bCollidingBarrier && Controls.bForward && !Controls.bBackward;
+		const double TurnSpeed = bWedged ? FMath::Max(Kart.Speed, WedgedMinTurnSpeed) : Kart.Speed;
+		Kart.Yaw += Kart.InputTurn * FMath::Min(TurnSpeed, TurnSpeedReference) / TurnSpeedReference;
 	}
 
-	void FKartSim::UpdateHopAndDrift(const FStepControls& C, double Dt)
+	void FKartSim::UpdateHopAndDrift(const FStepControls& Controls, double Dt)
 	{
 		// Hop and drift (:1202-1244): pressing jump hops and picks the drift side; releasing it cashes the drift
 		// in for a mini-turbo.
-		if (C.bJump && !S.bJumpHeld && S.HopTime < 0.0)
+		if (Controls.bJump && !Kart.bJumpHeld && Kart.HopTime < 0.0)
 		{
-			S.HopTime = 0.0;
-			S.bJumpHeld = true;
-			S.DriftDirection = (C.bLeft || C.SteeringX > 0.1) ? DriftTurn : (C.bRight || C.SteeringX < -0.1) ? -DriftTurn : 0.0;
+			Kart.HopTime = 0.0;
+			Kart.bJumpHeld = true;
+			Kart.DriftDirection = (Controls.bLeft || Controls.SteeringX > SteerDeadZone) ? DriftTurn
+				: (Controls.bRight || Controls.SteeringX < -SteerDeadZone) ? -DriftTurn : 0.0;
 		}
-		if (!C.bJump)
+		if (!Controls.bJump)
 		{
-			S.bJumpHeld = false;
-			if (S.Turbo <= 0.0)
+			Kart.bJumpHeld = false;
+			if (Kart.Turbo <= 0.0)
 			{
 				FDriftBoost Boost;
-				if (DriftExitBoost(S.DriftPower, S.DriftPower * 1000.0, C.SteeringX + C.Keys, S.DriftDirection, Boost))
+				// The web grades the drift by its held time in milliseconds.
+				if (DriftExitBoost(Kart.DriftPower, Kart.DriftPower * 1000.0, Controls.SteeringX + Controls.Keys, Kart.DriftDirection, Boost))
 				{
-					S.Turbo = Boost.Time;
-					S.BoostMultiplier = Boost.Multiplier;
-					S.BoostTimeRemaining = Boost.Time;
-					S.ActiveBoost = Boost.Label;
-					S.LastDriftBoost = Boost.Label;
-					++S.DriftBoostCount;
+					Kart.Turbo = Boost.Time;
+					Kart.BoostMultiplier = Boost.Multiplier;
+					Kart.BoostTimeRemaining = Boost.Time;
+					Kart.ActiveBoost = Boost.Label;
+					Kart.LastDriftBoost = Boost.Label;
+					++Kart.DriftBoostCount;
 				}
 				// The web falls back to a boostPower value shared by every kart here (B3). Not ported.
 			}
-			S.DriftDirection = 0.0;
-			S.DriftPower = 0.0;
+			Kart.DriftDirection = 0.0;
+			Kart.DriftPower = 0.0;
 		}
-		if (S.DriftDirection != 0.0)
+		if (Kart.DriftDirection != 0.0)
 		{
-			S.DriftPower = FMath::Min(S.DriftPower + Dt, DriftPowerCap);
-		}
-	}
-
-	void FKartSim::ApplyRadialPush(const FStepMotion& M)
-	{
-		const uint64 Interval = S.NearestWall < CollisionSoftDistance ? FastCheckInterval : ContinuousCheckInterval;
-		if (!M.bHopping && S.Frame - S.LastRadialFrame >= Interval)
-		{
-			ProbeRadial();
-			S.LastRadialFrame = S.Frame;
-		}
-		// The cached radial push is re-applied every step until the next probe, as on the web.
-		if (!M.bHopping && S.bRadialCritical)
-		{
-			S.Pos += S.RadialPush;
-			S.Speed *= 0.3;
-		}
-		else if (!M.bHopping && S.RadialStrength > 0.0)
-		{
-			S.Pos += S.RadialPush;
+			Kart.DriftPower = FMath::Min(Kart.DriftPower + Dt, DriftPowerCap);
 		}
 	}
 
-	void FKartSim::ApplyBarrierResponse(const FBarrier& Barrier, const FStepMotion& M, const FStepControls& C)
+	void FKartSim::UpdateHeading(double Dt)
 	{
-		if (M.bHopping)
-		{
-			return;
-		}
-		if (Barrier.Assist != 0.0)
-		{
-			// Steer away from a wall the kart is closing on, less so if the player is steering into it.
-			const double AssistMultiplier = FMath::Min(FMath::Abs(S.Speed) / MaxSpeed, 1.0);
-			const double AssistSign = M.bReversing ? -1.0 : 1.0;
-			const double Proximity = S.NearestWall < CollisionSoftDistance ? 1.2 : 1.0;
-			const bool bOpposing = (C.SteeringX > 0.1 && Barrier.Assist > 0.0) || (C.SteeringX < -0.1 && Barrier.Assist < 0.0);
-			S.Yaw += Barrier.Assist * AssistMultiplier * AssistSign * Proximity * (bOpposing ? 0.15 : 1.0);
-		}
-		if (Barrier.Penetration > 0.0 && Barrier.bHasNormal)
-		{
-			// Not scaled by dt, as on the web (spec 01, shipped bug 8). It runs once per fixed step, so it is
-			// stable here, and the swept constraint still keeps the kart out of the wall.
-			S.Pos += Normalize(Barrier.Normal) * (Barrier.Penetration * CollisionPushStrength * 60.0);
-		}
+		// Heading lag (:1249-1263): an unclamped, unnormalised lerp toward the nose. The angle between the two
+		// drives the visual slip layer.
+		const FVector2D Desired = Forward(Kart.Yaw);
+		Kart.Dir = Kart.Dir + (Desired - Kart.Dir) * (DirLerp * Dt);
+		const double SlipAngle = FMath::Atan2(Desired.X * Kart.Dir.Y - Desired.Y * Kart.Dir.X, Desired.X * Kart.Dir.X + Desired.Y * Kart.Dir.Y);
+		Kart.SlipYaw = Damp(Kart.SlipYaw, SlipAngle * SlipYawFromSlipAngle + Kart.DriftDirection * SlipYawFromDrift, SlipYawLambda, Dt);
 	}
 
-	void FKartSim::Advance(const FBarrier& Barrier, const FStepMotion& M, double Dt)
+	void FKartSim::UpdateBoostPads()
 	{
-		const double AbsSpeed = FMath::Abs(S.Speed);
-		if (M.bHopping)
+		// BoostPads.jsx:208-230, games/kart/boostPad.ts isInsideBoostPad.
+		for (int32 PadIndex = 0; PadIndex < TrackData->BoostPads.Num(); ++PadIndex)
 		{
-			// In the air: no wall response, but a hop straight into a wall loses its speed.
-			double Distance = 0.0;
-			FVector2D Normal;
-			if (T->RayWalls().Raycast(S.Pos, Normalize(M.MoveDir), 1.0, Distance, Normal) && Distance < 0.6)
-			{
-				S.Speed *= 0.3;
-			}
-			else
-			{
-				S.Pos += S.Dir * S.Speed * Dt;
-			}
-			return;
-		}
-		if (Barrier.bBlocked && AbsSpeed > 0.0)
-		{
-			const double Closeness = Barrier.Distance != 0.0 ? 1.0 - FMath::Min(Barrier.Distance / BarrierCollisionDistance, 1.0) : 0.5;
-			const double LegacyMult = M.bNearWall
-				? FMath::Max(0.1, MinCollisionSpeedMult - Closeness * 0.5)
-				: FMath::Max(MinCollisionSpeedMult, 1.0 - Closeness * 0.6);
-			const double Reverse = M.bReversing ? -1.0 : 1.0;
-			if (bLegacyStickyWalls)
-			{
-				if (Barrier.bHasNormal && AbsSpeed > 30.0)
-				{
-					S.Pos += Barrier.Normal * ((AbsSpeed / MaxSpeed) * BounceStrength);
-				}
-				S.Speed *= LegacyMult;
-				if (Barrier.bHasNormal)
-				{
-					const FVector2D Slide = Normalize(M.MoveDir - Barrier.Normal * FVector2D::DotProduct(M.MoveDir, Barrier.Normal));
-					S.Pos += Slide * (AbsSpeed * (M.bNearWall ? 0.15 : 0.4) * Dt) * Reverse;
-				}
-			}
-			else
-			{
-				// B11: scale the web's wall response by how square-on the kart meets the wall. Head-on still bites
-				// as hard; a glancing hit keeps its speed and slides along the wall.
-				const double HeadOn = Barrier.bHasNormal ? FMath::Abs(FVector2D::DotProduct(Normalize(M.MoveDir), Barrier.Normal)) : 1.0;
-				S.Speed *= 1.0 - (1.0 - LegacyMult) * HeadOn;
-				if (Barrier.bHasNormal)
-				{
-					const FVector2D Slide = Normalize(M.MoveDir - Barrier.Normal * FVector2D::DotProduct(M.MoveDir, Barrier.Normal));
-					S.Pos += Slide * (AbsSpeed * (1.0 - 0.7 * HeadOn) * Dt) * Reverse;
-				}
-			}
-		}
-		// The second clause can't be true when the first is false (Hard < Soft); kept as the web wrote it (spec 01 bug 10).
-		else if (!M.bNearWall || S.NearestWall > CollisionSoftDistance)
-		{
-			S.Pos += S.Dir * S.Speed * Dt;
-		}
-		else
-		{
-			S.Pos += S.Dir * S.Speed * Dt * FMath::Min(1.0, S.NearestWall / CollisionSoftDistance);
-		}
-	}
-
-	void FKartSim::ApplyKartContact(const FKartRaceContext& Race, double Dt)
-	{
-		// Kart vs kart (:658-675, :1428-1434, kartContact.ts): the first overlapping kart pushes this one away.
-		if (!Race.bKartContact)
-		{
-			return;
-		}
-		for (const FKartRaceContext::FOther& Other : Race.Others)
-		{
-			const FVector2D Delta = S.Pos - Other.Position;
-			const double Distance = Delta.Size();
-			if (Distance >= KartContactDistance)
+			if (Kart.Time - Kart.PadLastBoostTime[PadIndex] <= TrackData->BoostCooldown)
 			{
 				continue;
 			}
-			const FVector2D N = Distance > 0.0001 ? Delta / Distance : FVector2D(Race.SelfSeat < Other.Seat ? -1.0 : 1.0, 0.0);
-			S.Pos += N * FMath::Min(KartContactDistance - Distance, KartBumpForce * Dt * 60.0);
-			S.Speed *= FMath::Pow(0.8, Dt * 60.0);
-			S.BumpEvent = FMath::Min(1.0, (FMath::Abs(S.Speed) / MaxSpeed) * 0.8 + 0.2);
-			S.ImpactNormal = N;
-			++S.BumpEventCount;
-			break;
-		}
-	}
-
-	void FKartSim::UpdateCollisionFeedback(const FBarrier& Barrier, const FStepMotion& M)
-	{
-		// Collision feedback (:1457-1569), for haptics, audio and FX: first contact fires at once, sustained
-		// contact every 150 ms.
-		const bool bWasColliding = S.bCollidingBarrier;
-		S.bCollidingBarrier = !M.bHopping && (Barrier.bBlocked || Barrier.Penetration > 0.0 || S.bRadialCritical || S.RadialStrength > 0.0 || M.bNearWall);
-		S.CollisionIntensity = S.bCollidingBarrier
-			? FMath::Min(1.0, Barrier.Penetration * 2.0 + (FMath::Abs(S.Speed) / MaxSpeed) * 0.5 + (S.bRadialCritical ? 1.0 : 0.0) + (M.bNearWall ? 0.3 : 0.0))
-			: 0.0;
-		if (S.bCollidingBarrier && !bWasColliding)
-		{
-			S.BarrierEvent = FMath::Max(0.3, S.CollisionIntensity);
-			S.LastBarrierEventTime = S.Time;
-		}
-		else if (S.bCollidingBarrier && S.Time - S.LastBarrierEventTime >= 0.15)
-		{
-			S.BarrierEvent = FMath::Max(0.2, S.CollisionIntensity * 0.6);
-			S.bBarrierEventSustained = true;
-			S.LastBarrierEventTime = S.Time;
-		}
-		if (S.BarrierEvent > 0.0)
-		{
-			++S.BarrierEventCount;
-			// Away from the wall, toward the kart: the probe's face normal turned against the travel (a face normal
-			// may point either way), else the radial push, which already points off the wall.
-			FVector2D Away = Barrier.bHasNormal ? Barrier.Normal : Normalize(S.RadialPush);
-			if (Barrier.bHasNormal && FVector2D::DotProduct(Away, S.Dir) > 0.0)
+			const FBoostPad& Pad = TrackData->BoostPads[PadIndex];
+			const double Dx = Kart.Pos.X - Pad.Position.X;
+			const double Dz = Kart.Pos.Y - Pad.Position.Y;
+			const double Across = Dx * Pad.CosYaw - Dz * Pad.SinYaw;
+			const double Along = Dx * Pad.SinYaw + Dz * Pad.CosYaw;
+			if (FMath::Abs(Across) <= Pad.Width / 2.0 + TrackData->BoostPadding && FMath::Abs(Along) <= Pad.Length / 2.0 + TrackData->BoostPadding)
 			{
-				Away = -Away;
+				Kart.BoostMultiplier = TrackData->BoostMultiplier;
+				Kart.BoostTimeRemaining = TrackData->BoostDuration;
+				Kart.ActiveBoost = TEXT("BOOST_PAD");
+				Kart.PadLastBoostTime[PadIndex] = Kart.Time;
 			}
-			S.ImpactNormal = Away;
 		}
 	}
 
 	void FKartSim::UpdateWrongWayAndTerrain()
 	{
 		// Wrong way, every 15 steps above 5 SU (:1571-1586).
-		if (S.Frame - S.LastWrongWayFrame >= WrongWayInterval && FMath::Abs(S.Speed) > 5.0 && T->Waypoints.Num() > 1)
+		if (Kart.Frame - Kart.LastWrongWayFrame >= WrongWayInterval && FMath::Abs(Kart.Speed) > WrongWayMinSpeed && TrackData->Waypoints.Num() > 1)
 		{
-			S.LastWrongWayFrame = S.Frame;
-			const int32 Nearest = T->NearestWaypoint(S.Pos);
-			const FVector2D To = T->Waypoints[(Nearest + 1) % T->Waypoints.Num()] - S.Pos;
-			const double Len = To.Size();
-			if (Len > 0.1)
+			Kart.LastWrongWayFrame = Kart.Frame;
+			const int32 Nearest = TrackData->NearestWaypoint(Kart.Pos);
+			const FVector2D ToNext = TrackData->Waypoints[(Nearest + 1) % TrackData->Waypoints.Num()] - Kart.Pos;
+			const double Distance = ToNext.Size();
+			if (Distance > WrongWayMinLookahead)
 			{
-				S.bWrongWay = FVector2D::DotProduct(Forward(S.Yaw), To) / Len < -0.5;
+				Kart.bWrongWay = FVector2D::DotProduct(Forward(Kart.Yaw), ToNext) / Distance < WrongWayDot;
 			}
 		}
 
 		// Terrain, every 10 steps (:1588-1610).
-		if (S.Frame - S.LastTerrainFrame >= TerrainInterval)
+		if (Kart.Frame - Kart.LastTerrainFrame >= TerrainInterval)
 		{
-			S.LastTerrainFrame = S.Frame;
-			S.bOnDirt = IsOnDirt(S.Pos);
+			Kart.LastTerrainFrame = Kart.Frame;
+			Kart.bOnDirt = IsOnDirt(Kart.Pos);
 		}
-	}
-
-	void FKartSim::ProbeRadial()
-	{
-		FVector2D Push = FVector2D::ZeroVector;
-		double Total = 0.0;
-		double Nearest = 999.0;
-		int32 Critical = 0;
-		for (int32 i = 0; i < NumRadialProbes; ++i)
-		{
-			// World-axis probes, not kart-relative (:611-652).
-			const double Angle = (static_cast<double>(i) / NumRadialProbes) * UE_DOUBLE_TWO_PI;
-			const FVector2D Dir(FMath::Sin(Angle), FMath::Cos(Angle));
-			double Distance = 0.0;
-			FVector2D Normal;
-			if (!T->RayWalls().Raycast(S.Pos, Dir, ContinuousProbeDistance, Distance, Normal))
-			{
-				continue;
-			}
-			Nearest = FMath::Min(Nearest, Distance);
-			if (Distance < CollisionCriticalDistance)
-			{
-				++Critical;
-				const double M = (CollisionCriticalDistance - Distance) * EmergencyPushStrength;
-				Push -= Dir * M;
-				Total += M;
-			}
-			else if (Distance < CollisionHardDistance)
-			{
-				const double M = (CollisionHardDistance - Distance) * CollisionPushStrength;
-				Push -= Dir * M;
-				Total += M * 0.5;
-			}
-		}
-		S.RadialPush = Push;
-		S.RadialStrength = Total;
-		S.bRadialCritical = Critical >= 2;
-		S.NearestWall = Nearest;
-	}
-
-	FKartSim::FBarrier FKartSim::ProbeBarrier(const FVector2D& MoveDir)
-	{
-		FBarrier B;
-		auto Ray = [this](const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal)
-		{
-			return T->RayWalls().Raycast(S.Pos, Normalize(Dir), Far, OutDistance, OutNormal);
-		};
-
-		double DForward = 999.0, DLeft = 999.0, DRight = 999.0, DForwardLeft = 999.0, DForwardRight = 999.0;
-		FVector2D NForward, NUnused;
-		const bool bForward = Ray(MoveDir, BarrierCollisionDistance, DForward, NForward);
-		// Named as in the web build; on the three.js ground plane (-z, x) is actually the driver's right.
-		const FVector2D LeftProbe = Normalize(FVector2D(-MoveDir.Y, MoveDir.X));
-		const FVector2D RightProbe = Normalize(FVector2D(MoveDir.Y, -MoveDir.X));
-		if (!Ray(LeftProbe, BarrierCollisionDistance * 0.8, DLeft, NUnused)) { DLeft = 999.0; }
-		if (!Ray(RightProbe, BarrierCollisionDistance * 0.8, DRight, NUnused)) { DRight = 999.0; }
-		if (!Ray(MoveDir + LeftProbe, BarrierCollisionDistance * 0.9, DForwardLeft, NUnused)) { DForwardLeft = 999.0; }
-		if (!Ray(MoveDir + RightProbe, BarrierCollisionDistance * 0.9, DForwardRight, NUnused)) { DForwardRight = 999.0; }
-
-		const double LeftMin = FMath::Min(DLeft, DForwardLeft);
-		const double RightMin = FMath::Min(DRight, DForwardRight);
-		if (LeftMin < CollisionSoftDistance || RightMin < CollisionSoftDistance)
-		{
-			const double LeftInfluence = LeftMin < CollisionSoftDistance ? (CollisionSoftDistance - LeftMin) / CollisionSoftDistance : 0.0;
-			const double RightInfluence = RightMin < CollisionSoftDistance ? (CollisionSoftDistance - RightMin) / CollisionSoftDistance : 0.0;
-			B.Assist = (LeftInfluence - RightInfluence) * SteeringAssistStrength;
-		}
-
-		if (bForward && DForward < CollisionHardDistance)
-		{
-			B.Penetration = FMath::Max(B.Penetration, CollisionHardDistance - DForward);
-		}
-		if (LeftMin < CollisionHardDistance)
-		{
-			B.Penetration = FMath::Max(B.Penetration, (CollisionHardDistance - LeftMin) * 0.5);
-		}
-		if (RightMin < CollisionHardDistance)
-		{
-			B.Penetration = FMath::Max(B.Penetration, (CollisionHardDistance - RightMin) * 0.5);
-		}
-
-		B.bBlocked = bForward;
-		if (bForward)
-		{
-			S.LastCollisionNormal = NForward;
-			B.Distance = DForward;
-			B.Normal = S.LastCollisionNormal;
-			B.bHasNormal = true;
-		}
-		return B;
-	}
-
-	bool FKartSim::ConstrainMovement(const FVector2D& Start, FVector2D& InOutDesired) const
-	{
-		const FVector2D Delta = InOutDesired - Start;
-		const int32 Steps = FMath::Max(1, FMath::CeilToInt32(Delta.Size() / T->SweepSubstep));
-		const double Radius = T->KartRadius;
-		FVector2D P = Start;
-		bool bCollided = false;
-
-		// Almost every step starts inside the walls, which IsNearCentre settles in a few segments; only a start
-		// outside them needs the full nearest-point scan.
-		if (T->bAnalyticWalls && !T->IsNearCentre(Start, T->WallOffset + Radius, CentreHint))
-		{
-			FVector2D Nearest;
-			double Offset = 0.0;
-			const double Distance = T->NearestCentre(Start, Nearest, Offset);
-			if (Distance > T->WallOffset + Radius)
-			{
-				const double Limit = T->WallOffset - Radius;
-				P = Nearest + (P - Nearest) * (Limit / Distance);
-				bCollided = true;
-			}
-		}
-
-		// Sequential push-outs can move the kart up to a radius per segment, so query a wider box.
-		const double Margin = Radius * 4.0;
-		FWallSet::FCandidates Candidates;
-		for (int32 i = 0; i < Steps; ++i)
-		{
-			const FVector2D Old = P;
-			P += Delta / Steps;
-			T->Walls.Query(P - FVector2D(Margin), P + FVector2D(Margin), Candidates);
-			for (const int32 Index : Candidates)
-			{
-				const FWallSegment& W = T->Walls.Segments()[Index];
-				const double U = FMath::Clamp(FVector2D::DotProduct(P - W.A, W.D) / W.LengthSq, 0.0, 1.0);
-				const FVector2D Proj = W.A + W.D * U;
-				const FVector2D V = P - Proj;
-				const double DistSq = V.SizeSquared();
-				if (DistSq >= Radius * Radius)
-				{
-					continue;
-				}
-				bCollided = true;
-				if (T->bRadialWallPush)
-				{
-					// meshBoundary.ts pushOutOfMesh: away from the closest point, or along the face normal dead on it.
-					const double Dist = FMath::Sqrt(DistSq);
-					P += Dist > 1e-6 ? V * ((Radius - Dist) / Dist) : Normalize(W.FaceNormal) * Radius;
-					continue;
-				}
-				FVector2D N = FVector2D(-W.D.Y, W.D.X) / FMath::Sqrt(W.LengthSq);
-				if (FVector2D::DotProduct(Old - Proj, N) < 0.0)
-				{
-					N = -N;
-				}
-				P += N * (Radius - FVector2D::DotProduct(V, N));
-			}
-		}
-		InOutDesired = P;
-		return bCollided;
 	}
 
 	bool FKartSim::IsOnDirt(const FVector2D& Position) const
 	{
-		if (T->DirtGrid.IsValid())
+		if (TrackData->DirtGrid.IsValid())
 		{
-			return T->DirtGrid.IsDirt(Position);
+			return TrackData->DirtGrid.IsDirt(Position);
 		}
-		if (T->GroundBands.Num() == 0)
+		if (TrackData->GroundBands.Num() == 0)
 		{
 			return false;
 		}
 		FVector2D Nearest;
 		double Offset = 0.0;
-		T->NearestCentre(Position, Nearest, Offset);
+		TrackData->NearestCentre(Position, Nearest, Offset);
 		// The down ray hits the highest ribbon under the kart first.
 		double BestY = -TNumericLimits<double>::Max();
 		bool bDirt = false;
-		for (const FGroundBand& Band : T->GroundBands)
+		for (const FGroundBand& Band : TrackData->GroundBands)
 		{
 			if (Offset >= Band.Inner && Offset <= Band.Outer && Band.Y > BestY)
 			{
@@ -784,166 +293,61 @@ namespace MovecadeKart
 		return bDirt;
 	}
 
-	bool FKartSim::RecoveryPose(const FVector2D& Position, const FCheckpoint* Next, FVector2D& OutPos, double& OutYaw) const
-	{
-		const int32 W = T->Waypoints.Num();
-		if (W < 2)
-		{
-			return false;
-		}
-		const int32 NearestIndex = T->NearestWaypoint(Position);
-		const double Distance = FVector2D::Distance(Position, T->Waypoints[NearestIndex]);
-
-		// On a figure-eight a kart can leave one branch and land on a later one (trackRecovery.ts:68-76).
-		bool bSkipped = false;
-		if (Next)
-		{
-			const int32 CheckpointWaypoint = Next->Waypoint != INDEX_NONE ? Next->Waypoint : T->NearestWaypoint(Next->Position);
-			const int32 Past = (NearestIndex - CheckpointWaypoint + W) % W;
-			bSkipped = Past >= T->RecoverySkipWaypoints && Past < W / 2.0;
-		}
-		if (Distance <= T->RecoveryDistance && !bSkipped)
-		{
-			return false;
-		}
-		if (Next)
-		{
-			OutPos = Next->ApproachPosition;
-			OutYaw = Next->ApproachYaw;
-		}
-		else
-		{
-			const FVector2D P = T->Waypoints[NearestIndex];
-			const FVector2D N = T->Waypoints[(NearestIndex + 1) % W];
-			OutPos = P;
-			OutYaw = FMath::Atan2(P.X - N.X, P.Y - N.Y);
-		}
-		return true;
-	}
-
-	void FKartSim::UpdateWatchdogs(bool bPowered)
-	{
-		const FCheckpoint* Next = T->Checkpoints.IsValidIndex(S.NextCheckpoint) ? &T->Checkpoints[S.NextCheckpoint] : nullptr;
-
-		// Stuck anchor (recoveryWatchdogs.ts stepStuckAnchor).
-		const bool bAnchorResumed = S.Time - S.AnchorSeen > WatchGapSeconds;
-		if (bAnchorResumed || FVector2D::Distance(S.Pos, S.AnchorPos) >= StuckAnchorDistance || !bPowered)
-		{
-			S.AnchorPos = S.Pos;
-			S.AnchorSince = S.AnchorSeen = S.Time;
-		}
-		else
-		{
-			S.AnchorSeen = S.Time;
-			if (S.Time - S.AnchorSince >= StuckAnchorSeconds)
-			{
-				const FSpawnSlot& Spawn = T->Grid[Slot];
-				Respawn(Next ? Next->ApproachPosition : Spawn.Position, Next ? Next->ApproachYaw : Spawn.Yaw, TEXT("stuck"));
-				S.AnchorPos = S.Pos;
-				S.AnchorSince = S.AnchorSeen = S.Time;
-			}
-		}
-
-		// Checkpoint stall (recoveryWatchdogs.ts stepCheckpointWatch).
-		const bool bWatchResumed = S.Time - S.WatchSeen > WatchGapSeconds;
-		if (bWatchResumed || S.WatchIndex != S.NextCheckpoint || !bPowered)
-		{
-			S.WatchIndex = S.NextCheckpoint;
-			S.WatchSince = S.WatchSeen = S.Time;
-		}
-		else if (S.Time - S.WatchSince >= CheckpointStallSeconds && Next)
-		{
-			S.WatchSince = S.WatchSeen = S.Time;
-			Respawn(Next->ApproachPosition, Next->ApproachYaw, TEXT("checkpoint-stall"));
-			S.AnchorPos = S.Pos;
-			S.AnchorSince = S.AnchorSeen = S.Time;
-		}
-		else
-		{
-			S.WatchSeen = S.Time;
-		}
-	}
-
-	void FKartSim::UpdateBoostPads()
-	{
-		// BoostPads.jsx:208-230, games/kart/boostPad.ts isInsideBoostPad.
-		for (int32 i = 0; i < T->BoostPads.Num(); ++i)
-		{
-			if (S.Time - S.PadLastBoostTime[i] <= T->BoostCooldown)
-			{
-				continue;
-			}
-			const FBoostPad& Pad = T->BoostPads[i];
-			const double Dx = S.Pos.X - Pad.Position.X;
-			const double Dz = S.Pos.Y - Pad.Position.Y;
-			const double C = Pad.CosYaw, Sn = Pad.SinYaw;
-			const double Across = Dx * C - Dz * Sn;
-			const double Along = Dx * Sn + Dz * C;
-			if (FMath::Abs(Across) <= Pad.Width / 2.0 + T->BoostPadding && FMath::Abs(Along) <= Pad.Length / 2.0 + T->BoostPadding)
-			{
-				S.BoostMultiplier = T->BoostMultiplier;
-				S.BoostTimeRemaining = T->BoostDuration;
-				S.ActiveBoost = TEXT("BOOST_PAD");
-				S.PadLastBoostTime[i] = S.Time;
-			}
-		}
-	}
-
 	void FKartSim::UpdateCheckpoints()
 	{
 		// useCheckpointDetection.ts advanceSequentialCheckpointState.
-		const int32 N = T->Checkpoints.Num();
-		const FCheckpoint& Next = T->Checkpoints[S.NextCheckpoint];
-		const bool bInside = FVector2D::Distance(S.Pos, Next.Position) < Next.Radius;
-		const bool bCrossed = bInside && !S.bWasInsideNext;
+		const int32 CheckpointCount = TrackData->Checkpoints.Num();
+		const FCheckpoint& Next = TrackData->Checkpoints[Kart.NextCheckpoint];
+		const bool bInside = FVector2D::Distance(Kart.Pos, Next.Position) < Next.Radius;
+		const bool bCrossed = bInside && !Kart.bWasInsideNext;
 		if (bCrossed)
 		{
 			if (Next.bFinish)
 			{
-				++S.LapsCompleted;
-				S.NextCheckpoint = T->StartCheckpoint;
-				if (!S.bFinished && S.LapsCompleted >= T->Laps)
+				++Kart.LapsCompleted;
+				Kart.NextCheckpoint = TrackData->StartCheckpoint;
+				if (!Kart.bFinished && Kart.LapsCompleted >= TrackData->Laps)
 				{
-					S.bFinished = true;
-					S.FinishTime = S.Time;
+					Kart.bFinished = true;
+					Kart.FinishTime = Kart.Time;
 				}
 			}
 			else
 			{
-				S.NextCheckpoint = (S.NextCheckpoint + 1) % N;
+				Kart.NextCheckpoint = (Kart.NextCheckpoint + 1) % CheckpointCount;
 			}
 		}
-		const FCheckpoint& After = T->Checkpoints[S.NextCheckpoint];
-		S.bWasInsideNext = bCrossed ? FVector2D::Distance(S.Pos, After.Position) < After.Radius : bInside;
+		const FCheckpoint& After = TrackData->Checkpoints[Kart.NextCheckpoint];
+		Kart.bWasInsideNext = bCrossed ? FVector2D::Distance(Kart.Pos, After.Position) < After.Radius : bInside;
 
-		const int32 Previous = S.NextCheckpoint == 0 ? N - 1 : S.NextCheckpoint - 1;
-		const double SegmentLength = FMath::Max(1.0, FVector2D::Distance(T->Checkpoints[Previous].Position, After.Position));
-		const double SegmentProgress = 1.0 - FMath::Min(FVector2D::Distance(S.Pos, After.Position) / SegmentLength, 1.0);
-		S.ProgressPercent = FMath::Min(99.9, ((Previous + FMath::Max(0.0, SegmentProgress)) / N) * 100.0);
+		const int32 Previous = Kart.NextCheckpoint == 0 ? CheckpointCount - 1 : Kart.NextCheckpoint - 1;
+		const double SegmentLength = FMath::Max(1.0, FVector2D::Distance(TrackData->Checkpoints[Previous].Position, After.Position));
+		const double SegmentProgress = 1.0 - FMath::Min(FVector2D::Distance(Kart.Pos, After.Position) / SegmentLength, 1.0);
+		Kart.ProgressPercent = FMath::Min(MaxProgressPercent, ((Previous + FMath::Max(0.0, SegmentProgress)) / CheckpointCount) * 100.0);
 	}
 
 	void FKartSim::UpdatePresentation(double Dt)
 	{
 		// Kart.jsx:194-242 steering and body layers.
-		S.SteerVisual = Damp(S.SteerVisual, S.InputTurn, 14.0, Dt);
-		const double SpeedFactor = FMath::Min(1.0, S.Speed / 50.0);
-		S.BodyYaw = Damp(S.BodyYaw, S.SteerVisual * 6.0 * SpeedFactor, 6.0, Dt);
-		S.GroupYaw = Damp(S.GroupYaw, S.DriftDirection * 0.4 + S.BodyYaw, 4.0, Dt);
-		S.Lean = Damp(S.Lean, -S.SteerVisual * 3.0 * SpeedFactor, 5.0, Dt);
+		Kart.SteerVisual = Damp(Kart.SteerVisual, Kart.InputTurn, SteerVisualLambda, Dt);
+		const double SpeedFactor = FMath::Min(1.0, Kart.Speed / BodyFullLeanSpeed);
+		Kart.BodyYaw = Damp(Kart.BodyYaw, Kart.SteerVisual * BodyYawGain * SpeedFactor, BodyYawLambda, Dt);
+		Kart.GroupYaw = Damp(Kart.GroupYaw, Kart.DriftDirection * GroupYawDriftGain + Kart.BodyYaw, GroupYawLambda, Dt);
+		Kart.Lean = Damp(Kart.Lean, -Kart.SteerVisual * LeanGain * SpeedFactor, LeanLambda, Dt);
 
 		// Hop: 0 -> 0.3 m in 0.125 s (power2.out), then back (gsap yoyo).
 		const double Half = HopDuration / 2.0;
-		if (S.HopTime < 0.0)
+		if (Kart.HopTime < 0.0)
 		{
-			S.HopOffset = 0.0;
+			Kart.HopOffset = 0.0;
 		}
-		else if (S.HopTime < Half)
+		else if (Kart.HopTime < Half)
 		{
-			S.HopOffset = HopHeight * PowerTwoOut(S.HopTime / Half);
+			Kart.HopOffset = HopHeight * PowerTwoOut(Kart.HopTime / Half);
 		}
 		else
 		{
-			S.HopOffset = HopHeight * PowerTwoOut((HopDuration - S.HopTime) / Half);
+			Kart.HopOffset = HopHeight * PowerTwoOut((HopDuration - Kart.HopTime) / Half);
 		}
 	}
 }

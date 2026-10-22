@@ -13,6 +13,7 @@ class FJsonObject;
  */
 namespace MovecadeKart
 {
+	/** One wall segment from A to A + D, with the direction and length precomputed for the hot-path tests. */
 	struct FWallSegment
 	{
 		FVector2D A = FVector2D::ZeroVector;
@@ -36,14 +37,14 @@ namespace MovecadeKart
 		/** First wall hit along a horizontal ray, within Far; on an exact tie the lowest segment index wins.
 		 *  Dir must be unit length. */
 		[[nodiscard]] bool Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const;
-		const TArray<FWallSegment>& Segments() const { return Segments_; }
+		const TArray<FWallSegment>& Segments() const { return WallSegments; }
 
 	private:
 		FIntPoint CellOf(const FVector2D& P) const;
 		/** The cells covering a box, or false (with an ensure) for a box too far out to walk. */
 		bool CellRange(const FVector2D& Min, const FVector2D& Max, FIntPoint& OutC0, FIntPoint& OutC1) const;
 
-		TArray<FWallSegment> Segments_;
+		TArray<FWallSegment> WallSegments;
 		TMap<FIntPoint, TArray<int32>> Grid;
 		double CellSize = 8.0;
 	};
@@ -117,6 +118,11 @@ namespace MovecadeKart
 		bool bDirt = false;
 	};
 
+	/**
+	 * One track: route, walls, surfaces and presentation data. Loaded once (KartTrackJson.cpp), then shared
+	 * read-only (TSharedPtr<const FTrack>) by every kart sim, the item world, the bots and the presentation.
+	 * The defaults below are the loader's fallbacks for fields a file leaves out.
+	 */
 	struct MOVECADEKART_API FTrack
 	{
 		FString Id;
