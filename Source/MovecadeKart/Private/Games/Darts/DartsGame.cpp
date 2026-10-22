@@ -119,6 +119,9 @@ void ADartsGame::Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APla
 		Seeds.Add({ Seat.Id, Seat.Name });
 	}
 	Match = CreateMatch(Seeds);
+	// Load the cue waves now, not on the first dart (a sync disk load mid-throw).
+	MovecadeKart::Games::FCuePlayer::Preload(TEXT("darts."));
+	MovecadeKart::Games::FCuePlayer::Preload(TEXT("match."));
 
 	auto MakeDart = [this](const TCHAR* Name)
 	{
@@ -1283,8 +1286,8 @@ void ADartsGame::UpdateCamera(float Dt)
 			// front of the thrower, so nobody's head fills the frame), easing in.
 			const double Settle = Smooth(0.0, 1.0, Since / 0.9);
 			const FVector Landing = ADartsPub::BoardPoint(LastLanding.X, LastLanding.Y);
-			Pos = FVector(Landing.X * 0.5 + 0.5, Landing.Y * 0.5 + ADartsPub::BoardY * 0.5 + 0.25, 2.95 - 0.35 * Settle);
-			Look = FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), Landing, 0.6);
+			Pos = FVector(Landing.X * 0.4 + 0.55, Landing.Y * 0.4 + ADartsPub::BoardY * 0.6 + 0.3, 3.5 - 0.4 * Settle);
+			Look = FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), Landing, 0.45);
 			Fov = 32.0 - 2.0 * Settle;
 			bCut = Since < 0.05;
 			bReacting = true;
