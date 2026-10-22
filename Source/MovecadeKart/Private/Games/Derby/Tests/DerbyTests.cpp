@@ -85,54 +85,54 @@ bool FDerbyContactTest::RunTest(const FString& Parameters)
 	const TArray<FPitch> S = PitchSchedule(RoundSeed(GoldenSeed, 0));
 	const FPitch& P = S[0];
 	{
-		// A perfect, full swing up the middle: 117.08 mph at 31 degrees, a 501 ft moonshot for 752.
+		// A perfect, full swing up the middle: 111.08 mph at 31 degrees, a 469 ft moonshot for 704.
 		const FOutcome O = ResolvePitch(P, Swing(0.0, 0.0, 1.0));
 		TestTrue(TEXT("moonshot"), O.Result == EResult::Moonshot);
-		TestEqual(TEXT("501 ft"), O.DistanceFt, 501);
-		TestEqual(TEXT("752 points"), O.Points, 752);
-		TestTrue(TEXT("exit"), FMath::IsNearlyEqual(O.Contact.ExitMph, 117.08292287199758, 1e-9));
+		TestEqual(TEXT("469 ft"), O.DistanceFt, 469);
+		TestEqual(TEXT("704 points"), O.Points, 704);
+		TestTrue(TEXT("exit"), FMath::IsNearlyEqual(O.Contact.ExitMph, 111.08292287199758, 1e-9));
 		TestTrue(TEXT("launch"), FMath::IsNearlyEqual(O.Contact.LaunchDeg, 31.0, 1e-9));
-		TestTrue(TEXT("distance"), FMath::IsNearlyEqual(O.Flight.DistanceM, 152.5663824150253, 1e-6));
-		TestTrue(TEXT("hang"), FMath::IsNearlyEqual(O.Flight.HangS, 5.517446969935543, 1e-6));
-		TestTrue(TEXT("apex"), FMath::IsNearlyEqual(O.Flight.ApexM, 33.52210944707277, 1e-6));
-		TestTrue(TEXT("over the fence high"), FMath::IsNearlyEqual(O.Flight.HeightAtFenceM, 24.839150601501604, 1e-6) && O.Flight.bCleared);
+		TestTrue(TEXT("distance"), FMath::IsNearlyEqual(O.Flight.DistanceM, 142.93905950419173, 1e-6));
+		TestTrue(TEXT("hang"), FMath::IsNearlyEqual(O.Flight.HangS, 5.264489915472847, 1e-6));
+		TestTrue(TEXT("apex"), FMath::IsNearlyEqual(O.Flight.ApexM, 30.660101223609814, 1e-6));
+		TestTrue(TEXT("over the fence high"), FMath::IsNearlyEqual(O.Flight.HeightAtFenceM, 18.031037488323133, 1e-6) && O.Flight.bCleared);
 		TestFalse(TEXT("no strike"), O.bStrike);
 		TestTrue(TEXT("path lands"), O.Flight.Path.Num() > 100 && FMath::IsNearlyEqual(O.Flight.Path.Last().Y, 0.0, 1e-9));
 		TestTrue(TEXT("At() midway is airborne"), O.Flight.At(O.Flight.HangS * 0.5).Y > 20.0);
 	}
 	{
-		// Half strength, perfect: 396 ft to dead centre, short of the 400 ft fence: in play for 40.
+		// Half strength, perfect: 368 ft to dead centre, short of the 400 ft fence: in play for 37.
 		const FOutcome O = ResolvePitch(P, Swing(0.0, 0.0, 0.5));
-		TestTrue(TEXT("in play"), O.Result == EResult::InPlay && O.DistanceFt == 396 && O.Points == 40);
+		TestTrue(TEXT("in play"), O.Result == EResult::InPlay && O.DistanceFt == 368 && O.Points == 37);
 		TestTrue(TEXT("never reached the fence"), O.Flight.HeightAtFenceM < 0.0 && !O.Flight.bOffWall);
 	}
 	{
-		// 60 ms early pulls it: spray -12.22, 415 ft home run.
-		const FOutcome O = ResolvePitch(P, Swing(-60.0, 0.0, 0.8));
-		TestTrue(TEXT("pulled home run"), O.Result == EResult::HomeRun && O.DistanceFt == 415 && O.Points == 415);
-		TestTrue(TEXT("quality"), FMath::IsNearlyEqual(O.Contact.Quality, 0.8474246560068802, 1e-9));
-		TestTrue(TEXT("spray"), FMath::IsNearlyEqual(O.Contact.SprayDeg, -12.218344526229107, 1e-9));
+		// 44 ms early pulls it: spray -8.80, a 410 ft home run.
+		const FOutcome O = ResolvePitch(P, Swing(-44.0, 0.0, 0.9));
+		TestTrue(TEXT("pulled home run"), O.Result == EResult::HomeRun && O.DistanceFt == 410 && O.Points == 410);
+		TestTrue(TEXT("quality"), FMath::IsNearlyEqual(O.Contact.Quality, 0.8962962962962963, 1e-9));
+		TestTrue(TEXT("spray"), FMath::IsNearlyEqual(O.Contact.SprayDeg, -8.802194787379973, 1e-9));
 		TestTrue(TEXT("pull side"), O.Contact.SprayDeg < 0.0);
 	}
 	{
-		// 90 ms late and aimed away: 350 ft to right field, in play for 35.
+		// 90 ms late and aimed away: 266 ft to right field, in play for 27.
 		const FOutcome O = ResolvePitch(P, Swing(90.0, 0.4, 0.8));
-		TestTrue(TEXT("opposite field"), O.Result == EResult::InPlay && O.DistanceFt == 350 && O.Points == 35);
-		TestTrue(TEXT("spray right"), FMath::IsNearlyEqual(O.Contact.SprayDeg, 31.946726524504303, 1e-9));
+		TestTrue(TEXT("opposite field"), O.Result == EResult::InPlay && O.DistanceFt == 266 && O.Points == 27);
+		TestTrue(TEXT("spray right"), FMath::IsNearlyEqual(O.Contact.SprayDeg, 33.59281705948373, 1e-9));
 	}
 	{
 		// 150 ms late: sliced foul; a strike with none or one, not with two.
 		const FOutcome A = ResolvePitch(P, Swing(150.0, 0.0, 0.8), 0);
 		const FOutcome B = ResolvePitch(P, Swing(150.0, 0.0, 0.8), 2);
-		TestTrue(TEXT("foul"), A.Result == EResult::Foul && A.Points == 0 && FMath::IsNearlyEqual(A.Contact.SprayDeg, 47.71429756660416, 1e-9));
+		TestTrue(TEXT("foul"), A.Result == EResult::Foul && A.Points == 0 && FMath::IsNearlyEqual(A.Contact.SprayDeg, 48.843995510662175, 1e-9));
 		TestTrue(TEXT("foul strike"), A.bStrike && !B.bStrike);
 	}
 	{
-		// Strength .53, perfect: 400 ft but only 0.62 m up at the 400 ft wall: off the wall, 40.
-		const FOutcome O = ResolvePitch(P, Swing(0.0, 0.0, 0.53));
+		// Strength .66, perfect: 400 ft but only 0.21 m up at the 400 ft wall: off the wall, 40.
+		const FOutcome O = ResolvePitch(P, Swing(0.0, 0.0, 0.66));
 		TestTrue(TEXT("off the wall"), O.Result == EResult::InPlay && O.Flight.bOffWall && O.DistanceFt == 400 && O.Points == 40);
-		TestTrue(TEXT("wall height"), FMath::IsNearlyEqual(O.Flight.HeightAtFenceM, 0.6215202234130043, 1e-6));
-		TestTrue(TEXT("stops at the wall"), FMath::IsNearlyEqual(O.Flight.HangS, 4.616186456551414, 1e-6));
+		TestTrue(TEXT("wall height"), FMath::IsNearlyEqual(O.Flight.HeightAtFenceM, 0.21396507041592375, 1e-6));
+		TestTrue(TEXT("stops at the wall"), FMath::IsNearlyEqual(O.Flight.HangS, 4.648894540758051, 1e-6));
 	}
 	{
 		const FOutcome Take = ResolvePitch(P, FSwing());
@@ -159,7 +159,7 @@ bool FDerbyMatchTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("a up"), M.Batter()->Id, FString(TEXT("a")));
 	TestEqual(TEXT("ten left"), M.PitchesLeft(), 10);
 	const FOutcome Moon = ResolvePitch(*M.NextPitch(), Swing(0.0, 0.0, 1.0));
-	TestEqual(TEXT("moonshot first pitch"), Moon.Points, 752);
+	TestEqual(TEXT("moonshot first pitch"), Moon.Points, 704);
 	FRecord R = Record(M, Moon);
 	TestFalse(TEXT("turn goes on"), R.bTurnEnded);
 	// Fouls with two strikes don't end it; three takes do, before the tenth pitch.
@@ -175,8 +175,8 @@ bool FDerbyMatchTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("two strikes"), M.Strikes, 2);
 	R = Record(M, Take);
 	TestTrue(TEXT("struck out"), R.bTurnEnded && R.bStruckOut && !R.bRoundEnded);
-	TestEqual(TEXT("a has 752"), M.Batters[0].Score, 752);
-	TestTrue(TEXT("a stats"), M.Batters[0].HomeRuns == 1 && M.Batters[0].Moonshots == 1 && M.Batters[0].LongestFt == 501);
+	TestEqual(TEXT("a has 704"), M.Batters[0].Score, 704);
+	TestTrue(TEXT("a stats"), M.Batters[0].HomeRuns == 1 && M.Batters[0].Moonshots == 1 && M.Batters[0].LongestFt == 469);
 	TestEqual(TEXT("b up"), M.Batter()->Id, FString(TEXT("b")));
 	TestTrue(TEXT("fresh count"), M.Pitch == 0 && M.Strikes == 0);
 	// b hits ten balls in play: the turn ends on the tenth, the round on b, and round two has a new schedule.
@@ -203,12 +203,12 @@ bool FDerbyMatchTest::RunTest(const FString& Parameters)
 		}
 	}
 	TestTrue(TEXT("complete"), R.bMatchComplete && M.bComplete && M.Batter() == nullptr && M.NextPitch() == nullptr);
-	TestTrue(TEXT("round scores"), M.Batters[0].RoundScores[0] == 752 && M.Batters[0].RoundScores[1] == 0 && M.Batters[1].RoundScores[0] == 300);
+	TestTrue(TEXT("round scores"), M.Batters[0].RoundScores[0] == 704 && M.Batters[0].RoundScores[1] == 0 && M.Batters[1].RoundScores[0] == 300);
 	const TArray<int32> Rank = Ranking(M);
 	TestTrue(TEXT("a wins"), Rank.Num() == 2 && Rank[0] == 0);
 	// Record after the end changes nothing.
 	Record(M, Moon);
-	TestEqual(TEXT("frozen"), M.Batters[0].Score, 752);
+	TestEqual(TEXT("frozen"), M.Batters[0].Score, 704);
 	TestEqual(TEXT("points"), PointsFor(EResult::Moonshot, 455), 683);
 	return true;
 }

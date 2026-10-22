@@ -10,11 +10,12 @@ shared controls). The phone is the bat.
   4-6 fastball (r < .6) or changeup; 7-10 fastball (< .3), changeup (< .6) or curve.
   Fastball `88 + 7r + 0.4i` mph, windows 30/165 ms; changeup `77 + 5r`, 28/155; curve `72 + 6r`, 24/140.
   Flight `17 m / speed * 1.06`; windup `1300 + 600r` ms; bias `2r - 1`.
-- Timing quality `q`: 1 inside the perfect window, `1 - ((|dt| - perfect) / (contact - perfect))^1.25` to the edge,
+- Timing quality `q`: 1 inside the perfect window, `1 - (|dt| - perfect) / (contact - perfect)` to the edge,
   a whiff beyond it.
 - Contact: spray `28 aim + 32 dt/contact + sign(dt) 25 (1 - q)^2` (degrees, + right field; early pulls);
   launch `29 + 2 strength + bias 40 (1 - q)^0.7 - 4 (1 - q)`;
-  exit `(62 + 38 strength)(0.42 + 0.58 q^0.9) + 0.18 pitch mph`.
+  exit `(58 + 36 strength)(0.35 + 0.65 q^1.1) + 0.18 pitch mph`. House bots of skill .5 / .62 / .74 homer on
+  about 16 / 30 / 48% of pitches; a perfect, full swing is a ~470 ft moonshot.
 - Flight: 10 ms semi-implicit Euler from 1 m, drag `0.005 |v| v`, backspin lift `0.0016 |v|` perpendicular, g 9.81.
   Fence `100.584 + 21.336 cos(2 spray)` m (330 ft lines, 400 centre), 3 m tall: over it is a home run, under it
   the ball stops at the wall. Foul past 45 degrees (or launch under -5).

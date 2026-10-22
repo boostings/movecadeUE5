@@ -126,7 +126,7 @@ public:
 	bool ScreenOf(const FVector& World, FVector2D& Out01) const;
 	double GetFinishedAge() const { return Phase == EDerbyPhase::Finished ? GetPhaseAge() : -1.0; }
 	bool HasLocal() const;
-	bool IsSlowMo() const { return SlowMo < 0.95; }
+	bool IsSlowMo() const { return SlowMo < 0.9; }
 	/** The phone batter's live swing energy, 0..1. */
 	double GetPhoneCharge() const { return PhoneCharge; }
 

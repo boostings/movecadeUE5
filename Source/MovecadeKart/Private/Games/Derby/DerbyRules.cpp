@@ -126,7 +126,7 @@ namespace MovecadeKart::Derby
 		{
 			return 0.0;
 		}
-		return 1.0 - FMath::Pow((A - Pitch.PerfectMs) / (Pitch.ContactMs - Pitch.PerfectMs), 1.25);
+		return 1.0 - FMath::Pow((A - Pitch.PerfectMs) / (Pitch.ContactMs - Pitch.PerfectMs), 1.0);
 	}
 
 	FContact MakeContact(const FPitch& Pitch, const FSwing& Swing)
@@ -142,7 +142,7 @@ namespace MovecadeKart::Derby
 		C.SprayDeg = Aim * 28.0 + Swing.TimingMs / Pitch.ContactMs * 32.0 + Side * Miss * Miss * 25.0;
 		// Off-time contact catches the ball high or low on the bat: a pop-up or a grounder.
 		C.LaunchDeg = IdealLaunchDeg + 2.0 * S + Pitch.ContactBias * FMath::Pow(Miss, 0.7) * 40.0 - Miss * 4.0;
-		C.ExitMph = (62.0 + 38.0 * S) * (0.42 + 0.58 * FMath::Pow(Q, 0.9)) + 0.18 * Pitch.SpeedMph;
+		C.ExitMph = (58.0 + 36.0 * S) * (0.35 + 0.65 * FMath::Pow(Q, 1.1)) + 0.18 * Pitch.SpeedMph;
 		return C;
 	}
 

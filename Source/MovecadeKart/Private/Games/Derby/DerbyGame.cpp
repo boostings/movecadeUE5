@@ -28,7 +28,7 @@ namespace
 {
 	constexpr double IntroSeconds = 3.4;
 	constexpr double StepInSeconds = 2.3;
-	constexpr double SetSeconds = 1.0;
+	constexpr double SetSeconds = 0.7;
 	/** A phone batter gets longer to settle before the pitch (or presses READY). */
 	constexpr double PhoneSetSeconds = 2.4;
 	/** The swing's animation: from its start to the bat meeting the ball, and the whole swing. */
@@ -36,6 +36,9 @@ namespace
 	constexpr double SwingSeconds = 0.62;
 	/** How long a full load takes to build while the button is held. */
 	constexpr double LoadSeconds = 0.55;
+	/** The stance: the barrel up over the back shoulder, tipped toward the catcher. */
+	constexpr double StanceA = -28.0;
+	constexpr double StanceE = 58.0;
 	/** A phone's swing arrives this much after it happened (the network), on top of the detector's own delay. */
 	constexpr double PhoneLatency = 0.06;
 	/** How long after the arrival a phone may still swing (its event is on the way). */
@@ -650,13 +653,14 @@ void ADerbyGame::Tick(float DeltaSeconds)
 	{
 		// Moonshots hang in slow motion through the top of the arc.
 		const double T = Outcome.Flight.HangS > 0.0 ? FlightClock / Outcome.Flight.HangS : 1.0;
-		const double Want = Outcome.Result == EResult::Moonshot && T > 0.12 && T < 0.82 ? 0.38 : 1.0;
+		// The rest play a touch fast, as a broadcast cuts the hang time.
+		const double Want = Outcome.Result == EResult::Moonshot && T > 0.12 && T < 0.82 ? 0.38 : 1.3;
 		SlowMo += (Want - SlowMo) * (1.0 - FMath::Exp(-6.0 * Dt));
 		FlightClock += Dt * SlowMo;
 		if (FlightClock >= Outcome.Flight.HangS)
 		{
 			FlightClock = Outcome.Flight.HangS;
-			SlowMo = 1.0;
+			SlowMo = 1.3;
 			Land();
 			const int32 Before = Match.Strikes;
 			const FRecord R = Record(Match, Outcome);
@@ -674,17 +678,17 @@ void ADerbyGame::Tick(float DeltaSeconds)
 	}
 	case EDerbyPhase::Result:
 	{
-		double Hold = 1.4;
+		double Hold = 1.2;
 		switch (Outcome.Result)
 		{
-		case EResult::Moonshot: Hold = 4.2; break;
-		case EResult::HomeRun: Hold = 3.2; break;
-		case EResult::InPlay: Hold = 2.2; break;
-		case EResult::Foul: Hold = 1.5; break;
+		case EResult::Moonshot: Hold = 3.8; break;
+		case EResult::HomeRun: Hold = 2.8; break;
+		case EResult::InPlay: Hold = 1.6; break;
+		case EResult::Foul: Hold = 1.2; break;
 		default: break;
 		}
 		const bool bTurnOver = Match.bComplete || Match.Up != ShownUp || (Match.Pitch == 0 && ShownPitchCount > 0);
-		if (Age >= Hold + (bTurnOver ? 0.9 : 0.0))
+		if (Age >= Hold + (bTurnOver ? 0.6 : 0.0))
 		{
 			if (bTurnOver)
 			{
@@ -916,6 +920,9 @@ void ADerbyGame::UpdateBall(float Dt)
 	}
 	Ball->SetVisibility(bShow);
 	Ball->SetWorldLocationAndRotation(At, FRotator(Clock * -1400.0, Clock * 300.0, 0.0));
+	// Readable from the broadcast camera however far it carries: it grows with the distance.
+	const double Far = Camera ? FVector::Dist(Camera->GetActorLocation(), At) : 0.0;
+	Ball->SetWorldScale3D(FVector(1.9 * (Phase == EDerbyPhase::Flight || Phase == EDerbyPhase::Result ? FMath::Clamp(Far / 2500.0, 1.0, 4.0) : 1.0)));
 	if (Trail)
 	{
 		Trail->SetWorldLocation(At);
@@ -1021,7 +1028,7 @@ void ADerbyGame::UpdateBatter(float Dt)
 	Pose.Lift = 0.f;
 	// The swing as a barrel angle round the body: A, degrees in the batter's frame (0 back toward the catcher, 90
 	// out over the plate, 180 toward the pitcher), and its elevation E.
-	double A = -12.0, E = 64.0;
+	double A = StanceA, E = StanceE;
 	double Coil = 0.0;
 	const double U = Clock - SwingAnimAt;
 	const double Contact = SwingLead;
@@ -1049,8 +1056,8 @@ void ADerbyGame::UpdateBatter(float Dt)
 		{
 			// Hold the finish, then settle back into the stance.
 			const double K = Smooth(0.9, 1.6, U - SwingSeconds);
-			A = FMath::Lerp(245.0, -12.0, K);
-			E = FMath::Lerp(40.0, 64.0, K);
+			A = FMath::Lerp(245.0, StanceA, K);
+			E = FMath::Lerp(40.0, StanceE, K);
 		}
 	}
 	else
@@ -1074,19 +1081,19 @@ void ADerbyGame::UpdateBatter(float Dt)
 			Load = 0.7;
 		}
 		Coil = Load;
-		A = -12.0 - 16.0 * Load + 4.0 * FMath::Sin(Clock * 2.3) * (1.0 - Load);
-		E = 64.0 + 8.0 * Load;
+		A = StanceA - 16.0 * Load + 4.0 * FMath::Sin(Clock * 2.3) * (1.0 - Load);
+		E = StanceE + 8.0 * Load;
 	}
 	const double Ar = FMath::DegreesToRadians(A), Er = FMath::DegreesToRadians(E);
 	// Hands round a pivot at the chest: close in when the bat is up, out in front at contact.
-	const double Radius = 0.14 + 0.32 * FMath::Cos(Er);
-	const FVector Hands = FVector(0.08, 0.0, 1.12) + FVector(FMath::Sin(Ar), FMath::Cos(Ar), 0.0) * Radius + FVector(0.0, 0.0, 0.36 * FMath::Sin(Er));
+	const double Radius = 0.08 + 0.34 * FMath::Cos(Er);
+	const FVector Hands = FVector(0.14, -0.04, 1.08) + FVector(FMath::Sin(Ar), FMath::Cos(Ar), 0.0) * Radius + FVector(0.0, 0.0, 0.34 * FMath::Sin(Er));
 	const FVector BatDir = FVector(FMath::Sin(Ar) * FMath::Cos(Er), FMath::Cos(Ar) * FMath::Cos(Er), FMath::Sin(Er)).GetSafeNormal();
 	const double Turn = FMath::Clamp((A + 25.0) / 270.0, 0.0, 1.0);
 	const float Twist = static_cast<float>(-0.22 - 0.12 * Coil + 1.0 * Turn);
 	// Into each shoulder's frame (the torso turns with the twist), in reach.
 	const FQuat Untwist(FVector::UpVector, -Twist);
-	const double Reach = 0.58;
+	const double Reach = 0.52;
 	const FVector LShoulder(0.0, -0.19, 1.46), RShoulder(0.0, 0.19, 1.46);
 	Pose.Hand[0] = Untwist.RotateVector(Hands + BatDir * 0.02 - LShoulder) / Reach;
 	Pose.Hand[1] = Untwist.RotateVector(Hands + BatDir * 0.11 - RShoulder) / Reach;
@@ -1152,7 +1159,7 @@ void ADerbyGame::UpdateCamera(float Dt)
 		Aspect = Size.Y > 0.0 ? Size.X / Size.Y : Aspect;
 	}
 	// The plate view: behind and a touch above the catcher, the batter on the left, the mound in the middle.
-	FVector Pos(-5.6, 0.75, 2.25), Look(14.0, -0.25, 1.35);
+	FVector Pos(-4.6, 0.7, 2.0), Look(14.0, -0.35, 1.55);
 	double Fov = 44.0, Response = 5.0;
 	const double Age = GetPhaseAge();
 	switch (Phase)
@@ -1160,8 +1167,9 @@ void ADerbyGame::UpdateCamera(float Dt)
 	case EDerbyPhase::Intro:
 	{
 		const double T = Smooth(0.0, 1.0, Age / IntroSeconds);
-		Pos = FMath::Lerp(FVector(-38.0, 46.0, 34.0), FVector(-14.0, 6.0, 7.0), T);
-		Look = FMath::Lerp(FVector(70.0, 0.0, 8.0), FVector(18.0, 0.0, 1.5), T);
+		// A crane from high over the grandstand down toward the plate, the whole park lit ahead.
+		Pos = FMath::Lerp(FVector(-34.0, -26.0, 36.0), FVector(-12.0, 4.0, 6.0), T);
+		Look = FMath::Lerp(FVector(110.0, 10.0, 10.0), FVector(18.0, 0.0, 1.5), T);
 		Fov = FMath::Lerp(58.0, 44.0, T);
 		Response = 30.0;
 		break;
@@ -1183,21 +1191,25 @@ void ADerbyGame::UpdateCamera(float Dt)
 			// The broadcast's high home camera on the ball, zooming as it carries.
 			const FVector BallM = (Phase == EDerbyPhase::Flight ? HitBall(FlightClock) : HitBall(Outcome.Flight.HangS)) / 100.0;
 			const double A = FMath::DegreesToRadians(Outcome.Contact.SprayDeg);
-			Pos = FVector(-20.0, 0.0, 13.0) + FVector(-FMath::Sin(A) * 0.0, FMath::Sin(A) * 10.0, 0.0);
-			if (IsHomeRun(Outcome.Result))
-			{
-				// A home run rides closer behind it, then watches it come down.
-				const FVector Behind = FVector(FMath::Cos(A), FMath::Sin(A), 0.0);
-				const double Far = FMath::Min(1.0, FVector(BallM.X, BallM.Y, 0.0).Size() / 140.0);
-				Pos = FMath::Lerp(Pos, FVector(BallM.X, BallM.Y, 0.0) - Behind * 45.0 + FVector(0.0, 0.0, 22.0), Smooth(0.15, 0.7, Far) * 0.75);
-			}
-			Look = BallM;
-			const double D = FMath::Max(1.0, (BallM - Pos).Size());
-			Fov = FMath::Clamp(2.0 * FMath::RadiansToDegrees(FMath::Atan(16.0 / D)), 16.0, 52.0);
+			// The broadcast's camera high behind home, on a long lens: it zooms as the ball carries.
+			Pos = FVector(-22.0, FMath::Sin(A) * 8.0, 14.0);
+			// Keep the field under it in the frame: aim between the ball and the grass beneath, wide enough for both.
+			Look = FMath::Lerp(BallM, FVector(BallM.X, BallM.Y, 0.0), 0.32);
+			const double D = FMath::Max(1.0, (Look - Pos).Size());
+			const double Half = FMath::Max(15.0, BallM.Z * 0.62 + 6.0);
+			Fov = FMath::Clamp(2.0 * FMath::RadiansToDegrees(FMath::Atan(Half / D)), 12.0, 58.0);
 			Response = Phase == EDerbyPhase::Flight ? 7.0 : 2.5;
 			if (Phase == EDerbyPhase::Flight && FlightClock < 0.25)
 			{
 				Response = 12.0;
+			}
+			if (Phase == EDerbyPhase::Result && IsHomeRun(Outcome.Result))
+			{
+				// Then it pulls back and up for the fireworks over the seats.
+				const double Back = Smooth(0.5, 2.2, Age);
+				Look = FMath::Lerp(BallM, FVector(BallM.X * 0.8, BallM.Y * 0.8, 34.0), Back);
+				Fov = FMath::Lerp(Fov, 40.0, Back);
+				Response = 3.0;
 			}
 		}
 		break;

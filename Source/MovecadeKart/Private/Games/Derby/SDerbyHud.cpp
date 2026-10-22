@@ -150,9 +150,9 @@ void SDerbyHud::PaintPitch(const FKartPainter& P, const ADerbyGame& G, float S) 
 	const float In = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / 0.25), 0.f, 1.f));
 	const FKartPainter F = P.Transformed(Pos + FVector2D(0.f, 26.f * S), FMath::Max(0.01f, In));
 	const FLinearColor Ink = Pitch->Type == EPitchType::Curve ? KC::Grape : (Pitch->Type == EPitchType::Changeup ? KC::Mint : KC::Hot);
-	F.Card(Pos, FVector2D(300.f * S, 52.f * S), KC::WithAlpha(KC::Night, 0.82f), 16.f * S, 4.f * S, Ink, 2.f * S);
-	F.Text(PitchName(Pitch->Type), KartUI::Font(EFont::Label, 20.f * S), Pos + FVector2D(18.f * S, 26.f * S), Ink, FVector2D(0.0, 0.5));
-	F.Text(FString::Printf(TEXT("%d MPH"), FMath::RoundToInt32(Pitch->SpeedMph)), KartUI::Font(EFont::Display, 28.f * S), Pos + FVector2D(282.f * S, 26.f * S), KC::White, FVector2D(1.0, 0.5));
+	F.Card(Pos, FVector2D(330.f * S, 52.f * S), KC::WithAlpha(KC::Night, 0.82f), 16.f * S, 4.f * S, Ink, 2.f * S);
+	F.Text(PitchName(Pitch->Type), KartUI::Font(EFont::Label, 18.f * S), Pos + FVector2D(18.f * S, 26.f * S), Ink, FVector2D(0.0, 0.5));
+	F.Text(FString::Printf(TEXT("%d MPH"), FMath::RoundToInt32(Pitch->SpeedMph)), KartUI::Font(EFont::Display, 28.f * S), Pos + FVector2D(312.f * S, 26.f * S), KC::White, FVector2D(1.0, 0.5));
 }
 
 void SDerbyHud::PaintCall(const FKartPainter& P, const ADerbyGame& G, float S) const
@@ -163,7 +163,7 @@ void SDerbyHud::PaintCall(const FKartPainter& P, const ADerbyGame& G, float S) c
 	{
 		return;
 	}
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.3f);
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.2f);
 	const double Since = G.GetClock() - G.GetOutcomeAt();
 	// The swing's timing, small, just after contact (or the miss).
 	if (O->Result != EResult::Take && Since < 1.6)
@@ -184,11 +184,14 @@ void SDerbyHud::PaintCall(const FKartPainter& P, const ADerbyGame& G, float S) c
 		const int32 Ft = FMath::RoundToInt32(FVector2D(Ball.X, Ball.Y).Size() / 100.0 / MetresPerFoot);
 		const bool bGone = IsHomeRun(O->Result) && Ft >= FMath::RoundToInt32(O->Flight.FenceM / MetresPerFoot);
 		const float Pulse = 1.f + (bGone ? 0.08f * FMath::Abs(FMath::Sin(static_cast<float>(G.GetClock()) * 9.f)) : 0.f);
-		P.Transformed(Centre, Pulse).Text(FString::Printf(TEXT("%d FT"), Ft), KartUI::Font(EFont::Display, 96.f * S, 6.f * S, KC::Night), Centre,
-			bGone ? KC::Sun : KC::White, FVector2D(0.5, 0.5), 7.f * S);
+		// The broadcast's distance tracker, low and centre.
+		const FVector2D Low(P.Size().X / 2.f, P.Size().Y * 0.8f);
+		const FKartPainter T = P.Transformed(Low, Pulse);
+		T.Card(Low - FVector2D(190.f, 52.f) * S, FVector2D(380.f, 104.f) * S, KC::WithAlpha(KC::Night, 0.8f), 52.f * S, 6.f * S, bGone ? KC::Sun : KC::WithAlpha(KC::White, 0.3f), 3.f * S);
+		T.Text(FString::Printf(TEXT("%d FT"), Ft), KartUI::Font(EFont::Display, 78.f * S, 4.f * S, KC::Night), Low, bGone ? KC::Sun : KC::White, FVector2D(0.5, 0.5), 5.f * S);
 		if (G.IsSlowMo())
 		{
-			P.Text(NSLOCTEXT("Derby", "Deep", "IT'S DEEP..."), KartUI::Font(EFont::Title, 34.f * S, 2.f * S), Centre + FVector2D(0.f, 80.f * S), KC::WithAlpha(KC::White, 0.9f), FVector2D(0.5, 0.5), 4.f * S);
+			P.Text(NSLOCTEXT("Derby", "Deep", "IT'S DEEP..."), KartUI::Font(EFont::Display, 60.f * S, 4.f * S, KC::Night), Centre, KC::White, FVector2D(0.5, 0.5), 6.f * S);
 		}
 		return;
 	}
@@ -242,19 +245,19 @@ void SDerbyHud::PaintCall(const FKartPainter& P, const ADerbyGame& G, float S) c
 	}
 	const FKartPainter F = P.Transformed(Centre, FMath::Max(0.01f, Pop), IsHomeRun(O->Result) ? -4.f : 0.f);
 	F.Text(Title, KartUI::Font(EFont::Display, Size * S, 7.f * S, KC::Night), Centre, Ink, FVector2D(0.5, 0.5), 9.f * S);
-	F.Text(Sub, KartUI::Font(EFont::Display, (IsHomeRun(O->Result) ? 64.f : 40.f) * S, 4.f * S, KC::Night), Centre + FVector2D(0.f, (Size * 0.62f + 10.f) * S), KC::White,
+	F.Text(Sub, KartUI::Font(EFont::Display, (IsHomeRun(O->Result) ? 64.f : 40.f) * S, 4.f * S, KC::Night), Centre + FVector2D(0.f, (Size * 0.72f + 26.f) * S), KC::White,
 		FVector2D(0.5, 0.5), 5.f * S);
 	if (O->Points > 0)
 	{
 		const float Rise = static_cast<float>(FMath::Min(1.0, Age / 1.2));
-		const FVector2D At = Centre + FVector2D(0.f, (Size * 0.62f + 80.f - 30.f * Rise) * S);
+		const FVector2D At = Centre + FVector2D(0.f, (Size * 0.72f + (IsHomeRun(O->Result) ? 110.f : 86.f) - 20.f * Rise) * S);
 		P.Faded(FMath::Clamp(static_cast<float>((3.5 - Age) / 0.4), 0.f, 1.f)).Text(FString::Printf(TEXT("+%d"), O->Points), KartUI::Font(EFont::Display, 54.f * S, 4.f * S, KC::Night), At, KC::Mint,
 			FVector2D(0.5, 0.5), 5.f * S);
 	}
 	// "412 FT!" over where it came down.
 	FVector Landing;
 	FVector2D At01;
-	if (O->Result != EResult::Foul && G.GetLanding(Landing) && G.ScreenOf(Landing + FVector(0.0, 0.0, 600.0), At01) && At01.X > 0.05 && At01.X < 0.95 && At01.Y > 0.1 && At01.Y < 0.95)
+	if (O->Result != EResult::Foul && G.GetLanding(Landing) && G.ScreenOf(Landing + FVector(0.0, 0.0, 600.0), At01) && At01.X > 0.05 && At01.X < 0.95 && At01.Y > 0.44 && At01.Y < 0.92)
 	{
 		const FVector2D At = At01 * P.Size();
 		const float A = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / 0.25), 0.f, 1.f));

@@ -27,17 +27,88 @@ namespace
 		return MovecadeKart::Derby::FenceDistanceM(SprayDeg);
 	}
 
-	/** A fan: a rounded body and a head, slot 0 the shirt, slot 1 the skin (cm, standing on the origin). */
-	UStaticMesh* BuildFan(UObject* Outer)
+	/** The wall's face at a spray angle: the point Inset metres in front of it and the yaw that faces home square to it. */
+	void WallFace(double SprayDeg, double Inset, FVector& OutM, double& OutYaw)
+	{
+		const double A = FMath::DegreesToRadians(SprayDeg);
+		const FVector Dir(FMath::Cos(A), FMath::Sin(A), 0.0);
+		const double R = FenceAt(SprayDeg);
+		const double DR = -MovecadeKart::Derby::FenceCentreExtraM * 2.0 * FMath::Sin(2.0 * A);
+		const FVector Tangent = (Dir * DR + FVector(-Dir.Y, Dir.X, 0.0) * R).GetSafeNormal();
+		FVector In(Tangent.Y, -Tangent.X, 0.0);
+		if (FVector::DotProduct(In, Dir) > 0.0)
+		{
+			In = -In;
+		}
+		OutM = Dir * R + In * Inset;
+		OutYaw = FMath::RadiansToDegrees(FMath::Atan2(In.Y, In.X));
+	}
+
+	/** A fan: a rounded body and a head, slot 0 the shirt, slot 1 the skin (cm, standing on the origin); a cheering
+	 *  one has both arms up in a V with fists. */
+	UStaticMesh* BuildFan(UObject* Outer, bool bCheer)
 	{
 		MovecadeKart::FMeshBuilder B;
 		B.Section(TEXT("Shirt"));
 		B.Section(TEXT("Skin"));
-		B.Ellipsoid(TEXT("Shirt"), FVector(0.0, 0.0, 62.0), FVector(17.0, 22.0, 36.0), 6, 8, FVector2D::ZeroVector);
-		B.Ellipsoid(TEXT("Skin"), FVector(0.0, 0.0, 112.0), FVector(12.0, 12.0, 14.0), 5, 8, FVector2D::ZeroVector);
-		// Arms up in a V on half of them would need a second mesh; a raised fist reads from the field.
-		B.Limb(TEXT("Shirt"), FVector(0.0, 18.0, 82.0), FVector(4.0, 30.0, 128.0), 5.0, 4.5, 6, FVector2D::ZeroVector);
-		return B.Build(Outer, TEXT("DerbyFan"));
+		B.Ellipsoid(TEXT("Shirt"), FVector(0.0, 0.0, 62.0), FVector(18.0, 23.0, 36.0), 6, 8, FVector2D::ZeroVector);
+		B.Ellipsoid(TEXT("Skin"), FVector(0.0, 0.0, 113.0), FVector(13.0, 13.0, 15.0), 5, 8, FVector2D::ZeroVector);
+		for (const double Side : { -1.0, 1.0 })
+		{
+			const FVector Shoulder(0.0, Side * 17.0, 84.0);
+			const FVector Hand = bCheer ? FVector(4.0, Side * 34.0, 132.0) : FVector(10.0, Side * 21.0, 46.0);
+			B.Limb(TEXT("Shirt"), Shoulder, Hand, 6.5, 5.5, 6, FVector2D::ZeroVector);
+			B.Ellipsoid(TEXT("Skin"), Hand + (Hand - Shoulder).GetSafeNormal() * 5.0, FVector(6.0), 3, 6, FVector2D::ZeroVector);
+		}
+		return B.Build(Outer, bCheer ? TEXT("DerbyFanCheer") : TEXT("DerbyFan"));
+	}
+
+	/**
+	 * The outfield wall as one smooth curved piece from pole to pole (cm): the padded face toward the field (slot 0),
+	 * its yellow top line and cap (slot 1), and the back.
+	 */
+	UStaticMesh* BuildWallMesh(UObject* Outer)
+	{
+		MovecadeKart::FMeshBuilder B;
+		const int32 Pad = B.Section(TEXT("Pad"));
+		const int32 Cap = B.Section(TEXT("Cap"));
+		const double H = MovecadeKart::Derby::FenceHeightM * 100.0;
+		const double Line = H - 14.0;
+		const double Thick = 45.0;
+		const int32 Steps = 180;
+		auto Strip = [&B](int32 S, const TArray<FVector>& A, const TArray<FVector>& Bv, const TArray<FVector>& N)
+		{
+			for (int32 i = 0; i + 1 < A.Num(); ++i)
+			{
+				const int32 a = B.Vert(S, A[i], N[i], FVector2D(i * 0.1, 0.0), FVector2D::ZeroVector);
+				const int32 b = B.Vert(S, A[i + 1], N[i + 1], FVector2D((i + 1) * 0.1, 0.0), FVector2D::ZeroVector);
+				const int32 c = B.Vert(S, Bv[i + 1], N[i + 1], FVector2D((i + 1) * 0.1, 1.0), FVector2D::ZeroVector);
+				const int32 d = B.Vert(S, Bv[i], N[i], FVector2D(i * 0.1, 1.0), FVector2D::ZeroVector);
+				B.Tri(S, a, b, c);
+				B.Tri(S, a, c, d);
+			}
+		};
+		TArray<FVector> Base, Mid, Top, BackTop, BackBase, In, Out, Up;
+		for (int32 i = 0; i <= Steps; ++i)
+		{
+			const double A = -MovecadeKart::Derby::FoulLineDeg + 2.0 * MovecadeKart::Derby::FoulLineDeg * i / Steps;
+			const double Rad = FMath::DegreesToRadians(A);
+			const FVector Dir(FMath::Cos(Rad), FMath::Sin(Rad), 0.0);
+			const double R = FenceAt(A) * 100.0;
+			Base.Add(Dir * R);
+			Mid.Add(Dir * R + FVector(0.0, 0.0, Line));
+			Top.Add(Dir * R + FVector(0.0, 0.0, H));
+			BackTop.Add(Dir * (R + Thick) + FVector(0.0, 0.0, H));
+			BackBase.Add(Dir * (R + Thick));
+			In.Add(-Dir);
+			Out.Add(Dir);
+			Up.Add(FVector::UpVector);
+		}
+		Strip(Pad, Base, Mid, In);
+		Strip(Cap, Mid, Top, In);
+		Strip(Cap, Top, BackTop, Up);
+		Strip(Pad, BackTop, BackBase, Out);
+		return B.Build(Outer, TEXT("DerbyWall"));
 	}
 }
 
@@ -276,7 +347,7 @@ void ADerbyBallpark::BuildField()
 	UMaterialInterface* GrassLight = Surface(this, { Hex(TEXT("#3d8033")), TEXT("leafy_grass"), 4.0, 0.25, 0.5, 0.4, 0.9, 0.0, 0.0, false, 0.6 });
 	UMaterialInterface* Dirt = Surface(this, { Hex(TEXT("#a8673b")), TEXT("gravelly_sand"), 2.0, 0.3, 0.5, 0.4, 0.95, 0.0, 0.0, false, 0.3 });
 	UMaterialInterface* Track = Surface(this, { Hex(TEXT("#8a5332")), TEXT("gravelly_sand"), 2.0, 0.3, 0.5, 0.4, 0.95, 0.0, 0.0, false, 0.3 });
-	UMaterialInterface* Concourse = Surface(this, { Hex(TEXT("#3a3d46")), TEXT("painted_concrete"), 4.0, 0.2, 0.5, 0.4, 0.9 });
+	UMaterialInterface* Concourse = Surface(this, { Hex(TEXT("#16181e")), TEXT("painted_concrete"), 4.0, 0.2, 0.5, 0.4, 0.9 });
 	UMaterialInterface* Chalk = Plain(this, Hex(TEXT("#f4f4ee")), 0.7, 0.0, 0.15);
 	UMaterialInterface* Rubber = Plain(this, Hex(TEXT("#f4f4ee")), 0.5);
 
@@ -365,15 +436,17 @@ void ADerbyBallpark::BuildWall()
 	UMaterialInterface* Cap = Plain(this, Hex(TEXT("#f2c230")), 0.5, 0.0, 0.25);
 	UMaterialInterface* Pole = Plain(this, Hex(TEXT("#f2c230")), 0.4, 0.2, 0.6);
 	UMaterialInterface* Eye = Plain(this, Hex(TEXT("#0f2318")), 0.9);
-	using MovecadeKart::Derby::FenceHeightM;
-	for (double A = -45.0; A < 45.0; A += 1.5)
 	{
-		const double Mid = A + 0.75;
-		const double R = FenceAt(Mid) + 0.2;
-		const double Rad = FMath::DegreesToRadians(Mid);
-		const double Len = R * FMath::DegreesToRadians(1.56);
-		Box(Pad, FVector(FMath::Cos(Rad) * R, FMath::Sin(Rad) * R, FenceHeightM / 2.0), FVector(0.4, Len, FenceHeightM), Mid, true);
-		Box(Cap, FVector(FMath::Cos(Rad) * (R - 0.05), FMath::Sin(Rad) * (R - 0.05), FenceHeightM + 0.06), FVector(0.5, Len, 0.12), Mid);
+		UStaticMeshComponent* Wall = NewObject<UStaticMeshComponent>(this, MakeUniqueObjectName(this, UStaticMeshComponent::StaticClass(), TEXT("Wall")));
+		Wall->SetStaticMesh(BuildWallMesh(this));
+		Wall->SetMaterial(0, Pad);
+		Wall->SetMaterial(1, Cap);
+		Wall->SetupAttachment(RootComponent);
+		Wall->SetMobility(EComponentMobility::Movable);
+		Wall->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Wall->ComponentTags.Add(ParkTag);
+		AddInstanceComponent(Wall);
+		Wall->RegisterComponent();
 	}
 	for (const double Side : { -1.0, 1.0 })
 	{
@@ -398,22 +471,28 @@ void ADerbyBallpark::BuildWall()
 		const double Ft = FMath::RoundToDouble(FenceAt(Mark) / MovecadeKart::Derby::MetresPerFoot / 5.0) * 5.0;
 		// The line markers sit a little inside the poles.
 		const double At = FMath::Abs(Mark) > 44.0 ? Mark - FMath::Sign(Mark) * 2.0 : Mark;
-		Text(FString::Printf(TEXT("%d"), static_cast<int32>(Ft)), Ground(At, FenceAt(At) - 0.05) / 100.0 + FVector(0.0, 0.0, 1.6), At + 180.0, 150.f, Marker);
+		FVector Face;
+		double Yaw = 0.0;
+		WallFace(At, 0.12, Face, Yaw);
+		Text(FString::Printf(TEXT("%d"), static_cast<int32>(Ft)), Face + FVector(0.0, 0.0, 1.5), Yaw, 150.f, Marker);
 	}
 	const TCHAR* const Ads[] = { TEXT("MOVECADE"), TEXT("SWING!"), TEXT("MOVECADE"), TEXT("PARTY MODE"), TEXT("MOVECADE"), TEXT("GO DEEP") };
 	const FLinearColor AdColors[] = { Hex(TEXT("#f2b23f")), Hex(TEXT("#3fc9c2")), Hex(TEXT("#ff6b5a")), Hex(TEXT("#a083ff")), Hex(TEXT("#f2b23f")), Hex(TEXT("#3fc9c2")) };
 	const double AdAt[] = { -37.0, -30.0, -12.0, 12.0, 30.0, 37.0 };
 	for (int32 i = 0; i < 6; ++i)
 	{
-		const double R = FenceAt(AdAt[i]) - 0.05;
-		Text(Ads[i], Ground(AdAt[i], R) / 100.0 + FVector(0.0, 0.0, 1.4), AdAt[i] + 180.0, 110.f, AdColors[i]);
+		FVector Face;
+		double Yaw = 0.0;
+		WallFace(AdAt[i], 0.12, Face, Yaw);
+		Text(Ads[i], Face + FVector(0.0, 0.0, 1.4), Yaw, 120.f, AdColors[i]);
 	}
 }
 
 void ADerbyBallpark::BuildStands()
 {
 	using namespace MovecadeKart::Art;
-	FanMesh = BuildFan(this);
+	FanMesh = BuildFan(this, false);
+	CheerMesh = BuildFan(this, true);
 	UMaterialInterface* Riser = Surface(this, { Hex(TEXT("#4b505c")), TEXT("painted_concrete"), 3.0, 0.2, 0.5, 0.4, 0.9 });
 	UMaterialInterface* Seat = Plain(this, Hex(TEXT("#24408e")), 0.6);
 	UMaterialInterface* Facade = Plain(this, Hex(TEXT("#22252e")), 0.8);
@@ -427,12 +506,15 @@ void ADerbyBallpark::BuildStands()
 	{
 		SkinMats.Add(Plain(this, Hex(S), 0.6));
 	}
-	TArray<UInstancedStaticMeshComponent*> Sections;
+	TArray<UInstancedStaticMeshComponent*> Sections, Cheering;
 	for (int32 i = 0; i < CrowdSections; ++i)
 	{
 		USceneComponent* P = Pivot(TEXT("CrowdSection"));
 		Crowd.Add(P);
-		Sections.Add(Group(FanMesh, ShirtMats[i % ShirtMats.Num()], false, P, SkinMats[(i / ShirtMats.Num()) % SkinMats.Num()]));
+		UMaterialInterface* Shirt = ShirtMats[i % ShirtMats.Num()];
+		UMaterialInterface* Skin = SkinMats[(i / ShirtMats.Num()) % SkinMats.Num()];
+		Sections.Add(Group(FanMesh, Shirt, false, P, Skin));
+		Cheering.Add(Group(CheerMesh, Shirt, false, P, Skin));
 	}
 	FRandomStream R(0xfa25);
 	auto AddFan = [&](const FVector& FeetM, double YawDeg)
@@ -444,7 +526,7 @@ void ADerbyBallpark::BuildStands()
 		const int32 S = R.RandRange(0, CrowdSections - 1);
 		const double Scale = R.FRandRange(0.85f, 1.05f);
 		const double Yaw = YawDeg + R.FRandRange(-25.f, 25.f);
-		Sections[S]->AddInstance(FTransform(FRotator(0.0, Yaw, 0.0), M(FeetM), FVector(Scale)), false);
+		(R.FRand() < 0.3f ? Cheering : Sections)[S]->AddInstance(FTransform(FRotator(0.0, Yaw, 0.0), M(FeetM), FVector(Scale)), false);
 	};
 	// Bleachers beyond the wall, arcs of risers stepping up and back, the batter's eye left clear in centre.
 	const int32 Rows = 16;
@@ -590,13 +672,6 @@ void ADerbyBallpark::BuildBoard()
 	BoardLines.Add(Text(TEXT("NOW BATTING"), FVector(X - 0.2, 0.0, Z + 3.4), 180.0, 330.f, FLinearColor::White));
 	BoardLines.Add(Text(TEXT(""), FVector(X - 0.2, 0.0, Z - 0.6), 180.0, 420.f, Hex(TEXT("#f2b23f"))));
 	BoardLines.Add(Text(TEXT(""), FVector(X - 0.2, 0.0, Z - 4.4), 180.0, 280.f, Hex(TEXT("#3fc9c2"))));
-	for (UTextRenderComponent* T : BoardLines)
-	{
-		if (UMaterialInterface* Unlit = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/DefaultTextMaterialTranslucent.DefaultTextMaterialTranslucent"), nullptr, LOAD_NoWarn | LOAD_Quiet))
-		{
-			T->SetTextMaterial(Unlit);
-		}
-	}
 }
 
 void ADerbyBallpark::SetBoard(const FString& Line1, const FString& Line2, const FString& Line3, const FLinearColor& Accent)

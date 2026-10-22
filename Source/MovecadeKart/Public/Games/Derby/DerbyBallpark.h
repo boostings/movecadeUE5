@@ -91,6 +91,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> FanMesh;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> CheerMesh;
+
 	UPROPERTY(VisibleAnywhere, Category = "Ballpark")
 	TObjectPtr<UDirectionalLightComponent> Floods;
 
