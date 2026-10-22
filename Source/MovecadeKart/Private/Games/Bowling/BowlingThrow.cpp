@@ -5,6 +5,7 @@ namespace MovecadeKart::Bowling
 	void FThrowDetector::Reset()
 	{
 		History.Reset();
+		HistoryHead = 0;
 		Current = FThrowPreview();
 		Yaw = 0.0;
 		Peak = 0.0;
@@ -61,9 +62,16 @@ namespace MovecadeKart::Bowling
 		LastElevation = S.Elevation;
 		S.Thrust = bHasAccel ? Frame.Accel.Size() : Frame.Gyro.Size() / 25.0;
 		History.Add(S);
-		while (History.Num() > 0 && History[0].At < Clock - Tuning.AimWindowMs)
+		// A sliding window: the head index moves on instead of shifting the array every frame, and the expired
+		// samples are dropped in one go once they make up most of it.
+		while (HistoryHead < History.Num() && History[HistoryHead].At < Clock - Tuning.AimWindowMs)
 		{
-			History.RemoveAt(0, EAllowShrinking::No);
+			++HistoryHead;
+		}
+		if (HistoryHead >= 32 && HistoryHead * 2 >= History.Num())
+		{
+			History.RemoveAt(0, HistoryHead, EAllowShrinking::No);
+			HistoryHead = 0;
 		}
 		const double Span = Tuning.FullPower - Tuning.Onset;
 		const double Charge = FMath::Clamp((S.Thrust - Tuning.Onset) / Span, 0.0, 1.0);
@@ -92,7 +100,11 @@ namespace MovecadeKart::Bowling
 		{
 			bInSwing = false;
 			CooldownUntil = Clock + Tuning.RefractoryMs;
-			const FSample* Pose = History.FindByPredicate([this](const FSample& H) { return H.At >= PeakAt; });
+			const FSample* Pose = nullptr;
+			for (int32 i = HistoryHead; i < History.Num() && !Pose; ++i)
+			{
+				Pose = History[i].At >= PeakAt ? &History[i] : nullptr;
+			}
 			return Build(FMath::Clamp((Peak - Tuning.Onset) / Span, 0.0, 1.0), Pose ? *Pose : S);
 		}
 		return TOptional<FThrowRelease>();
@@ -103,6 +115,7 @@ namespace MovecadeKart::Bowling
 		bGripped = true;
 		Yaw = 0.0;
 		History.Reset();
+		HistoryHead = 0;
 		Current = FThrowPreview();
 		bInSwing = false;
 		Peak = 0.0;
@@ -114,14 +127,14 @@ namespace MovecadeKart::Bowling
 	{
 		const double Span = Tuning.FullPower - Tuning.Onset;
 		double Best = Current.Charge * Span + Tuning.Onset;
-		for (const FSample& H : History)
+		for (int32 i = HistoryHead; i < History.Num(); ++i)
 		{
-			if (H.At >= Clock - Tuning.AimWindowMs)
+			if (History[i].At >= Clock - Tuning.AimWindowMs)
 			{
-				Best = FMath::Max(Best, H.Thrust);
+				Best = FMath::Max(Best, History[i].Thrust);
 			}
 		}
-		const FSample Pose = History.Num() > 0 ? History.Last() : FSample();
+		const FSample Pose = HistoryHead < History.Num() ? History.Last() : FSample();
 		const FThrowRelease R = Build((Best - Tuning.Onset) / Span, Pose);
 		bGripped = false;
 		bInSwing = false;
