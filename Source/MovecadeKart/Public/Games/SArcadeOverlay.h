@@ -16,6 +16,9 @@ class UWorld;
  * the pause and results keys through the UI input router, so the games never see them, and blocks game input while
  * a menu is up. In Party Mode the room owns pauses, and the results bar plays again on its own after a while unless
  * someone at the screen takes over (the phones have no say in it).
+ *
+ * Owned by the game mode (Attach in StartPlay, Detach in EndPlay) and the viewport; the screens themselves are in
+ * ArcadeOverlayScreens.cpp.
  */
 class MOVECADEKART_API SArcadeOverlay : public SCompoundWidget, public IKartMenuInputTarget
 {
@@ -54,9 +57,13 @@ public:
 private:
 	void ShowResults();
 	void UpdateCursor();
+	/** Adds the finished game to the party table (UArcadeSession), once per finish. */
+	void RecordFinishedGame(const IArcadeGame& G, double Now);
 
 	TWeakObjectPtr<AActor> Game;
 	IArcadeGame* Interface = nullptr;
+	/** Seconds of the game's own results before the "what next" bar (the catalog's ResultsDelay). */
+	double ResultsDelay = 2.0;
 	TWeakObjectPtr<UWorld> World;
 	TSharedPtr<SKartScreenStack> Menus;
 	bool bRoom = false;
