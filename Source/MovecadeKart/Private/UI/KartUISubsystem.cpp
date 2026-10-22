@@ -27,6 +27,14 @@ DEFINE_LOG_CATEGORY_STATIC(LogKartUI, Log, All);
 
 namespace
 {
+	const TCHAR* MenuMusicPath = TEXT("/Game/UI/Sounds/music_menu_loop.music_menu_loop");
+	/** The menu music's fades (seconds). */
+	constexpr float MusicFadeIn = 1.2f;
+	constexpr float MusicFadeOut = 0.8f;
+	/** The tour gives up on a step after this long, and lets the last capture write before quitting. */
+	constexpr double TourStepTimeout = 150.0;
+	constexpr double TourQuitDelay = 1.5;
+
 	const TCHAR* SoundPath(EKartUISound Sound)
 	{
 		switch (Sound)
@@ -64,15 +72,22 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			return Self && Self->HandleEvent(Event);
 		};
 		FSlateApplication::Get().RegisterInputPreProcessor(Processor, 0);
-		if (FParse::Param(FCommandLine::Get(), TEXT("KartUiPad")))
-		{
-			Processor->ForceDevice(EKartInputDevice::Gamepad); // gamepad glyphs in screenshots
-		}
 	}
 	MapLoadedHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UKartUISubsystem::HandleMapLoaded);
 	// The player's UI scale (Settings > Accessibility) multiplies the viewport's DPI curve.
 	FKartAccessibility::ApplyUIScale();
+#if !UE_BUILD_SHIPPING
+	StartTourFromCommandLine();
+#endif
+}
 
+void UKartUISubsystem::StartTourFromCommandLine()
+{
+	// -KartUiPad: gamepad glyphs in screenshots, whatever was pressed last.
+	if (Processor.IsValid() && FParse::Param(FCommandLine::Get(), TEXT("KartUiPad")))
+	{
+		Processor->ForceDevice(EKartInputDevice::Gamepad);
+	}
 	FString Shots;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartUiShots="), Shots, /*bShouldStopOnSeparator*/ false))
 	{
@@ -158,6 +173,11 @@ USoundWave* UKartUISubsystem::LoadSound(EKartUISound Sound)
 		return *Found;
 	}
 	USoundWave* Wave = LoadObject<USoundWave>(nullptr, SoundPath(Sound));
+	if (!Wave)
+	{
+		// Cached as missing, so this warns once per sound; the menus stay silent rather than fail.
+		UE_LOG(LogKartUI, Warning, TEXT("Missing UI sound %s (run Tools/ui/make_ui_sounds.py)."), SoundPath(Sound));
+	}
 	Sounds.Add(Key, Wave);
 	return Wave;
 }
@@ -188,7 +208,8 @@ void UKartUISubsystem::SetMenuMusic(bool bPlaying)
 		}
 		if (!MusicWave)
 		{
-			MusicWave = LoadObject<USoundWave>(nullptr, TEXT("/Game/UI/Sounds/music_menu_loop.music_menu_loop"));
+			MusicWave = LoadObject<USoundWave>(nullptr, MenuMusicPath);
+			UE_CLOG(!MusicWave, LogKartUI, Warning, TEXT("Missing menu music %s; the menus play without it."), MenuMusicPath);
 		}
 		if (MusicWave)
 		{
@@ -196,13 +217,13 @@ void UKartUISubsystem::SetMenuMusic(bool bPlaying)
 			if (Music)
 			{
 				Music->bIsUISound = true;
-				Music->FadeIn(1.2f);
+				Music->FadeIn(MusicFadeIn);
 			}
 		}
 	}
 	else if (Music && Music->IsPlaying())
 	{
-		Music->FadeOut(0.8f, 0.f);
+		Music->FadeOut(MusicFadeOut, 0.f);
 	}
 }
 
@@ -374,7 +395,7 @@ bool UKartUISubsystem::TickTour(float DeltaTime)
 	if (!TourSteps.IsValidIndex(TourIndex))
 	{
 		// Let the last capture write, then leave.
-		if (InStep > 1.5)
+		if (InStep > TourQuitDelay)
 		{
 			UE_LOG(LogKartUI, Display, TEXT("KartUiShots: done"));
 			FTSTicker::GetCoreTicker().RemoveTicker(TourTicker);
@@ -386,7 +407,7 @@ bool UKartUISubsystem::TickTour(float DeltaTime)
 		return true;
 	}
 	const FName Step = TourSteps[TourIndex];
-	if (InStep > 150.0)
+	if (InStep > TourStepTimeout)
 	{
 		UE_LOG(LogKartUI, Warning, TEXT("KartUiShots: step %s timed out; skipping it."), *Step.ToString());
 		++TourIndex;
