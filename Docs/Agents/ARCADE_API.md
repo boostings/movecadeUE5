@@ -85,6 +85,14 @@ the base compares the score list and sends at most once a second, which is what 
 - `FArcadeStandingsOrder`: `mutable FArcadeStandingsOrder Ranks;` then
   `const TArray<int32>& Order = Ranks.Update(Towers.Num(), [&](int32 i) { return Towers[i].Score; });` best first,
   ties in seat order (stable), re-sorted only when a key changes. Return a composite `int64` key for tie-breaks.
+- Fixed localized labels (the convention): no `FText` is built per paint. A constant label painted in `OnPaint`,
+  `Paint` or `GetHints` is `ARCADE_LABEL("<Game>", "Key", "TEXT")`, e.g.
+  `P.Text(ARCADE_LABEL("Stacker", "Wind", "WIND"), Font, ...)`. It expands to a function-local
+  `static const FText` made with `NSLOCTEXT` (the gatherer still finds it), built once. A hand-written
+  `static const FText Label = NSLOCTEXT(...);` at the top of the paint function is equally fine. Text with values
+  goes through `FCachedText` (`FString`) or an `FText::Format` cached when the value changes (see
+  `ArcadeOverlayScreens.cpp`: the next-game, party-points and auto-play-again labels). Never `LOCTEXT(...)`,
+  `FText::FromString` or `FText::Format` directly in a paint path.
 
 ## 3. Venue helpers (`Games/ArcadeVenueKit.h` and `Art/KartMaterialCache.h`)
 
@@ -119,3 +127,6 @@ that derive from the base get it for free.
 - `GetLobbyRevision()` moves whenever anything the lobby shows changes.
 - `MovecadeKart::Net::EvaluateStart` / `DescribeStartBlock` (string-free start rules) and `ParseServerMessageType`
   in `Net/RoomProtocol.h`. Event names the host itself consumes: `KartInputEvent`, `PracticeActionEvent`.
+- `MovecadeKart::Net::HexColor(const FLinearColor&)` returns `"#rrggbb"` (lower case, sRGB-encoded, the same bytes as
+  `Color.ToFColor(true)`) for `SendPadPrompt`'s accent. Replace the private `Hex` / `HexOf` copies in Derby, Sumo and
+  Fishing with it (the output is identical).

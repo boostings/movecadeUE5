@@ -240,6 +240,22 @@ bool FRoomStartRulesTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FArcadeLabelsTest, "MovecadeKart.Arcade.LabelsAndHexColor", ArcadeTestFlags)
+bool FArcadeLabelsTest::RunTest(const FString&)
+{
+	auto Label = []() -> const FText& { return ARCADE_LABEL("ArcadeTests", "Wind", "WIND"); };
+	TestEqual(TEXT("label text"), Label().ToString(), FString(TEXT("WIND")));
+	TestTrue(TEXT("built once: the same FText every call"), &Label() == &Label());
+
+	using MovecadeKart::Net::HexColor;
+	TestEqual(TEXT("white"), HexColor(FLinearColor::White), FString(TEXT("#ffffff")));
+	TestEqual(TEXT("black"), HexColor(FLinearColor::Black), FString(TEXT("#000000")));
+	TestEqual(TEXT("round trip through sRGB, lower case"), HexColor(FLinearColor::FromSRGBColor(FColor(0x2e, 0xc4, 0xb6))), FString(TEXT("#2ec4b6")));
+	TestTrue(TEXT("a valid pad accent"), MovecadeKart::Net::PadPromptData(TEXT("p1"), TEXT("t"), TEXT("s"), TEXT("A"), TEXT(""),
+		HexColor(FLinearColor::Red), TEXT("tilt")).Contains(TEXT("\"accent\":\"#ff0000\"")));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRoomQrRasterTest, "MovecadeKart.Net.QrRaster", ArcadeTestFlags)
 bool FRoomQrRasterTest::RunTest(const FString&)
 {

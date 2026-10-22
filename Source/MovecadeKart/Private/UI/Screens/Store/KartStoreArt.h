@@ -12,6 +12,8 @@ namespace MovecadeKart::Store
  * What the store screens paint besides their layout: each item's little animated preview (a kart, a driver, a ball,
  * a blade...) drawn in code, and the store's own widgets (chips, the big action button, the lock, the spinner,
  * confetti). Painting only; no store state.
+ *
+ * `const FKartPainter& P` is the painter parameter's name in every screen of the UI (KartScreen.h), so it stays P here.
  */
 namespace KartStoreUI
 {

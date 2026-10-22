@@ -5,6 +5,15 @@
 class APlayerController;
 
 /**
+ * A fixed, localized HUD label, built once: `P.Text(ARCADE_LABEL("Stacker", "Wind", "WIND"), ...)`. Expands to a
+ * function-local `static const FText` (NSLOCTEXT, so the localization gatherer still finds it), so painting it costs
+ * nothing per frame. Use it for every constant label painted in OnPaint / Paint / GetHints; text with values goes
+ * through FCachedText or an FText::Format cached on change.
+ */
+#define ARCADE_LABEL(Namespace, Key, SourceText) \
+	([]() -> const FText& { static const FText Label = NSLOCTEXT(Namespace, Key, SourceText); return Label; }())
+
+/**
  * Small building blocks for the party games' painted HUDs (S<Game>Hud SLeafWidgets): one camera projection per
  * paint, text that is only formatted when its value changes, and a standings order that is only re-sorted when a
  * score changes. Each lives as a (mutable) member of the HUD widget; none of them allocates once warmed up.
