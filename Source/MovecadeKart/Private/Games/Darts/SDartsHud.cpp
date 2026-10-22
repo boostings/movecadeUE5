@@ -222,7 +222,9 @@ void SDartsHud::PaintCountdown(const FKartPainter& P, const ADartsGame& G, float
 	if (M.Phase == EMatchPhase::Playing && Since < 0.8)
 	{
 		const float A = FMath::Clamp(static_cast<float>((0.8 - Since) / 0.3), 0.f, 1.f);
-		P.Faded(A).Text(LOCTEXT("Throw", "THROW!"), KartUI::Font(EFont::Display, 120.f * S, 7.f * S, KC::Night), Centre, KC::Mint, FVector2D(0.5, 0.5), 9.f * S);
+		// Wide, so it sits lower, over the board, clear of the scoreboard and the round header.
+		const FVector2D ThrowAt(P.Size().X / 2.f, P.Size().Y * 0.42f);
+		P.Faded(A).Text(LOCTEXT("Throw", "THROW!"), KartUI::Font(EFont::Display, 120.f * S, 7.f * S, KC::Night), ThrowAt, KC::Mint, FVector2D(0.5, 0.5), 9.f * S);
 	}
 }
 
