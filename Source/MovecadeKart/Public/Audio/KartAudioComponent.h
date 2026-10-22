@@ -125,8 +125,9 @@ private:
 	void ApplyEngine(UKartAudioSubsystem& Mixer, double Dt);
 	void StopEngine();
 	void ApplyLoops(UKartAudioSubsystem& Mixer, double Dt);
-	void StopLoop(int32 Index);
-	void StopAll();
+	/** Stops a loop; its component is parked for that layer's next start (bDestroy: freed instead). */
+	void StopLoop(int32 Index, bool bDestroy = false);
+	void StopAll(bool bDestroy = false);
 	UAudioComponent* MakeVoice(UKartAudioSubsystem& Mixer, FName Cue, float StartTime);
 	void PlayOneShot(UKartAudioSubsystem& Mixer, const MovecadeKart::Audio::FOneShot& Shot);
 	void LogDebug(double Now);
@@ -140,6 +141,10 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UAudioComponent>> LoopVoices;
+
+	/** Stopped loop components kept per layer and replayed on its next start, instead of a new component each time. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UAudioComponent>> ParkedLoops;
 
 	MovecadeKart::Audio::FKartSoundObserver Observer;
 	MovecadeKart::Audio::FKartAudioStatus Status;

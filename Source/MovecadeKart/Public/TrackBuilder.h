@@ -119,6 +119,8 @@ private:
 		TWeakObjectPtr<UMaterialInstanceDynamic> Lamp;
 	};
 	TArray<FMotionPart> Motion;
+	/** Sky recaptures still to do after BeginPlay (the sky light captures once, not every frame). */
+	int32 SkyRecapturesLeft = 0;
 	int32 SceneryCount = 0;
 
 	/** -KartTrackCam=x,y,z,lookX,lookY,lookZ (three.js metres): a fixed view for look checks in screenshots. */

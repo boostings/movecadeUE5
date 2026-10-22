@@ -53,91 +53,6 @@ namespace
 		return Item == EKartItem::Shot || Item == EKartItem::Seeker || Item == EKartItem::SkySeeker || Item == EKartItem::Banana || Item == EKartItem::Bomb;
 	}
 
-	/**
-	 * One frame of instances for a set of ISMs, staged and then committed with as little render work as the change
-	 * needs. An ISM showing as many instances as last frame is rewritten in place, which the renderer takes as an
-	 * incremental instance update; a changed count clears and re-adds, which recreates its render state; an ISM that
-	 * was and stays empty is not touched at all. (Each ISM used to be cleared every frame, so every one of them,
-	 * empty or not, rebuilt its scene proxy every frame.)
-	 */
-	class FInstanceFrame
-	{
-	public:
-		/** Takes part in this frame even if nothing is added, so last frame's instances are removed. */
-		void Track(UInstancedStaticMeshComponent* Component)
-		{
-			if (Component)
-			{
-				Find(Component);
-			}
-		}
-
-		/** CustomData is the instance's first custom float, for ISMs that have one (0 as AddInstance leaves it). */
-		void Add(UInstancedStaticMeshComponent* Component, const FTransform& WorldTransform, float CustomData = 0.f)
-		{
-			if (!Component)
-			{
-				return;
-			}
-			FStaged& Staged = Find(Component);
-			Staged.Transforms.Add(WorldTransform);
-			Staged.CustomData.Add(CustomData);
-		}
-
-		void Commit() const
-		{
-			for (const FStaged& Staged : Components)
-			{
-				UInstancedStaticMeshComponent* Component = Staged.Component;
-				const int32 Count = Staged.Transforms.Num();
-				const bool bInPlace = Component->GetInstanceCount() == Count;
-				if (!bInPlace)
-				{
-					Component->ClearInstances();
-				}
-				for (int32 i = 0; i < Count; ++i)
-				{
-					if (bInPlace)
-					{
-						Component->UpdateInstanceTransform(i, Staged.Transforms[i], /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false);
-					}
-					else
-					{
-						Component->AddInstance(Staged.Transforms[i], /*bWorldSpace*/ true);
-					}
-					if (Component->NumCustomDataFloats > 0)
-					{
-						Component->SetCustomDataValue(i, 0, Staged.CustomData[i], /*bMarkRenderStateDirty*/ false);
-					}
-				}
-			}
-		}
-
-	private:
-		struct FStaged
-		{
-			UInstancedStaticMeshComponent* Component = nullptr;
-			TArray<FTransform, TInlineAllocator<8>> Transforms;
-			TArray<float, TInlineAllocator<8>> CustomData;
-		};
-
-		FStaged& Find(UInstancedStaticMeshComponent* Component)
-		{
-			for (FStaged& Staged : Components)
-			{
-				if (Staged.Component == Component)
-				{
-					return Staged;
-				}
-			}
-			FStaged& Staged = Components.AddDefaulted_GetRef();
-			Staged.Component = Component;
-			return Staged;
-		}
-
-		TArray<FStaged, TInlineAllocator<16>> Components;
-	};
-
 	const TCHAR* const ShowcaseBeats[] = { TEXT("explosion"), TEXT("lightning"), TEXT("prism"), TEXT("rocket"), TEXT("ink"), TEXT("hit"), TEXT("confetti"), TEXT("box") };
 	constexpr int32 NumShowcaseBeats = UE_ARRAY_COUNT(ShowcaseBeats);
 }
@@ -165,10 +80,51 @@ AKartItemPresenter::AKartItemPresenter()
 	Glows = MakeMeshes(TEXT("SkyGlows"), Sphere.Object);
 	BombGlows = MakeMeshes(TEXT("BombGlows"), Sphere.Object);
 	Blasts = MakeMeshes(TEXT("Blasts"), Sphere.Object, 1);
-	for (UInstancedStaticMeshComponent* C : { BoxHalos.Get(), Glows.Get(), BombGlows.Get(), Blasts.Get(), Boxes.Get(), BoxLabels.Get() })
+	// No shadows from any of it: small, fast, mostly emissive, and re-instanced every frame.
+	for (UInstancedStaticMeshComponent* C : { BoxHalos.Get(), Glows.Get(), BombGlows.Get(), Blasts.Get(), Boxes.Get(), BoxLabels.Get(), BoxCores.Get() })
 	{
 		C->SetCastShadow(false);
 	}
+	for (UInstancedStaticMeshComponent* C : ItemMeshes)
+	{
+		if (C)
+		{
+			C->SetCastShadow(false);
+		}
+	}
+	ItemBatches.SetNum(ItemMeshes.Num());
+}
+
+void AKartItemPresenter::Commit(UInstancedStaticMeshComponent* Component, FInstanceBatch& Batch)
+{
+	const int32 N = Batch.Transforms.Num();
+	if (!Component || (N == 0 && Batch.Shown == 0))
+	{
+		Batch.Transforms.Reset();
+		Batch.Custom.Reset();
+		return;
+	}
+	// The render side follows instance changes on its own (FPrimitiveInstanceDataManager); no render state rebuild.
+	const FTransform Folded(FQuat::Identity, Component->GetComponentLocation(), FVector::ZeroVector);
+	const int32 Have = Component->GetInstanceCount();
+	if (Have < N)
+	{
+		TArray<FTransform> Extra;
+		Extra.Init(Folded, N - Have);
+		Component->AddInstances(Extra, /*bShouldReturnIndices*/ false, /*bWorldSpace*/ true, /*bUpdateNavigation*/ false);
+	}
+	for (int32 i = N; i < Batch.Shown; ++i)
+	{
+		Batch.Transforms.Add(Folded);
+	}
+	Component->BatchUpdateInstancesTransforms(0, Batch.Transforms, /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false, /*bTeleport*/ true);
+	for (int32 i = 0; i < Batch.Custom.Num() && i < N; ++i)
+	{
+		Component->SetCustomDataValue(i, 0, Batch.Custom[i], false);
+	}
+	Batch.Shown = N;
+	Batch.Transforms.Reset();
+	Batch.Custom.Reset();
 }
 
 UInstancedStaticMeshComponent* AKartItemPresenter::MakeMeshes(const TCHAR* Name, UStaticMesh* Mesh, int32 CustomFloats)
@@ -225,6 +181,11 @@ UMaterialInstanceDynamic* AKartItemPresenter::GlowMaterial(const FLinearColor& C
 
 void AKartItemPresenter::SetupMaterials()
 {
+	if (bMaterialsBuilt)
+	{
+		return;
+	}
+	bMaterialsBuilt = true;
 	auto Set = [](UInstancedStaticMeshComponent* C, FName Slot, UMaterialInterface* M)
 	{
 		const int32 Index = C->GetMaterialIndex(Slot);
@@ -243,8 +204,9 @@ void AKartItemPresenter::SetupMaterials()
 	// Meshes modelled in code (FX/KartItemMeshes).
 	BoxCores->SetStaticMesh(BuildChamferCubeMesh(this));
 	BoxLabels->SetStaticMesh(BuildBoxLabelsMesh(this));
-	Mesh(EKartItem::Shot, BuildShellMesh(this));
-	Mesh(EKartItem::Seeker, BuildShellMesh(this));
+	UStaticMesh* Shell = BuildShellMesh(this);
+	Mesh(EKartItem::Shot, Shell);
+	Mesh(EKartItem::Seeker, Shell);
 	Mesh(EKartItem::SkySeeker, BuildWingedShellMesh(this));
 	Mesh(EKartItem::Banana, BuildBananaMesh(this));
 	Mesh(EKartItem::Bomb, BuildBombMesh(this));
@@ -253,7 +215,7 @@ void AKartItemPresenter::SetupMaterials()
 	Mesh(EKartItem::Prism, BuildPrismMesh(this));
 	Mesh(EKartItem::Lightning, BuildLightningMesh(this));
 	Mesh(EKartItem::Ink, BuildInkMesh(this));
-	Mesh(EKartItem::Rocket, BuildRocketMesh(this));
+	Mesh(EKartItem::Rocket, SharedRocketMesh());
 
 	// Shells: clear-coated dome in the item colour, cream rim, belly in the inner colour (emissive 0.32 on the web).
 	const FLinearColor Cream = Hex(TEXT("f4efe2"));
@@ -361,9 +323,13 @@ void AKartItemPresenter::SetupMaterials()
 
 void AKartItemPresenter::Bind(AKartRaceManager* InManager)
 {
-	if (Manager.Get() != InManager)
+	if (Manager.Get() != InManager || !CueHandle.IsValid())
 	{
-		InManager->OnCue.AddUObject(this, &AKartItemPresenter::HandleCue);
+		if (AKartRaceManager* Previous = Manager.Get())
+		{
+			Previous->OnCue.Remove(CueHandle);
+		}
+		CueHandle = InManager->OnCue.AddUObject(this, &AKartItemPresenter::HandleCue);
 	}
 	Manager = InManager;
 	SetupMaterials();
@@ -380,6 +346,10 @@ void AKartItemPresenter::Bind(AKartRaceManager* InManager)
 	BoxCores->ClearInstances();
 	BoxLabels->ClearInstances();
 	BoxHalos->ClearInstances();
+	for (FInstanceBatch& Batch : BoxBatches)
+	{
+		Batch = FInstanceBatch();
+	}
 	for (UNiagaraComponent* C : BoxTwinkles)
 	{
 		if (C)
@@ -441,8 +411,64 @@ void AKartItemPresenter::HandleCue(int32 Seat, FName Cue)
 		return;
 	}
 	const AKartPawn* Kart = Race->GetRacers()[Seat].Kart;
+	const FVector Forward = Kart->GetActorForwardVector();
+	const FVector Right = FVector::CrossProduct(FVector::UpVector, Forward).GetSafeNormal();
+	const FVector At = Kart->GetActorLocation();
+	const FVector Inherit = Kart->GetVelocity() * 0.6;
 	TArray<FKartFxEmit> Out;
-	ConfettiBurst(Kart->GetActorLocation() + Kart->GetActorForwardVector() * 300.0 + FVector(0.0, 0.0, 120.0), Kart->GetActorForwardVector(), Out);
+	ConfettiBurst(At + Forward * 300.0 + FVector(0.0, 0.0, 120.0), Forward, Out);
+	// The finish moment: a gold shock ring under the kart, two fountains of golden sparks either side, a crown of
+	// twinkles and a warm flash of light.
+	static const FLinearColor Gold = Hex(TEXT("ffd166"));
+	static const FLinearColor Amber = Hex(TEXT("ff9f1c"));
+	static const FLinearColor Cream = Hex(TEXT("fff6d8"));
+	FKartFxEmit Ring;
+	Ring.Field = EField::Ring;
+	Ring.Position = At + FVector(0.0, 0.0, 8.0);
+	Ring.Count = 1;
+	Ring.Speed = { 0.0, 0.0 };
+	Ring.Life = { 0.6, 0.6 };
+	Ring.Size = { 1.5, 1.5 };
+	Ring.SizeEnd = 6.5;
+	Ring.Color = Cream;
+	Ring.ColorEnd = Gold;
+	Ring.Intensity = 3.0;
+	Ring.InheritCm = Inherit;
+	Out.Add(Ring);
+	for (int32 Side = -1; Side <= 1; Side += 2)
+	{
+		FKartFxEmit Fountain;
+		Fountain.Field = EField::Sparks;
+		Fountain.Position = At + Right * (Side * 160.0) + FVector(0.0, 0.0, 40.0);
+		Fountain.Count = 40;
+		Fountain.Direction = (FVector::UpVector * 2.0 + Right * Side * 0.6).GetSafeNormal();
+		Fountain.Spread = 0.35;
+		Fountain.Speed = { 9.0, 16.0 };
+		Fountain.Life = { 0.7, 1.3 };
+		Fountain.Size = { 0.08, 0.14 };
+		Fountain.Color = Cream;
+		Fountain.ColorEnd = Amber;
+		Fountain.Intensity = 4.0;
+		Fountain.Jitter = 0.2;
+		Fountain.InheritCm = Inherit;
+		Out.Add(Fountain);
+	}
+	FKartFxEmit Crown;
+	Crown.Field = EField::Flare;
+	Crown.Position = At + FVector(0.0, 0.0, 220.0);
+	Crown.Count = 16;
+	Crown.Spread = UE_DOUBLE_PI;
+	Crown.Speed = { 1.5, 4.0 };
+	Crown.Life = { 0.5, 0.9 };
+	Crown.Size = { 0.45, 0.8 };
+	Crown.SizeEnd = 0.2;
+	Crown.Color = FLinearColor::White;
+	Crown.ColorEnd = Gold;
+	Crown.Intensity = 3.5;
+	Crown.Jitter = 0.8;
+	Crown.InheritCm = Inherit;
+	Out.Add(Crown);
+	FlashLight(At + FVector(0.0, 0.0, 400.0), Gold, 1200.0, 2500.0, 0.7, GetWorld()->GetTimeSeconds());
 	Fx->Emit(Out);
 }
 
@@ -489,17 +515,7 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 			{
 				Racer.Kart->AddShake(ImpactProfile(EImpact::Explosion).Shake * 0.5);
 			}
-			UPointLightComponent* Light = NewObject<UPointLightComponent>(this);
-			Light->SetupAttachment(RootComponent);
-			Light->SetWorldLocation(Blast.Center + FVector(0.0, 0.0, 150.0));
-			Light->SetLightColor(Hex(TEXT("ff9a40")));
-			Light->SetAttenuationRadius(static_cast<float>(E.Radius * 100.0 * 2.5));
-			Light->SetIntensityUnits(ELightUnits::Candelas);
-			Light->SetIntensity(0.f);
-			Light->SetCastShadows(false);
-			Light->RegisterComponent();
-			BlastLights.Add(Light);
-			BlastLightStart.Add(Time);
+			FlashLight(Blast.Center + FVector(0.0, 0.0, 150.0), Hex(TEXT("ff9a40")), E.Radius * 100.0 * 2.5, 60000.0, 0.6, Time);
 			break;
 		}
 		case EKartItemEventType::Hit:
@@ -508,6 +524,54 @@ void AKartItemPresenter::HandleEvents(const TArray<FKartItemEvent>& Events, doub
 				Victim->AddShake(ImpactProfile(EImpact::ProjectileHit).Shake);
 				ImpactBurst(EImpact::ProjectileHit, Victim->GetActorLocation(), 1.0, Out, -1.0, ItemColors(E.Item).Color);
 				RecentImpacts.Add({ Victim->GetActorLocation(), Time });
+				// The hit reads at a glance: a white-hot pop, shards and a shock ring in the colour of what hit,
+				// and a quick light on the kart and the road.
+				{
+					const FItemColors C = ItemColors(E.Item);
+					const FVector At = Victim->GetActorLocation();
+					const FVector Inherit = Victim->GetKartMovement()->Velocity * 0.5;
+					FKartFxEmit Pop;
+					Pop.Field = EField::Flare;
+					Pop.Position = At + FVector(0.0, 0.0, 90.0);
+					Pop.Count = 1;
+					Pop.Speed = { 0.0, 0.0 };
+					Pop.Life = { 0.16, 0.16 };
+					Pop.Size = { 2.4, 2.4 };
+					Pop.SizeEnd = 1.4;
+					Pop.Color = FLinearColor::White;
+					Pop.ColorEnd = C.Emissive;
+					Pop.Intensity = 3.5;
+					Pop.InheritCm = Inherit;
+					Out.Add(Pop);
+					FKartFxEmit Shards;
+					Shards.Field = EField::Sparks;
+					Shards.Position = At + FVector(0.0, 0.0, 70.0);
+					Shards.Count = 18;
+					Shards.Spread = UE_DOUBLE_PI * 0.75;
+					Shards.Speed = { 6.0, 14.0 };
+					Shards.Life = { 0.3, 0.6 };
+					Shards.Size = { 0.1, 0.18 };
+					Shards.Color = FLinearColor::LerpUsingHSV(C.Color, FLinearColor::White, 0.4f);
+					Shards.ColorEnd = C.Inner;
+					Shards.Intensity = 3.0;
+					Shards.Jitter = 0.3;
+					Shards.InheritCm = Inherit;
+					Out.Add(Shards);
+					FKartFxEmit Ring;
+					Ring.Field = EField::Ring;
+					Ring.Position = FVector(At.X, At.Y, KartGround(E.Seat).Z + 12.0);
+					Ring.Count = 1;
+					Ring.Speed = { 0.0, 0.0 };
+					Ring.Life = { 0.32, 0.32 };
+					Ring.Size = { 1.0, 1.0 };
+					Ring.SizeEnd = 4.2;
+					Ring.Color = FLinearColor::LerpUsingHSV(C.Color, FLinearColor::White, 0.3f);
+					Ring.ColorEnd = C.Emissive;
+					Ring.Intensity = 2.4;
+					Ring.InheritCm = Inherit;
+					Out.Add(Ring);
+					FlashLight(At + FVector(0.0, 0.0, 220.0), FLinearColor::LerpUsingHSV(C.Color, FLinearColor::White, 0.45f), 650.0, 1200.0, 0.3, Time);
+				}
 				if (UKartFxComponent* VictimFx = KartFx(E.Seat))
 				{
 					VictimFx->Flash(ImpactProfile(EImpact::ProjectileHit).Flash, ImpactProfile(EImpact::ProjectileHit).FlashColor);
@@ -788,40 +852,46 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 		BoxWasVisible[i] = bVisible;
 		// Pop back in with a springy overshoot.
 		const double Scale = bVisible ? FMath::Max(0.0, Pop((Time - BoxShownAt[i]) / 0.5)) : 0.0;
-		// A box that was already hidden last frame is already scaled to nothing.
-		const bool bMoves = bVisible || bWasVisible;
 		// MultiplayerPowerups.tsx: spin 1.5 rad/s, bob 0.1 m at 2.5 rad/s, inner icon +0.5 rad/s.
-		if (bMoves)
+		const FVector P = BoxPositions[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time + i * 0.7));
+		const FQuat Spin(FVector::UpVector, -1.5 * Time - i);
+		BoxBatches[0].Add(FTransform(Spin, P, FVector(BoxSize * 0.9 / 100.0 * Scale)));
+		// The gem stands on a corner (a cube tipped onto its diagonal) and tumbles slowly.
+		static const FQuat Corner(FVector(1.0, -1.0, 0.0).GetSafeNormal(), FMath::Acos(1.0 / FMath::Sqrt(3.0)));
+		const FQuat Core = FQuat(FVector::UpVector, -2.0 * Time - i) * Corner * FQuat(FVector(1.0, 1.0, 1.0).GetSafeNormal(), 0.3 * FMath::Sin(Time * 1.3 + i));
+		BoxBatches[1].Add(FTransform(Core, P, FVector(BoxSize * 0.42 / 100.0 * Scale)));
+		BoxBatches[2].Add(FTransform(FQuat::Identity, P, FVector(BoxSize * 0.9 * 2.0 / 100.0 * Scale * (1.0 + 0.04 * FMath::Sin(Time * 3.0 + i)))));
+		if (BoxLabels->IsVisible())
 		{
-			const FVector P = BoxPositions[i] + FVector(0.0, 0.0, 10.0 * FMath::Sin(2.5 * Time + i * 0.7));
-			const FQuat Spin(FVector::UpVector, -1.5 * Time - i);
-			Boxes->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize * 0.9 / 100.0 * Scale)), true, false);
-			// The gem stands on a corner (a cube tipped onto its diagonal) and tumbles slowly.
-			const FQuat Corner(FVector(1.0, -1.0, 0.0).GetSafeNormal(), FMath::Acos(1.0 / FMath::Sqrt(3.0)));
-			const FQuat Core = FQuat(FVector::UpVector, -2.0 * Time - i) * Corner * FQuat(FVector(1.0, 1.0, 1.0).GetSafeNormal(), 0.3 * FMath::Sin(Time * 1.3 + i));
-			BoxCores->UpdateInstanceTransform(i, FTransform(Core, P, FVector(BoxSize * 0.42 / 100.0 * Scale)), true, false);
-			BoxHalos->UpdateInstanceTransform(i, FTransform(FQuat::Identity, P, FVector(BoxSize * 0.9 * 2.0 / 100.0 * Scale * (1.0 + 0.04 * FMath::Sin(Time * 3.0 + i)))), true, false);
-			BoxLabels->UpdateInstanceTransform(i, FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)), true, false);
+			BoxBatches[3].Add(FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)));
 		}
 		// The twinkle's options never change, so the stream only needs telling when the box appears or goes (or when
-		// it isn't running yet), not 11 parameters every frame.
+		// it isn't running yet), not every frame.
 		if (BoxTwinkles.IsValidIndex(i) && BoxTwinkles[i] && (bVisible != bWasVisible || (bVisible && !BoxTwinkles[i]->IsActive())))
 		{
-			FKartFxEmit Twinkle;
-			Twinkle.Field = EField::Flare;
-			Twinkle.Direction = FVector::UpVector;
-			Twinkle.Spread = 0.8;
-			Twinkle.Speed = { 0.3, 0.9 };
-			Twinkle.Life = { 0.7, 1.3 };
-			Twinkle.Size = { 0.22, 0.42 };
-			Twinkle.SizeEnd = 0.3;
-			Twinkle.Color = Hex(TEXT("d8f9ff"));
-			Twinkle.ColorEnd = Hex(TEXT("b45cff"));
-			Twinkle.Intensity = 2.2;
-			Twinkle.Jitter = 1.25;
+			static const FKartFxEmit Twinkle = []
+			{
+				FKartFxEmit T;
+				T.Field = EField::Flare;
+				T.Direction = FVector::UpVector;
+				T.Spread = 0.8;
+				T.Speed = { 0.3, 0.9 };
+				T.Life = { 0.7, 1.3 };
+				T.Size = { 0.22, 0.42 };
+				T.SizeEnd = 0.3;
+				T.Color = Hex(TEXT("d8f9ff"));
+				T.ColorEnd = Hex(TEXT("b45cff"));
+				T.Intensity = 2.2;
+				T.Jitter = 1.25;
+				return T;
+			}();
 			UKartFxSubsystem::UpdateStream(BoxTwinkles[i], Twinkle, bVisible ? 5.0 : 0.0);
 		}
 	}
+	Commit(Boxes, BoxBatches[0]);
+	Commit(BoxCores, BoxBatches[1]);
+	Commit(BoxHalos, BoxBatches[2]);
+	Commit(BoxLabels, BoxBatches[3]);
 	if (Fx)
 	{
 		Fx->Emit(Out);
@@ -833,13 +903,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 	const AKartRaceManager* Race = Manager.Get();
 	const FKartItemWorld& Items = Race->GetItems();
 	UKartFxSubsystem* Fx = UKartFxSubsystem::Get(this);
-	FInstanceFrame Frame;
-	for (UInstancedStaticMeshComponent* Component : ItemMeshes)
-	{
-		Frame.Track(Component);
-	}
-	Frame.Track(Glows);
-	Frame.Track(BombGlows);
+	auto BatchFor = [this](EKartItem Item) -> FInstanceBatch& { return ItemBatches[static_cast<int32>(Item)]; };
 	for (TPair<int32, FTrail>& Pair : Trails)
 	{
 		Pair.Value.bSeen = false;
@@ -862,7 +926,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 		case EKartItem::Banana:
 			// Stationary, yaw += 2 rad/s, y + 0.3 (scaled up 1.5x so it reads at speed).
 			At = Coords::ToUE(P.Pos, 0.3 + 0.12);
-			Frame.Add(Component, FTransform(FRotator(0.0, FMath::RadiansToDegrees(2.0 * P.Age), 14.0), At, FVector(1.5)));
+			BatchFor(P.Type).Add(FTransform(FRotator(0.0, FMath::RadiansToDegrees(2.0 * P.Age), 14.0), At, FVector(1.5)));
 			TrailAt = At;
 			break;
 		case EKartItem::Bomb:
@@ -871,22 +935,22 @@ void AKartItemPresenter::UpdateItems(double Time)
 			At = Coords::ToUE(P.Pos, P.Y);
 			const FRotator Tumble(FMath::RadiansToDegrees(3.0 * P.Age), 0.0, FMath::RadiansToDegrees(5.0 * P.Age));
 			const double Pulse = 1.0 + FMath::Sin(P.Age * (3.0 + 2.0 * P.Age)) * 0.3;
-			Frame.Add(Component, FTransform(Tumble, At, FVector(1.0)), static_cast<float>(1.0 + (Pulse - 0.7) * 6.0));
-			Frame.Add(BombGlows, FTransform(FQuat::Identity, At, FVector(1.2 * Pulse)));
+			BatchFor(P.Type).Add(FTransform(Tumble, At, FVector(1.0)), static_cast<float>(1.0 + (Pulse - 0.7) * 6.0));
+			BombGlowBatch.Add(FTransform(FQuat::Identity, At, FVector(1.2 * Pulse)));
 			TrailAt = At + Tumble.RotateVector(BombFuseTip());
 			break;
 		}
 		case EKartItem::SkySeeker:
 			// Altitude y + 0.5, roll wobble sin(t*10)*0.1, glow 1.5x pulsing 1 + sin(t*8)*0.2.
 			At = Coords::ToUE(P.Pos, P.Y + 0.5);
-			Frame.Add(Component, FTransform(FRotator(0.0, Coords::YawToUE(Yaw), FMath::RadiansToDegrees(0.1 * FMath::Sin(Time * 10.0))), At, FVector(1.15)));
-			Frame.Add(Glows, FTransform(FQuat::Identity, At, FVector(0.9 * (1.0 + 0.2 * FMath::Sin(Time * 8.0)))));
+			BatchFor(P.Type).Add(FTransform(FRotator(0.0, Coords::YawToUE(Yaw), FMath::RadiansToDegrees(0.1 * FMath::Sin(Time * 10.0))), At, FVector(1.15)));
+			GlowBatch.Add(FTransform(FQuat::Identity, At, FVector(0.9 * (1.0 + 0.2 * FMath::Sin(Time * 8.0)))));
 			TrailAt = At;
 			break;
 		default:
 			// Green spins yaw += 8 rad/s; red faces its velocity. y + 0.3.
 			At = Coords::ToUE(P.Pos, 0.3);
-			Frame.Add(Component, FTransform(FRotator(0.0, Coords::YawToUE(Yaw) + (P.Type == EKartItem::Shot ? FMath::RadiansToDegrees(8.0 * P.Age) : 0.0), 0.0), At, FVector(1.0)));
+			BatchFor(P.Type).Add(FTransform(FRotator(0.0, Coords::YawToUE(Yaw) + (P.Type == EKartItem::Shot ? FMath::RadiansToDegrees(8.0 * P.Age) : 0.0), 0.0), At, FVector(1.0)));
 			TrailAt = At;
 			break;
 		}
@@ -1050,7 +1114,7 @@ void AKartItemPresenter::UpdateItems(double Time)
 		}
 		const double Scale = Pop(Age / 0.35) * (Age > PopupSeconds - 0.12 ? 1.0 + (Age - (PopupSeconds - 0.12)) * 3.0 : 1.0) * 2.0;
 		const FVector At = Kart->GetActorLocation() + FVector(0.0, 0.0, 170.0 + 80.0 * EaseOut(Age / 0.4));
-		Frame.Add(Mesh, FTransform(FRotator(0.0, Kart->GetActorRotation().Yaw + 90.0 + Age * 540.0, 0.0), At, FVector(FMath::Max(0.01, Scale))));
+		BatchFor(Popup.Item).Add(FTransform(FRotator(0.0, Kart->GetActorRotation().Yaw + 90.0 + Age * 540.0, 0.0), At, FVector(FMath::Max(0.01, Scale))));
 	}
 
 	// Showcase: every item mesh floating in a row ahead of the grid, spinning.
@@ -1063,11 +1127,24 @@ void AKartItemPresenter::UpdateItems(double Time)
 			const EKartItem Item = static_cast<EKartItem>(i);
 			const FVector At = ShowcaseOrigin + ShowcaseForward * 650.0 + Right * ((i - 1 - (Count - 1) * 0.5) * 115.0) + FVector(0.0, 0.0, 130.0 + 12.0 * FMath::Sin(Time * 2.0 + i));
 			const double Scale = Item == EKartItem::Rocket ? 0.3 : (Item == EKartItem::Banana ? 1.8 : (Item == EKartItem::Bomb ? 0.9 : 1.3));
-			Frame.Add(MeshesFor(Item), FTransform(FRotator(0.0, Time * 45.0 + i * 30.0, 0.0), At, FVector(Scale)));
+			const FTransform Shown(FRotator(0.0, Time * 45.0 + i * 30.0, 0.0), At, FVector(Scale));
+			if (Item == EKartItem::Bomb)
+			{
+				BatchFor(Item).Add(Shown, 0.f); // the bomb's custom float (its glow pulse) stays aligned
+			}
+			else
+			{
+				BatchFor(Item).Add(Shown);
+			}
 		}
 	}
 
-	Frame.Commit();
+	for (int32 i = 0; i < ItemMeshes.Num(); ++i)
+	{
+		Commit(ItemMeshes[i], ItemBatches[i]);
+	}
+	Commit(Glows, GlowBatch);
+	Commit(BombGlows, BombGlowBatch);
 	if (Fx)
 	{
 		Fx->Emit(Out);
@@ -1078,8 +1155,6 @@ void AKartItemPresenter::UpdateBlasts(double Time)
 {
 	// Explosion fireballs: three overlapping lobes that swell fast (0.2 s) to ~0.42 x the blast radius, keep
 	// expanding slowly and burn out to soot (toon fire colours in M_FX_Fireball), under the puffs of ExplosionBurst.
-	FInstanceFrame Frame;
-	Frame.Track(Blasts);
 	ActiveBlasts.RemoveAll([Time](const FBlast& B) { return Time - B.Start > BlastSeconds; });
 	for (const FBlast& B : ActiveBlasts)
 	{
@@ -1092,29 +1167,68 @@ void AKartItemPresenter::UpdateBlasts(double Time)
 			const double Grow = EaseOut(U / 0.27) * (1.0 + 0.18 * U);
 			const double Radius = Peak * (i == 0 ? 1.0 : 0.68) * Grow;
 			const FVector Center = B.Center + B.Lobes[i] * (i == 0 ? 0.2 : 1.0) * Grow + FVector(0.0, 0.0, Radius * 0.35 + U * 120.0);
-			Frame.Add(Blasts, FTransform(FQuat(FVector::UpVector, i * 2.1), Center, FVector(FMath::Max(0.01, Radius / 50.0))), static_cast<float>(U));
+			BlastBatch.Add(FTransform(FQuat(FVector::UpVector, i * 2.1), Center, FVector(FMath::Max(0.01, Radius / 50.0))), static_cast<float>(U));
 		}
 	}
-	Frame.Commit();
+	Commit(Blasts, BlastBatch);
 
-	// Light flash: up in 0.05 s, gone by 0.6 s.
-	for (int32 i = BlastLights.Num() - 1; i >= 0; --i)
+	// Light flashes: up in 0.05 s, then out over the rest of their time; the light goes back to the pool.
+	for (int32 i = 0; i < BlastLights.Num(); ++i)
 	{
 		UPointLightComponent* Light = BlastLights[i];
-		const double Age = Time - BlastLightStart[i];
-		if (!Light || Age > 0.6)
+		FLightFlash& F = LightFlashes[i];
+		if (!Light || F.Start < 0.0)
 		{
-			if (Light)
-			{
-				Light->DestroyComponent();
-			}
-			BlastLights.RemoveAt(i);
-			BlastLightStart.RemoveAt(i);
 			continue;
 		}
-		const double Env = Age < 0.05 ? Age / 0.05 : FMath::Pow(1.0 - (Age - 0.05) / 0.55, 2.0);
-		Light->SetIntensity(static_cast<float>(60000.0 * Env));
+		const double Age = Time - F.Start;
+		if (Age > F.Seconds)
+		{
+			Light->SetIntensity(0.f);
+			Light->SetVisibility(false);
+			F.Start = -1.0;
+			continue;
+		}
+		const double Env = Age < 0.05 ? Age / 0.05 : FMath::Pow(1.0 - (Age - 0.05) / (F.Seconds - 0.05), 2.0);
+		Light->SetIntensity(static_cast<float>(F.Peak * Env));
 	}
+}
+
+void AKartItemPresenter::FlashLight(const FVector& At, const FLinearColor& Color, double RadiusCm, double PeakCandela, double Seconds, double Time)
+{
+	// A free light from the pool (the oldest lit one if all are busy), a new one only up to the pool size.
+	constexpr int32 LightPool = 4;
+	int32 Slot = LightFlashes.IndexOfByPredicate([](const FLightFlash& F) { return F.Start < 0.0; });
+	if (Slot == INDEX_NONE && BlastLights.Num() < LightPool)
+	{
+		UPointLightComponent* Light = NewObject<UPointLightComponent>(this, MakeUniqueObjectName(this, UPointLightComponent::StaticClass(), TEXT("FlashLight")));
+		Light->SetupAttachment(RootComponent);
+		Light->SetUsingAbsoluteLocation(true);
+		Light->SetIntensityUnits(ELightUnits::Candelas);
+		Light->SetIntensity(0.f);
+		Light->SetCastShadows(false);
+		Light->SetVolumetricScatteringIntensity(0.f);
+		Light->RegisterComponent();
+		Slot = BlastLights.Add(Light);
+		LightFlashes.AddDefaulted();
+	}
+	if (Slot == INDEX_NONE)
+	{
+		Slot = 0;
+		for (int32 i = 1; i < LightFlashes.Num(); ++i)
+		{
+			Slot = LightFlashes[i].Start < LightFlashes[Slot].Start ? i : Slot;
+		}
+	}
+	if (UPointLightComponent* Light = BlastLights[Slot])
+	{
+		Light->SetWorldLocation(At);
+		Light->SetLightColor(Color);
+		Light->SetAttenuationRadius(static_cast<float>(RadiusCm));
+		Light->SetIntensity(0.f);
+		Light->SetVisibility(true);
+	}
+	LightFlashes[Slot] = { Time, PeakCandela, FMath::Max(0.1, Seconds) };
 }
 
 void AKartItemPresenter::UpdateStrikes(double Time)

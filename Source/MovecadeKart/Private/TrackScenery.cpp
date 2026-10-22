@@ -547,9 +547,29 @@ void ATrackBuilder::BuildPrefabInstances()
 	int32 GroupCount = 0, InstanceCount = 0;
 	for (const TPair<FPrefabGroupKey, FPrefabGroup>& Pair : Groups)
 	{
-		if (Pair.Value.Component)
+		if (UInstancedStaticMeshComponent* Group = Pair.Value.Component)
 		{
-			Pair.Value.Component->AddInstances(Pair.Value.Transforms, /*bShouldReturnIndices*/ false, /*bWorldSpace*/ false);
+			// Small props: no shadow under 0.6 m, and culled (dithered where the material allows) at a distance that
+			// grows with their size under 1.6 m. Large pieces (buildings, cliffs, ships) keep drawing and casting.
+			if (const UStaticMesh* Mesh = Group->GetStaticMesh())
+			{
+				double Largest = 0.0;
+				for (const FTransform& T : Pair.Value.Transforms)
+				{
+					Largest = FMath::Max(Largest, T.GetScale3D().GetAbsMax());
+				}
+				const double Radius = Mesh->GetBounds().SphereRadius * Largest;
+				if (Radius < 60.0)
+				{
+					Group->SetCastShadow(false);
+				}
+				if (Radius < 160.0)
+				{
+					const int32 End = static_cast<int32>(FMath::Clamp(Radius * 120.0, 6000.0, 20000.0));
+					Group->SetCullDistances(static_cast<int32>(End * 0.8), End);
+				}
+			}
+			Group->AddInstances(Pair.Value.Transforms, /*bShouldReturnIndices*/ false, /*bWorldSpace*/ false);
 			++GroupCount;
 			InstanceCount += Pair.Value.Transforms.Num();
 		}
@@ -600,6 +620,9 @@ void ATrackBuilder::BuildLights()
 		// Many small lights across four split-screen views: no shadows, no volumetric scattering.
 		Light->SetCastShadows(false);
 		Light->SetVolumetricScatteringIntensity(0.f);
+		// Fade out far away: a small light's pool isn't readable beyond ~4x its reach (but always to 60 m).
+		Light->MaxDrawDistance = FMath::Max(6000.f, Light->AttenuationRadius * 4.f);
+		Light->MaxDistanceFadeRange = Light->MaxDrawDistance * 0.2f;
 		Light->ComponentTags.Add(SceneryTag);
 		AddInstanceComponent(Light);
 		Light->RegisterComponent();
@@ -685,7 +708,9 @@ void ATrackBuilder::BuildMotion()
 		}
 		UStaticMeshComponent* C = AddMeshComponent(Part, Mesh, FTransform::Identity, Material, TEXT("Motion"));
 		C->ComponentTags.Add(*FString::Printf(TEXT("%s:%d:%d"), *Part, Index, Entry));
-		C->SetCastShadow(!Part.Contains(TEXT("beam")) && !Part.Contains(TEXT("wake")) && !Part.Contains(TEXT("smoke")) && !Part.Contains(TEXT("fountain")));
+		// Only the big movers cast: the ferris wheel and the ships. Gulls, jet skis, buoys and gondolas are small or
+		// far out on the water, and every moving caster re-renders its shadow each frame.
+		C->SetCastShadow(Part == TEXT("ferris_frame") || Part == TEXT("ferris_wheel") || Part == TEXT("ferry") || Part == TEXT("cargo_ship"));
 	};
 	const TArray<TSharedPtr<FJsonValue>>& Animated = Arr(Scenery, TEXT("animated"));
 	for (int32 E = 0; E < Animated.Num(); ++E)
@@ -792,7 +817,7 @@ void ATrackBuilder::TickMotion(double T)
 		return;
 	}
 	const double Rebase = Track->SuggestedRebaseY;
-	for (const FMotionPart& M : Motion)
+	for (FMotionPart& M : Motion)
 	{
 		UStaticMeshComponent* C = M.Component.Get();
 		if (!C)

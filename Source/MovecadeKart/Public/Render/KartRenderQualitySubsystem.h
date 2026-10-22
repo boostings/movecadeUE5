@@ -63,6 +63,8 @@ private:
 	int32 NumViews = 1;
 	int32 GuardSteps = 0;
 	bool bBudgetApplied = false;
+	/** The frame time held (ms): kart.Render.TargetFPS, or the frame cap / refresh rate (see TargetFrameMs). */
+	float BudgetMs = 1000.f / 60.f;
 
 	/** Guard state: seconds spent over budget at the resolution floor, and under budget with headroom. */
 	float OverBudgetSeconds = 0.f;

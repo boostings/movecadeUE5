@@ -97,7 +97,7 @@ void UKartAudioComponent::BeginPlay()
 
 void UKartAudioComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	StopAll();
+	StopAll(/*bDestroy*/ true);
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -277,7 +277,28 @@ void UKartAudioComponent::ApplyLoops(UKartAudioSubsystem& Mixer, double Dt)
 			{
 				continue;
 			}
-			UAudioComponent* Voice = MakeVoice(Mixer, Command.Cue, 0.f);
+			// Replay this layer's parked component if there is one (same settings as a fresh MakeVoice).
+			UAudioComponent* Voice = nullptr;
+			if (ParkedLoops.IsValidIndex(i) && IsValid(ParkedLoops[i]))
+			{
+				if (USoundWave* Wave = Mixer.GetSound(Command.Cue))
+				{
+					Voice = ParkedLoops[i];
+					ParkedLoops[i] = nullptr;
+					if (Voice->Sound != Wave)
+					{
+						Voice->SetSound(Wave);
+					}
+					Voice->SetLowPassFilterEnabled(false);
+					Voice->SetVolumeMultiplier(0.f);
+					Voice->SetPitchMultiplier(1.f);
+					Voice->Play(0.f);
+				}
+			}
+			else
+			{
+				Voice = MakeVoice(Mixer, Command.Cue, 0.f);
+			}
 			if (!Voice)
 			{
 				Mixer.ReleaseLoop();
@@ -313,8 +334,16 @@ void UKartAudioComponent::ApplyLoops(UKartAudioSubsystem& Mixer, double Dt)
 	}
 }
 
-void UKartAudioComponent::StopLoop(int32 Index)
+void UKartAudioComponent::StopLoop(int32 Index, bool bDestroy)
 {
+	if (bDestroy && ParkedLoops.IsValidIndex(Index) && ParkedLoops[Index])
+	{
+		if (IsValid(ParkedLoops[Index]))
+		{
+			ParkedLoops[Index]->DestroyComponent();
+		}
+		ParkedLoops[Index] = nullptr;
+	}
 	if (!LoopVoices.IsValidIndex(Index) || !LoopVoices[Index])
 	{
 		return;
@@ -322,7 +351,20 @@ void UKartAudioComponent::StopLoop(int32 Index)
 	if (IsValid(LoopVoices[Index]))
 	{
 		LoopVoices[Index]->Stop();
-		LoopVoices[Index]->DestroyComponent();
+		if (bDestroy)
+		{
+			LoopVoices[Index]->DestroyComponent();
+		}
+		else
+		{
+			// Keep the component for this layer's next start (loops start and stop many times a lap).
+			ParkedLoops.SetNum(FMath::Max(ParkedLoops.Num(), static_cast<int32>(ELoopLayer::Count)));
+			if (ParkedLoops[Index] && IsValid(ParkedLoops[Index]))
+			{
+				ParkedLoops[Index]->DestroyComponent();
+			}
+			ParkedLoops[Index] = LoopVoices[Index];
+		}
 	}
 	LoopVoices[Index] = nullptr;
 	Loops[Index] = FLoopVoice();
@@ -332,12 +374,12 @@ void UKartAudioComponent::StopLoop(int32 Index)
 	}
 }
 
-void UKartAudioComponent::StopAll()
+void UKartAudioComponent::StopAll(bool bDestroy)
 {
 	StopEngine();
-	for (int32 i = 0; i < LoopVoices.Num(); ++i)
+	for (int32 i = 0; i < FMath::Max(LoopVoices.Num(), ParkedLoops.Num()); ++i)
 	{
-		StopLoop(i);
+		StopLoop(i, bDestroy);
 	}
 }
 

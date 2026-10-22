@@ -140,7 +140,7 @@ void UKartFxComponent::Build()
 	AuraFlares = Fx->MakeStream(EField::Flare, SlipPivot, TEXT("FxAuraFlares"), FVector(0.0, 0.0, 70.0));
 
 	// Rocket: a modelled shell over the kart, its afterburner and smoke from the tail.
-	Rocket = MakeMesh(Owner, SlipPivot, TEXT("FxRocket"), BuildRocketMesh(this));
+	Rocket = MakeMesh(Owner, SlipPivot, TEXT("FxRocket"), SharedRocketMesh());
 	Rocket->SetRelativeLocation(FVector(0.0, 0.0, 72.0));
 	Rocket->SetCastShadow(true);
 	if (UMaterialInterface* Item = LoadObject<UMaterialInterface>(nullptr, ItemPath))
@@ -229,7 +229,12 @@ void UKartFxComponent::Build()
 void UKartFxComponent::RefreshAnchors()
 {
 	const AActor* Owner = GetOwner();
-	const UStaticMeshComponent* Body = FindPart<UStaticMeshComponent>(Owner, TEXT("Body"));
+	// The Body part is found once (a component search with name compares); its mesh tells when the vehicle changed.
+	if (!BodyPart.IsValid())
+	{
+		BodyPart = FindPart<UStaticMeshComponent>(Owner, TEXT("Body"));
+	}
+	const UStaticMeshComponent* Body = BodyPart.Get();
 	UStaticMesh* BodyMesh = Body ? Body->GetStaticMesh() : nullptr;
 	if (Anchors.bValid && AnchoredBody.Get() == BodyMesh)
 	{
@@ -489,7 +494,9 @@ void UKartFxComponent::UpdateEvents(const FKartState& S, double Time)
 		if (!PadFlashes[i])
 		{
 			UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
-			UStaticMeshComponent* C = MakeMesh(GetOwner(), nullptr, *FString::Printf(TEXT("FxPadFlash%d"), i), Plane);
+			// Attached to the kart's root (it was parentless) but placed in world space.
+			UStaticMeshComponent* C = MakeMesh(GetOwner(), GetOwner()->GetRootComponent(),
+				*MakeUniqueObjectName(GetOwner(), UStaticMeshComponent::StaticClass(), *FString::Printf(TEXT("FxPadFlash%d"), i)).ToString(), Plane);
 			C->SetUsingAbsoluteLocation(true);
 			C->SetUsingAbsoluteRotation(true);
 			C->SetUsingAbsoluteScale(true);
@@ -556,8 +563,9 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 		Fire.Direction = Back;
 		Fire.Spread = 0.2;
 		Fire.Speed = { 2.5, 4.5 };
-		Fire.Life = { 0.1, 0.2 };
-		Fire.Size = { 0.32, 0.44 };
+		// A longer, fuller flame for an item boost than for a pad or mini-turbo.
+		Fire.Life = bItemBoost ? FVector2D(0.12, 0.24) : FVector2D(0.1, 0.2);
+		Fire.Size = bItemBoost ? FVector2D(0.36, 0.5) : FVector2D(0.32, 0.44);
 		Fire.SizeEnd = 0.3;
 		Fire.Color = Hex(TEXT("ffc94a"));
 		Fire.ColorEnd = Hex(TEXT("ff3a0a"));
@@ -575,7 +583,7 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 		Core.SizeEnd = 0.6;
 		Core.Color = Hex(TEXT("eaf4ff"));
 		Core.ColorEnd = Hex(TEXT("5aa8ff"));
-		Core.Intensity = 4.0;
+		Core.Intensity = bItemBoost ? 5.0 : 4.0;
 		for (UNiagaraComponent* C : BoostCore)
 		{
 			UKartFxSubsystem::UpdateStream(C, Core, Rate > 0.0 ? 50.0 : 0.0);
@@ -624,10 +632,11 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 	Spark.Spread = 0.7;
 	Spark.Speed = { 3.0, 6.5 };
 	Spark.Life = { 0.12, 0.3 };
-	Spark.Size = { 0.045, 0.08 };
+	// Bigger and hotter sparks at each tier, so the charge reads from behind and across the screen.
+	Spark.Size = FVector2D(0.045, 0.08) * (1.0 + 0.22 * Level.Level);
 	Spark.Color = FLinearColor::LerpUsingHSV(Level.Color, FLinearColor::White, 0.35f);
 	Spark.ColorEnd = Level.Color;
-	Spark.Intensity = 3.0;
+	Spark.Intensity = 3.0 + 0.7 * Level.Level;
 	Spark.InheritCm = Inherit * 0.6;
 	{
 		FKartFxEmit Smoke;
@@ -638,8 +647,12 @@ void UKartFxComponent::UpdateDriveFx(const FKartState& S, double Time, double Dt
 		Smoke.Life = { 0.45, 0.8 };
 		Smoke.Size = { 0.22, 0.34 };
 		Smoke.SizeEnd = 2.8;
-		Smoke.Color = Hex(TEXT("f4f3f6"));
-		Smoke.ColorEnd = Hex(TEXT("cfcdd6"));
+		// White smoke, tinted toward the drift tier's colour once a mini-turbo is charging.
+		static const FLinearColor SmokeWhite = Hex(TEXT("f4f3f6"));
+		static const FLinearColor SmokeGrey = Hex(TEXT("cfcdd6"));
+		const float Tint = Level.Level > 0 ? 0.12f + 0.04f * Level.Level : 0.f;
+		Smoke.Color = FMath::Lerp(SmokeWhite, Level.Color, Tint);
+		Smoke.ColorEnd = FMath::Lerp(SmokeGrey, Level.Color, Tint * 0.6f);
 		Smoke.InheritCm = Inherit * 0.3;
 		Smoke.Jitter = 0.1;
 		for (UNiagaraComponent* C : WheelSmoke)

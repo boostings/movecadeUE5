@@ -178,6 +178,7 @@ private:
 
 	FAnchors Anchors;
 	TWeakObjectPtr<UStaticMesh> AnchoredBody;
+	TWeakObjectPtr<UStaticMeshComponent> BodyPart;
 	bool bBuilt = false;
 	FVector LastLocation = FVector::ZeroVector;
 	FVector LastVelocity = FVector::ZeroVector;

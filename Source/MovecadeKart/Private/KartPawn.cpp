@@ -320,6 +320,10 @@ void AKartPawn::ApplyVehicle()
 	if (UMaterialInterface* Paint = Body->GetMaterial(0))
 	{
 		PaintMaterial = UMaterialInstanceDynamic::Create(Paint, this);
+		// Showroom finish: a glassier clear coat over a little more metal flake, so the paint carries crisp
+		// highlights and sky reflections at race distance (M_KartPaint defaults: coat roughness 0.07, flakes 0.3).
+		PaintMaterial->SetScalarParameterValue(TEXT("ClearCoatRoughness"), 0.035f);
+		PaintMaterial->SetScalarParameterValue(TEXT("FlakeStrength"), 0.42f);
 		Body->SetMaterial(0, PaintMaterial);
 		if (Mount.bBooster)
 		{
@@ -361,6 +365,7 @@ void AKartPawn::ApplyColours()
 	if (PaintMaterial)
 	{
 		PaintMaterial->SetVectorParameterValue(TEXT("PaintColor"), Look.Paint);
+		SentPaintMaterial = nullptr; // UpdateVisual pushes its colour again
 	}
 	Dressing.Colour(Look);
 }
@@ -447,28 +452,50 @@ void AKartPawn::UpdateFeel(float DeltaSeconds)
 	const double Time = GetWorld()->GetTimeSeconds();
 	const double Buzz = GridRev * (FMath::Sin(Time * 47.0) * 0.45 + FMath::Sin(Time * 71.0 + 1.3) * 0.25);
 	const FQuat Shudder(FVector::YAxisVector, FMath::DegreesToRadians(GridRev * 0.35 * FMath::Sin(Time * 39.0)));
-	ChassisPivot->SetRelativeTransform(FTransform(Shudder * Chassis, FVector(0, 0, Pose.ChassisHeave * 100.0 + Buzz), FVector(Width, Pose.StretchForward, Pose.SquashUp)));
+	// Set without propagating: UpdateVisual re-poses the slip/body/chassis chain once (PoseVehicle).
+	ChassisPivot->SetRelativeLocation_Direct(FVector(0, 0, Pose.ChassisHeave * 100.0 + Buzz));
+	ChassisPivot->SetRelativeRotation_Direct((Shudder * Chassis).Rotator());
+	ChassisPivot->SetRelativeScale3D_Direct(FVector(Width, Pose.StretchForward, Pose.SquashUp));
+}
+
+void AKartPawn::PoseVehicle()
+{
+	// The pivots' relative transforms were set directly this frame; update the chain once from the highest pivot
+	// that actually moved (a moved parent re-poses everything under it, so the rest needs nothing).
+	for (USceneComponent* Pivot : { SlipPivot.Get(), BodyPivot.Get(), ChassisPivot.Get() })
+	{
+		const FTransform Before = Pivot->GetComponentTransform();
+		Pivot->UpdateComponentToWorld();
+		if (!Before.Equals(Pivot->GetComponentTransform(), UE_SMALL_NUMBER))
+		{
+			break;
+		}
+	}
 }
 
 void AKartPawn::UpdateVisual(float DeltaSeconds)
 {
 	using MovecadeKart::Coords::YawToUE;
 	const MovecadeKart::FKartState& S = Movement->SimState();
-	SlipPivot->SetRelativeRotation(FRotator(0, YawToUE(S.SlipYaw) + ItemVisual.SpinDegrees, 0));
-	BodyPivot->SetRelativeLocationAndRotation(FVector(0, 0, S.HopOffset * 100.0 + ItemVisual.PopCm),
-		FRotator(0, YawToUE(S.GroupYaw), FMath::RadiansToDegrees(-S.Lean) + ItemVisual.TumbleDegrees));
+	SlipPivot->SetRelativeRotation_Direct(FRotator(0, YawToUE(S.SlipYaw) + ItemVisual.SpinDegrees, 0));
+	BodyPivot->SetRelativeLocation_Direct(FVector(0, 0, S.HopOffset * 100.0 + ItemVisual.PopCm));
+	BodyPivot->SetRelativeRotation_Direct(FRotator(0, YawToUE(S.GroupYaw), FMath::RadiansToDegrees(-S.Lean) + ItemVisual.TumbleDegrees));
 	// Lightning shrink eases in and out; a respawned kart pops back in with an overshoot.
 	ShrinkScale = FMath::FInterpTo(ShrinkScale, ItemVisual.Scale, DeltaSeconds, 8.0);
 	const double SincePop = GetWorld()->GetTimeSeconds() - RespawnPopStart;
 	const double Pop = SincePop < 0.5 ? FMath::Lerp(0.15, 1.0, EaseOutBack(SincePop / 0.5)) : 1.0;
-	BodyPivot->SetRelativeScale3D(FVector(ShrinkScale * Pop));
+	BodyPivot->SetRelativeScale3D_Direct(FVector(ShrinkScale * Pop));
+	PoseVehicle();
 
 	const double Time = GetWorld()->GetTimeSeconds();
-	// Prism: the paint cycles through the rainbow.
-	const FLinearColor Rainbow = FLinearColor::MakeFromHSV8(static_cast<uint8>(FMath::Fmod(Time * 600.0, 256.0)), 200, 255);
-	if (PaintMaterial)
+	// Prism: the paint cycles through the rainbow (pushed only when the colour changes).
+	static const FName PaintParam(TEXT("PaintColor"));
+	const FLinearColor Paint = ItemVisual.bAura ? FLinearColor::MakeFromHSV8(static_cast<uint8>(FMath::Fmod(Time * 600.0, 256.0)), 200, 255) : PaintColor;
+	if (PaintMaterial && (PaintMaterial != SentPaintMaterial || Paint != SentPaint))
 	{
-		PaintMaterial->SetVectorParameterValue(TEXT("PaintColor"), ItemVisual.bAura ? Rainbow : PaintColor);
+		PaintMaterial->SetVectorParameterValue(PaintParam, Paint);
+		SentPaintMaterial = PaintMaterial;
+		SentPaint = Paint;
 	}
 	if (VehicleRoot->IsVisible() == ItemVisual.bRocket)
 	{
@@ -573,8 +600,23 @@ void AKartPawn::UpdateDriver(float DeltaSeconds)
 	}
 	const double T = (Now - BlinkStart) * 1000.0;
 	const double Blink = T < 65.0 ? T / 65.0 : T < 85.0 ? 1.0 : T < 220.0 ? 1.0 - (T - 85.0) / 135.0 : 0.0;
+	// Morphs are written only when they change (a new driver mesh starts from zero, so it is written afresh).
+	if (SentMorphMesh.Get() != Driver->GetSkeletalMeshAsset())
+	{
+		SentMorphMesh = Driver->GetSkeletalMeshAsset();
+		SentBlink = -1.f;
+		for (float& W : SentFace)
+		{
+			W = -1.f;
+		}
+	}
 	static const FName EyeBlink(TEXT("eyeBlink"));
-	Driver->SetMorphTarget(EyeBlink, static_cast<float>(FMath::Clamp(Blink, 0.0, 1.0)));
+	const float BlinkWeight = static_cast<float>(FMath::Clamp(Blink, 0.0, 1.0));
+	if (BlinkWeight != SentBlink)
+	{
+		Driver->SetMorphTarget(EyeBlink, BlinkWeight);
+		SentBlink = BlinkWeight;
+	}
 	UpdateFace(DeltaSeconds);
 }
 
@@ -656,7 +698,11 @@ void AKartPawn::UpdateFace(float DeltaSeconds)
 	{
 		// Faces change fast but not in a single frame.
 		Mood.Face[i] = FMath::FInterpTo(Mood.Face[i], Target[i], DeltaSeconds, 12.f);
-		Driver->SetMorphTarget(MorphName(static_cast<EMorph>(i)), Mood.Face[i]);
+		if (FMath::Abs(Mood.Face[i] - SentFace[i]) > 1e-3f || (Mood.Face[i] == 0.f && SentFace[i] != 0.f))
+		{
+			Driver->SetMorphTarget(MorphName(static_cast<EMorph>(i)), Mood.Face[i]);
+			SentFace[i] = Mood.Face[i];
+		}
 	}
 }
 

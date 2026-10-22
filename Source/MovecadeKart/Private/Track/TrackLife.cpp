@@ -18,6 +18,7 @@
 #include "Misc/Base64.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
+#include "NiagaraComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Race/KartRaceManager.h"
@@ -448,6 +449,8 @@ void ATrackLife::BuildCrowds(ATrackBuilder* Builder)
 	Crowd->SetupAttachment(RootComponent);
 	Crowd->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Crowd->NumCustomDataFloats = 9;
+	// Spectators are ~1.8 m: beyond 160 m they are a few pixels, and their animated vertices still cost.
+	Crowd->SetCullDistances(13000, 16000);
 	Crowd->RegisterComponent();
 	const TArray<MovecadeKart::Life::FSpectatorSpot> Spots = MovecadeKart::Life::GrandstandSpectators();
 	FRandomStream R(0xc40d);
@@ -621,6 +624,16 @@ void ATrackLife::UpdateTrample(float DeltaSeconds)
 	{
 		return;
 	}
+	// 30 updates a second, each applying all the time since the last: the decay is exponential (Exp of the summed
+	// time is the product of the frames' factors) and the stamps' press is proportional to time, so this matches
+	// a per-frame update while drawing the 1024^2 targets a fraction as often.
+	TrampleDt += DeltaSeconds;
+	if (TrampleDt < 1.f / 30.f)
+	{
+		return;
+	}
+	DeltaSeconds = FMath::Min(TrampleDt, 0.25f);
+	TrampleDt = 0.f;
 	UTextureRenderTarget2D* Src = TrampleTargets[LiveTarget];
 	UTextureRenderTarget2D* Dst = TrampleTargets[1 - LiveTarget];
 	DecayMaterial->SetTextureParameterValue(TEXT("Prev"), Src);
@@ -679,8 +692,8 @@ void ATrackLife::UpdateButterflies(float DeltaSeconds)
 		return;
 	}
 	const double T = GetWorld()->GetTimeSeconds();
-	TArray<FTransform> Xforms;
-	Xforms.Reserve(Butterflies.Num());
+	TArray<FTransform>& Xforms = ButterflyXforms; // reused every frame
+	Xforms.Reset(Butterflies.Num());
 	for (int32 i = 0; i < Butterflies.Num(); ++i)
 	{
 		FButterfly& Fly = Butterflies[i];
@@ -724,7 +737,8 @@ void ATrackLife::UpdateButterflies(float DeltaSeconds)
 		const FRotator Heading(FMath::Clamp(Fly.Velocity.Z * 0.05, -25.0, 25.0), Fly.Velocity.Rotation().Yaw, 0.0);
 		Xforms.Add(FTransform(Heading, Fly.Position, FVector(1.9)));
 	}
-	ButterflyMesh->BatchUpdateInstancesTransforms(0, Xforms, true, true, true);
+	// No render state rebuild: the instance data manager streams the moved instances.
+	ButterflyMesh->BatchUpdateInstancesTransforms(0, Xforms, true, false, true);
 }
 
 // ---- Cheers and fireworks ---------------------------------------------------------------------------------
@@ -811,27 +825,52 @@ void ATrackLife::UpdateFireworks(float DeltaSeconds)
 			// The rising shell: a hot point shedding a sparkling trail, easing out toward the top.
 			const double T = FMath::Clamp(Age / S.Rise, 0.0, 1.0);
 			const FVector P = FMath::Lerp(S.Launch, S.Burst, 1.0 - FMath::Square(1.0 - T));
-			const int32 Due = ParticlesDue(S.TrailCarry, 70.0, DeltaSeconds);
-			if (Due > 0)
+			// 70 sparks a second from a stream that rides the shell (world-space particles stay where they fell).
+			if (S.Trail == INDEX_NONE && Fx)
 			{
-				FKartFxEmit Trail;
-				Trail.Field = EField::Sparks;
-				Trail.Position = P;
-				Trail.Count = Due;
-				Trail.Direction = -FVector::UpVector;
-				Trail.Spread = 0.5;
-				Trail.Speed = { 0.5, 2.5 };
-				Trail.Life = { 0.35, 0.6 };
-				Trail.Size = { 0.08, 0.14 };
-				Trail.SizeEnd = 0.2;
-				Trail.Color = Hex(TEXT("ffe2a8"));
-				Trail.ColorEnd = Hex(TEXT("ff8a3d"));
-				Trail.Intensity = 4.0;
-				Out.Add(Trail);
+				S.Trail = TrailBusy.IndexOfByKey(false);
+				if (S.Trail == INDEX_NONE)
+				{
+					if (UNiagaraComponent* Stream = Fx->MakeStream(EField::Sparks, RootComponent, NAME_None))
+					{
+						S.Trail = TrailStreams.Add(Stream);
+						TrailBusy.Add(false);
+					}
+				}
+				if (S.Trail != INDEX_NONE)
+				{
+					TrailBusy[S.Trail] = true;
+				}
+			}
+			UNiagaraComponent* Stream = TrailStreams.IsValidIndex(S.Trail) ? TrailStreams[S.Trail].Get() : nullptr;
+			static const FKartFxEmit Trail = []
+			{
+				FKartFxEmit E;
+				E.Field = EField::Sparks;
+				E.Direction = -FVector::UpVector;
+				E.Spread = 0.5;
+				E.Speed = { 0.5, 2.5 };
+				E.Life = { 0.35, 0.6 };
+				E.Size = { 0.08, 0.14 };
+				E.SizeEnd = 0.2;
+				E.Color = Hex(TEXT("ffe2a8"));
+				E.ColorEnd = Hex(TEXT("ff8a3d"));
+				E.Intensity = 4.0;
+				return E;
+			}();
+			if (Stream)
+			{
+				Stream->SetWorldLocation(P);
+				UKartFxSubsystem::UpdateStream(Stream, Trail, T < 1.0 ? 70.0 : 0.0);
 			}
 			if (T >= 1.0)
 			{
 				S.bBurst = true;
+				if (TrailBusy.IsValidIndex(S.Trail))
+				{
+					TrailBusy[S.Trail] = false;
+				}
+				S.Trail = INDEX_NONE;
 				FKartFxEmit Stars;
 				Stars.Field = EField::Sparks;
 				Stars.Position = S.Burst;

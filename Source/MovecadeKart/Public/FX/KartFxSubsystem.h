@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "FX/KartFx.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/ObjectKey.h"
 #include "KartFxSubsystem.generated.h"
 
 class UNiagaraComponent;
@@ -42,11 +43,28 @@ protected:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 
 private:
-	static void ApplyOptions(UNiagaraComponent* Component, const MovecadeKart::Fx::FKartFxEmit& Options);
+	/** Pushes the emit options as user parameters; with Sent, only those that moved from Sent (which is then updated). */
+	static void ApplyOptions(UNiagaraComponent* Component, const MovecadeKart::Fx::FKartFxEmit& Options, MovecadeKart::Fx::FKartFxEmit* Sent = nullptr);
 
 	UPROPERTY()
 	mutable TArray<TObjectPtr<UNiagaraSystem>> Systems;
 	mutable TSet<int32> Missing;
+
+	/**
+	 * What each stream last had pushed, so a frame only sends the parameters that changed, and when it went idle:
+	 * a stream idle for a while is deactivated (an active system with no particles still ticks its scripts) and
+	 * reactivated with its next rate above 0.
+	 */
+	struct FStreamState
+	{
+		MovecadeKart::Fx::FKartFxEmit Sent;
+		float Rate = 0.f;
+		double IdleSince = -1.0;
+		bool bSent = false;
+		bool bDeactivated = false;
+	};
+	TMap<TObjectKey<UNiagaraComponent>, FStreamState> Streams;
+	double NextStreamSweep = 0.0;
 
 	/** Bursts to deactivate once their one burst has spawned (the field emitters never stop on their own). */
 	struct FPendingBurst

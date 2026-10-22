@@ -5,6 +5,7 @@
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
+#include "GameFramework/GameUserSettings.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/App.h"
 #include "Render/KartGameUserSettings.h"
@@ -15,8 +16,36 @@ DEFINE_LOG_CATEGORY_STATIC(LogKartRender, Log, All);
 namespace
 {
 	TAutoConsoleVariable<float> CVarTargetFPS(
-		TEXT("kart.Render.TargetFPS"), 60.f,
-		TEXT("Frame rate the dynamic resolution heuristic and the frame-time guard hold (default 60)."));
+		TEXT("kart.Render.TargetFPS"), 0.f,
+		TEXT("Frame rate the dynamic resolution heuristic and the frame-time guard hold. 0 (default): the player's frame cap, ")
+		TEXT("else the display's refresh rate with vsync on, else 60; clamped to 30-144."));
+
+	/** The frame time (ms) the budget holds: kart.Render.TargetFPS, else derived from the frame cap and the display. */
+	float TargetFrameMs()
+	{
+		float Fps = CVarTargetFPS.GetValueOnGameThread();
+		if (Fps <= 0.f)
+		{
+			Fps = 60.f;
+			if (const UGameUserSettings* Settings = GEngine ? GEngine->GetGameUserSettings() : nullptr)
+			{
+				const float Refresh = static_cast<float>(FPlatformMisc::GetMaxRefreshRate());
+				if (Settings->GetFrameRateLimit() > 0.f)
+				{
+					Fps = Settings->GetFrameRateLimit();
+					if (Settings->IsVSyncEnabled() && Refresh > 0.f)
+					{
+						Fps = FMath::Min(Fps, Refresh);
+					}
+				}
+				else if (Settings->IsVSyncEnabled() && Refresh > 0.f)
+				{
+					Fps = Refresh;
+				}
+			}
+		}
+		return 1000.f / FMath::Clamp(Fps, 30.f, 144.f);
+	}
 
 	TAutoConsoleVariable<bool> CVarGuard(
 		TEXT("kart.Render.Guard"), true,
@@ -111,7 +140,8 @@ void UKartRenderQualitySubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	}
 	// Hold the target frame rate with the engine's dynamic resolution heuristic (r.DynamicRes.OperationMode=1 lets the
 	// player's dynamic resolution setting turn it off).
-	SetFromCode(TEXT("r.DynamicRes.FrameTimeBudget"), 1000.f / FMath::Max(CVarTargetFPS.GetValueOnGameThread(), 1.f));
+	BudgetMs = TargetFrameMs();
+	SetFromCode(TEXT("r.DynamicRes.FrameTimeBudget"), BudgetMs);
 
 	NumViews = CountViews();
 	ApplyBudget();
@@ -191,6 +221,9 @@ void UKartRenderQualitySubsystem::HandleGraphicsApplied(const UKartGameUserSetti
 	GuardSteps = 0;
 	OverBudgetSeconds = HeadroomSeconds = 0.f;
 	GuardCooldown = GuardCooldownSeconds;
+	// The frame cap or vsync may have changed: hold the new frame time.
+	BudgetMs = TargetFrameMs();
+	SetFromCode(TEXT("r.DynamicRes.FrameTimeBudget"), BudgetMs);
 	ApplyBudget();
 }
 
@@ -241,7 +274,6 @@ void UKartRenderQualitySubsystem::UpdateGuard(float DeltaSeconds, float Gpu)
 		return;
 	}
 
-	const float BudgetMs = 1000.f / FMath::Max(CVarTargetFPS.GetValueOnGameThread(), 1.f);
 	// Dynamic resolution is the first line of defence; only step features down once it has nothing left to give
 	// (or right away when the player has turned it off).
 	bool bDynamic = false;

@@ -41,6 +41,9 @@ namespace
 	const FName PColorEnd(TEXT("ColorEnd"));
 	const FName PJitter(TEXT("Jitter"));
 	const FName PInherit(TEXT("Inherit"));
+
+	/** An idle stream (rate 0) is deactivated after this long; every field's particles live under 1.5 s. */
+	constexpr double StreamIdleSeconds = 2.5;
 }
 
 UKartFxSubsystem* UKartFxSubsystem::Get(const UObject* WorldContext)
@@ -81,25 +84,83 @@ UNiagaraSystem* UKartFxSubsystem::GetSystem(EField Field) const
 	return Systems[Index].Get();
 }
 
-void UKartFxSubsystem::ApplyOptions(UNiagaraComponent* C, const FKartFxEmit& O)
+void UKartFxSubsystem::ApplyOptions(UNiagaraComponent* C, const FKartFxEmit& O, FKartFxEmit* Sent)
 {
 	// Web units -> UE: metres to cm.
-	FVector Dir = O.Direction.GetSafeNormal();
-	if (Dir.IsNearlyZero())
-	{
-		Dir = FVector::UpVector;
-	}
 	const float Intensity = static_cast<float>(O.Intensity);
-	C->SetVariableVec3(PDirection, Dir);
-	C->SetVariableFloat(PSpread, static_cast<float>(FMath::Clamp(O.Spread, 0.0, UE_DOUBLE_PI)));
-	C->SetVariableVec2(PSpeed, FVector2D(O.Speed.X * 100.0, O.Speed.Y * 100.0));
-	C->SetVariableVec2(PLife, FVector2D(FMath::Max(0.01, O.Life.X), FMath::Max(0.01, O.Life.Y)));
-	C->SetVariableVec2(PSize, FVector2D(O.Size.X * 100.0, O.Size.Y * 100.0));
-	C->SetVariableFloat(PSizeEnd, static_cast<float>(O.SizeEnd));
-	C->SetVariableLinearColor(PColor, FLinearColor(O.Color.R * Intensity, O.Color.G * Intensity, O.Color.B * Intensity, O.Color.A));
-	C->SetVariableLinearColor(PColorEnd, FLinearColor(O.ColorEnd.R * Intensity, O.ColorEnd.G * Intensity, O.ColorEnd.B * Intensity, O.ColorEnd.A));
-	C->SetVariableFloat(PJitter, static_cast<float>(O.Jitter * 100.0));
-	C->SetVariableVec3(PInherit, O.InheritCm);
+	if (!Sent || !O.Direction.Equals(Sent->Direction, 1e-3))
+	{
+		FVector Dir = O.Direction.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			Dir = FVector::UpVector;
+		}
+		C->SetVariableVec3(PDirection, Dir);
+		if (Sent)
+		{
+			Sent->Direction = O.Direction;
+		}
+	}
+	if (!Sent || O.Spread != Sent->Spread)
+	{
+		C->SetVariableFloat(PSpread, static_cast<float>(FMath::Clamp(O.Spread, 0.0, UE_DOUBLE_PI)));
+	}
+	if (!Sent || O.Speed != Sent->Speed)
+	{
+		C->SetVariableVec2(PSpeed, FVector2D(O.Speed.X * 100.0, O.Speed.Y * 100.0));
+	}
+	if (!Sent || O.Life != Sent->Life)
+	{
+		C->SetVariableVec2(PLife, FVector2D(FMath::Max(0.01, O.Life.X), FMath::Max(0.01, O.Life.Y)));
+	}
+	if (!Sent || O.Size != Sent->Size)
+	{
+		C->SetVariableVec2(PSize, FVector2D(O.Size.X * 100.0, O.Size.Y * 100.0));
+	}
+	if (!Sent || O.SizeEnd != Sent->SizeEnd)
+	{
+		C->SetVariableFloat(PSizeEnd, static_cast<float>(O.SizeEnd));
+	}
+	const bool bIntensity = !Sent || O.Intensity != Sent->Intensity;
+	if (bIntensity || !O.Color.Equals(Sent->Color, 1e-4f))
+	{
+		C->SetVariableLinearColor(PColor, FLinearColor(O.Color.R * Intensity, O.Color.G * Intensity, O.Color.B * Intensity, O.Color.A));
+		if (Sent)
+		{
+			Sent->Color = O.Color;
+		}
+	}
+	if (bIntensity || !O.ColorEnd.Equals(Sent->ColorEnd, 1e-4f))
+	{
+		C->SetVariableLinearColor(PColorEnd, FLinearColor(O.ColorEnd.R * Intensity, O.ColorEnd.G * Intensity, O.ColorEnd.B * Intensity, O.ColorEnd.A));
+		if (Sent)
+		{
+			Sent->ColorEnd = O.ColorEnd;
+		}
+	}
+	if (!Sent || O.Jitter != Sent->Jitter)
+	{
+		C->SetVariableFloat(PJitter, static_cast<float>(O.Jitter * 100.0));
+	}
+	if (!Sent || !O.InheritCm.Equals(Sent->InheritCm, 0.5))
+	{
+		C->SetVariableVec3(PInherit, O.InheritCm);
+		if (Sent)
+		{
+			Sent->InheritCm = O.InheritCm;
+		}
+	}
+	if (Sent)
+	{
+		// The exactly compared options are now what was pushed.
+		Sent->Spread = O.Spread;
+		Sent->Speed = O.Speed;
+		Sent->Life = O.Life;
+		Sent->Size = O.Size;
+		Sent->SizeEnd = O.SizeEnd;
+		Sent->Intensity = O.Intensity;
+		Sent->Jitter = O.Jitter;
+	}
 }
 
 void UKartFxSubsystem::Emit(const FKartFxEmit& O)
@@ -140,6 +201,18 @@ void UKartFxSubsystem::Tick(float DeltaTime)
 		return;
 	}
 	const double Now = World->GetTimeSeconds();
+	if (Now >= NextStreamSweep)
+	{
+		// Forget streams that were destroyed (projectile trails, karts that left).
+		NextStreamSweep = Now + 5.0;
+		for (auto It = Streams.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().ResolveObjectPtr())
+			{
+				It.RemoveCurrent();
+			}
+		}
+	}
 	for (int32 i = Bursts.Num() - 1; i >= 0; --i)
 	{
 		if (Now >= Bursts[i].DeactivateAt)
@@ -188,18 +261,60 @@ void UKartFxSubsystem::UpdateStream(UNiagaraComponent* Stream, const FKartFxEmit
 	{
 		return;
 	}
-	if (Rate > 0.0)
+	UKartFxSubsystem* Self = Get(Stream);
+	if (!Self)
 	{
+		// No subsystem to remember the stream: push everything and never deactivate.
 		ApplyOptions(Stream, Options);
-		Stream->SetVariableFloat(PRate, static_cast<float>(Rate));
-		if (!Stream->IsActive())
+		Stream->SetVariableFloat(PRate, static_cast<float>(FMath::Max(0.0, Rate)));
+		if (Rate > 0.0 && !Stream->IsActive())
 		{
 			Stream->SetVariableInt(PCount, 0);
 			Stream->Activate(true);
 		}
+		return;
 	}
-	else if (Stream->IsActive())
+	FStreamState& State = Self->Streams.FindOrAdd(Stream);
+	if (Rate > 0.0)
+	{
+		ApplyOptions(Stream, Options, State.bSent ? &State.Sent : nullptr);
+		if (!State.bSent)
+		{
+			State.Sent = Options;
+			State.bSent = true;
+		}
+		const float NewRate = static_cast<float>(Rate);
+		if (NewRate != State.Rate)
+		{
+			Stream->SetVariableFloat(PRate, NewRate);
+			State.Rate = NewRate;
+		}
+		State.IdleSince = -1.0;
+		// A deactivated stream reports active until its last particle is gone: restart it either way.
+		if (State.bDeactivated || !Stream->IsActive())
+		{
+			State.bDeactivated = false;
+			Stream->SetVariableInt(PCount, 0);
+			Stream->Activate(true);
+		}
+		return;
+	}
+	if (State.bDeactivated || !Stream->IsActive())
+	{
+		return;
+	}
+	const UWorld* World = Stream->GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+	if (State.Rate != 0.f || State.IdleSince < 0.0)
 	{
 		Stream->SetVariableFloat(PRate, 0.f);
+		State.Rate = 0.f;
+		State.IdleSince = Now;
+	}
+	else if (Now - State.IdleSince > StreamIdleSeconds)
+	{
+		// Its particles are long gone: stop ticking the system until the stream is wanted again.
+		Stream->Deactivate();
+		State.bDeactivated = true;
 	}
 }
