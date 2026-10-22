@@ -6,6 +6,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/Texture.h"
 #include "KartDriverAnimInstance.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
@@ -15,6 +16,39 @@ DEFINE_LOG_CATEGORY_STATIC(LogAvatarDressing, Log, All);
 
 namespace
 {
+	/** The skin tone instances of M_AvatarSkin (each with its own subsurface profile), in ESkinTone order. */
+	const TCHAR* const SkinToneMaterials[] = { TEXT("/Game/Avatars/Materials/MI_AvatarSkin_Light.MI_AvatarSkin_Light"),
+		TEXT("/Game/Avatars/Materials/MI_AvatarSkin_Medium.MI_AvatarSkin_Medium"), TEXT("/Game/Avatars/Materials/MI_AvatarSkin_Deep.MI_AvatarSkin_Deep") };
+	/** The skin's maps, per driver, carried over onto the tone instance. */
+	const TCHAR* const SkinMaps[] = { TEXT("BaseTex"), TEXT("NormalTex"), TEXT("AOTex") };
+	/** Skin luminance (linear) above which a tone is light, and below which it is deep. */
+	constexpr float LightToneFrom = 0.42f;
+	constexpr float DeepToneBelow = 0.15f;
+	/** The stock tones' luminance range (KartLook.cpp: deep 6b3d28 .. porcelain f9e4d2), over which the tuning eases. */
+	constexpr float DeepestLuma = 0.06f;
+	constexpr float PalestLuma = 0.8f;
+	/** Shading that follows the skin's depth (from deep to light): scatter, flush, warm rim and the lift in shadow. */
+	constexpr float ScatterDeep = 0.55f, ScatterLight = 0.95f;
+	constexpr float FlushDeep = 0.45f, FlushLight = 1.f;
+	constexpr float RimDeep = 0.05f, RimLight = 0.12f;
+	constexpr float LiftDeep = 0.012f, LiftLight = 0.006f;
+	constexpr float SaturationDeep = 0.78f, SaturationLight = 0.98f;
+	/** The lips: a satin finish over the skin. */
+	constexpr float LipRoughness = 0.36f;
+	constexpr float LipSpecular = 0.5f;
+	/** Brows and lashes (the "hair" slot) get their own material: the hair colour deepened, the lashes near black. */
+	const TCHAR* const BrowMaterial = TEXT("/Game/Avatars/Materials/M_AvatarBrow.M_AvatarBrow");
+	constexpr float BrowDarken = 0.55f;
+	/** The eyes are re-aimed when they turn by more than this (radians); finer turns aren't visible. */
+	constexpr float EyeAimEpsilon = 0.004f;
+
+	/** The eye material's gaze parameter (M_AvatarEye): the eyes' direction in the mesh's rest space. */
+	const FName& EyeGazeParam()
+	{
+		static const FName Name(TEXT("EyeGaze"));
+		return Name;
+	}
+
 	FLinearColor Lerp3(const FLinearColor& A, const FLinearColor& B, float T)
 	{
 		return FLinearColor(FMath::Lerp(A.R, B.R, T), FMath::Lerp(A.G, B.G, T), FMath::Lerp(A.B, B.B, T), 1.f);
@@ -48,8 +82,45 @@ namespace MovecadeKart::Avatar
 {
 	FLinearColor LipColour(const FLinearColor& Skin)
 	{
-		const FLinearColor Rose = FLinearColor::FromSRGBColor(FColor(0xc8, 0x50, 0x6a));
-		return Lerp3(Skin, Rose, 0.42f) * 0.9f;
+		// A muted rose: lips read as the skin's own, a little deeper and pinker, not painted on.
+		const FLinearColor Rose = FLinearColor::FromSRGBColor(FColor(0xb8, 0x5a, 0x66));
+		return Lerp3(Skin, Rose, 0.3f) * 0.86f;
+	}
+
+	FLinearColor BrowColour(const FLinearColor& Hair)
+	{
+		FLinearColor C = Hair * BrowDarken;
+		C.A = 1.f;
+		return C;
+	}
+
+	FSkinTuning SkinTuning(const FLinearColor& Skin)
+	{
+		const float Luma = Skin.GetLuminance();
+		FSkinTuning T;
+		T.Tone = Luma >= LightToneFrom ? ESkinTone::Light : (Luma < DeepToneBelow ? ESkinTone::Deep : ESkinTone::Medium);
+		// 0 at the deepest stock tone .. 1 at the palest; the tuning eases between the two ends.
+		const float Light01 = FMath::Clamp((Luma - DeepestLuma) / (PalestLuma - DeepestLuma), 0.f, 1.f);
+		T.Scatter = FMath::Lerp(ScatterDeep, ScatterLight, Light01);
+		T.Flush = FMath::Lerp(FlushDeep, FlushLight, Light01);
+		T.Rim = FMath::Lerp(RimDeep, RimLight, Light01);
+		T.Lift = FMath::Lerp(LiftDeep, LiftLight, Light01);
+		T.Saturation = FMath::Lerp(SaturationDeep, SaturationLight, Light01);
+		return T;
+	}
+
+	FEyeRig EyeRig(EKartFace Face)
+	{
+		// Fitted to each face's eyeWhite sphere (both bodies share the head); AvatarEyeRigTest checks them against the meshes.
+		static const FEyeRig Rigs[] = {
+			{ FVector(6.18, -9.075, 224.105), 4.37f },   // Kai
+			{ FVector(6.40, -8.795, 224.073), 4.385f },  // Leo
+			{ FVector(5.99, -9.125, 224.053), 4.33f },   // Mira
+			{ FVector(6.69, -8.954, 224.062), 4.274f },  // Nia
+			{ FVector(6.50, -8.674, 224.083), 4.39f },   // Omar
+			{ FVector(5.90, -8.860, 224.075), 4.405f },  // Rose
+		};
+		return Rigs[FMath::Min(static_cast<int32>(Face), static_cast<int32>(UE_ARRAY_COUNT(Rigs)) - 1)];
 	}
 
 	FLinearColor IrisColour(EKartFace Face)
@@ -102,9 +173,10 @@ namespace MovecadeKart::Avatar
 			Driver->SetSkeletalMeshAsset(Mesh);
 			Driver->SetVisibility(true);
 			DriverTints.Reset();
-			static const FName Tinted[] = { TEXT("skin"), TEXT("skin_body"), TEXT("lips"), TEXT("hair"), TEXT("hair_short"), TEXT("hair_bangs"),
+			BuiltTone = ESkinTone::Count;
+			static const FName Tinted[] = { TEXT("lips"), TEXT("hair_short"), TEXT("hair_bangs"),
 				TEXT("hair_puff"), TEXT("hair_tail"), TEXT("hair_crop"), TEXT("hair_curls"), TEXT("hair_bob"), TEXT("hair_bun"),
-				TEXT("jersey"), TEXT("pants"), TEXT("waist"), TEXT("shoes"), TEXT("acc_cap"), TEXT("acc_headband"), TEXT("iris") };
+				TEXT("jersey"), TEXT("pants"), TEXT("waist"), TEXT("shoes"), TEXT("acc_cap"), TEXT("acc_headband"), TEXT("iris"), TEXT("eyeWhite") };
 			for (const FName Slot : Tinted)
 			{
 				const int32 Index = Driver->GetMaterialIndex(Slot);
@@ -113,6 +185,7 @@ namespace MovecadeKart::Avatar
 					DriverTints.Add(Slot, Driver->CreateDynamicMaterialInstance(Index));
 				}
 			}
+			DressFace(Driver, Look.Face);
 			// The face's resting expression (avatar4 appeal pass: a gentle smile and cheek lift).
 			Driver->SetMorphTarget(TEXT("mouthSmile"), 0.22f);
 			Driver->SetMorphTarget(TEXT("cheekSquint"), 0.12f);
@@ -137,15 +210,9 @@ namespace MovecadeKart::Avatar
 			Outfit->SetLeaderPoseComponent(Garment ? Driver : nullptr);
 			Outfit->SetVisibility(Garment != nullptr);
 			OutfitTints.Reset();
-			if (Garment)
-			{
-				const int32 Index = Outfit->GetMaterialIndex(TEXT("skin"));
-				if (Index != INDEX_NONE)
-				{
-					OutfitTints.Add(TEXT("skin"), Outfit->CreateDynamicMaterialInstance(Index));
-				}
-			}
+			BuiltTone = ESkinTone::Count; // the garment's bare skin needs its instance too
 		}
+		DressSkin(Driver, Outfit, Look);
 
 		// Which sections show: one hair style (none under a cap), the accessory, and the stock clothes only
 		// without an outfit.
@@ -164,6 +231,110 @@ namespace MovecadeKart::Avatar
 		}
 		DressProp(Driver, Look);
 		return Result;
+	}
+
+	UMaterialInstanceDynamic* FDressing::MakeSkin(USkeletalMeshComponent* Mesh, int32 Index, ESkinTone Tone)
+	{
+		UMaterialInterface* Current = Mesh->GetSkeletalMeshAsset() ? Mesh->GetSkeletalMeshAsset()->GetMaterials()[Index].MaterialInterface.Get() : nullptr;
+		UMaterialInterface* ToneParent = LoadObject<UMaterialInterface>(nullptr, SkinToneMaterials[static_cast<int32>(Tone)], nullptr, LOAD_NoWarn | LOAD_Quiet);
+		if (!ToneParent || !Current)
+		{
+			// Materials from before the tone instances (import_karts.py avatarfaces not run): the mesh's own skin.
+			return Mesh->CreateDynamicMaterialInstance(Index);
+		}
+		UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(ToneParent, Mesh);
+		for (const TCHAR* Map : SkinMaps)
+		{
+			UTexture* Texture = nullptr;
+			if (Current->GetTextureParameterValue(FHashedMaterialParameterInfo(Map), Texture) && Texture)
+			{
+				Mid->SetTextureParameterValue(Map, Texture);
+			}
+		}
+		Mesh->SetMaterial(Index, Mid);
+		return Mid;
+	}
+
+	void FDressing::DressSkin(USkeletalMeshComponent* Driver, USkeletalMeshComponent* Outfit, const FKartLook& Look)
+	{
+		const ESkinTone Tone = SkinTuning(Look.Skin).Tone;
+		if (Tone == BuiltTone)
+		{
+			return;
+		}
+		BuiltTone = Tone;
+		const FEyeRig Rig = EyeRig(Look.Face);
+		auto Make = [Tone, &Rig](USkeletalMeshComponent* Mesh, FName Slot, TMap<FName, TWeakObjectPtr<UMaterialInstanceDynamic>>& Tints)
+		{
+			const int32 Index = Mesh && Mesh->GetSkeletalMeshAsset() ? Mesh->GetMaterialIndex(Slot) : INDEX_NONE;
+			if (Index == INDEX_NONE)
+			{
+				return;
+			}
+			UMaterialInstanceDynamic* Mid = MakeSkin(Mesh, Index, Tone);
+			// The face's landmarks for the skin's regions (oily T-zone, matte cheeks, cavities) hang off the eyes.
+			Mid->SetVectorParameterValue(TEXT("EyeCentre"), FLinearColor(Rig.Centre));
+			Tints.Add(Slot, Mid);
+		};
+		Make(Driver, TEXT("skin"), DriverTints);
+		Make(Driver, TEXT("skin_body"), DriverTints);
+		if (Outfit && Outfit->GetSkeletalMeshAsset())
+		{
+			Make(Outfit, TEXT("skin"), OutfitTints);
+		}
+	}
+
+	void FDressing::DressFace(USkeletalMeshComponent* Driver, EKartFace Face)
+	{
+		const FEyeRig Rig = EyeRig(Face);
+		// Brows and lashes: their own material (lashes dark whatever the hair), told apart by height over the eyes.
+		const int32 BrowIndex = Driver->GetMaterialIndex(TEXT("hair"));
+		UMaterialInterface* Brow = BrowIndex != INDEX_NONE ? LoadObject<UMaterialInterface>(nullptr, BrowMaterial, nullptr, LOAD_NoWarn | LOAD_Quiet) : nullptr;
+		if (Brow)
+		{
+			UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Brow, Driver);
+			Mid->SetVectorParameterValue(TEXT("EyeCentre"), FLinearColor(Rig.Centre));
+			Driver->SetMaterial(BrowIndex, Mid);
+			DriverTints.Add(TEXT("hair"), Mid);
+		}
+		else if (BrowIndex != INDEX_NONE)
+		{
+			DriverTints.Add(TEXT("hair"), Driver->CreateDynamicMaterialInstance(BrowIndex)); // before M_AvatarBrow: the hair's own
+		}
+
+		// The lips are skin too: their regions (the mouth corners) hang off this face's eyes.
+		if (const TWeakObjectPtr<UMaterialInstanceDynamic>* Lips = DriverTints.Find(TEXT("lips")); Lips && Lips->IsValid())
+		{
+			(*Lips)->SetVectorParameterValue(TEXT("EyeCentre"), FLinearColor(Rig.Centre));
+		}
+
+		const TWeakObjectPtr<UMaterialInstanceDynamic>* Found = DriverTints.Find(TEXT("eyeWhite"));
+		UMaterialInstanceDynamic* Mid = Found ? Found->Get() : nullptr;
+		FLinearColor Probe;
+		Eyes = nullptr;
+		AimedEyes = FVector::ZeroVector;
+		if (!Mid || !Mid->GetVectorParameterValue(FHashedMaterialParameterInfo(EyeGazeParam()), Probe))
+		{
+			return; // the old eye material: keep the modelled irises
+		}
+		// The eye material paints the iris, limbus and pupil itself (so they can turn): the modelled ones go.
+		Mid->SetVectorParameterValue(TEXT("EyeCentre"), FLinearColor(Rig.Centre));
+		Mid->SetScalarParameterValue(TEXT("EyeRadius"), Rig.Radius);
+		ShowSlot(Driver, TEXT("iris"), false);
+		ShowSlot(Driver, TEXT("eyeDark"), false);
+		Eyes = Mid;
+	}
+
+	void FDressing::AimEyes(const FVector& MeshDirection)
+	{
+		UMaterialInstanceDynamic* Mid = Eyes.Get();
+		const FVector Direction = MeshDirection.GetSafeNormal();
+		if (!Mid || Direction.IsNearlyZero() || FVector::DotProduct(Direction, AimedEyes) > FMath::Cos(EyeAimEpsilon))
+		{
+			return;
+		}
+		AimedEyes = Direction;
+		Mid->SetVectorParameterValue(EyeGazeParam(), FLinearColor(Direction));
 	}
 
 	void FDressing::DressProp(USkeletalMeshComponent* Driver, const FKartLook& Look)
@@ -242,7 +413,7 @@ namespace MovecadeKart::Avatar
 		Tint(DriverTints, TEXT("skin"), Look.Skin);
 		Tint(DriverTints, TEXT("skin_body"), Look.Skin);
 		Tint(DriverTints, TEXT("lips"), LipColour(Look.Skin));
-		Tint(DriverTints, TEXT("hair"), Look.HairColor);
+		Tint(DriverTints, TEXT("hair"), BrowColour(Look.HairColor));
 		for (uint8 Hair = 0; Hair <= static_cast<uint8>(EKartHair::Bun); ++Hair)
 		{
 			Tint(DriverTints, *(FString(TEXT("hair_")) + FKartLook::HairId(static_cast<EKartHair>(Hair))), Look.HairColor);
@@ -255,17 +426,46 @@ namespace MovecadeKart::Avatar
 		Tint(DriverTints, TEXT("acc_headband"), DetailColour(Jersey));
 		Tint(DriverTints, TEXT("iris"), IrisColour(Look.Face));
 		Tint(OutfitTints, TEXT("skin"), Look.Skin);
+		if (UMaterialInstanceDynamic* Mid = Eyes.Get())
+		{
+			Mid->SetVectorParameterValue(TEXT("IrisColor"), IrisColour(Look.Face));
+		}
+
+		// The skin's shading for its tone, the lips' satin, and the skin the brows are softened toward.
+		const FSkinTuning Skin = SkinTuning(Look.Skin);
+		auto Scalars = [](const TMap<FName, TWeakObjectPtr<UMaterialInstanceDynamic>>& Map, const TCHAR* Slot, std::initializer_list<TPair<const TCHAR*, float>> Values)
+		{
+			if (const TWeakObjectPtr<UMaterialInstanceDynamic>* Found = Map.Find(Slot); Found && Found->IsValid())
+			{
+				for (const TPair<const TCHAR*, float>& Value : Values)
+				{
+					(*Found)->SetScalarParameterValue(Value.Key, Value.Value);
+				}
+			}
+		};
+		const std::initializer_list<TPair<const TCHAR*, float>> SkinValues = { { TEXT("Scatter"), Skin.Scatter }, { TEXT("Flush"), Skin.Flush },
+			{ TEXT("Rim"), Skin.Rim }, { TEXT("Lift"), Skin.Lift }, { TEXT("Saturation"), Skin.Saturation } };
+		for (const TCHAR* Slot : { TEXT("skin"), TEXT("skin_body"), TEXT("lips") })
+		{
+			Scalars(DriverTints, Slot, SkinValues);
+		}
+		Scalars(OutfitTints, TEXT("skin"), SkinValues);
+		Scalars(DriverTints, TEXT("lips"), { { TEXT("Roughness"), LipRoughness }, { TEXT("Specular"), LipSpecular } });
+		if (const TWeakObjectPtr<UMaterialInstanceDynamic>* Brows = DriverTints.Find(TEXT("hair")); Brows && Brows->IsValid())
+		{
+			(*Brows)->SetVectorParameterValue(TEXT("SkinTint"), Look.Skin);
+		}
 
 		// The player's rim colour on the clothes and hair (a faint edge on the skin), so the avatar reads at a glance.
 		const FLinearColor Rim = RimColour(Look);
 		static const FName SkinSlots[] = { TEXT("skin"), TEXT("skin_body"), TEXT("lips") };
-		static const FName IrisSlot(TEXT("iris"));
+		static const FName EyeSlots[] = { TEXT("iris"), TEXT("eyeWhite") };
 		for (const TPair<FName, TWeakObjectPtr<UMaterialInstanceDynamic>>& Pair : DriverTints)
 		{
 			if (UMaterialInstanceDynamic* Mid = Pair.Value.Get())
 			{
 				const bool bSkin = Algo::Find(SkinSlots, Pair.Key) != nullptr;
-				const bool bEye = Pair.Key == IrisSlot;
+				const bool bEye = Algo::Find(EyeSlots, Pair.Key) != nullptr;
 				Mid->SetVectorParameterValue(TEXT("RimColor"), Rim);
 				Mid->SetScalarParameterValue(TEXT("RimBoost"), bEye ? 0.f : (bSkin ? 0.05f : 0.22f));
 			}
