@@ -141,6 +141,8 @@ public:
 private:
 	void Show(const TSharedRef<FKartScreen>& Screen, float Direction);
 	int32 HitAt(const FVector2D& Local) const;
+	/** Widget-local to canvas units (the canvas never gets shorter than the 1080-unit design height). */
+	FVector2D ToCanvas(const FGeometry& Geometry, const FVector2D& ScreenPos) const;
 
 	TWeakObjectPtr<UWorld> World;
 	TFunction<void(const FKartPainter&, const FKartScreenFrame&)> Background;
@@ -155,4 +157,12 @@ private:
 	int32 HoverId = INDEX_NONE;
 	int32 PressedId = INDEX_NONE;
 	mutable FVector2D LastSize = FVector2D(1920.0, 1080.0);
+	/** Scale applied to fit the design canvas when the widget is shorter (a large UI scale); 1 otherwise. */
+	mutable float Fit = 1.f;
+	/** The top screen's hints, refreshed when the screen, the device or its state (an input) changes. */
+	mutable TArray<FKartHint> CachedHints;
+	mutable bool bHintsDirty = true;
+	mutable double HintsAt = -10.0;
+	mutable EKartInputDevice HintsDevice = EKartInputDevice::Keyboard;
+	mutable const FKartScreen* HintsScreen = nullptr;
 };

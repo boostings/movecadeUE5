@@ -50,7 +50,8 @@ namespace
 		{
 			P.Polygon(Teardrop(C + FVector2D(0.0, -S * 0.48 * Scale), C + FVector2D(0.0, S * 0.12 * Scale), S * 0.3 * Scale, -20.0, 200.0, 14), Fill);
 		};
-		Drop(1.f, Hex(TEXT("ff6a2a")));
+		static const FLinearColor Outer = Hex(TEXT("ff6a2a"));
+		Drop(1.f, Outer);
 		Drop(0.62f, Color::Sun);
 	}
 }
@@ -59,19 +60,23 @@ namespace KartItemIcons
 {
 	FLinearColor Tint(EKartItem Item)
 	{
+		// Built once: the HUD asks for these every frame.
+		static const FLinearColor Shot = Hex(TEXT("37c45a")), Seeker = Hex(TEXT("ec3b4b")), SkySeeker = Hex(TEXT("3b7cf0")),
+			Banana = Hex(TEXT("ff7a22")), Nitro = Hex(TEXT("ff8a2a")), Prism = Hex(TEXT("ffe25a")), Lightning = Hex(TEXT("ffd21f")),
+			Ink = Hex(TEXT("4a3f7a")), Bomb = Hex(TEXT("2b2b38")), Rocket = Hex(TEXT("f2f4f8"));
 		switch (Item)
 		{
-		case EKartItem::Shot: return Hex(TEXT("37c45a"));
-		case EKartItem::Seeker: return Hex(TEXT("ec3b4b"));
-		case EKartItem::SkySeeker: return Hex(TEXT("3b7cf0"));
-		case EKartItem::Banana: return Hex(TEXT("ff7a22"));
+		case EKartItem::Shot: return Shot;
+		case EKartItem::Seeker: return Seeker;
+		case EKartItem::SkySeeker: return SkySeeker;
+		case EKartItem::Banana: return Banana;
 		case EKartItem::Nitro:
-		case EKartItem::TripleNitro: return Hex(TEXT("ff8a2a"));
-		case EKartItem::Prism: return Hex(TEXT("ffe25a"));
-		case EKartItem::Lightning: return Hex(TEXT("ffd21f"));
-		case EKartItem::Ink: return Hex(TEXT("4a3f7a"));
-		case EKartItem::Bomb: return Hex(TEXT("2b2b38"));
-		case EKartItem::Rocket: return Hex(TEXT("f2f4f8"));
+		case EKartItem::TripleNitro: return Nitro;
+		case EKartItem::Prism: return Prism;
+		case EKartItem::Lightning: return Lightning;
+		case EKartItem::Ink: return Ink;
+		case EKartItem::Bomb: return Bomb;
+		case EKartItem::Rocket: return Rocket;
 		default: return Color::White;
 		}
 	}
@@ -160,9 +165,10 @@ namespace KartItemIcons
 			break;
 		case EKartItem::Bomb:
 		{
-			P.Circle(C + FVector2D(0.0, S * 0.08), S * 0.36f, Tint(Item), Color::White, S * 0.03f);
+			static const FLinearColor Fuse = Hex(TEXT("c99a5a"));
+		P.Circle(C + FVector2D(0.0, S * 0.08), S * 0.36f, Tint(Item), Color::White, S * 0.03f);
 			P.Box(C + FVector2D(-S * 0.08, -S * 0.36), FVector2D(S * 0.16, S * 0.12), Color::NavyDim, S * 0.03f);
-			P.Lines({ C + FVector2D(0.0, -S * 0.36), C + FVector2D(S * 0.1, -S * 0.44), C + FVector2D(S * 0.2, -S * 0.42) }, Hex(TEXT("c99a5a")), S * 0.04f);
+			P.Lines({ C + FVector2D(0.0, -S * 0.36), C + FVector2D(S * 0.1, -S * 0.44), C + FVector2D(S * 0.2, -S * 0.42) }, Fuse, S * 0.04f);
 			const float Spark = 0.8f + 0.3f * FMath::Sin(static_cast<float>(Now) * 30.f);
 			KartWidgets::Star(P, C + FVector2D(S * 0.24, -S * 0.44), S * 0.12f * Spark, S * 0.05f, Color::Sun, static_cast<float>(Now * 200.0));
 			P.Circle(C + FVector2D(-S * 0.13, -S * 0.02), S * 0.07f, Color::WithAlpha(Color::White, 0.6f));
@@ -170,14 +176,15 @@ namespace KartItemIcons
 		}
 		case EKartItem::Rocket:
 		{
-			const FVector2D Body(S * 0.7, S * 0.36);
+			static const FLinearColor Porthole = Hex(TEXT("5fd6ff"));
+		const FVector2D Body(S * 0.7, S * 0.36);
 			P.Box(C - FVector2D(S * 0.4, Body.Y * 0.5), FVector2D(S * 0.55, Body.Y), Tint(Item), S * 0.06f, Color::Night, S * 0.03f);
 			P.Polygon({ C + FVector2D(S * 0.15, -Body.Y * 0.5), C + FVector2D(S * 0.46, 0.0), C + FVector2D(S * 0.15, Body.Y * 0.5) }, Tint(Item));
 			P.Box(C + FVector2D(-S * 0.1, -Body.Y * 0.5), FVector2D(S * 0.08, Body.Y), Color::Hot);
 			P.Polygon({ C + FVector2D(-S * 0.4, -Body.Y * 0.5), C + FVector2D(-S * 0.5, -Body.Y * 0.95), C + FVector2D(-S * 0.24, -Body.Y * 0.5) }, Color::Hot);
 			P.Polygon({ C + FVector2D(-S * 0.4, Body.Y * 0.5), C + FVector2D(-S * 0.5, Body.Y * 0.95), C + FVector2D(-S * 0.24, Body.Y * 0.5) }, Color::Hot);
 			// A porthole, not an eye.
-			P.Circle(C + FVector2D(S * 0.05, 0.0), S * 0.075f, Hex(TEXT("5fd6ff")), Color::Night, S * 0.025f);
+			P.Circle(C + FVector2D(S * 0.05, 0.0), S * 0.075f, Porthole, Color::Night, S * 0.025f);
 			break;
 		}
 		default:

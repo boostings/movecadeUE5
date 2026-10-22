@@ -8,6 +8,7 @@ void SKartCurtain::Construct(const FArguments& InArgs)
 {
 	bClosing = InArgs._Closing;
 	SetVisibility(EVisibility::HitTestInvisible);
+	ForceVolatile(true);
 }
 
 void SKartCurtain::Close(TFunction<void()> InOnClosed)

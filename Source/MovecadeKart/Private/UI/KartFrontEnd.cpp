@@ -381,6 +381,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 	static const TMap<FName, int32> Settle = {
 		{ TEXT("title"), 3 }, { TEXT("menu"), 2 }, { TEXT("racers"), 4 }, { TEXT("rules"), 2 }, { TEXT("tracks"), 3 },
 		{ TEXT("settings"), 2 }, { TEXT("audio"), 2 }, { TEXT("controls"), 2 }, { TEXT("credits"), 2 }, { TEXT("quit"), 2 }, { TEXT("arcade"), 2 },
+		{ TEXT("welcome"), 3 }, { TEXT("accessibility"), 2 },
 		{ TEXT("store"), 2 }, { TEXT("storeparty"), 2 }, { TEXT("storefree"), 2 }, { TEXT("storebuy"), 2 }, { TEXT("storedone"), 2 }, // store
 	};
 	const int32* Seconds = Settle.Find(Step);
@@ -404,6 +405,12 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 			Screens->PushScreen(KartScreens::MakeTitle(this));
 			return true;
 		}
+		if (Step == TEXT("welcome"))
+		{
+			Screens->PushScreen(KartScreens::MakeTitle(this));
+			Screens->PushScreen(KartScreens::MakeWelcome(this));
+			return true;
+		}
 		Screens->PushScreen(KartScreens::MakeMainMenu(this));
 		if (Step == TEXT("racers") || Step == TEXT("rules") || Step == TEXT("tracks"))
 		{
@@ -417,9 +424,9 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 				Screens->PushScreen(KartScreens::MakeTracks(this));
 			}
 		}
-		else if (Step == TEXT("settings") || Step == TEXT("audio") || Step == TEXT("controls"))
+		else if (Step == TEXT("settings") || Step == TEXT("audio") || Step == TEXT("controls") || Step == TEXT("accessibility"))
 		{
-			Screens->PushScreen(KartScreens::MakeSettings(Step == TEXT("settings") ? 0 : Step == TEXT("audio") ? 1 : 2));
+			Screens->PushScreen(KartScreens::MakeSettings(Step == TEXT("settings") ? 0 : Step == TEXT("audio") ? 1 : Step == TEXT("controls") ? 2 : 3));
 		}
 		else if (Step == TEXT("arcade"))
 		{

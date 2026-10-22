@@ -50,6 +50,8 @@ void SKartScreenStack::Construct(const FArguments& InArgs)
 	World = InArgs._World;
 	Background = InArgs._Background;
 	bShowHints = InArgs._ShowHints;
+	// Every screen animates from the clock: repaint each frame even under global invalidation.
+	ForceVolatile(true);
 }
 
 TSharedPtr<FKartScreen> SKartScreenStack::Top() const
@@ -70,6 +72,7 @@ void SKartScreenStack::Show(const TSharedRef<FKartScreen>& Screen, float InDirec
 	ShownAt = FSlateApplication::Get().GetCurrentTime();
 	HoverId = INDEX_NONE;
 	Hits.Reset();
+	bHintsDirty = true;
 	Screen->OnShown();
 }
 
@@ -150,6 +153,7 @@ bool SKartScreenStack::HandleMenuEvent(const FKartMenuEvent& Event)
 	{
 		return Event.Action != EKartMenuAction::None;
 	}
+	bHintsDirty = true; // a handled key may change what the screen offers (a tab, a ready state)
 	if (Screen->HandleEvent(Event))
 	{
 		return true;
@@ -169,6 +173,11 @@ bool SKartScreenStack::HandleMenuEvent(const FKartMenuEvent& Event)
 	}
 	// The stack is modal: every mapped key stays in the menus.
 	return Event.Action != EKartMenuAction::None;
+}
+
+FVector2D SKartScreenStack::ToCanvas(const FGeometry& Geometry, const FVector2D& ScreenPos) const
+{
+	return FVector2D(Geometry.AbsoluteToLocal(ScreenPos)) / FMath::Max(Fit, 0.01f);
 }
 
 int32 SKartScreenStack::HitAt(const FVector2D& Local) const
@@ -191,7 +200,7 @@ FReply SKartScreenStack::OnMouseMove(const FGeometry& MyGeometry, const FPointer
 	{
 		return FReply::Unhandled();
 	}
-	const int32 Id = HitAt(FVector2D(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())));
+	const int32 Id = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
 	if (Id != HoverId)
 	{
 		HoverId = Id;
@@ -209,7 +218,7 @@ FReply SKartScreenStack::OnMouseButtonDown(const FGeometry& MyGeometry, const FP
 	{
 		return FReply::Unhandled();
 	}
-	PressedId = HitAt(FVector2D(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())));
+	PressedId = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
 	return FReply::Handled();
 }
 
@@ -229,10 +238,11 @@ FReply SKartScreenStack::OnMouseButtonUp(const FGeometry& MyGeometry, const FPoi
 	{
 		return FReply::Unhandled();
 	}
-	const int32 Id = HitAt(FVector2D(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())));
+	const int32 Id = HitAt(ToCanvas(MyGeometry, MouseEvent.GetScreenSpacePosition()));
 	if (Id != INDEX_NONE && Id == PressedId && FSlateApplication::Get().GetCurrentTime() - ShownAt > TransitionSeconds * 0.5)
 	{
 		Screen->OnClick(Id);
+		bHintsDirty = true;
 	}
 	PressedId = INDEX_NONE;
 	return FReply::Handled();
@@ -243,7 +253,12 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 {
 	int32 Layer = LayerId;
 	Hits.Reset();
-	FKartPainter P(AllottedGeometry, OutDrawElements, Layer, &Hits);
+	// Screens are laid out on a canvas at least 1080 units tall. A UI scale above 100 % makes the widget shorter
+	// than that; the menus then scale back down to fit (the HUDs still grow), so no layout ever runs off screen.
+	const FVector2D Allotted(AllottedGeometry.GetLocalSize());
+	Fit = Allotted.Y > 1.0 ? FMath::Min(1.f, static_cast<float>(Allotted.Y / KartUI::Metric::CanvasH)) : 1.f;
+	const FGeometry Canvas = Fit < 1.f ? AllottedGeometry.MakeChild(FVector2f(Allotted / Fit), FSlateLayoutTransform(Fit)) : AllottedGeometry;
+	FKartPainter P(Canvas, OutDrawElements, Layer, &Hits);
 
 	FKartScreenFrame Frame;
 	Frame.Size = P.Size();
@@ -298,7 +313,16 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 		}
 		if (bShowHints)
 		{
-			KartWidgets::Hints(P.Faded(Frame.Presence), Frame, Screen->GetHints());
+			// Hints are rebuilt only when something could change them (plus a slow safety refresh), not every paint.
+			if (bHintsDirty || HintsScreen != Screen.Get() || HintsDevice != Frame.Device || Frame.Now - HintsAt > 0.5)
+			{
+				CachedHints = Screen->GetHints();
+				bHintsDirty = false;
+				HintsScreen = Screen.Get();
+				HintsDevice = Frame.Device;
+				HintsAt = Frame.Now;
+			}
+			KartWidgets::Hints(P.Faded(Frame.Presence), Frame, CachedHints);
 		}
 	}
 	return Layer;

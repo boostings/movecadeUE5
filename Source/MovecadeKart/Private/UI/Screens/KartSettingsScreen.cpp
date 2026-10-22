@@ -4,6 +4,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/GameUserSettings.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "UI/KartAccessibility.h"
 #include "UI/KartPlayerPrefs.h"
 #include "Render/KartGameUserSettings.h"
 #include "UI/KartWidgets.h"
@@ -30,6 +31,8 @@ namespace
 
 	enum EGraphicsRow : int32 { Preset, Resolution, DisplayMode, VSync, FrameCap, RayTracing, MotionBlur, ApplyDisplay, GraphicsRows };
 	enum EAudioRow : int32 { Master, Music, Effects, AudioRows };
+	enum EAccessRow : int32 { UIScaleRow, ReduceMotionRow, ColorVisionRow, ReplayWelcomeRow, AccessRows };
+	constexpr int32 NumTabs = 4;
 
 	struct FBinding
 	{
@@ -57,7 +60,7 @@ namespace
 	class FSettingsScreen final : public FKartScreen
 	{
 	public:
-		explicit FSettingsScreen(int32 InTab) : Tab(FMath::Clamp(InTab, 0, 2))
+		explicit FSettingsScreen(int32 InTab) : Tab(FMath::Clamp(InTab, 0, NumTabs - 1))
 		{
 			FIntPoint Current(1920, 1080);
 			if (const UGameUserSettings* S = GameSettings())
@@ -74,14 +77,22 @@ namespace
 			ResetCursor();
 		}
 
-		virtual FName GetId() const override { return Tab == 0 ? FName(TEXT("settings")) : Tab == 1 ? FName(TEXT("audio")) : FName(TEXT("controls")); }
+		virtual FName GetId() const override
+		{
+			static const FName Ids[] = { TEXT("settings"), TEXT("audio"), TEXT("controls"), TEXT("accessibility") };
+			return Ids[FMath::Clamp(Tab, 0, NumTabs - 1)];
+		}
 
 		virtual void OnShown() override { FocusAt = NowSeconds(); }
 
 		virtual TArray<FKartHint> GetHints() const override
 		{
 			TArray<FKartHint> Hints = { { EKartMenuAction::PrevTab, FText::GetEmpty() }, { EKartMenuAction::NextTab, LOCTEXT("Tabs", "Tabs") } };
-			if (Tab != 2)
+			if (Tab == 3 && Cursor.Index == ReplayWelcomeRow)
+			{
+				Hints.Add({ EKartMenuAction::Accept, LOCTEXT("Select", "Select") });
+			}
+			else if (Tab != 2)
 			{
 				Hints.Add({ EKartMenuAction::Left, LOCTEXT("Change", "Change") });
 			}
@@ -96,7 +107,7 @@ namespace
 			{
 			case EKartMenuAction::PrevTab:
 			case EKartMenuAction::NextTab:
-				SetTab(FKartMenuCursor::Cycle(Tab, Event.Action == EKartMenuAction::PrevTab ? -1 : 1, 3));
+				SetTab(FKartMenuCursor::Cycle(Tab, Event.Action == EKartMenuAction::PrevTab ? -1 : 1, NumTabs));
 				return true;
 			case EKartMenuAction::Up:
 			case EKartMenuAction::Down:
@@ -118,6 +129,10 @@ namespace
 				else if (Tab != 2)
 				{
 					Change(Cursor.Index, 1);
+				}
+				else
+				{
+					Host->PlaySound(EKartUISound::Error); // the controls page is read-only
 				}
 				return true;
 			case EKartMenuAction::Back:
@@ -167,6 +182,7 @@ namespace
 			KartWidgets::Header(P, Frame, LOCTEXT("SettingsTitle", "Settings"), FText::GetEmpty(), Color::Grape);
 			PaintTabs(P, Frame);
 			const double Left = Frame.Size.X * 0.5 - 520.0 + KartWidgets::SlideX(Frame);
+			const FKartPaintGroup Group(P);
 			const double Top = Frame.SafeMin.Y + 230.0;
 			const FVector2D RowSize(1040.0, 72.0);
 			const double Step = RowSize.Y + 12.0;
@@ -196,8 +212,10 @@ namespace
 				};
 				for (int32 Row = 0; Row < UE_ARRAY_COUNT(Rows); ++Row)
 				{
+					Group.Next();
 					KartWidgets::OptionRow(Body, FVector2D(Left + Shift, Top + Row * Step), RowSize, Rows[Row].Label, Rows[Row].Value, State(Row, Frame, Rows[Row].bEnabled), Row);
 				}
+				Group.Next();
 				FItemState ApplyState = State(ApplyDisplay, Frame, bPending);
 				KartWidgets::Button(Body, FVector2D(Left + Shift, Top + ApplyDisplay * Step + 10.0), FVector2D(520.0, 80.0),
 					bPending ? LOCTEXT("ApplyChanges", "Apply changes") : LOCTEXT("Applied", "All changes applied"), ApplyState, Color::Mint, ApplyDisplay);
@@ -209,12 +227,17 @@ namespace
 				const float Values[] = { Prefs->MasterVolume, Prefs->MusicVolume, Prefs->SfxVolume };
 				for (int32 Row = 0; Row < AudioRows; ++Row)
 				{
+					Group.Next();
 					KartWidgets::SliderRow(Body, FVector2D(Left + Shift, Top + Row * (Step + 12.0)), FVector2D(RowSize.X, 84.0), Labels[Row], Values[Row], State(Row, Frame), Row);
 				}
 			}
-			else
+			else if (Tab == 2)
 			{
 				PaintControls(Body, Frame, FVector2D(Left + Shift, Top - 10.0));
+			}
+			else
+			{
+				PaintAccessibility(Body, Frame, Group, FVector2D(Left + Shift, Top), RowSize, Step);
 			}
 		}
 
@@ -247,9 +270,48 @@ namespace
 			return S;
 		}
 
+		void PaintAccessibility(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartPaintGroup& Group, const FVector2D& Pos, const FVector2D& RowSize, double Step)
+		{
+			const UKartPlayerPrefs* Prefs = GetDefault<UKartPlayerPrefs>();
+			static const FText Visions[] = { LOCTEXT("VisionStandard", "Standard"), LOCTEXT("VisionRedGreen", "Red-green friendly"), LOCTEXT("VisionBlueYellow", "Blue-yellow friendly") };
+			const int32 ScalePercent = FMath::RoundToInt32(FKartAccessibility::UIScale() * 100.f);
+			if (ScalePercent != ScaleShown)
+			{
+				ScaleShown = ScalePercent;
+				ScaleText = FText::Format(LOCTEXT("ScalePercent", "{0}%"), ScalePercent);
+			}
+			struct FRow { FText Label; FText Value; };
+			const FRow Rows[] = {
+				{ LOCTEXT("UIScale", "UI scale"), ScaleText },
+				{ LOCTEXT("ReduceMotion", "Reduce motion"), OnOff(Prefs->bReduceMotion) },
+				{ LOCTEXT("ColorVision", "Colour vision"), Visions[static_cast<int32>(FKartAccessibility::ColorVision())] },
+			};
+			for (int32 Row = 0; Row < UE_ARRAY_COUNT(Rows); ++Row)
+			{
+				Group.Next();
+				// The colour-vision row shows the good / bad pair it uses as a swatch.
+				KartWidgets::OptionRow(P, FVector2D(Pos.X, Pos.Y + Row * Step), RowSize, Rows[Row].Label, Rows[Row].Value, State(Row, Frame), Row,
+					Row == ColorVisionRow ? FKartAccessibility::Good() : FLinearColor::Transparent);
+			}
+			Group.Next();
+			KartWidgets::Button(P, FVector2D(Pos.X, Pos.Y + ReplayWelcomeRow * Step + 10.0), FVector2D(620.0, 80.0),
+				Prefs->bSeenHowItWorks ? LOCTEXT("ReplayWelcome", "Replay the welcome guide") : LOCTEXT("WelcomeQueued", "Guide shows at next start"),
+				State(ReplayWelcomeRow, Frame, Prefs->bSeenHowItWorks), Color::Sky, ReplayWelcomeRow);
+			// What the focused option does, under the rows.
+			static const FText Notes[] = {
+				LOCTEXT("UIScaleNote", "Makes the race and party-game HUDs bigger or smaller; below 100% the menus shrink too. Bigger reads better from the couch."),
+				LOCTEXT("ReduceMotionNote", "Tones down screen shake, flashes, bounces and spinning effects in menus, races and party games."),
+				LOCTEXT("ColorVisionNote", "Swaps the colours that carry meaning (ready, gained or lost a place, warnings) for a pair you can tell apart, and labels players on the minimap."),
+				LOCTEXT("ReplayNote", "Shows the one-page guide to phones, pads and house players after the title screen."),
+			};
+			const FText& Note = Notes[FMath::Clamp(Cursor.Index, 0, AccessRows - 1)];
+			Group.Next();
+			P.TextWrapped(Note, Font(EFont::Body, 24.f, 2.f), FVector2D(Pos.X + 8.0, Pos.Y + AccessRows * Step + 40.0), RowSize.X - 16.0, Color::White);
+		}
+
 		void ResetCursor()
 		{
-			Cursor.Count = Tab == 0 ? GraphicsRows : Tab == 1 ? AudioRows : 0;
+			Cursor.Count = Tab == 0 ? GraphicsRows : Tab == 1 ? AudioRows : Tab == 3 ? AccessRows : 0;
 			Cursor.Index = 0;
 			FocusAt = NowSeconds();
 		}
@@ -295,6 +357,11 @@ namespace
 				{
 					Host->PlaySound(EKartUISound::Error);
 				}
+				return;
+			}
+			if (Tab == 3)
+			{
+				ChangeAccessibility(Row, Dir);
 				return;
 			}
 			if (Tab != 0)
@@ -370,6 +437,50 @@ namespace
 			Changed(Row, Dir);
 		}
 
+		void ChangeAccessibility(int32 Row, int32 Dir)
+		{
+			UKartPlayerPrefs* Prefs = GetMutableDefault<UKartPlayerPrefs>();
+			switch (Row)
+			{
+			case UIScaleRow:
+			{
+				const TConstArrayView<float> Steps = FKartAccessibility::UIScaleSteps();
+				int32 Index = 0;
+				for (int32 i = 0; i < Steps.Num(); ++i)
+				{
+					Index = FMath::IsNearlyEqual(Steps[i], FKartAccessibility::UIScale(), 0.01f) ? i : Index;
+				}
+				const int32 Next = FMath::Clamp(Index + Dir, 0, Steps.Num() - 1);
+				if (Next == Index)
+				{
+					Host->PlaySound(EKartUISound::Error);
+					return;
+				}
+				Prefs->UIScale = Steps[Next];
+				FKartAccessibility::ApplyUIScale(); // live: the menu rescales as you change it
+				break;
+			}
+			case ReduceMotionRow:
+				Prefs->bReduceMotion = !Prefs->bReduceMotion;
+				break;
+			case ColorVisionRow:
+				Prefs->ColorVision = static_cast<uint8>(FKartMenuCursor::Cycle(Prefs->ColorVision, Dir, static_cast<int32>(EKartColorVision::Count)));
+				break;
+			default:
+				if (!Prefs->bSeenHowItWorks)
+				{
+					Host->PlaySound(EKartUISound::Error);
+					return;
+				}
+				Prefs->bSeenHowItWorks = false;
+				Prefs->Save();
+				Host->PlaySound(EKartUISound::Accept);
+				return;
+			}
+			Prefs->Save();
+			Changed(Row, Dir);
+		}
+
 		void Apply()
 		{
 			UKartGameUserSettings* S = GameSettings();
@@ -416,15 +527,18 @@ namespace
 
 		void PaintTabs(const FKartPainter& P, const FKartScreenFrame& Frame)
 		{
-			const FText Names[] = { LOCTEXT("Graphics", "Graphics"), LOCTEXT("Audio", "Audio"), LOCTEXT("Controls", "Controls") };
-			const FSlateFontInfo TabFont = Font(EFont::Button, 30.f);
-			const double W = 260.0, H = 66.0, Gap = 16.0;
-			const double Total = 3 * W + 2 * Gap;
+			static const FText Names[] = { LOCTEXT("Graphics", "Graphics"), LOCTEXT("Audio", "Audio"), LOCTEXT("Controls", "Controls"), LOCTEXT("Accessibility", "Accessibility") };
+			const FSlateFontInfo TabFont = Font(EFont::Button, 28.f);
+			const double W = 250.0, H = 66.0, Gap = 14.0;
+			const double Total = NumTabs * W + (NumTabs - 1) * Gap;
 			const double X0 = Frame.Size.X * 0.5 - Total * 0.5;
 			const double Y = Frame.SafeMin.Y + 120.0;
 			const float In = KartWidgets::Entrance(Frame, 0.05f);
-			for (int32 i = 0; i < 3; ++i)
 			{
+			const FKartPaintGroup Group(P);
+			for (int32 i = 0; i < NumTabs; ++i)
+			{
+				Group.Next();
 				const FVector2D Pos(X0 + i * (W + Gap), Y + (1.0 - In) * -40.0);
 				const bool bOn = i == Tab;
 				P.Hit(TabHit + i, Pos, FVector2D(W, H));
@@ -432,6 +546,7 @@ namespace
 				const FKartPainter T = P.Transformed(Pos + FVector2D(W, H) * 0.5, Pop).Faded(In);
 				T.Card(Pos, FVector2D(W, H), bOn ? Color::Sun : Color::WithAlpha(Color::Paper, 0.9f), H * 0.5f, 6.f, bOn ? Color::White : FLinearColor::Transparent, 4.f);
 				T.Text(Names[i], TabFont, Pos + FVector2D(W, H) * 0.5, Color::Navy, FVector2D(0.5, 0.5));
+			}
 			}
 			const float GH = 40.f;
 			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::PrevTab, Frame.Device, FVector2D(X0 - 24.0 - KartWidgets::GlyphWidth(EKartMenuAction::PrevTab, Frame.Device, GH), Y + H * 0.5), GH);
@@ -447,10 +562,12 @@ namespace
 			P.Text(LOCTEXT("ColAction", "ACTION"), HeadFont, FVector2D(ColAction, Pos.Y + 28.0), Color::NavyDim);
 			P.Text(LOCTEXT("ColKeyboard", "KEYBOARD"), HeadFont, FVector2D(ColKeys, Pos.Y + 28.0), Color::NavyDim);
 			P.Text(LOCTEXT("ColGamepad", "GAMEPAD"), HeadFont, FVector2D(ColPad, Pos.Y + 28.0), Color::NavyDim);
-			const double RowH = 64.0;
-			double Y = Pos.Y + 92.0;
+			const double RowH = 60.0;
+			double Y = Pos.Y + 88.0;
+			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Bindings().Num(); ++i)
 			{
+				Group.Next();
 				const FBinding& B = Bindings()[i];
 				if (i % 2 == 0)
 				{
@@ -462,7 +579,8 @@ namespace
 				{
 					if (k > 0)
 					{
-						X += P.Text(TEXT("/"), Font(EFont::Body, 24.f), FVector2D(X + 6.0, Y), Color::NavyDim, FVector2D(0.0, 0.5)).X + 14.0;
+						static const FString Slash(TEXT("/"));
+					X += P.Text(Slash, Font(EFont::Body, 24.f), FVector2D(X + 6.0, Y), Color::NavyDim, FVector2D(0.0, 0.5)).X + 14.0;
 					}
 					X += KartWidgets::KeyCap(P, B.Keys[k], FVector2D(X, Y), 42.f);
 				}
@@ -473,8 +591,9 @@ namespace
 				}
 				Y += RowH;
 			}
+			Group.Next();
 			P.TextWrapped(LOCTEXT("ControlsNote", "Gamepads 2 to 4 drive players 2 to 4. Hold drift through a corner and let go for a boost."),
-				Font(EFont::Body, 20.f), FVector2D(Pos.X + Size.X * 0.5, Pos.Y + Size.Y - 60.0), Size.X - 80.0, Color::NavyDim, 0.5);
+				Font(EFont::Body, 20.f), FVector2D(Pos.X + Size.X * 0.5, Y - RowH * 0.5 + 18.0), Size.X - 80.0, Color::NavyDim, 0.5);
 		}
 
 		int32 Tab = 0;
@@ -486,6 +605,8 @@ namespace
 		int32 ChangeDir = 0;
 		double ChangeAt = -10.0;
 		TArray<FIntPoint> Resolutions;
+		int32 ScaleShown = -1;
+		FText ScaleText;
 	};
 }
 

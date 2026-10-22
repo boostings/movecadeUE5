@@ -30,5 +30,23 @@ public:
 	UPROPERTY(Config)
 	FKartRaceSetup LastRace;
 
+	// Accessibility (read through FKartAccessibility, UI/KartAccessibility.h) -----------------------------
+
+	/** Menu and HUD scale, 0.85 .. 1.25. */
+	UPROPERTY(Config)
+	float UIScale = 1.f;
+
+	/** Tones down screen shake, flashes and bouncy UI motion. */
+	UPROPERTY(Config)
+	bool bReduceMotion = false;
+
+	/** EKartColorVision: 0 standard, 1 red-green, 2 blue-yellow. */
+	UPROPERTY(Config)
+	uint8 ColorVision = 0;
+
+	/** The first-launch "How Movecade works" card has been shown. */
+	UPROPERTY(Config)
+	bool bSeenHowItWorks = false;
+
 	void Save() { SaveConfig(); }
 };

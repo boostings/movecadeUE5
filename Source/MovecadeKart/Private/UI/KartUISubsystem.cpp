@@ -16,6 +16,7 @@
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
 #include "Sound/SoundWave.h"
+#include "UI/KartAccessibility.h"
 #include "UI/KartFrontEnd.h"
 #include "UI/KartPlayerPrefs.h"
 #include "UI/Widgets/SKartCurtain.h"
@@ -69,6 +70,8 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		}
 	}
 	MapLoadedHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UKartUISubsystem::HandleMapLoaded);
+	// The player's UI scale (Settings > Accessibility) multiplies the viewport's DPI curve.
+	FKartAccessibility::ApplyUIScale();
 
 	FString Shots;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartUiShots="), Shots, /*bShouldStopOnSeparator*/ false))

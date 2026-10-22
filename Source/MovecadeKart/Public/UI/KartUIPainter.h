@@ -24,8 +24,10 @@ struct FKartHitRegion
  * filled polygons, in a widget's local space. Transformed() returns a painter whose output is scaled and
  * rotated about a point, which is how every pop, bounce and tilt is drawn. Opacity multiplies everything.
  *
- * Every primitive takes the next layer from the shared counter, so later calls always draw on top (Slate may
- * otherwise reorder same-layer batches). The widget returns the counter's final value from OnPaint.
+ * Later calls always draw on top. Layers come from the shared counter, but consecutive primitives that Slate
+ * batches together (same batch parameters: plain rectangles, same-size rounded boxes, polygons and square
+ * gradients, same-font text) share one layer, so Slate draws them as one batch without reordering anything.
+ * The widget returns the counter's final value from OnPaint.
  */
 class MOVECADEKART_API FKartPainter
 {
@@ -45,7 +47,7 @@ public:
 		bool bVertical = true, float Radius = 0.f) const;
 	void Circle(const FVector2D& Centre, float Radius, const FLinearColor& Fill,
 		const FLinearColor& Outline = FLinearColor::Transparent, float OutlineWidth = 0.f) const;
-	/** A convex or star-shaped polygon, filled as a fan from its centroid. A braced point list binds without a copy. */
+	/** A convex or star-shaped polygon, filled as a fan from its centroid. Takes a TArray, an inline array or { a, b, c }. */
 	void Polygon(TConstArrayView<FVector2D> Points, const FLinearColor& Fill) const;
 	void Lines(TConstArrayView<FVector2D> Points, const FLinearColor& Color, float Thickness, bool bClosed = false) const;
 
@@ -62,10 +64,23 @@ public:
 	FVector2D TextWrapped(const FText& String, const FSlateFontInfo& Font, const FVector2D& Pos, double MaxWidth, const FLinearColor& Color,
 		double AlignX = 0.0, float ShadowDepth = 0.f) const;
 	static TArray<FString> WrapLines(const FString& String, const FSlateFontInfo& Font, double MaxWidth);
+	/** WrapLines through a bounded cache (text, font and width): what TextWrapped uses every frame. */
+	static const TArray<FString>& WrapLinesCached(const FString& String, const FSlateFontInfo& Font, double MaxWidth);
 
 	/** Clips everything drawn until PopClip to a rectangle (axis-aligned in this painter's space). */
 	void PushClip(const FVector2D& Pos, const FVector2D& Size) const;
 	void PopClip() const;
+
+	/**
+	 * Item groups, for lists whose items never overlap one another (menu buttons, option rows, standings):
+	 * inside a group, the Nth primitive of every item goes to the same layer, so Slate batches the whole list's
+	 * backgrounds, then its icons, then its labels, instead of one layer per primitive. Paint order within an
+	 * item is unchanged. Use FKartPaintGroup rather than calling these directly.
+	 */
+	/** False if a group is already open (a nested group just continues the outer item). */
+	bool BeginGroup() const;
+	void NextItem() const;
+	void EndGroup() const;
 
 	/** Registers a clickable region for mouse hover and clicks. */
 	void Hit(int32 Id, const FVector2D& Pos, const FVector2D& Size) const;
@@ -76,14 +91,30 @@ public:
 
 private:
 	FLinearColor Fade(const FLinearColor& Color) const { return FLinearColor(Color.R, Color.G, Color.B, Color.A * Opacity); }
+	/** The layer for the next element with batch key Key: the current one while the run's key repeats. */
+	int32 LayerFor(uint64 Key, bool bNewRun = false) const;
+	bool IsRotated() const;
 
 	FGeometry Geo;
 	FSlateWindowElementList* Out;
-	int32 NextLayer() const { return (*Layer)++; }
-
 	int32* Layer;
 	float Opacity = 1.f;
 	TArray<FKartHitRegion>* Hits;
 	/** Hit regions are recorded only by untransformed painters (a pop doesn't move the click target). */
 	bool bTransformed = false;
+};
+
+/** Scoped item group: construct before the first item, call Next() before each further item. */
+struct FKartPaintGroup
+{
+	explicit FKartPaintGroup(const FKartPainter& InPainter) : Painter(InPainter), bOwner(Painter.BeginGroup()) {}
+	~FKartPaintGroup() { if (bOwner) { Painter.EndGroup(); } }
+	void Next() const { if (bOwner) { Painter.NextItem(); } }
+
+	FKartPaintGroup(const FKartPaintGroup&) = delete;
+	FKartPaintGroup& operator=(const FKartPaintGroup&) = delete;
+
+private:
+	const FKartPainter& Painter;
+	bool bOwner;
 };

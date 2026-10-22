@@ -8,6 +8,7 @@
 #include "Race/KartRaceManager.h"
 #include "Race/SKartRaceOverlay.h"
 #include "UI/Hud/KartItemIcons.h"
+#include "UI/KartAccessibility.h"
 #include "UI/KartTrackCatalog.h"
 #include "UI/KartUISubsystem.h"
 #include "UI/KartWidgets.h"
@@ -47,7 +48,7 @@ namespace
 	}
 
 	/** A smaller chip for the kart's state: drift tier, boost, off-road. */
-	FText ChipFor(const FKartState& S, FLinearColor& OutColor)
+	FText ChipFor(const FKartState& S, FLinearColor& OutColor, FString& BoostKey, FText& BoostLabel)
 	{
 		if (S.DriftDirection != 0.0)
 		{
@@ -60,12 +61,17 @@ namespace
 		if (S.BoostMultiplier > 1.0 || S.Turbo > 0.0)
 		{
 			OutColor = Color::Hot;
-			const FString Label = S.ActiveBoost.Replace(TEXT("_"), TEXT(" "));
-			return Label.IsEmpty() ? LOCTEXT("Boost", "BOOST") : FText::FromString(Label);
+			if (S.ActiveBoost != BoostKey || BoostLabel.IsEmpty())
+			{
+				BoostKey = S.ActiveBoost;
+				BoostLabel = BoostKey.IsEmpty() ? LOCTEXT("Boost", "BOOST") : FText::FromString(BoostKey.Replace(TEXT("_"), TEXT(" ")));
+			}
+			return BoostLabel;
 		}
 		if (S.bOnDirt)
 		{
-			OutColor = FLinearColor::FromSRGBColor(FColor(0x9a, 0x6b, 0x3c));
+			static const FLinearColor Dirt = FLinearColor::FromSRGBColor(FColor(0x9a, 0x6b, 0x3c));
+			OutColor = Dirt;
 			return LOCTEXT("OffRoad", "OFF-ROAD");
 		}
 		return FText::GetEmpty();
@@ -91,6 +97,8 @@ void SKartRaceHud::Construct(const FArguments& InArgs)
 	Manager = InArgs._Manager;
 	SetVisibility(EVisibility::HitTestInvisible);
 	SetCanTick(true);
+	// Painted from live race state every frame: never cache it under global invalidation.
+	ForceVolatile(true);
 }
 
 bool SKartRaceHud::IsShowingFinish() const
@@ -166,13 +174,13 @@ void SKartRaceHud::Tick(const FGeometry& AllottedGeometry, const double InCurren
 	}
 }
 
-TArray<SKartRaceHud::FView> SKartRaceHud::GatherViews(const FVector2D& Screen) const
+void SKartRaceHud::GatherViews(const FVector2D& Screen) const
 {
-	TArray<FView> Views;
+	Views.Reset();
 	const AKartRaceManager* Race = Manager.Get();
 	if (!Race || !IsRacingPhase(Race->GetPhase()))
 	{
-		return Views;
+		return;
 	}
 	for (const FKartRacer& Racer : Race->GetRacers())
 	{
@@ -192,7 +200,6 @@ TArray<SKartRaceHud::FView> SKartRaceHud::GatherViews(const FVector2D& Screen) c
 		Views[0].Pos = FVector2D::ZeroVector;
 		Views[0].Size = Screen;
 	}
-	return Views;
 }
 
 int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -214,7 +221,7 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 		PaintIntro(P, *Race, Screen, Now);
 	}
 
-	const TArray<FView> Views = GatherViews(Screen);
+	GatherViews(Screen);
 	for (const FView& View : Views)
 	{
 		PaintView(P, *Race, View, Views.Num(), Now);
@@ -225,7 +232,13 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 		const FVector2D Margin = Screen * Metric::SafeFraction;
 		const float Scale = Views.Num() == 1 ? 1.f : 0.8f;
 		// The race clock: under the lap counter in a single view, on the split line otherwise.
-		const FText Clock = FText::FromString(SKartRaceOverlay::FormatRaceTime(Race->GetRaceMs(), false));
+		const int64 Second = FMath::FloorToInt64(FMath::Max(0.0, Race->GetRaceMs()) / 1000.0);
+		if (Second != ClockSecond)
+		{
+			ClockSecond = Second;
+			ClockText = FText::FromString(SKartRaceOverlay::FormatRaceTime(Race->GetRaceMs(), false));
+		}
+		const FText& Clock = ClockText;
 		const double Remaining = Race->GetDeadlineMs() - Race->GetRaceMs();
 		const bool bWarn = Phase == EKartRacePhase::Racing && Remaining <= 30000.0;
 		FVector2D ClockAnchor = Views.Num() == 1 ? FVector2D(Screen.X - Margin.X, Margin.Y + 118.0) : FVector2D(Screen.X * 0.5, Screen.Y * 0.5 - (Views.Num() >= 4 ? Screen.Y * 0.17 : 0.0));
@@ -233,10 +246,16 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 		Chip(P, ClockAnchor, ClockAlign, LOCTEXT("Time", "TIME"), Clock, Color::White, Scale);
 		if (bWarn)
 		{
-			const float Pulse = 1.f + 0.06f * FMath::Sin(static_cast<float>(Now) * 8.f);
+			const float Pulse = 1.f + 0.06f * FKartAccessibility::MotionScale() * FMath::Sin(static_cast<float>(Now) * 8.f);
+			const int32 Left = FMath::CeilToInt32(Remaining / 1000.0);
+			if (Left != WarnSecond)
+			{
+				WarnSecond = Left;
+				WarnText = FText::FromString(FString::Printf(TEXT("%ds"), Left));
+			}
 			const FVector2D WarnAnchor(Screen.X * 0.5, Views.Num() == 1 ? Margin.Y + 24.0 : Screen.Y * 0.5 + 44.0 * Scale);
 			Chip(P.Transformed(WarnAnchor, Pulse), WarnAnchor, FVector2D(0.5, 0.0), LOCTEXT("EndsIn", "RACE ENDS IN"),
-				FText::FromString(FString::Printf(TEXT("%ds"), FMath::CeilToInt32(Remaining / 1000.0))), Color::Hot, Scale);
+				WarnText, FKartAccessibility::Bad(), Scale);
 		}
 		// Shared space in 3 and 4 views: the minimap (and the standings for 3).
 		if (Views.Num() == 3)
@@ -325,10 +344,17 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 	// Lap counter, top-right: pops on a new lap, sunny on the final lap.
 	{
 		const bool bFinal = A.Lap == Laps && Laps > 1;
-		const float Pop = 1.f + 0.35f * (1.f - Ease::OutCubic(static_cast<float>((Now - A.LapAt) / 0.45)));
+		const float Pop = 1.f + 0.35f * FKartAccessibility::MotionScale() * (1.f - Ease::OutCubic(static_cast<float>((Now - A.LapAt) / 0.45)));
 		const FVector2D Anchor(Max.X + (1.0 - SlideIn) * 240.0 * Scale, Min.Y);
 		const FSlateFontInfo LapFont = Font(EFont::Display, 76.f * Scale, 6.f * Scale);
-		const FString Value = FString::Printf(TEXT("%d/%d"), A.Lap, Laps);
+		FSeatAnim& Text = Seats[View.Seat];
+		if (Text.LapTextLap != A.Lap || Text.LapTextLaps != Laps)
+		{
+			Text.LapTextLap = A.Lap;
+			Text.LapTextLaps = Laps;
+			Text.LapText = FString::Printf(TEXT("%d/%d"), A.Lap, Laps);
+		}
+		const FString& Value = Text.LapText;
 		const FVector2D ValueSize = FKartPainter::Measure(Value, LapFont);
 		const FKartPainter L = P.Transformed(Anchor + FVector2D(-ValueSize.X * 0.5, ValueSize.Y * 0.5), Pop);
 		L.Text(Value, LapFont, Anchor, bFinal ? Color::Sun : Color::White, FVector2D(1.0, 0.0), 5.f * Scale);
@@ -349,7 +375,14 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 	{
 		const bool bBoost = S.BoostMultiplier > 1.0 || S.Turbo > 0.0;
 		const FVector2D Origin(Min.X - (1.0 - SlideIn) * 300.0 * Scale, Max.Y);
-		const FString Speed = FString::FromInt(FMath::RoundToInt32(A.ShownSpeed));
+		FSeatAnim& SpeedAnim = Seats[View.Seat];
+		const int32 Kmh = FMath::RoundToInt32(A.ShownSpeed);
+		if (Kmh != SpeedAnim.SpeedShown)
+		{
+			SpeedAnim.SpeedShown = Kmh;
+			SpeedAnim.SpeedText = FString::FromInt(Kmh);
+		}
+		const FString& Speed = SpeedAnim.SpeedText;
 		const FVector2D NumSize = P.Text(Speed, Font(EFont::Display, 78.f * Scale, 6.f * Scale), Origin - FVector2D(0.0, 30.0 * Scale),
 			bBoost ? Color::Sun : Color::White, FVector2D(0.0, 1.0), 5.f * Scale);
 		P.Text(LOCTEXT("Kmh", "km/h"), Font(EFont::Label, 24.f * Scale, 3.f * Scale), Origin + FVector2D(NumSize.X + 10.0 * Scale, -44.0 * Scale), Color::White, FVector2D(0.0, 1.0));
@@ -379,12 +412,12 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 	const FVector2D StatusAnchor(View.Pos.X + View.Size.X * 0.5, View.Pos.Y + View.Size.Y * 0.7);
 	if (!Status.IsEmpty())
 	{
-		const float Pulse = 1.f + 0.05f * FMath::Sin(static_cast<float>(Now) * 10.f);
+		const float Pulse = 1.f + 0.05f * FKartAccessibility::MotionScale() * FMath::Sin(static_cast<float>(Now) * 10.f);
 		const FSlateFontInfo StatusFont = Font(EFont::Display, 54.f * Scale, 4.f * Scale);
 		const FVector2D TextSize = FKartPainter::Measure(Status.ToString(), StatusFont);
 		const FVector2D Size(TextSize.X + 80.0 * Scale, 84.0 * Scale);
 		const FKartPainter B = P.Transformed(StatusAnchor, Pulse, -2.f);
-		const FLinearColor Fill = S.bWrongWay ? Color::Hot : Color::WithAlpha(Color::Night, 0.8f);
+		const FLinearColor Fill = S.bWrongWay ? FKartAccessibility::Bad() : Color::WithAlpha(Color::Night, 0.8f);
 		B.Box(StatusAnchor - Size * 0.5, Size, Fill, static_cast<float>(Size.Y * 0.5), Color::White, 4.f * Scale);
 		B.Text(Status, StatusFont, StatusAnchor, S.bWrongWay ? Color::White : Color::Sun, FVector2D(0.5, 0.5), 4.f * Scale);
 		if (S.bWrongWay)
@@ -392,14 +425,15 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 			// A U-turn arrow either side.
 			for (int32 Side = -1; Side <= 1; Side += 2)
 			{
-				KartWidgets::Arrow(B, StatusAnchor + FVector2D(Side * (Size.X * 0.5 + 36.0 * Scale), 0.0), 20.f * Scale, Side > 0, Color::Hot);
+				KartWidgets::Arrow(B, StatusAnchor + FVector2D(Side * (Size.X * 0.5 + 36.0 * Scale), 0.0), 20.f * Scale, Side > 0, FKartAccessibility::Bad());
 			}
 		}
 	}
 	else if (Race.GetPhase() == EKartRacePhase::Racing && !Racer.bFinished)
 	{
 		FLinearColor ChipColor;
-		const FText Label = ChipFor(S, ChipColor);
+		FSeatAnim& Boost = Seats[View.Seat];
+		const FText Label = ChipFor(S, ChipColor, Boost.BoostKey, Boost.BoostLabel);
 		if (!Label.IsEmpty())
 		{
 			const FSlateFontInfo ChipFont = Font(EFont::Display, 30.f * Scale, 3.f * Scale);
@@ -416,12 +450,17 @@ void SKartRaceHud::PaintView(const FKartPainter& Root, const AKartRaceManager& R
 	const FVector2D BannerPos(View.Pos.X, View.Pos.Y + View.Size.Y * 0.3 - BannerSize.Y * 0.5);
 	if (Now - A.FinishedAt < FinishBannerSeconds)
 	{
-		PaintBanner(P, BannerPos, BannerSize, FText::Format(LOCTEXT("FinishPlace", "FINISH!  {0}"), FText::FromString(SKartRaceOverlay::Ordinal(Racer.Place))),
+		FSeatAnim& Finish = Seats[View.Seat];
+		if (Finish.FinishText.IsEmpty())
+		{
+			Finish.FinishText = FText::Format(LOCTEXT("FinishPlace", "FINISH!  {0}"), FText::FromString(SKartRaceOverlay::Ordinal(Racer.Place)));
+		}
+		PaintBanner(P, BannerPos, BannerSize, Finish.FinishText,
 			Color::ForPlace(Racer.Place) == Color::Sky ? Color::Hot : Color::SunDeep, Now - A.FinishedAt, 1.8, Scale, true);
 	}
 	else if (Now - A.FinalLapAt < FinishBannerSeconds)
 	{
-		PaintBanner(P, BannerPos, BannerSize, LOCTEXT("FinalLap", "FINAL LAP!"), Color::Hot, Now - A.FinalLapAt, 1.6, Scale, false);
+		PaintBanner(P, BannerPos, BannerSize, LOCTEXT("FinalLap", "FINAL LAP!"), FKartAccessibility::Bad(), Now - A.FinalLapAt, 1.6, Scale, false);
 	}
 }
 
@@ -440,7 +479,7 @@ void SKartRaceHud::PaintItemSlot(const FKartPainter& P, const AKartRaceManager& 
 	// Landing pop: the strip stops 1.8 s in; the item bounces in with a flash ring.
 	const double Elapsed = FKartItemWorld::RouletteSeconds - (Slot.RollEnds - ItemNow);
 	const double LandAge = Slot.bRolling ? Elapsed - 1.8 : 10.0;
-	const float Land = (LandAge >= 0.0 && LandAge < 0.4) ? 1.f + 0.25f * (1.f - Ease::OutElastic(static_cast<float>(LandAge / 0.4))) : 1.f;
+	const float Land = (LandAge >= 0.0 && LandAge < 0.4) ? 1.f + 0.25f * FKartAccessibility::MotionScale() * (1.f - Ease::OutElastic(static_cast<float>(LandAge / 0.4))) : 1.f;
 	const FKartPainter Frame = P.Transformed(Centre, Land);
 	Frame.Box(Pos + FVector2D(0.0, 7.0 * Scale), FVector2D(Size, Size), Color::Shadow, R);
 	Frame.Box(Pos, FVector2D(Size, Size), bActive ? Color::White : Color::WithAlpha(Color::White, 0.7f), R, Color::Night, 3.f);
@@ -471,7 +510,7 @@ void SKartRaceHud::PaintItemSlot(const FKartPainter& P, const AKartRaceManager& 
 	{
 		const double Bob = FMath::Sin(Now * 3.0) * 3.0 * Scale;
 		KartItemIcons::Draw(Frame, Slot.Held, Centre + FVector2D(0.0, Bob), InnerSize.X * 0.8f, Now);
-		if (LandAge >= 0.0 && LandAge < 0.45)
+		if (LandAge >= 0.0 && LandAge < 0.45 && !FKartAccessibility::ReduceMotion())
 		{
 			const float T = static_cast<float>(LandAge / 0.45);
 			const float Ring = Size * (0.5f + 0.5f * T);
@@ -482,7 +521,7 @@ void SKartRaceHud::PaintItemSlot(const FKartPainter& P, const AKartRaceManager& 
 		if (!Slot.bRolling || LandAge > 0.0)
 		{
 			const FVector2D Label = Pos + FVector2D(Size + 16.0 * Scale, Size * 0.5);
-			P.Text(FText::FromString(ItemName(Slot.Held)), Font(EFont::Title, 30.f * Scale, 3.f * Scale), Label - FVector2D(0.0, 4.0 * Scale), Color::White, FVector2D(0.0, 1.0), 3.f * Scale);
+			P.Text(ItemText(Slot.Held, false), Font(EFont::Title, 30.f * Scale, 3.f * Scale), Label - FVector2D(0.0, 4.0 * Scale), Color::White, FVector2D(0.0, 1.0), 3.f * Scale);
 			if (!Slot.bRolling)
 			{
 				const UKartUISubsystem* UI = UKartUISubsystem::Get(Race.GetWorld());
@@ -500,9 +539,24 @@ void SKartRaceHud::PaintItemSlot(const FKartPainter& P, const AKartRaceManager& 
 		// The used item lifts out of the slot and fades.
 		const float T = static_cast<float>((ItemNow - Slot.LastUsedAt) / 0.9);
 		KartItemIcons::Draw(P.Transformed(Centre, 1.f + T * 0.6f).Faded(1.f - T), Slot.LastUsed, Centre - FVector2D(0.0, T * 40.0 * Scale), InnerSize.X * 0.8f, Now);
-		P.Faded(1.f - T).Text(FText::Format(LOCTEXT("Used", "{0}!"), FText::FromString(ItemName(Slot.LastUsed))), Font(EFont::Title, 30.f * Scale, 3.f * Scale),
+		P.Faded(1.f - T).Text(ItemText(Slot.LastUsed, true), Font(EFont::Title, 30.f * Scale, 3.f * Scale),
 			Pos + FVector2D(Size + 16.0 * Scale, Size * 0.5), Color::Sun, FVector2D(0.0, 0.5), 3.f * Scale);
 	}
+}
+
+const FText& SKartRaceHud::ItemText(EKartItem Item, bool bUsed) const
+{
+	constexpr int32 Num = static_cast<int32>(EKartItem::Count) + 1;
+	static FText Names[Num];
+	static FText Used[Num];
+	const int32 Index = FMath::Clamp(static_cast<int32>(Item), 0, Num - 1);
+	FText& Out = bUsed ? Used[Index] : Names[Index];
+	if (Out.IsEmpty())
+	{
+		const FText Name = FText::FromString(ItemName(Item));
+		Out = bUsed ? FText::Format(LOCTEXT("Used", "{0}!"), Name) : Name;
+	}
+	return Out;
 }
 
 void SKartRaceHud::PaintPlace(const FKartPainter& P, const FKartRacer& Racer, const FVector2D& BottomRight, float Scale, double Now) const
@@ -512,8 +566,15 @@ void SKartRaceHud::PaintPlace(const FKartPainter& P, const FKartRacer& Racer, co
 	const FLinearColor Fill = Color::ForPlace(Place);
 	const FSlateFontInfo NumberFont = Font(EFont::Display, 200.f * Scale, 10.f * Scale);
 	const FSlateFontInfo SuffixFont = Font(EFont::Display, 76.f * Scale, 6.f * Scale);
-	const FString Number = FString::FromInt(Place);
-	const FString Suffix = SKartRaceOverlay::OrdinalSuffix(Place);
+	FSeatAnim& Text = Seats[Racer.Seat];
+	if (Text.PlaceTextPlace != Place)
+	{
+		Text.PlaceTextPlace = Place;
+		Text.PlaceNumber = FString::FromInt(Place);
+		Text.PlaceSuffix = SKartRaceOverlay::OrdinalSuffix(Place);
+	}
+	const FString& Number = Text.PlaceNumber;
+	const FString& Suffix = Text.PlaceSuffix;
 	const FVector2D NumberSize = FKartPainter::Measure(Number, NumberFont);
 	const FVector2D SuffixSize = FKartPainter::Measure(Suffix, SuffixFont);
 	const FVector2D Total(NumberSize.X + SuffixSize.X - 6.0 * Scale, NumberSize.Y);
@@ -522,8 +583,9 @@ void SKartRaceHud::PaintPlace(const FKartPainter& P, const FKartRacer& Racer, co
 	const FVector2D Pivot = Origin + Total * 0.5;
 	// A place change bounces the number (big, then elastic settle) and tilts it the way it moved.
 	const float T = static_cast<float>((Now - A.PlaceAt) / 0.6);
-	const float Bounce = T < 1.f ? 1.45f - 0.45f * Ease::OutElastic(T) : 1.f;
-	const float Tilt = T < 1.f ? (1.f - T) * 10.f * (A.PlaceDir > 0 ? -1.f : 1.f) : 0.f;
+	const float Motion = FKartAccessibility::MotionScale();
+	const float Bounce = T < 1.f ? 1.f + (0.45f - 0.45f * Ease::OutElastic(T)) * Motion : 1.f;
+	const float Tilt = T < 1.f ? (1.f - T) * 10.f * Motion * (A.PlaceDir > 0 ? -1.f : 1.f) : 0.f;
 	const FKartPainter N = P.Transformed(Pivot, Bounce, Tilt);
 	N.Text(Number, NumberFont, Origin, Fill, FVector2D::ZeroVector, 8.f * Scale);
 	N.Text(Suffix, SuffixFont, Origin + FVector2D(NumberSize.X - 6.0 * Scale, NumberSize.Y * 0.2), Fill, FVector2D::ZeroVector, 5.f * Scale);
@@ -534,7 +596,7 @@ void SKartRaceHud::PaintPlace(const FKartPainter& P, const FKartRacer& Racer, co
 		const FVector2D C = Origin + FVector2D(-40.0 * Scale, NumberSize.Y * 0.45 - A.PlaceDir * U * 40.0 * Scale);
 		const FKartPainter Arr = P.Faded(1.f - U);
 		const double S = 28.0 * Scale * A.PlaceDir;
-		Arr.Polygon({ C + FVector2D(-S * 0.8, S * 0.5), C + FVector2D(0.0, -S * 0.7), C + FVector2D(S * 0.8, S * 0.5) }, A.PlaceDir > 0 ? Color::Mint : Color::Hot);
+		Arr.Polygon({ C + FVector2D(-S * 0.8, S * 0.5), C + FVector2D(0.0, -S * 0.7), C + FVector2D(S * 0.8, S * 0.5) }, A.PlaceDir > 0 ? FKartAccessibility::Good() : FKartAccessibility::Bad());
 	}
 }
 
@@ -554,16 +616,26 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 	{
 		return Offset + (W - Track->MinimapBounds.Min) * Fit;
 	};
-	TArray<FVector2D> Road;
-	const int32 Stride = FMath::Max(1, Track->Centre.Num() / 180);
-	Road.Reserve((Track->Centre.Num() + Stride - 1) / Stride);
-	for (int32 i = 0; i < Track->Centre.Num(); i += Stride)
+	// The centreline is sampled once per track; each paint only scales and offsets it into a reused array.
+	if (MinimapTrack != Track)
 	{
-		Road.Add(ToMap(Track->Centre[i]));
+		MinimapTrack = Track;
+		MinimapRoad.Reset();
+		const int32 Stride = FMath::Max(1, Track->Centre.Num() / 180);
+		MinimapRoad.Reserve(Track->Centre.Num() / Stride + 1);
+		for (int32 i = 0; i < Track->Centre.Num(); i += Stride)
+		{
+			MinimapRoad.Add(Track->Centre[i] - Track->MinimapBounds.Min);
+		}
+	}
+	MinimapScratch.Reset(MinimapRoad.Num());
+	for (const FVector2D& Pt : MinimapRoad)
+	{
+		MinimapScratch.Add(Offset + Pt * Fit);
 	}
 	const float W = FMath::Max(4.f, Height * 0.035f);
-	P.Lines(Road, Color::WithAlpha(Color::Night, 0.75f), W + 7.f, true);
-	P.Lines(Road, Color::WithAlpha(Color::White, 0.95f), W, true);
+	P.Lines(MinimapScratch, Color::WithAlpha(Color::Night, 0.75f), W + 7.f, true);
+	P.Lines(MinimapScratch, Color::WithAlpha(Color::White, 0.95f), W, true);
 	// Start/finish: a little chequer.
 	if (Track->Checkpoints.Num() > 0)
 	{
@@ -575,7 +647,7 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 		}
 	}
 	// Karts: everyone's dot in paint, the focus kart bigger with a heading pointer, drawn last.
-	TArray<const FKartRacer*, TInlineAllocator<8>> Order;
+	TArray<const FKartRacer*, TInlineAllocator<16>> Order;
 	for (const FKartRacer& Racer : Race.GetRacers())
 	{
 		if (Racer.Kart)
@@ -583,7 +655,13 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 			Order.Add(&Racer);
 		}
 	}
-	Order.StableSort([FocusSeat](const FKartRacer& A, const FKartRacer& B) { return A.Seat != FocusSeat && (B.Seat == FocusSeat || A.Place > B.Place); });
+	// Back to front: the leaders over the pack, the focus kart over everyone (seats are unique, so a plain sort is stable enough).
+	Order.Sort([FocusSeat](const FKartRacer& A, const FKartRacer& B)
+	{
+		const bool AFocus = A.Seat == FocusSeat, BFocus = B.Seat == FocusSeat;
+		return AFocus != BFocus ? BFocus : A.Place != B.Place ? A.Place > B.Place : A.Seat < B.Seat;
+	});
+	const bool bLabels = FKartAccessibility::ColorVision() != EKartColorVision::Standard;
 	for (const FKartRacer* Racer : Order)
 	{
 		const FVector2D At = ToMap(Racer->Kart->GetKartMovement()->RenderPosition());
@@ -597,6 +675,12 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 			P.Polygon({ At + Dir * R * 2.2, At + Side * R * 0.9, At - Side * R * 0.9 }, Color::White);
 		}
 		P.Circle(At, R, Racer->Paint, bFocus ? Color::White : Color::Night, bFocus ? 3.f : 2.f);
+		if (bLabels && Racer->Kind != EKartSeatKind::Bot)
+		{
+			// Colour-vision modes tag the players' dots, so the map never relies on paint colour alone.
+			static const FString Tags[] = { TEXT("P1"), TEXT("P2"), TEXT("P3"), TEXT("P4"), TEXT("P5"), TEXT("P6"), TEXT("P7"), TEXT("P8") };
+			P.Text(Tags[FMath::Clamp(Racer->Seat, 0, 7)], Font(EFont::Label, FMath::Max(12.f, W * 2.2f), 2.f), At + FVector2D(0.0, -R - 2.0), Color::White, FVector2D(0.5, 1.0));
+		}
 	}
 }
 
@@ -605,8 +689,11 @@ void SKartRaceHud::PaintStandings(const FKartPainter& P, const AKartRaceManager&
 	const double RowH = 46.0 * Scale;
 	const double W = 250.0 * Scale;
 	const int32 Count = Race.GetStandings().Num();
+	static const FString Digits[] = { TEXT("0"), TEXT("1"), TEXT("2"), TEXT("3"), TEXT("4"), TEXT("5"), TEXT("6"), TEXT("7"), TEXT("8"), TEXT("9"), TEXT("10"), TEXT("11"), TEXT("12") };
+	const FKartPaintGroup Group(P);
 	for (int32 i = 0; i < Count; ++i)
 	{
+		Group.Next();
 		if (!Race.GetRacers().IsValidIndex(Race.GetStandings()[i]))
 		{
 			continue;
@@ -618,12 +705,13 @@ void SKartRaceHud::PaintStandings(const FKartPainter& P, const AKartRaceManager&
 		P.Box(Pos, FVector2D(W, RowH), Back, static_cast<float>(RowH * 0.5), bLocal ? Racer.Paint : FLinearColor::Transparent, 3.f);
 		const FVector2D Badge(Pos.X + RowH * 0.5, Pos.Y + RowH * 0.5);
 		P.Circle(Badge, static_cast<float>(RowH * 0.5 - 4.0), Color::ForPlace(Racer.Place));
-		P.Text(FString::FromInt(Racer.Place), Font(EFont::Display, 24.f * Scale), Badge, Color::Navy, FVector2D(0.5, 0.5));
+		P.Text(Digits[FMath::Clamp(Racer.Place, 0, 12)], Font(EFont::Display, 24.f * Scale), Badge, Color::Navy, FVector2D(0.5, 0.5));
 		P.Circle(FVector2D(Pos.X + RowH + 14.0 * Scale, Badge.Y), 8.f * Scale, Racer.Paint, Color::Night, 2.f);
 		P.Text(Racer.Name, Font(EFont::Button, 22.f * Scale), FVector2D(Pos.X + RowH + 32.0 * Scale, Badge.Y), bLocal ? Color::Navy : Color::White, FVector2D(0.0, 0.5));
 		if (Racer.bFinished)
 		{
-			P.Text(TEXT("✓"), Font(EFont::Body, 22.f * Scale), FVector2D(Pos.X + W - 18.0 * Scale, Badge.Y), Color::Mint, FVector2D(1.0, 0.5));
+			static const FString Tick(TEXT("✓"));
+			P.Text(Tick, Font(EFont::Body, 22.f * Scale), FVector2D(Pos.X + W - 18.0 * Scale, Badge.Y), bLocal ? FKartAccessibility::Good() * 0.8f : FKartAccessibility::Good(), FVector2D(1.0, 0.5));
 		}
 	}
 }
@@ -641,10 +729,10 @@ void SKartRaceHud::PaintCountdown(const FKartPainter& P, const AKartRaceManager&
 		const float In = Ease::OutBack(static_cast<float>(T / 0.28), 2.6f);
 		const float Out = T > 0.78 ? Ease::InCubic(static_cast<float>((T - 0.78) / 0.22)) : 0.f;
 		const float Scale = (0.4f + 0.6f * In) * (1.f - 0.5f * Out);
-		const float Spin = (1.f - FMath::Min(In, 1.f)) * -25.f;
+		const float Spin = (1.f - FMath::Min(In, 1.f)) * -25.f * FKartAccessibility::MotionScale();
 		// A ring bursts out on each beat.
 		const float Ring = static_cast<float>(FMath::Min(1.0, T / 0.5));
-		P.Faded(1.f - Ring).Box(C - FVector2D(140.0 + Ring * 160.0), FVector2D(280.0 + Ring * 320.0), FLinearColor::Transparent, 300.f, Fill, 14.f * (1.f - Ring));
+		P.Faded((1.f - Ring) * FKartAccessibility::MotionScale()).Box(C - FVector2D(140.0 + Ring * 160.0), FVector2D(280.0 + Ring * 320.0), FLinearColor::Transparent, 300.f, Fill, 14.f * (1.f - Ring));
 		const FKartPainter N = P.Transformed(C, Scale, Spin).Faded(1.f - Out);
 		N.Text(FString::FromInt(Value), Font(EFont::Display, 300.f, 16.f), C + FVector2D(0.0, 10.0), Fill, FVector2D(0.5, 0.5), 14.f);
 		return;
@@ -654,14 +742,15 @@ void SKartRaceHud::PaintCountdown(const FKartPainter& P, const AKartRaceManager&
 	const float In = Ease::OutBack(static_cast<float>(T / 0.3), 3.f);
 	const float Fade = 1.f - Ease::InCubic(static_cast<float>(FMath::Max(0.0, T - 0.7) / 0.5));
 	const FKartPainter G = P.Faded(Fade);
+	const FKartPainter Rays = G.Faded(FKartAccessibility::MotionScale());
 	for (int32 i = 0; i < 12; ++i)
 	{
-		const double A = FMath::DegreesToRadians(i * 30.0 + T * 60.0);
+		const double A = FMath::DegreesToRadians(i * 30.0 + T * 60.0 * FKartAccessibility::MotionScale());
 		const double A2 = A + FMath::DegreesToRadians(11.0);
 		const double R = 520.0 * In;
-		G.Polygon({ C, C + FVector2D(FMath::Cos(A), FMath::Sin(A)) * R, C + FVector2D(FMath::Cos(A2), FMath::Sin(A2)) * R }, Color::WithAlpha(i % 2 ? Color::Sun : Color::Hot, 0.35f));
+		Rays.Polygon({ C, C + FVector2D(FMath::Cos(A), FMath::Sin(A)) * R, C + FVector2D(FMath::Cos(A2), FMath::Sin(A2)) * R }, Color::WithAlpha(i % 2 ? Color::Sun : Color::Hot, 0.35f));
 	}
-	const FKartPainter Word = G.Transformed(C, 0.3f + 0.7f * In, (1.f - FMath::Min(In, 1.f)) * 15.f);
+	const FKartPainter Word = G.Transformed(C, 0.3f + 0.7f * In, (1.f - FMath::Min(In, 1.f)) * 15.f * FKartAccessibility::MotionScale());
 	Word.Text(LOCTEXT("Go", "GO!"), Font(EFont::Display, 360.f, 18.f), C + FVector2D(0.0, 12.0), Color::Sun, FVector2D(0.5, 0.5), 16.f);
 }
 
@@ -690,7 +779,13 @@ void SKartRaceHud::PaintIntro(const FKartPainter& P, const AKartRaceManager& Rac
 		P.Box(FVector2D(Slide2 - 40.0, Y + 140.0), FVector2D(BandW - 120.0, 56.0), Color::White, 0.f);
 		P.Text(Info->Tagline, Font(EFont::Body, 26.f), FVector2D(Slide2 + Margin.X, Y + 168.0), Color::Navy, FVector2D(0.0, 0.5));
 	}
-	const FString Facts = FString::Printf(TEXT("%d LAPS  ·  %d RACERS"), Track->Laps, Race.GetRacers().Num());
+	const int32 FactsKey = Track->Laps * 1000 + Race.GetRacers().Num();
+	if (FactsKey != IntroFactsKey)
+	{
+		IntroFactsKey = FactsKey;
+		IntroFacts = FString::Printf(TEXT("%d LAPS  ·  %d RACERS"), Track->Laps, Race.GetRacers().Num());
+	}
+	const FString& Facts = IntroFacts;
 	P.Text(Facts, Font(EFont::Label, 24.f, 3.f), FVector2D(Slide2 + Margin.X, Y + 222.0), Color::White, FVector2D(0.0, 0.5), 3.f);
 
 	// Skip hint, bottom-right.
@@ -756,7 +851,7 @@ void SKartRaceHud::PaintBanner(const FKartPainter& P, const FVector2D& Pos, cons
 			}
 		}
 	}
-	const float Pop = 1.f + 0.08f * Ease::Pulse(static_cast<float>((Age - 0.25) / 0.3));
+	const float Pop = 1.f + 0.08f * FKartAccessibility::MotionScale() * Ease::Pulse(static_cast<float>((Age - 0.25) / 0.3));
 	const FVector2D C = A + Size * 0.5 + FVector2D(Skew * 0.5, 0.0);
 	P.Transformed(C, Pop, -3.f).Text(Text, Font(EFont::Display, static_cast<float>(Size.Y * 0.62), 7.f * Scale), C, Color::White, FVector2D(0.5, 0.5), 7.f * Scale);
 }
