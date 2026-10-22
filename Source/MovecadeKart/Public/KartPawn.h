@@ -87,6 +87,8 @@ private:
 	void UpdateNamePlate();
 	void UpdateCamera(float DeltaSeconds);
 	void UpdateFeel(float DeltaSeconds);
+	/** Propagates the slip/body/chassis pivots' directly set transforms once (see UpdateVisual). */
+	void PoseVehicle();
 	void ApplyVehicle();
 	void ApplyDriver();
 	void ApplyColours();
@@ -208,7 +210,17 @@ private:
 		TWeakObjectPtr<AKartPawn> LookTarget;
 		double LookUntil = 0.0;
 		float Face[MovecadeKart::DriverFace::MorphCount] = {};
+		/** No rival in range: the next search for one (karts are searched a few times a second, not every frame). */
+		double NextLookSearch = 0.0;
 	} Mood;
+
+	/** What was last written to the paint and the face morphs, so unchanged values aren't pushed every frame. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> SentPaintMaterial;
+	FLinearColor SentPaint = FLinearColor::Transparent;
+	TWeakObjectPtr<UObject> SentMorphMesh;
+	float SentFace[MovecadeKart::DriverFace::MorphCount] = {};
+	float SentBlink = -1.f;
 	/** Whiplash springs, kicked by impacts: torso thrown back, and sideways. */
 	MovecadeKart::FFeelSpring JoltBack;
 	MovecadeKart::FFeelSpring JoltSide;

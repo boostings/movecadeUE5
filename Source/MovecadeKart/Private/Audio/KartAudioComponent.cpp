@@ -27,6 +27,21 @@ namespace
 	const TCHAR* LoopNames[] = { TEXT("skid"), TEXT("wind"), TEXT("dirt"), TEXT("boost"), TEXT("roulette"), TEXT("aura"), TEXT("rocket") };
 	static_assert(UE_ARRAY_COUNT(LoopNames) == static_cast<int32>(ELoopLayer::Count));
 
+	/** Volume and pitch go to the audio thread only when they move audibly (or reach silence exactly). */
+	void PushVoice(UAudioComponent* Voice, float Volume, float Pitch, float& SentVolume, float& SentPitch)
+	{
+		if (FMath::Abs(Volume - SentVolume) > 1e-3f || (Volume == 0.f && SentVolume != 0.f))
+		{
+			Voice->SetVolumeMultiplier(Volume);
+			SentVolume = Volume;
+		}
+		if (FMath::Abs(Pitch - SentPitch) > 1e-3f)
+		{
+			Voice->SetPitchMultiplier(Pitch);
+			SentPitch = Pitch;
+		}
+	}
+
 	ERacePhase ToRacePhase(EKartAudioPhase Phase)
 	{
 		switch (Phase)
@@ -79,7 +94,7 @@ void UKartAudioComponent::BeginPlay()
 
 void UKartAudioComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	StopAll();
+	StopAll(/*bDestroy*/ true);
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -188,6 +203,8 @@ void UKartAudioComponent::ApplyEngine(UKartAudioSubsystem& Mixer, double Dt)
 		{
 			LayerGain[i] = 0.0;
 			LayerRate[i] = 1.0;
+			SentLayerVolume[i] = 0.f; // MakeVoice's
+			SentLayerPitch[i] = 1.f;
 		}
 		OnBus = OffBus = 1.0;
 		EngineOut = 0.0;
@@ -207,8 +224,8 @@ void UKartAudioComponent::ApplyEngine(UKartAudioSubsystem& Mixer, double Dt)
 		LayerRate[i] = Approach(LayerRate[i], RateTarget, EngineLayerRateTau, Dt);
 		if (UAudioComponent* Voice = EngineVoices.IsValidIndex(i) ? EngineVoices[i].Get() : nullptr)
 		{
-			Voice->SetVolumeMultiplier(static_cast<float>(LayerGain[i] * (bOn ? OnBus : OffBus) * EngineOut * Output));
-			Voice->SetPitchMultiplier(static_cast<float>(LayerRate[i]));
+			PushVoice(Voice, static_cast<float>(LayerGain[i] * (bOn ? OnBus : OffBus) * EngineOut * Output), static_cast<float>(LayerRate[i]),
+				SentLayerVolume[i], SentLayerPitch[i]);
 		}
 	}
 }
@@ -259,7 +276,28 @@ void UKartAudioComponent::ApplyLoops(UKartAudioSubsystem& Mixer, double Dt)
 			{
 				continue;
 			}
-			UAudioComponent* Voice = MakeVoice(Mixer, Command.Cue, 0.f);
+			// Replay this layer's parked component if there is one (same settings as a fresh MakeVoice).
+			UAudioComponent* Voice = nullptr;
+			if (ParkedLoops.IsValidIndex(i) && IsValid(ParkedLoops[i]))
+			{
+				if (USoundWave* Wave = Mixer.GetSound(Command.Cue))
+				{
+					Voice = ParkedLoops[i];
+					ParkedLoops[i] = nullptr;
+					if (Voice->Sound != Wave)
+					{
+						Voice->SetSound(Wave);
+					}
+					Voice->SetLowPassFilterEnabled(false);
+					Voice->SetVolumeMultiplier(0.f);
+					Voice->SetPitchMultiplier(1.f);
+					Voice->Play(0.f);
+				}
+			}
+			else
+			{
+				Voice = MakeVoice(Mixer, Command.Cue, 0.f);
+			}
 			if (!Voice)
 			{
 				Mixer.ReleaseLoop();
@@ -269,29 +307,43 @@ void UKartAudioComponent::ApplyLoops(UKartAudioSubsystem& Mixer, double Dt)
 			// A new source: gain 0, rate 1, and a filter only when the first frame asks for one.
 			Loop = FLoopVoice();
 			Loop.Cue = Command.Cue;
+			Loop.SentVolume = 0.f;
+			Loop.SentPitch = 1.f;
 			if (Command.Lowpass >= 0.0)
 			{
 				Loop.Lowpass = FMath::Clamp(Command.Lowpass, 40.0, 20000.0);
 				Voice->SetLowPassFilterEnabled(true);
 				Voice->SetLowPassFilterFrequency(static_cast<float>(Loop.Lowpass));
+				Loop.SentLowpass = Loop.Lowpass;
 			}
 		}
 		Loop.TargetGain = Cue->Gain * FMath::Clamp(Command.Gain, 0.0, 2.0);
 		Loop.Gain = Approach(Loop.Gain, Loop.TargetGain, LoopGainTau, Dt);
 		Loop.Rate = Approach(Loop.Rate, FMath::Clamp(Command.Rate, 0.25, 4.0), LoopRateTau, Dt);
 		UAudioComponent* Voice = LoopVoices[i];
-		Voice->SetVolumeMultiplier(static_cast<float>(Loop.Gain * Output));
-		Voice->SetPitchMultiplier(static_cast<float>(Loop.Rate));
+		PushVoice(Voice, static_cast<float>(Loop.Gain * Output), static_cast<float>(Loop.Rate), Loop.SentVolume, Loop.SentPitch);
 		if (Loop.Lowpass >= 0.0 && Command.Lowpass >= 0.0)
 		{
 			Loop.Lowpass = Approach(Loop.Lowpass, FMath::Clamp(Command.Lowpass, 40.0, 20000.0), LoopLowpassTau, Dt);
-			Voice->SetLowPassFilterFrequency(static_cast<float>(Loop.Lowpass));
+			if (FMath::Abs(Loop.Lowpass - Loop.SentLowpass) > 0.5)
+			{
+				Loop.SentLowpass = Loop.Lowpass;
+				Voice->SetLowPassFilterFrequency(static_cast<float>(Loop.Lowpass));
+			}
 		}
 	}
 }
 
-void UKartAudioComponent::StopLoop(int32 Index)
+void UKartAudioComponent::StopLoop(int32 Index, bool bDestroy)
 {
+	if (bDestroy && ParkedLoops.IsValidIndex(Index) && ParkedLoops[Index])
+	{
+		if (IsValid(ParkedLoops[Index]))
+		{
+			ParkedLoops[Index]->DestroyComponent();
+		}
+		ParkedLoops[Index] = nullptr;
+	}
 	if (!LoopVoices.IsValidIndex(Index) || !LoopVoices[Index])
 	{
 		return;
@@ -299,7 +351,20 @@ void UKartAudioComponent::StopLoop(int32 Index)
 	if (IsValid(LoopVoices[Index]))
 	{
 		LoopVoices[Index]->Stop();
-		LoopVoices[Index]->DestroyComponent();
+		if (bDestroy)
+		{
+			LoopVoices[Index]->DestroyComponent();
+		}
+		else
+		{
+			// Keep the component for this layer's next start (loops start and stop many times a lap).
+			ParkedLoops.SetNum(FMath::Max(ParkedLoops.Num(), static_cast<int32>(ELoopLayer::Count)));
+			if (ParkedLoops[Index] && IsValid(ParkedLoops[Index]))
+			{
+				ParkedLoops[Index]->DestroyComponent();
+			}
+			ParkedLoops[Index] = LoopVoices[Index];
+		}
 	}
 	LoopVoices[Index] = nullptr;
 	Loops[Index] = FLoopVoice();
@@ -309,12 +374,12 @@ void UKartAudioComponent::StopLoop(int32 Index)
 	}
 }
 
-void UKartAudioComponent::StopAll()
+void UKartAudioComponent::StopAll(bool bDestroy)
 {
 	StopEngine();
-	for (int32 i = 0; i < LoopVoices.Num(); ++i)
+	for (int32 i = 0; i < FMath::Max(LoopVoices.Num(), ParkedLoops.Num()); ++i)
 	{
-		StopLoop(i);
+		StopLoop(i, bDestroy);
 	}
 }
 
