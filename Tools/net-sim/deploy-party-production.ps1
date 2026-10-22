@@ -40,7 +40,9 @@ $env:CLOUDFLARE_API_TOKEN = Read-Secret 'Cloudflare API token (hidden)'
 $signing = Read-Secret 'SCORE_SIGNING_SECRET, the same as the Go API''s (hidden)'
 try {
     if ($signing.Length -lt 24) { Write-Host 'Refused: the signing secret must be at least 24 characters (production rule).' -ForegroundColor Red; exit 1 }
-    # 2. The deploy, with the production vars and the signing secret.
+    # 2. The deploy, with the production vars and the signing secret. The CLI only takes vars as arguments, so the
+    #    secret is on the npx/node command line for the deploy's few seconds: readable by this Windows account (and
+    #    administrators), not by other users. Don't run this with process monitoring or command-line logging on.
     npx partykit deploy --config partykit.production.json --with-vars --var "SCORE_SIGNING_SECRET=$signing"
     if ($LASTEXITCODE -ne 0) { Write-Host "DEPLOY FAILED: partykit deploy exited $LASTEXITCODE." -ForegroundColor Red; exit 1 }
 }

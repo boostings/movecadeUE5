@@ -14,22 +14,53 @@ namespace
 	constexpr double DefaultCaptureSeconds = 10.0;
 }
 
+FString FKartCaptureSettings::CaptureRoot()
+{
+	return FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Capture"));
+}
+
+FString FKartCaptureSettings::ConfineFolder(const FString& Requested)
+{
+	const FString Root = CaptureRoot();
+	if (Requested.IsEmpty())
+	{
+		return Root;
+	}
+	// A name ("harbor_cinematic") lands under the root; a full path must already be inside it.
+	FString Folder = FPaths::IsRelative(Requested) ? Root / Requested : Requested;
+	Folder = FPaths::ConvertRelativePathToFull(Folder);
+	if (!FPaths::CollapseRelativeDirectories(Folder) || !FPaths::IsUnderDirectory(Folder, Root))
+	{
+		UE_LOG(LogKartCapture, Warning, TEXT("-KartCapture=%s is outside %s: capturing into %s"), *Requested, *Root, *Root);
+		return Root;
+	}
+	return Folder;
+}
+
 FKartCaptureSettings FKartCaptureSettings::Parse(const TCHAR* CommandLine)
 {
 	FKartCaptureSettings Out;
-	FParse::Value(CommandLine, TEXT("KartCapture="), Out.Folder, /*bShouldStopOnSeparator*/ false);
+	FString Requested;
+	FParse::Value(CommandLine, TEXT("KartCapture="), Requested, /*bShouldStopOnSeparator*/ false);
+	Out.Folder = ConfineFolder(Requested);
 	FParse::Value(CommandLine, TEXT("KartCaptureFrom="), Out.From);
 	FParse::Value(CommandLine, TEXT("KartCaptureFor="), Out.For);
 	Out.bShowUI = !FParse::Param(CommandLine, TEXT("KartCaptureNoUI"));
-	if (Out.Folder.IsEmpty())
-	{
-		Out.Folder = FPaths::ProjectSavedDir() / TEXT("Capture");
-	}
 	if (Out.For <= 0.0)
 	{
 		Out.For = DefaultCaptureSeconds;
 	}
 	return Out;
+}
+
+bool FKartCaptureSettings::IsRequested(const TCHAR* CommandLine)
+{
+#if UE_BUILD_SHIPPING
+	return false; // a development tool: a shipped game never writes frames
+#else
+	FString Ignored;
+	return CommandLine && (FParse::Param(CommandLine, TEXT("KartCapture")) || FParse::Value(CommandLine, TEXT("KartCapture="), Ignored));
+#endif
 }
 
 FString FKartCaptureSettings::FramePath(int32 Frame) const
@@ -40,8 +71,7 @@ FString FKartCaptureSettings::FramePath(int32 Frame) const
 bool UKartCaptureSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
 	const UWorld* World = Cast<UWorld>(Outer);
-	return Super::ShouldCreateSubsystem(Outer) && World && World->IsGameWorld()
-		&& FCString::Strifind(FCommandLine::Get(), TEXT("-KartCapture")) != nullptr;
+	return Super::ShouldCreateSubsystem(Outer) && World && World->IsGameWorld() && FKartCaptureSettings::IsRequested(FCommandLine::Get());
 }
 
 void UKartCaptureSubsystem::Initialize(FSubsystemCollectionBase& Collection)

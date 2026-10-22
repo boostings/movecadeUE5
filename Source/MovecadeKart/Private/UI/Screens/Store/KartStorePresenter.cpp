@@ -68,6 +68,11 @@ namespace KartStoreUI
 				Out.Look = EPrimaryLook::Equip;
 			}
 			break;
+		case EItemState::OwnedUnconfirmed:
+			// Only Steam's answer unlocks a paid item; the local list could have been edited.
+			Out.Label = LOCTEXT("NeedsSteam", "Start Steam to wear");
+			Out.bEnabled = false;
+			break;
 		case EItemState::ForSale:
 			Out.Label = FText::Format(LOCTEXT("BuyFor", "Buy  {0}"), Store->GetPriceText(Item.DefId));
 			Out.Look = EPrimaryLook::Buy;

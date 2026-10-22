@@ -17,6 +17,7 @@ still show when Steam is offline.
 | Backend interface, offline mock | `Store/KartStoreBackend.h`, `Private/Store/MockStoreBackend.cpp` |
 | Steam backend (`ISteamInventory`) | `Private/Store/SteamInventoryBackend.cpp` (only with `MOVECADE_STEAM=1`) |
 | Store logic (ownership, purchase flow, restore, equip, unlocks, save) | `Store/KartStore.h/.cpp` |
+| Save file (checked header, validation, quarantine) | `Private/Store/KartStoreSaveFile.h/.cpp` |
 | Game-instance owner, play stats in | `Store/KartStoreSubsystem.*` |
 | What games read | `Store/KartCosmetics.h` (`FKartCosmetics`) |
 | Store screen | `Private/UI/Screens/KartStoreScreen.cpp` (main menu > Store) |
@@ -59,10 +60,14 @@ The default build has no Steam dependency. The store runs on `FMockStoreBackend`
 checkout that "opens" for ~1.8 s, then approves. Its inventory is a separate save slot (`KartStoreMock.sav`), so
 restore behaves like the real thing. The screen says "Demo store (offline test mode)".
 
-* `-KartStoreMock=succeed|cancel|fail` picks what checkout does (default `succeed`).
-* `-KartStoreBackend=mock` forces the mock in a Steam build.
+* `-KartStoreMock=succeed|cancel|fail` picks what checkout does (default `succeed`); `-KartStoreMock=offline` plays
+  the store as a Shipping build without Steam sees it.
+* `-KartStoreBackend=mock` forces the mock in a Steam build (development builds only; compiled out of Shipping).
 * Delete `Saved/SaveGames/KartStore*.sav` to start over.
-* **Shipping builds never sell through the mock**: without Steam the store is read-only (offline).
+* **Shipping builds never sell through the mock**: without Steam the store is read-only (offline), and only free
+  items are worn (see "Trust model" below).
+* **Shipping builds always include Steamworks**: `MovecadeKart.Build.cs` turns it on for every desktop Shipping game
+  target, and `SteamInventoryBackend.cpp` refuses to compile a Shipping build without it.
 
 Screenshots of the store: `.\Tools\ui\shots.ps1 -Steps 'store,storeparty,storefree,storebuy,storedone'`.
 
@@ -72,7 +77,8 @@ Screenshots of the store: `.\Tools\ui\shots.ps1 -Steps 'store,storeparty,storefr
    sets `SteamAppId=480` for the process when Steam didn't launch the game. Once the real app exists, change
    `UKartStoreSubsystem::DevAppId`, put the id in `itemdefs.json` (`appid`), and ship a `steam_appid.txt` only in
    development (never in the depot).
-2. **Build with Steam.** Set the environment variable and rebuild:
+2. **Build with Steam.** Shipping game builds always have it. For a Development build (the editor, `-game`), set the
+   environment variable and rebuild:
    ```powershell
    $env:MOVECADE_STEAM = '1'
    & "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" MyProjectEditor Win64 Development "-Project=$p\MyProject.uproject" -NoMutex -NoHotReloadFromIDE
@@ -123,6 +129,39 @@ Screenshots of the store: `.\Tools\ui\shots.ps1 -Steps 'store,storeparty,storefr
    is taken off.
 5. Spacewar (480) has Valve's own item definitions, not ours: with 480 the real purchase flow can't sell Movecade
    items. Use 480 to check init, inventory and overlay; use the real App ID (or a dev app) for item purchases.
+
+## Trust model
+
+Steam is the record of ownership; this PC is not. The rules the code follows:
+
+* **Paid items are worn only once Steam confirms them this session.** `KartStore.sav` keeps an owned list so the
+  store can show what you own offline, but anyone can edit that file (`Tools/pentest/forge_store_save.py` shows
+  how). Until an inventory refresh or a checkout confirms an item, it shows as **Owned: needs Steam**
+  (`EItemState::OwnedUnconfirmed`), the store won't equip it, and `FKartCosmetics` (what the games draw) returns
+  nothing for it. The player's equip choice is kept and comes back the moment Steam answers. Free items (earned,
+  dropped) are worn from the cache.
+* **Offline with Steam running**, `GetAllItems` answers from Steam's own signed cache (`k_EResultExpired`), which
+  counts as confirmed. If even that fails, the backend uses the last full inventory it saved with `SerializeResult`
+  (`Saved/SaveGames/KartStoreSteam_<steamid>.proof`), and accepts it only if `DeserializeResult` verifies Steam's
+  signature and `CheckResultSteamID` says it belongs to the signed-in account. Every live result passes the same
+  account check. **Without Steam at all**, nothing is confirmed: paid cosmetics stay off until Steam is back.
+* **The save file** has a 16-byte header (magic `MKS1`, format version, payload size, CRC32) in front of the engine's
+  GVAS payload. Before the engine deserialises anything the size, the CRC, the save class and every container's
+  element count are checked (a negative or huge count used to crash the game at launch). A file that fails is moved
+  to `KartStore.bad.sav` and the store starts clean. Saves from before the header are still read, with the same
+  checks, and rewritten with it. The CRC catches corruption, not tampering; ownership never depends on it.
+
+### Accepted risks
+
+* **Free unlocks are counted on this PC (F-04).** The play stats behind the earned items are kept in the save, and
+  the client unlocks the matching Steam achievement itself before `AddPromoItem`, so Steam's `ach:` promo rule
+  only proves the client asked. Editing the stats (or a tool like Steam Achievement Manager) gets the six free items
+  and their achievements early. No paid item has an unlock rule, so no money is at stake. A fix would need a game
+  server to set the achievements (Steamworks "official game server" stats), which this game doesn't have.
+* **The Steam client is trusted (F-14).** Inventory, prices and checkout results come from the local Steam client.
+  A modified client or a Steam emulator can report any inventory, and with no game server nothing can check it.
+  Items are cosmetic, shown only on this PC, non-tradable and non-marketable, so a fake inventory gains nothing
+  anyone else can see or sell. Revisit this if items ever become tradable or visible to other players.
 
 ## Pricing suggestions
 

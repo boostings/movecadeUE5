@@ -1,7 +1,9 @@
 #include "Store/KartStore.h"
 
+#include "Algo/AllOf.h"
 #include "Kismet/GameplayStatics.h"
 #include "Store/KartStoreSave.h"
+#include "Store/KartStoreSaveFile.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartStore, Log, All);
 
@@ -46,7 +48,7 @@ namespace MovecadeKart::Store
 		{
 			if (WeakAlive.IsValid())
 			{
-				SetOwned(NewOwned, true);
+				ApplyInventory(NewOwned, true);
 			}
 		};
 	}
@@ -94,6 +96,20 @@ namespace MovecadeKart::Store
 		return Owned.Contains(DefId);
 	}
 
+	bool FKartStore::IsConfirmed(int32 DefId) const
+	{
+		const FItem* Item = FindItem(DefId);
+		if (!Item || !IsOwned(DefId))
+		{
+			return false;
+		}
+		if (Item->Slot == ESlot::Bundle)
+		{
+			return Algo::AllOf(Item->Contents, [this](int32 Def) { return IsConfirmed(Def); });
+		}
+		return Item->IsFree() || Confirmed.Contains(DefId);
+	}
+
 	int32 FKartStore::NumOwnedContents(int32 DefId) const
 	{
 		int32 N = 0;
@@ -122,7 +138,7 @@ namespace MovecadeKart::Store
 	const FItem* FKartStore::GetEquippedItem(ESlot Slot) const
 	{
 		const int32 Def = GetEquipped(Slot);
-		return Def ? FindItem(Def) : nullptr;
+		return Def && IsConfirmed(Def) ? FindItem(Def) : nullptr;
 	}
 
 	EItemState FKartStore::GetState(int32 DefId) const
@@ -138,6 +154,10 @@ namespace MovecadeKart::Store
 		}
 		if (IsOwned(DefId))
 		{
+			if (!IsConfirmed(DefId))
+			{
+				return EItemState::OwnedUnconfirmed;
+			}
 			return IsEquipped(DefId) ? EItemState::Equipped : EItemState::Owned;
 		}
 		switch (Item->Source)
@@ -250,19 +270,9 @@ namespace MovecadeKart::Store
 		PurchasingDef = 0;
 		if (Result == EPurchaseResult::Success)
 		{
-			// The backend only reports success once the items are in the inventory; take them now, and refresh so the
-			// cache matches the backend exactly.
+			// The backend only reports success once the items are in the inventory: they are confirmed.
 			const FItem* Item = FindItem(DefId);
-			TSet<int32> NewOwned = Owned;
-			if (Item && Item->Slot == ESlot::Bundle)
-			{
-				NewOwned.Append(Item->Contents);
-			}
-			else
-			{
-				NewOwned.Add(DefId);
-			}
-			SetOwned(NewOwned, false);
+			AddConfirmed(Item && Item->Slot == ESlot::Bundle ? Item->Contents : TArray<int32>{ DefId }, false);
 		}
 		UE_LOG(LogKartStore, Log, TEXT("Purchase %d: %s %s"), DefId, ResultId(Result), *Detail);
 		Changed();
@@ -288,7 +298,7 @@ namespace MovecadeKart::Store
 			if (bOk)
 			{
 				bHasInventory = true;
-				SetOwned(NewOwned, false);
+				ApplyInventory(NewOwned, false);
 			}
 			UE_LOG(LogKartStore, Log, TEXT("Inventory refresh: %s, %d owned"), bOk ? TEXT("ok") : TEXT("failed (kept the cache)"), Owned.Num());
 			EvaluateUnlocks();
@@ -300,7 +310,7 @@ namespace MovecadeKart::Store
 	bool FKartStore::Equip(int32 DefId)
 	{
 		const FItem* Item = FindItem(DefId);
-		if (!Item || !Item->IsEquippable() || !IsOwned(DefId))
+		if (!Item || !Item->IsEquippable() || !IsConfirmed(DefId))
 		{
 			return false;
 		}
@@ -352,10 +362,7 @@ namespace MovecadeKart::Store
 			bDropInFlight = false;
 			if (bOk && Granted.Num() > 0)
 			{
-				TSet<int32> NewOwned = Owned;
-				NewOwned.Append(Granted);
-				SetOwned(NewOwned, true);
-				Changed();
+				AddConfirmed(Granted, true);
 			}
 		});
 	}
@@ -363,12 +370,27 @@ namespace MovecadeKart::Store
 	void FKartStore::ResetLocal()
 	{
 		Owned.Reset();
+		Confirmed.Reset();
 		Equipped.Reset();
 		Stats.Reset();
 		PlaySeconds = 0.0;
 		bHasInventory = false;
 		Save();
 		Changed();
+	}
+
+	void FKartStore::ApplyInventory(const TSet<int32>& Inventory, bool bAnnounceNewFree)
+	{
+		Confirmed = Inventory;
+		SetOwned(Inventory, bAnnounceNewFree);
+	}
+
+	void FKartStore::AddConfirmed(const TArray<int32>& DefIds, bool bAnnounceNewFree)
+	{
+		Confirmed.Append(DefIds);
+		TSet<int32> NewOwned = Owned;
+		NewOwned.Append(DefIds);
+		SetOwned(NewOwned, bAnnounceNewFree);
 	}
 
 	void FKartStore::SetOwned(const TSet<int32>& NewOwned, bool bAnnounceNewFree)
@@ -425,9 +447,7 @@ namespace MovecadeKart::Store
 				Granting.Remove(Def);
 				if (bOk)
 				{
-					TSet<int32> NewOwned = Owned;
-					NewOwned.Add(Def);
-					SetOwned(NewOwned, true);
+					AddConfirmed({ Def }, true);
 				}
 				else
 				{
@@ -442,12 +462,8 @@ namespace MovecadeKart::Store
 
 	void FKartStore::Load()
 	{
-		if (SaveSlot.IsEmpty() || !UGameplayStatics::DoesSaveGameExist(SaveSlot, 0))
-		{
-			return;
-		}
-		const UKartStoreSave* Saved = Cast<UKartStoreSave>(UGameplayStatics::LoadGameFromSlot(SaveSlot, 0));
-		if (!Saved)
+		UKartStoreSave* Saved = nullptr;
+		if (SaveSlot.IsEmpty() || SaveFile::Read(SaveSlot, Saved) != SaveFile::EReadResult::Loaded)
 		{
 			return;
 		}
@@ -481,7 +497,7 @@ namespace MovecadeKart::Store
 		}
 		Out->Stats = Stats;
 		Out->PlaySeconds = PlaySeconds;
-		UGameplayStatics::SaveGameToSlot(Out, SaveSlot, 0);
+		SaveFile::Write(SaveSlot, *Out);
 	}
 }
 

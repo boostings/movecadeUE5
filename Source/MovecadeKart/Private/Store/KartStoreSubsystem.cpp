@@ -44,12 +44,21 @@ namespace
 		return DevEquip;
 	}
 
-	/** Steam Inventory when the build has it and Steam runs (-KartStoreBackend=mock skips it), else the offline mock. */
+	/** Development: -KartStoreBackend=mock skips Steam. Shipping always asks Steam first. */
+	bool WantsMockBackend()
+	{
+#if UE_BUILD_SHIPPING
+		return false;
+#else
+		FString Choice;
+		return FParse::Value(FCommandLine::Get(), TEXT("KartStoreBackend="), Choice) && Choice.Equals(TEXT("mock"), ESearchCase::IgnoreCase);
+#endif
+	}
+
+	/** Steam Inventory when the build has it and Steam runs, else the offline mock. */
 	TUniquePtr<IKartStoreBackend> MakeBackend(const TArray<int32>& DevEquip)
 	{
-		FString Choice;
-		FParse::Value(FCommandLine::Get(), TEXT("KartStoreBackend="), Choice);
-		if (!Choice.Equals(TEXT("mock"), ESearchCase::IgnoreCase))
+		if (!WantsMockBackend())
 		{
 			if (TUniquePtr<IKartStoreBackend> Steam = MakeSteamBackend(UKartStoreSubsystem::DevAppId))
 			{
@@ -58,7 +67,8 @@ namespace
 		}
 		TUniquePtr<FMockStoreBackend> Mock = MakeUnique<FMockStoreBackend>();
 #if UE_BUILD_SHIPPING
-		// A shipped game never hands out paid items without Steam: offline shows what the cache says is owned.
+		// A shipped game never hands out paid items without Steam: offline, the cache shows what is owned, and only
+		// free items are worn (FKartStore wears paid items once a backend confirms them).
 		Mock->SetOnline(false);
 #else
 		Mock->DevGrant(DevEquip);

@@ -37,11 +37,13 @@ public class MovecadeKart : ModuleRules
 			"StaticMeshDescription",
 		});
 
-		// Store/: the Steam Inventory backend builds only with MOVECADE_STEAM=1 in the environment (the engine's
-		// Steamworks SDK, no plugin). The default build has no Steam dependency and uses the offline store.
-		// UBT doesn't notice an environment change on its own: after toggling it, touch this file. Docs/Store/README.md.
-		bool bWithSteam = System.Environment.GetEnvironmentVariable("MOVECADE_STEAM") == "1"
-			&& (Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Linux || Target.Platform == UnrealTargetPlatform.Mac);
+		// Store/: the Steam Inventory backend (the engine's Steamworks SDK, no plugin). A Shipping game always has it:
+		// without Steam the store can't sell and nothing confirms what a player owns. Development builds add it only
+		// with MOVECADE_STEAM=1 in the environment, so the editor and tests need no Steam. UBT doesn't notice an
+		// environment change on its own: after toggling it, touch this file. Docs/Store/README.md, Docs/Release/.
+		bool bDesktop = Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Linux || Target.Platform == UnrealTargetPlatform.Mac;
+		bool bShippingGame = Target.Configuration == UnrealTargetConfiguration.Shipping && Target.Type == TargetType.Game;
+		bool bWithSteam = bDesktop && (bShippingGame || System.Environment.GetEnvironmentVariable("MOVECADE_STEAM") == "1");
 		if (bWithSteam)
 		{
 			PrivateDependencyModuleNames.Add("Steamworks");

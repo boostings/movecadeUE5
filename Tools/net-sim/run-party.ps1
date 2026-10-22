@@ -28,17 +28,26 @@ if ($sourcePath -ieq $original.TrimEnd('\')) {
     $clone = $sourcePath
 }
 Write-Host "run-party: serving $clone on port $Port"
-if (-not (Test-Path (Join-Path $clone 'node_modules\.bin\partykit.cmd'))) {
+# The CLI the clone's lockfile pinned. Never `npx partykit`: if the install had failed, npx would fetch whatever
+# version the registry serves and, without a terminal, run it without asking.
+$partykit = Join-Path $clone 'node_modules\.bin\partykit.cmd'
+if (-not (Test-Path $partykit)) {
     Push-Location $clone
-    # --ignore-scripts: an optional native dependency (cpu-features) fails to build without a C++ toolchain on PATH.
-    $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
-    npm ci --no-audit --no-fund --ignore-scripts
-    Pop-Location
+    try {
+        # --ignore-scripts: an optional native dependency (cpu-features) fails to build without a C++ toolchain on PATH.
+        $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+        npm ci --no-audit --no-fund --ignore-scripts
+        if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE) in $clone" }
+    }
+    finally {
+        Pop-Location
+    }
+    if (-not (Test-Path $partykit)) { throw "npm ci did not install partykit in $clone (is it in package-lock.json?)" }
 }
 Push-Location $clone
 try {
     # Same as `npm run dev:party` (package.json), plus the UE host's Origin.
-    npx partykit dev --config partykit.json --port $Port `
+    & $partykit dev --config partykit.json --port $Port `
         --var SCORE_SIGNING_SECRET=local-dev-not-a-secret `
         --var "EXTRA_ALLOWED_ORIGINS=$ExtraOrigins"
 }

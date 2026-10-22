@@ -23,6 +23,7 @@ namespace
 	/** The web's four lobby bots first, then four more so a full grid has no twins. */
 	const TCHAR* BotNames[] = { TEXT("Dante"), TEXT("Priya"), TEXT("Mika"), TEXT("Rosa"), TEXT("Theo"), TEXT("Juno"), TEXT("Kenji"), TEXT("Ada") };
 
+#if !UE_BUILD_SHIPPING
 	/** Switches that imply "race now" (test hooks and race options). */
 	const TCHAR* SkipSwitches[] = {
 		TEXT("KartNoFrontEnd"), TEXT("KartAutoDrive"), TEXT("KartSkipIntro"), TEXT("KartSoloView"), TEXT("KartLegacyWalls"),
@@ -33,6 +34,7 @@ namespace
 		TEXT("KartShots="), TEXT("KartQuitAfter="), TEXT("KartBots="), TEXT("KartLocalPlayers="), TEXT("KartLaps="),
 		TEXT("KartVehicle="), TEXT("KartOutfit="), TEXT("KartCloseCam="), TEXT("KartPhoneSeat="), TEXT("KartBotSkill="), TEXT("KartCapture="),
 	};
+#endif
 }
 
 void FKartRaceSetup::Sanitize(int32 GridSlots)
@@ -57,33 +59,55 @@ void FKartRaceSetup::Sanitize(int32 GridSlots)
 	}
 }
 
+FKartRaceFlags FKartRaceFlags::Parse(const TCHAR* Cmd)
+{
+	FKartRaceFlags Flags;
+#if !UE_BUILD_SHIPPING
+	if (!Cmd)
+	{
+		return Flags;
+	}
+	int32 Number = 0;
+	if (FParse::Value(Cmd, TEXT("KartBots="), Number))
+	{
+		Flags.Bots = Number;
+	}
+	if (FParse::Value(Cmd, TEXT("KartLocalPlayers="), Number))
+	{
+		Flags.LocalPlayers = Number;
+	}
+	if (FParse::Value(Cmd, TEXT("KartLaps="), Number) && Number > 0)
+	{
+		Flags.Laps = Number;
+	}
+	if (FString SkillName; FParse::Value(Cmd, TEXT("KartBotSkill="), SkillName))
+	{
+		Flags.BotSkill = SkillName.Equals(TEXT("easy"), ESearchCase::IgnoreCase) ? 0 : SkillName.Equals(TEXT("hard"), ESearchCase::IgnoreCase) ? 2 : 1;
+	}
+	Flags.bSoloView = FParse::Param(Cmd, TEXT("KartSoloView"));
+	Flags.bAutoDrive = FParse::Param(Cmd, TEXT("KartAutoDrive"));
+	Flags.bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
+	Flags.bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
+#endif
+	return Flags;
+}
+
 FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHAR* Cmd, int32 GridSlots, int32 DefaultBots)
 {
 	FKartRacePlan Plan;
+	const FKartRaceFlags Flags = FKartRaceFlags::Parse(Cmd);
 	GridSlots = FMath::Max(1, GridSlots);
-	int32 Bots = MenuSetup ? MenuSetup->Bots : DefaultBots;
-	int32 LocalPlayers = MenuSetup ? MenuSetup->LocalPlayers : 1;
-	int32 Laps = MenuSetup ? MenuSetup->Laps : 0;
-	FParse::Value(Cmd, TEXT("KartBots="), Bots);
-	FParse::Value(Cmd, TEXT("KartLocalPlayers="), LocalPlayers);
-	int32 FlagLaps = 0;
-	if (FParse::Value(Cmd, TEXT("KartLaps="), FlagLaps) && FlagLaps > 0)
-	{
-		Laps = FlagLaps;
-	}
+	int32 Bots = Flags.Bots.Get(MenuSetup ? MenuSetup->Bots : DefaultBots);
+	const int32 LocalPlayers = Flags.LocalPlayers.Get(MenuSetup ? MenuSetup->LocalPlayers : 1);
+	const int32 Laps = Flags.Laps.Get(MenuSetup ? MenuSetup->Laps : 0);
 	Plan.LocalPlayers = FMath::Clamp(LocalPlayers, 1, GridSlots);
 	Bots = FMath::Clamp(Bots, 0, GridSlots - Plan.LocalPlayers);
 	Plan.Laps = FMath::Max(0, Laps);
-	Plan.bSoloView = FParse::Param(Cmd, TEXT("KartSoloView")) || (MenuSetup && !MenuSetup->bViewEveryKart);
-	Plan.bAutoDrive = FParse::Param(Cmd, TEXT("KartAutoDrive"));
-	Plan.bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
-	Plan.bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
-	int32 Skill = MenuSetup ? FMath::Clamp(MenuSetup->BotSkill, 0, 2) : 1;
-	FString SkillName;
-	if (FParse::Value(Cmd, TEXT("KartBotSkill="), SkillName))
-	{
-		Skill = SkillName.Equals(TEXT("easy"), ESearchCase::IgnoreCase) ? 0 : SkillName.Equals(TEXT("hard"), ESearchCase::IgnoreCase) ? 2 : 1;
-	}
+	Plan.bSoloView = Flags.bSoloView || (MenuSetup && !MenuSetup->bViewEveryKart);
+	Plan.bAutoDrive = Flags.bAutoDrive;
+	Plan.bSkipIntro = Flags.bSkipIntro;
+	Plan.bLegacyWalls = Flags.bLegacyWalls;
+	const int32 Skill = Flags.BotSkill.Get(MenuSetup ? FMath::Clamp(MenuSetup->BotSkill, 0, 2) : 1);
 	Plan.BotSkill = Skill == 0 ? EKartBotSkill::Easy : Skill == 2 ? EKartBotSkill::Hard : EKartBotSkill::Normal;
 
 	if (!MenuSetup)
@@ -155,6 +179,10 @@ FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHA
 
 bool KartFrontEndFlags::ShouldSkipFrontEnd(const TCHAR* Cmd)
 {
+#if UE_BUILD_SHIPPING
+	// The test flags are compiled out of Shipping; only the Kart.FrontEnd=0 switch (as -KartNoFrontEnd) remains.
+	return FParse::Param(Cmd, TEXT("KartNoFrontEnd"));
+#else
 	for (const TCHAR* Switch : SkipSwitches)
 	{
 		if (FParse::Param(Cmd, Switch))
@@ -171,6 +199,7 @@ bool KartFrontEndFlags::ShouldSkipFrontEnd(const TCHAR* Cmd)
 		}
 	}
 	return false;
+#endif
 }
 
 bool KartFrontEndFlags::WantsRoom(const TCHAR* Cmd)

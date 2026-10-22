@@ -17,6 +17,8 @@ namespace MovecadeKart::Store
 		Locked,
 		/** Drop item not dropped yet. */
 		NotDropped,
+		/** Paid item the local cache lists but the backend hasn't confirmed this session (offline): shown, not worn. */
+		OwnedUnconfirmed,
 		Owned,
 		Equipped,
 	};
@@ -25,6 +27,10 @@ namespace MovecadeKart::Store
 	 * The cosmetics store: the catalog, what the player owns and wears, the purchase flow, restore, the free unlocks
 	 * and their progress. Plain C++ around one IKartStoreBackend so the tests drive it with the mock and a manual
 	 * clock; UKartStoreSubsystem owns the game's instance.
+	 *
+	 * Trust: the save's owned list is only a cache (anyone can edit it). Paid items are worn only once the backend
+	 * has confirmed them this session (an inventory refresh, a checkout); until then they show as owned but
+	 * unconfirmed, and the equip choice is kept for when Steam answers. Free items can be worn from the cache.
 	 */
 	class MOVECADEKART_API FKartStore
 	{
@@ -38,12 +44,17 @@ namespace MovecadeKart::Store
 		void Tick(double DeltaSeconds);
 
 		// Queries ----------------------------------------------------------------------------------------------
+		/** Owned as far as this PC knows (the backend's answer, or the cache until it answers). */
 		bool IsOwned(int32 DefId) const;
+		/** Owned and safe to wear: free, or paid and confirmed by the backend this session. */
+		bool IsConfirmed(int32 DefId) const;
 		/** Bundles: how many of the contents are owned already. */
 		int32 NumOwnedContents(int32 DefId) const;
+		/** The player's choice for the slot (it may wait for confirmation; see GetEquippedItem). */
 		bool IsEquipped(int32 DefId) const;
-		/** The def id worn in Slot, or 0. */
+		/** The def id chosen for Slot, or 0. */
 		int32 GetEquipped(ESlot Slot) const;
+		/** What the games draw in Slot: the chosen item once it is confirmed, else null. */
 		const FItem* GetEquippedItem(ESlot Slot) const;
 		EItemState GetState(int32 DefId) const;
 		/** True and the price when it can be bought now. */
@@ -90,6 +101,10 @@ namespace MovecadeKart::Store
 
 	private:
 		void Load();
+		/** The backend's whole inventory: owned and confirmed become exactly this. */
+		void ApplyInventory(const TSet<int32>& Inventory, bool bAnnounceNewFree);
+		/** Items the backend just granted (checkout, unlock, drop): owned and confirmed from now on. */
+		void AddConfirmed(const TArray<int32>& DefIds, bool bAnnounceNewFree);
 		void SetOwned(const TSet<int32>& NewOwned, bool bAnnounceNewFree);
 		void EvaluateUnlocks();
 		void FinishPurchase(int32 DefId, EPurchaseResult Result, const FString& Detail);
@@ -98,6 +113,8 @@ namespace MovecadeKart::Store
 		TUniquePtr<IKartStoreBackend> Backend;
 		FString SaveSlot;
 		TSet<int32> Owned;
+		/** Def ids the backend confirmed this session; never read from disk. */
+		TSet<int32> Confirmed;
 		TMap<ESlot, int32> Equipped;
 		TMap<FName, int32> Stats;
 		TMap<int32, FPrice> Prices;

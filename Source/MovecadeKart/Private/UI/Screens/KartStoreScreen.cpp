@@ -599,6 +599,9 @@ namespace
 			case EItemState::Owned:
 				PaintChip(T, ChipPos, LOCTEXT("ChipOwned", "OWNED"), Color::Sky, L::ChipHeight);
 				break;
+			case EItemState::OwnedUnconfirmed:
+				PaintChip(T, ChipPos, LOCTEXT("ChipUnconfirmed", "NEEDS STEAM"), Color::PaperShade, L::ChipHeight);
+				break;
 			case EItemState::Pending:
 				PaintSpinner(T, ChipPos + FVector2D(16.0, 15.0), 11.f, Frame.Now, Color::Sky);
 				break;
@@ -707,6 +710,10 @@ namespace
 			else if (State == EItemState::NotDropped)
 			{
 				Card.Text(LOCTEXT("DropNote", "Arcade gifts drop now and then while you play. Free."), Font(EFont::Body, 20.f), Line, Color::Grape);
+			}
+			else if (State == EItemState::OwnedUnconfirmed)
+			{
+				Card.Text(LOCTEXT("UnconfirmedNote", "Wear it once Steam confirms it."), Font(EFont::Body, 20.f), Line, Color::NavyDim);
 			}
 		}
 

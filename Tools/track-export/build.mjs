@@ -11,14 +11,19 @@ import { processVioletMesh } from './src/violetMesh.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(here, '../..');
-// Default: <Documents>/Projects/movecade/movecade-v2 next to <Documents>/Unreal Projects/MyProject,
-// found from any ancestor so git worktrees (MyProject/.claude/worktrees/...) resolve it too.
-function findMovecade() {
-  for (let dir = projectDir; ; dir = path.dirname(dir)) {
-    const candidate = path.join(dir, '../Projects/movecade/movecade-v2');
-    if (existsSync(path.join(candidate, 'app/src'))) return candidate;
-    if (path.dirname(dir) === dir) return path.join(projectDir, '../../Projects/movecade/movecade-v2');
+// Default: <Documents>/Projects/movecade/movecade-v2 next to <Documents>/Unreal Projects/MyProject. Only that one
+// place: this script runs code from it, so it must not pick up a folder of that name further up the disk (C:\ is
+// writable by every local user). Git worktrees (MyProject/.claude/worktrees/...) resolve it from the main checkout.
+function mainCheckout() {
+  try {
+    const common = execFileSync('git', ['-C', projectDir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim();
+    return path.dirname(common);
+  } catch {
+    return projectDir;
   }
+}
+function findMovecade() {
+  return path.resolve(mainCheckout(), '../../Projects/movecade/movecade-v2');
 }
 const movecade = path.resolve(process.env.MOVECADE_ROOT ?? findMovecade());
 const appSrc = path.join(movecade, 'app/src');

@@ -11,8 +11,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartCaptureSettingsTest, "MovecadeKart.Platfor
 bool FKartCaptureSettingsTest::RunTest(const FString& Parameters)
 {
 	// The engine's quoting: the value is quoted, not the whole switch (FParse skips quoted text when it looks for one).
-	const FKartCaptureSettings Given = FKartCaptureSettings::Parse(TEXT("-game -KartCapture=\"D:/Shots/My Run\" -KartCaptureFrom=4.5 -KartCaptureFor=2 -KartCaptureNoUI"));
-	TestEqual(TEXT("a quoted folder keeps its spaces"), Given.Folder, FString(TEXT("D:/Shots/My Run")));
+	// Captures are confined to Saved/Capture (security assessment F-07; MovecadeKart.Pentest.Fixed.F07_*).
+	const FKartCaptureSettings Given = FKartCaptureSettings::Parse(TEXT("-game -KartCapture=\"My Run\" -KartCaptureFrom=4.5 -KartCaptureFor=2 -KartCaptureNoUI"));
+	TestEqual(TEXT("a quoted folder keeps its spaces"), Given.Folder, FKartCaptureSettings::CaptureRoot() / TEXT("My Run"));
 	TestEqual(TEXT("from"), Given.From, 4.5);
 	TestEqual(TEXT("for"), Given.For, 2.0);
 	TestFalse(TEXT("no UI"), Given.bShowUI);
@@ -21,7 +22,7 @@ bool FKartCaptureSettingsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("frame files"), Given.FramePath(7), Given.Folder + TEXT("/frame_00007.png"));
 
 	const FKartCaptureSettings Defaults = FKartCaptureSettings::Parse(TEXT("-game -KartCapture"));
-	TestEqual(TEXT("default folder"), Defaults.Folder, FPaths::ProjectSavedDir() / TEXT("Capture"));
+	TestEqual(TEXT("default folder"), Defaults.Folder, FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Capture")));
 	TestEqual(TEXT("default length"), Defaults.For, 10.0);
 	TestEqual(TEXT("from the start"), Defaults.From, 0.0);
 	TestTrue(TEXT("with the UI"), Defaults.bShowUI);

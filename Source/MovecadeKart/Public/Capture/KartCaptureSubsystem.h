@@ -16,6 +16,12 @@ struct MOVECADEKART_API FKartCaptureSettings
 
 	/** Reads -KartCapture=<folder> -KartCaptureFrom=<s> -KartCaptureFor=<s> -KartCaptureNoUI, with the defaults filled in. */
 	static FKartCaptureSettings Parse(const TCHAR* CommandLine);
+	/** -KartCapture[=<folder>] is on the command line (always false in Shipping). */
+	static bool IsRequested(const TCHAR* CommandLine);
+	/** Saved/Capture, absolute: every capture is written inside it. */
+	static FString CaptureRoot();
+	/** A folder name or path under CaptureRoot; anything else (another drive, "..") falls back to the root. */
+	static FString ConfineFolder(const FString& Requested);
 	/** The frame at world time Now is in the captured stretch. */
 	bool Covers(double Now) const { return Now >= From && Now < From + For; }
 	/** <Folder>/frame_NNNNN.png. */
@@ -25,7 +31,8 @@ struct MOVECADEKART_API FKartCaptureSettings
 /**
  * Frame capture for trailers and gameplay video: with -KartCapture=<folder>, every rendered frame between
  * -KartCaptureFrom=<s> and -KartCaptureFrom + -KartCaptureFor=<s> (world time) is written as
- * <folder>/frame_NNNNN.png, with the UI unless -KartCaptureNoUI.
+ * <folder>/frame_NNNNN.png, with the UI unless -KartCaptureNoUI. The folder is always inside Saved/Capture, and
+ * the subsystem never exists in Shipping (it writes files wherever the command line says).
  *
  * Run it with the engine's fixed time step (-benchmark -fps=60) so each frame is exactly 1/60 s of game time,
  * however slowly the frames are rendered and saved; Tools/video/capture.ps1 does that and encodes the MP4.
