@@ -74,6 +74,26 @@ enum class EKartMenuEntry : uint8
 	Arcade,
 };
 
+/**
+ * The race's command-line test switches, parsed in one place. They change the race (seats, laps, a self-driving
+ * player kart, physics variants), so they all read as unset in Shipping: a shipped race comes from the menus.
+ */
+struct MOVECADEKART_API FKartRaceFlags
+{
+	/** -KartBots=N, -KartLocalPlayers=N, -KartLaps=N (N > 0). */
+	TOptional<int32> Bots;
+	TOptional<int32> LocalPlayers;
+	TOptional<int32> Laps;
+	/** -KartBotSkill=easy|normal|hard, as 0..2. */
+	TOptional<int32> BotSkill;
+	bool bSoloView = false;
+	bool bAutoDrive = false;
+	bool bSkipIntro = false;
+	bool bLegacyWalls = false;
+
+	static FKartRaceFlags Parse(const TCHAR* CommandLine);
+};
+
 /** The race AKartGameMode builds: the seats, views and switches, from the menu setup and the command line. */
 struct MOVECADEKART_API FKartRacePlan
 {

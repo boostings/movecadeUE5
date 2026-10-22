@@ -35,14 +35,14 @@ namespace
 	/** legacyBridge.ts: live scores once a second. */
 	constexpr float LiveScoreIntervalSeconds = 1.f;
 
-	/** -KartLaps=N: a shorter race for tests. */
+	/** -KartLaps=N: a shorter race for tests (not in Shipping; FKartRaceFlags). */
 	TSharedPtr<const MovecadeKart::FTrack> WithLapOverride(TSharedPtr<const MovecadeKart::FTrack> Track)
 	{
-		int32 Laps = 0;
-		if (Track.IsValid() && FParse::Value(FCommandLine::Get(), TEXT("KartLaps="), Laps) && Laps > 0)
+		const TOptional<int32> Laps = FKartRaceFlags::Parse(FCommandLine::Get()).Laps;
+		if (Track.IsValid() && Laps.IsSet())
 		{
 			TSharedPtr<MovecadeKart::FTrack> Shorter = MakeShared<MovecadeKart::FTrack>(*Track);
-			Shorter->Laps = Laps;
+			Shorter->Laps = Laps.GetValue();
 			return Shorter;
 		}
 		return Track;
@@ -304,10 +304,8 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	{
 		return;
 	}
-	const TCHAR* Cmd = FCommandLine::Get();
-	int32 Bots = 0;
-	FParse::Value(Cmd, TEXT("KartBots="), Bots);
-	const TArray<FKartSeatSpec> Seats = BuildRoomSeats(*Room, Track->Grid.Num(), Bots);
+	const FKartRaceFlags Flags = FKartRaceFlags::Parse(FCommandLine::Get());
+	const TArray<FKartSeatSpec> Seats = BuildRoomSeats(*Room, Track->Grid.Num(), Flags.Bots.Get(0));
 	if (Seats.Num() == 0)
 	{
 		UE_LOG(LogKartGameMode, Warning, TEXT("The room started with nobody seated."));
@@ -315,10 +313,10 @@ void AKartGameMode::BuildRoomRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	}
 
 	RaceManager = GetWorld()->SpawnActor<AKartRaceManager>();
-	RaceManager->bSkipIntro = FParse::Param(Cmd, TEXT("KartSkipIntro"));
-	RaceManager->bLegacyWalls = FParse::Param(Cmd, TEXT("KartLegacyWalls"));
+	RaceManager->bSkipIntro = Flags.bSkipIntro;
+	RaceManager->bLegacyWalls = Flags.bLegacyWalls;
 	BindRaceToRoom(*Room);
-	RaceManager->Setup(Track, Seats, MakeViewers(Seats.Num(), 1, FParse::Param(Cmd, TEXT("KartSoloView"))));
+	RaceManager->Setup(Track, Seats, MakeViewers(Seats.Num(), 1, Flags.bSoloView));
 	GetWorldTimerManager().SetTimer(LiveScoreTimer, this, &AKartGameMode::SendLiveScores, LiveScoreIntervalSeconds, /*bLoop*/ true);
 	bRaceBuilt = true;
 }

@@ -20,6 +20,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Track/TrackBuildHelpers.h"
 #include "Track/TrackLife.h"
+#include "UI/KartTrackCatalog.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTrackBuilder, Log, All);
@@ -196,9 +197,13 @@ void ATrackBuilder::BeginPlay()
 {
 	Super::BeginPlay();
 	const FKartDebugFlags& Flags = FKartDebugFlags::Get();
-	// -KartTrack=<id>: race another exported track on this level (local play; the room server only knows
-	// violet-loop and sunset-harbor). The whole track, scenery and look included, is rebuilt for it.
-	if (!Flags.Track.IsEmpty() && Flags.Track != TrackId)
+	// -KartTrack=<id>: race another catalog track on this level (local play). The whole track, scenery and look
+	// included, is rebuilt for it. Only catalog ids: the id becomes a file path.
+	if (!Flags.Track.IsEmpty() && Flags.Track != TrackId && !FKartTrackCatalog::Find(Flags.Track))
+	{
+		UE_LOG(LogTrackBuilder, Error, TEXT("-KartTrack=%s: not a track in the catalog (UI/KartTrackCatalog.cpp)"), *Flags.Track);
+	}
+	else if (!Flags.Track.IsEmpty() && Flags.Track != TrackId)
 	{
 		if (FPaths::FileExists(TrackPath(Flags.Track)))
 		{

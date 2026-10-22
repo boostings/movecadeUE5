@@ -10,7 +10,7 @@
  */
 struct FKartDebugFlags
 {
-	/** -KartTrack=<id>: race another exported track on this level (local play). */
+	/** -KartTrack=<id>: race another catalog track on this level (local play; ATrackBuilder refuses other ids). */
 	FString Track;
 	/** -KartWebFeel: the web build's presentation, without the chassis springs and camera juice (FKartFeel). */
 	bool bWebFeel = false;
