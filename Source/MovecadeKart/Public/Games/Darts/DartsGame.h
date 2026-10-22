@@ -156,6 +156,8 @@ public:
 	/** A bull's white flash, 0..1 (the HUD washes the screen with it). */
 	float GetFlash() const;
 	FLinearColor GetFlashColor() const { return FlashColor; }
+	/** The camera is on the landing's reaction shot (the HUD keeps the aim read out of it). */
+	bool IsReacting() const { return bReacting; }
 	/** The first-visit coach marks for local controls, 0..1 (they fade once the first dart flies). */
 	float GetCoachAlpha() const;
 
@@ -291,6 +293,7 @@ private:
 	bool bCamPlaced = false;
 	/** The big-hit punch: an FOV kick and a shake that decay. */
 	double Punch = 0.0;
+	bool bReacting = false;
 	double FlashAt = -10.0;
 	float FlashStrength = 0.f;
 	FLinearColor FlashColor = FLinearColor::White;

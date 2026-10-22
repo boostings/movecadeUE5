@@ -737,7 +737,7 @@ void ADartsPub::BuildLights()
 	Point(Pendants[0] + FVector(0.0, -0.2, PubZ), 5200.f, 8.f, TEXT("#ffc98c"));
 	Point(Pendants[1] + FVector(0.0, -0.2, PubZ), 4200.f, 6.f, TEXT("#ffc98c"));
 	Point(Pendants[2] + FVector(0.0, -0.2, PubZ), 3000.f, 5.f, TEXT("#ffc98c"));
-	Point(FVector(BarX, FloorY + 2.3, 0.85 + PubZ), 1500.f, 3.f, TEXT("#ffa860"));
+	Point(FVector(BarX, FloorY + 2.75, 0.75 + PubZ), 1000.f, 2.5f, TEXT("#ffa860"));
 	// The room's fill, warm and soft from over the camera, sized to the room the camera sees (not the whole hall).
 	Point(FVector(0.0, 4.2, 7.5 + PubZ), 14000.f, 12.f, TEXT("#d6c6b2"));
 	Point(FVector(0.0, 3.6, 3.2 + PubZ), 9500.f, 9.f, TEXT("#ffd8ac"));

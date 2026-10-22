@@ -17,6 +17,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "NiagaraComponent.h"
 #include "SceneView.h"
+#include "Misc/CommandLine.h"
+#include "TimerManager.h"
 #include "UnrealClient.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDarts, Log, All);
@@ -274,7 +276,7 @@ FDartsView ADartsGame::MakeView() const
 float ADartsGame::GetFlash() const
 {
 	const double Since = Clock - FlashAt;
-	return Since < 0.0 || Since > 0.6 ? 0.f : FlashStrength * static_cast<float>(FMath::Exp(-Since / 0.11));
+	return Since < 0.0 || Since > 0.6 ? 0.f : FlashStrength * static_cast<float>(FMath::Exp(-Since / 0.14));
 }
 
 float ADartsGame::GetCoachAlpha() const
@@ -463,12 +465,12 @@ void ADartsGame::OnArrival(const FDartsEffect& Effect)
 	if (Landing->Hit.Ring == ERing::Bull)
 	{
 		Kick = 1.0;
-		Flash = 0.42f;
+		Flash = 0.55f;
 	}
 	else if (Landing->bBounty)
 	{
 		Kick = 0.65;
-		Flash = 0.22f;
+		Flash = 0.3f;
 		Tint = Seat ? FMath::Lerp(Seat->Color, FLinearColor::White, 0.5f) : Tint;
 	}
 	else if (Landing->Hit.Ring == ERing::OuterBull)
@@ -486,6 +488,19 @@ void ADartsGame::OnArrival(const FDartsEffect& Effect)
 		FlashAt = Clock;
 		FlashStrength = Flash;
 		FlashColor = Tint;
+	}
+	// Test hook: -DartsShotBig grabs the frame just after a big hit lands (the punch and the flash).
+	static const bool bShotBig = FParse::Param(FCommandLine::Get(), TEXT("DartsShotBig"));
+	if (bShotBig && Kick >= 0.6 && Viewer)
+	{
+		FTimerHandle Handle;
+		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (Viewer)
+			{
+				Viewer->ConsoleCommand(TEXT("Shot showui"));
+			}
+		}), 0.07f, false);
 	}
 	if (Kick >= 0.6)
 	{
@@ -1248,6 +1263,7 @@ void ADartsGame::UpdateCamera(float Dt)
 	const bool bBotUp = Thrower && Thrower->Kind == EThrowerKind::Bot;
 	const double Since = Clock - LastLandingAt;
 	const double Hold = LastLanding.DartIndex == DartsPerRound - 1 ? DartsReactLastSeconds : DartsReactSeconds;
+	bReacting = false;
 	switch (Stage)
 	{
 	case EDartsStage::Intro:
@@ -1267,10 +1283,11 @@ void ADartsGame::UpdateCamera(float Dt)
 			// front of the thrower, so nobody's head fills the frame), easing in.
 			const double Settle = Smooth(0.0, 1.0, Since / 0.9);
 			const FVector Landing = ADartsPub::BoardPoint(LastLanding.X, LastLanding.Y);
-			Pos = FVector(Landing.X * 0.5 + 0.42, Landing.Y * 0.5 + ADartsPub::BoardY * 0.5 + 0.22, 2.05 - 0.3 * Settle);
+			Pos = FVector(Landing.X * 0.5 + 0.5, Landing.Y * 0.5 + ADartsPub::BoardY * 0.5 + 0.25, 2.95 - 0.35 * Settle);
 			Look = FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), Landing, 0.6);
 			Fov = 32.0 - 2.0 * Settle;
 			bCut = Since < 0.05;
+			bReacting = true;
 		}
 		else if ((GetReticle(Aim) || bBotUp) && Match.Phase == EMatchPhase::Playing)
 		{

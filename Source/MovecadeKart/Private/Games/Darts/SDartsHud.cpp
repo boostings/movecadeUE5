@@ -268,7 +268,10 @@ void SDartsHud::PaintCallouts(const FKartPainter& P, const ADartsGame& G, const 
 		const float In = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / 0.22), 0.f, 1.f), 2.4f);
 		const bool bBig = E.Kind == EEffectKind::Bull || E.Kind == EEffectKind::Bounty;
 		const FKartPainter C = P.Transformed(At, FMath::Max(0.01f, In) * (bBig ? 1.3f : 1.f), bBig ? -4.f : 0.f).Faded(Out);
-		const FString Label = E.Kind == EEffectKind::Miss ? FString(TEXT("MISS")) : (E.ScoreDelta > 0 ? FString::Printf(TEXT("%s  +%d"), *E.Label, E.ScoreDelta) : E.Label);
+		// "T20 +60", "BULLSEYE +50"; a plain single just says what it scored.
+		const bool bPlain = E.Label == FString::FromInt(E.ScoreDelta);
+		const FString Label = E.Kind == EEffectKind::Miss ? FString(TEXT("MISS"))
+			: (E.ScoreDelta > 0 ? (bPlain ? FString::Printf(TEXT("+%d"), E.ScoreDelta) : FString::Printf(TEXT("%s  +%d"), *E.Label.ToUpper(), E.ScoreDelta)) : E.Label);
 		C.Text(Label, KartUI::Font(EFont::Display, 56.f * S, 5.f * S, KC::Night), At, EffectColor(E, Lane), FVector2D(0.5, 0.5), 6.f * S);
 	}
 }
@@ -304,9 +307,16 @@ void SDartsHud::PaintVisit(const FKartPainter& P, const ADartsGame& G, float S) 
 		const FVector2D Chip(Pos.X + 40.f * S + i * 128.f * S, Pos.Y + 58.f * S);
 		const FKartPainter D = C.Transformed(Chip + FVector2D(56.f, 42.f) * S, FMath::Max(0.01f, Pop));
 		const bool bMiss = V.Points[i] == 0;
+		// A plain single reads once ("18"); a treble, double, bull or bounty shows what it paid ("T20" over "+60").
+		const bool bPlain = !bMiss && V.Labels[i] == FString::FromInt(V.Points[i]);
 		D.Card(Chip, FVector2D(112.f, 84.f) * S, bMiss ? KC::WithAlpha(KC::NavyDim, 0.9f) : Lane, 16.f * S, 4.f * S);
 		const float LabelSize = FMath::Min(26.f, 26.f * 96.f / FMath::Max(1.f, static_cast<float>(FKartPainter::Measure(V.Labels[i], KartUI::Font(EFont::Title, 26.f)).X))) * S;
-		D.Text(V.Labels[i], KartUI::Font(EFont::Title, LabelSize), Chip + FVector2D(56.f * S, 28.f * S), KC::TextOn(bMiss ? KC::NavyDim : Lane), FVector2D(0.5, 0.5));
+		D.Text(V.Labels[i], KartUI::Font(EFont::Title, bPlain ? LabelSize * 1.35f : LabelSize), Chip + FVector2D(56.f * S, (bPlain ? 42.f : 28.f) * S),
+			KC::TextOn(bMiss ? KC::NavyDim : Lane), FVector2D(0.5, 0.5));
+		if (bPlain)
+		{
+			continue;
+		}
 		D.Text(bMiss ? FString(TEXT("0")) : FString::Printf(TEXT("+%d"), V.Points[i]), KartUI::Font(EFont::Label, 20.f * S), Chip + FVector2D(56.f * S, 60.f * S),
 			KC::WithAlpha(KC::TextOn(bMiss ? KC::NavyDim : Lane), 0.85f), FVector2D(0.5, 0.5));
 	}
@@ -323,7 +333,7 @@ void SDartsHud::PaintGauge(const FKartPainter& P, const ADartsGame& G, const FDa
 	// quiet "hold" hint while it isn't.
 	const FDartsSeat* Thrower = G.GetThrower();
 	FVector2D Aim;
-	if (!Thrower || Thrower->Kind != EThrowerKind::Local || !G.GetReticle(Aim))
+	if (!Thrower || Thrower->Kind != EThrowerKind::Local || !G.GetReticle(Aim) || G.IsReacting())
 	{
 		return;
 	}
@@ -377,7 +387,7 @@ void SDartsHud::PaintControls(const FKartPainter& P, const ADartsGame& G, float 
 	{
 		const FText Hint = Thrower->Kind == EThrowerKind::Phone ? LOCTEXT("PhoneHint", "Aim with your phone, pinch, flick and let go")
 			: LOCTEXT("BotHint", "Lining up...");
-		P.Card(Centre - FVector2D(300.f, 44.f) * S, FVector2D(600.f, 88.f) * S, KC::WithAlpha(KC::Night, 0.86f), 22.f * S, 6.f * S, Thrower->Color, 3.f * S);
+		P.Card(Centre - FVector2D(350.f, 44.f) * S, FVector2D(700.f, 88.f) * S, KC::WithAlpha(KC::Night, 0.86f), 22.f * S, 6.f * S, Thrower->Color, 3.f * S);
 		P.Text(Up, KartUI::Font(EFont::Title, 32.f * S), Centre - FVector2D(0.f, 13.f * S), KC::White, FVector2D(0.5, 0.5));
 		P.Text(Hint, KartUI::Font(EFont::Body, 21.f * S), Centre + FVector2D(0.f, 22.f * S), KC::WithAlpha(KC::White, 0.82f), FVector2D(0.5, 0.5));
 		return;
