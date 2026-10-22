@@ -585,7 +585,7 @@ void ASamuraiGame::Shout(const FText& Text, const FLinearColor& Color)
 void ASamuraiGame::SlowMo(double Seconds)
 {
 	// A beat of slow motion (the whole round slows, rules included, so nothing desyncs); never back to back.
-	if (RealClock - SlowAt > Seconds + 2.0)
+	if (RealClock - SlowAt > Seconds + 4.0)
 	{
 		SlowAt = RealClock;
 		SlowSeconds = Seconds;
@@ -759,7 +759,11 @@ void ASamuraiGame::PresentEffect(const FEffect& E)
 			{
 				Flash(MovecadeKart::Art::Hex(TEXT("#fff2d6")), 0.55, 0.35);
 				FovKick = -2.2;
-				SlowMo(E.Struck.Num() >= 2 ? 0.6 : 0.42);
+				if (E.Struck.Num() >= 2)
+				{
+					// Slow motion is for the rare moments (a double cut), not every Perfect.
+					SlowMo(0.55);
+				}
 			}
 			if (Combo >= 5 && Combo % 5 == 0)
 			{
@@ -825,7 +829,7 @@ void ASamuraiGame::Tick(float DeltaSeconds)
 	RealClock += RealDt;
 	// Slow motion: down to a third at once, easing back over the beat.
 	const double SlowAge = RealClock - SlowAt;
-	const double TimeScale = SlowAge < SlowSeconds ? FMath::Lerp(0.33, 1.0, Smooth(SlowSeconds * 0.3, SlowSeconds, SlowAge)) : 1.0;
+	const double TimeScale = SlowAge < SlowSeconds ? FMath::Lerp(0.4, 1.0, Smooth(SlowSeconds * 0.3, SlowSeconds, SlowAge)) : 1.0;
 	const float Dt = static_cast<float>(RealDt * TimeScale);
 	Clock += Dt;
 	// The local swordsman's tip: the mouse, the right (or left) stick, the keys.
