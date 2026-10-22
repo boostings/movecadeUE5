@@ -150,6 +150,10 @@ namespace MovecadeKart
 	void FKartItemWorld::Step(TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
 	{
 		check(Racers.Num() == ItemSlots.Num());
+		for (const FKartItemRacer& Racer : Racers)
+		{
+			check(Racer.Sim);
+		}
 		FinishRoulettes(Now, Events);
 		CollectBoxes(Racers, Now, Events);
 		UseItems(Racers, Now, Events);

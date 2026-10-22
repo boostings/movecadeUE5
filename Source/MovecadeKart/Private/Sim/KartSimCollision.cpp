@@ -236,7 +236,15 @@ namespace MovecadeKart
 	bool FKartSim::ConstrainMovement(const FVector2D& Start, FVector2D& InOutDesired) const
 	{
 		const FVector2D Delta = InOutDesired - Start;
-		const int32 Steps = FMath::Max(1, FMath::CeilToInt32(Delta.Size() / TrackData->SweepSubstep));
+		const double SubstepCount = Delta.Size() / TrackData->SweepSubstep;
+		// A kart moves a few metres a step; anything near this limit (or NaN) is a bug upstream, and sweeping it would
+		// stall the game thread. Hold the kart where it was instead.
+		if (!ensureMsgf(SubstepCount <= MaxSweepSubsteps, TEXT("Kart asked to move %f m in one step; holding it in place"), Delta.Size()))
+		{
+			InOutDesired = Start;
+			return false;
+		}
+		const int32 Steps = FMath::Max(1, FMath::CeilToInt32(SubstepCount));
 		const double Radius = TrackData->KartRadius;
 		FVector2D P = Start;
 		bool bCollided = false;
