@@ -104,7 +104,7 @@ void ATrackBuilder::BuildRibbons()
 		const double Inner = Num(R, TEXT("inner")), Outer = Num(R, TEXT("outer"));
 		const double InnerY = Num(R, TEXT("innerY")), OuterY = Num(R, TEXT("outerY"));
 		const bool bWall = FMath::IsNearlyEqual(Inner, Outer);
-		const int32 StripePeriod = static_cast<int32>(Num(R, TEXT("stripePeriodSamples"), 0));
+		const int32 StripePeriod = Json::IntField(R, TEXT("stripePeriodSamples"), 0, 0, MAX_int32);
 
 		// Skip quads where the offset curve folds back inside a bend tighter than the offset.
 		TArray<bool> Folded;

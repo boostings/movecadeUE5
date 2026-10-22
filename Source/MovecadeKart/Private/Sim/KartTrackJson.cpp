@@ -4,6 +4,7 @@
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/JsonReader.h"
+#include "Sim/KartJsonFields.h"
 #include "Serialization/JsonSerializer.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartTrack, Log, All);
@@ -19,6 +20,9 @@ namespace MovecadeKart
 		constexpr double FoldedWallTolerance = 0.25;
 		/** No real dirt raster comes near this (Violet's is 1885 x 1744); larger means a corrupt file. */
 		constexpr double MaxDirtGridCells = 1 << 26;
+		/** Integer fields' ranges: far past any real track, and small enough that nothing downstream overflows. */
+		constexpr int32 MaxLaps = 99;
+		constexpr int32 MaxRecoverySkipWaypoints = 1 << 16;
 
 		// Field readers that tolerate a null object or a missing or mistyped field, returning the default.
 
@@ -123,7 +127,8 @@ namespace MovecadeKart
 					Json->TryGetBoolField(TEXT("isFinish"), Checkpoint.bFinish);
 				}
 			}
-			Out.StartCheckpoint = static_cast<int32>(NumberField(Root, TEXT("startCheckpointIndex"), Out.StartCheckpoint));
+			// Below zero reads as INDEX_NONE, which Validate rejects.
+			Out.StartCheckpoint = Json::IntField(Root, TEXT("startCheckpointIndex"), Out.StartCheckpoint, INDEX_NONE, MAX_int32);
 
 			// Respawn poses: the waypoint before the checkpoint's nearest waypoint, facing the next one.
 			const int32 WaypointCount = Out.Waypoints.Num();
@@ -314,8 +319,8 @@ namespace MovecadeKart
 			}
 			Grid.CellSize = NumberField(Dirt, TEXT("cellM"));
 			Grid.Min = FVector2D(NumberField(Dirt, TEXT("minX")), NumberField(Dirt, TEXT("minZ")));
-			Grid.Cols = static_cast<int32>(Cols);
-			Grid.Rows = static_cast<int32>(Rows);
+			Grid.Cols = Json::ToInt32(Cols, 0, 0, MAX_int32);
+			Grid.Rows = Json::ToInt32(Rows, 0, 0, MAX_int32);
 			if (!Grid.IsValid())
 			{
 				return;
@@ -328,9 +333,9 @@ namespace MovecadeKart
 				{
 					continue;
 				}
-				const int32 Row = static_cast<int32>(Run[0]);
-				const int32 First = FMath::Max(0, static_cast<int32>(Run[1]));
-				const int32 Last = FMath::Min(Grid.Cols - 1, static_cast<int32>(Run[2]));
+				const int32 Row = Json::ToInt32(Run[0], INDEX_NONE, INDEX_NONE, Grid.Rows);
+				const int32 First = Json::ToInt32(Run[1], 0, 0, Grid.Cols);
+				const int32 Last = Json::ToInt32(Run[2], INDEX_NONE, INDEX_NONE, Grid.Cols - 1);
 				if (Row < 0 || Row >= Grid.Rows)
 				{
 					continue;
@@ -361,7 +366,7 @@ namespace MovecadeKart
 			if (const TSharedPtr<FJsonObject> Recovery = ObjectField(Root, TEXT("recovery")))
 			{
 				Out.RecoveryDistance = NumberField(Recovery, TEXT("maxDistanceM"), Out.RecoveryDistance);
-				Out.RecoverySkipWaypoints = static_cast<int32>(NumberField(Recovery, TEXT("skipWaypoints"), Out.RecoverySkipWaypoints));
+				Out.RecoverySkipWaypoints = Json::IntField(Recovery, TEXT("skipWaypoints"), Out.RecoverySkipWaypoints, 0, MaxRecoverySkipWaypoints);
 			}
 			for (const TSharedPtr<FJsonValue>& V : ArrayField(Root, TEXT("itemBoxes")))
 			{
@@ -474,7 +479,8 @@ namespace MovecadeKart
 		Out = FTrack();
 		Out.Id = StringField(Header, TEXT("id"));
 		Out.Name = StringField(Header, TEXT("name"));
-		Out.Laps = static_cast<int32>(NumberField(Header, TEXT("laps"), Out.Laps));
+		// Zero (or anything below, clamped to zero) is rejected by Validate.
+		Out.Laps = Json::IntField(Header, TEXT("laps"), Out.Laps, 0, MaxLaps);
 		Out.GroundY = NumberField(Header, TEXT("groundY"));
 		Out.SuggestedRebaseY = NumberField(Header, TEXT("suggestedRebaseY"));
 		Out.bAnalyticWalls = StringField(Header, TEXT("trackType")) == TEXT("analytic-spline");
