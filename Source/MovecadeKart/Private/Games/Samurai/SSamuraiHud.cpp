@@ -28,6 +28,18 @@ namespace
 		P.Polygon(Scratch, Fill);
 	}
 
+	/**
+	 * Keeps a centred line of text (drawn at Scale, which may overshoot while it pops in) inside the safe area:
+	 * shifts its centre in from either edge by what it would hang over.
+	 */
+	FVector2D InsideSafe(const FVector2D& At, const FString& Text, const FSlateFontInfo& Font, float Scale, const FVector2D& Size)
+	{
+		const float Half = static_cast<float>(FKartPainter::Measure(Text, Font).X) * Scale * 0.5f;
+		const float Margin = static_cast<float>(Size.X) * KartUI::Metric::SafeFraction;
+		const float Lo = Margin + Half, Hi = static_cast<float>(Size.X) - Margin - Half;
+		return FVector2D(Lo > Hi ? Size.X * 0.5f : FMath::Clamp(static_cast<float>(At.X), Lo, Hi), At.Y);
+	}
+
 	float Clamp01(double X)
 	{
 		return FMath::Clamp(static_cast<float>(X), 0.f, 1.f);
@@ -196,12 +208,13 @@ void SSamuraiHud::PaintCallouts(const FKartPainter& P, const ASamuraiGame& G, fl
 		{
 			continue;
 		}
-		const FVector2D At = At01 * P.Size() - FVector2D(0.f, static_cast<float>(Age * 90.0) * S);
+		const bool bBig = E.Kind == EEffectKind::Combo || E.Kind == EEffectKind::Bomb;
+		const FSlateFontInfo Font = KartUI::Font(EFont::Display, 46.f * S, 4.5f * S, KC::Night);
+		const FVector2D At = InsideSafe(At01 * P.Size() - FVector2D(0.f, static_cast<float>(Age * 90.0) * S), E.Label, Font, (bBig ? 1.2f : 0.92f) * 1.1f, P.Size());
 		const float In = KartUI::Ease::OutBack(Clamp01(Age / 0.2), 2.4f);
 		const float Out = Clamp01((Life - Age) / 0.25);
-		const bool bBig = E.Kind == EEffectKind::Combo || E.Kind == EEffectKind::Bomb;
 		const FLinearColor Color = E.Kind == EEffectKind::Bomb ? KC::Hot : (E.Kind == EEffectKind::Miss ? KC::WithAlpha(KC::White, 0.85f) : MovecadeKart::Art::Hex(E.Color));
-		P.Transformed(At, FMath::Max(0.01f, In) * (bBig ? 1.2f : 0.92f), bBig ? -5.f : 0.f).Faded(Out).Text(E.Label, KartUI::Font(EFont::Display, 46.f * S, 4.5f * S, KC::Night), At,
+		P.Transformed(At, FMath::Max(0.01f, In) * (bBig ? 1.2f : 0.92f), bBig ? -5.f : 0.f).Faded(Out).Text(E.Label, Font, At,
 			Color, FVector2D(0.5, 0.5), 6.f * S);
 	}
 }
@@ -216,10 +229,11 @@ void SSamuraiHud::PaintNotes(const FKartPainter& P, const ASamuraiGame& G, float
 			continue;
 		}
 		const double Age = G.GetClock() - Note.BornAt;
-		const FVector2D At = At01 * P.Size() - FVector2D(0.f, static_cast<float>(Age * 60.0) * S);
+		const FSlateFontInfo Font = KartUI::Font(EFont::Display, 40.f * S, 4.f * S, KC::Night);
+		const FVector2D At = InsideSafe(At01 * P.Size() - FVector2D(0.f, static_cast<float>(Age * 60.0) * S), Note.Label.ToString(), Font, Note.Scale * 1.1f, P.Size());
 		const float In = KartUI::Ease::OutBack(Clamp01(Age / 0.18), 2.f);
 		const float Out = Clamp01((Note.Life - Age) / 0.25);
-		P.Transformed(At, FMath::Max(0.01f, In) * Note.Scale).Faded(Out).Text(Note.Label, KartUI::Font(EFont::Display, 40.f * S, 4.f * S, KC::Night), At, Note.Color,
+		P.Transformed(At, FMath::Max(0.01f, In) * Note.Scale).Faded(Out).Text(Note.Label, Font, At, Note.Color,
 			FVector2D(0.5, 0.5), 5.f * S);
 	}
 }
