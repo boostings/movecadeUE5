@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "FX/KartFx.h"
 #include "FX/KartFxSubsystem.h"
+#include "Games/Darts/DartsFxRecipes.h"
 #include "Games/Darts/DartsGameTuning.h"
 #include "Games/Darts/DartsPub.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -39,6 +40,15 @@ namespace
 	/** It settles this much deeper into the sisal over its first SettleMs. */
 	constexpr double SettleDepthM = 0.002;
 	constexpr double SettleMs = 420.0;
+	/** The quiver's reach at full bounce: up the face, out of it (metres), and nod and turn (radians). */
+	constexpr double QuiverUpM = 0.08;
+	constexpr double QuiverOutM = 0.008;
+	constexpr double QuiverPitch = 0.035;
+	constexpr double QuiverYaw = 0.025;
+	/** In flight the dart flies nose up (more for a soft throw) and turns with its curve, settling to the stuck angles. */
+	constexpr double FlightPitch = 0.18;
+	constexpr double FlightSoftPitch = 0.18;
+	constexpr double FlightCurveYaw = 0.4;
 
 	/** A finished visit lingers on the board this long after the board passes (unless a dart lands first). */
 	constexpr double HoldOverSeconds = 1.6;
@@ -46,7 +56,6 @@ namespace
 	/** The trail streams behind the newest flight until it is nearly in, a step behind the dart. */
 	constexpr double TrailUntilProgress = 0.97;
 	constexpr double TrailLag = 0.035;
-	constexpr double TrailRate = 140.0;
 
 	// The board's shiver (DartsScene.tsx board wobble): the target decays, the wobble chases it.
 	constexpr double WobbleDecay = 2.8;
@@ -56,12 +65,16 @@ namespace
 	constexpr double WobblePitchRadians = 0.009;
 	constexpr double WobbleRollRate = 18.0;
 	constexpr double WobblePitchRate = 11.0;
+	/** Each dart starts the shiver at its own phase (by its id). */
+	constexpr double WobblePhasePerDart = 0.001;
 
 	/** The bounty wedge pulses at this rate (rad/s). */
 	constexpr double BountyPulseRate = 4.0;
 
 	// The reticle: it hides for a beat after a landing, breathes, tightens with the power, glows brighter when gripped.
 	constexpr double ReticleHideAfterLandingSeconds = 0.25;
+	/** Off the face (metres), over the darts' flights. */
+	constexpr double ReticleLift = 0.03;
 	constexpr double ReticleBreath = 0.08;
 	constexpr double ReticleBreathRate = 3.0;
 	constexpr double ReticleGripTighten = 0.25;
@@ -124,13 +137,13 @@ void ADartsGame::StickDart(const FDartLanding& Landing, int32& Used)
 	}
 	const double Age = Landing.AgeMs;
 	const double Bounce = FMath::Sin(Age / QuiverPeriodMs) * FMath::Exp(-Age / QuiverDecayMs) * (1.0 - FMath::Exp(-Age / QuiverAttackMs));
-	const FVector Tip(Landing.X * ADartsPub::BoardRadius, ADartsPub::BoardY + Landing.Y * ADartsPub::BoardRadius + Bounce * 0.08,
-		StuckZ + Bounce * 0.008 + FMath::Min(1.0, Age / SettleMs) * SettleDepthM);
+	const FVector Tip(Landing.X * ADartsPub::BoardRadius, ADartsPub::BoardY + Landing.Y * ADartsPub::BoardRadius + Bounce * QuiverUpM,
+		StuckZ + Bounce * QuiverOutM + FMath::Min(1.0, Age / SettleMs) * SettleDepthM);
 	UStaticMeshComponent* Dart = Darts[Used++];
 	SetFlightColor(Dart, Landing.LaneIndex);
 	// A stuck dart shadows the board under the board spot; one in flight doesn't bother.
 	Dart->SetCastShadow(true);
-	PlaceDart(Dart, Tip, StuckPitch + Bounce * 0.035, StuckYaw + Bounce * 0.025);
+	PlaceDart(Dart, Tip, StuckPitch + Bounce * QuiverPitch, StuckYaw + Bounce * QuiverYaw);
 }
 
 void ADartsGame::StickVisibleVisit(int32& Used)
@@ -196,8 +209,8 @@ void ADartsGame::FlyDarts(int32& Used)
 		// Nose up early (more for a soft throw), the curve's yaw unwinding, both easing to the stuck angles.
 		const double T = Flight.Progress;
 		const double Ease = Tuning::SmootherStep(T);
-		const double Pitch = FMath::Lerp(0.18 + (1.0 - Flight.Power) * 0.18 * FMath::Cos(UE_DOUBLE_PI * T), StuckPitch, Ease);
-		const double Yaw = FMath::Lerp(Flight.Curve * 0.4 * (1.0 - T), StuckYaw, Ease);
+		const double Pitch = FMath::Lerp(FlightPitch + (1.0 - Flight.Power) * FlightSoftPitch * FMath::Cos(UE_DOUBLE_PI * T), StuckPitch, Ease);
+		const double Yaw = FMath::Lerp(Flight.Curve * FlightCurveYaw * (1.0 - T), StuckYaw, Ease);
 		UStaticMeshComponent* Dart = Darts[Used++];
 		SetFlightColor(Dart, Flight.LaneIndex);
 		Dart->SetCastShadow(false);
@@ -221,16 +234,10 @@ void ADartsGame::UpdateTrail()
 		const FDartsSeat* Seat = Seats.IsValidIndex(Flight->LaneIndex) ? &Seats[Flight->LaneIndex] : nullptr;
 		const FVector Pos = ToWorld(FlightWeb(*Flight, FMath::Max(0.0, Flight->Progress - TrailLag)));
 		Trail->SetWorldLocation(Pos);
-		Tail.Position = Pos;
-		Tail.Spread = 0.2;
-		Tail.Speed = FVector2D(0.0, 0.05);
-		Tail.Life = FVector2D(0.14, 0.22);
-		Tail.Size = FVector2D(0.035, 0.05);
-		Tail.SizeEnd = 0.15;
-		Tail.Color = Seat ? FMath::Lerp(Seat->Color, FLinearColor::White, 0.35f) : FLinearColor::White;
+		Tail = FxRecipes::Trail.Make(Pos);
+		Tail.Color = Seat ? FMath::Lerp(Seat->Color, FLinearColor::White, FxRecipes::TrailWhiteShare) : FLinearColor::White;
 		Tail.ColorEnd = Seat ? Seat->Color : FLinearColor::White;
-		Tail.Intensity = 2.2;
-		Rate = TrailRate;
+		Rate = FxRecipes::TrailPerSecond;
 	}
 	UKartFxSubsystem::UpdateStream(Trail, Tail, Rate);
 }
@@ -240,7 +247,7 @@ void ADartsGame::UpdateBoard(float Dt)
 	// The board shivers when a dart lands (DartsScene.tsx board wobble).
 	WobbleTarget *= FMath::Exp(-WobbleDecay * Dt);
 	Wobble += (WobbleTarget - Wobble) * (1.0 - FMath::Exp(-WobbleFollow * Dt));
-	const double Phase = WobbleSeed * 0.001;
+	const double Phase = WobbleSeed * WobblePhasePerDart;
 	const double Roll = FMath::Sin(Phase + Clock * WobbleRollRate) * Wobble * WobbleRollRadians;
 	const double Tilt = FMath::Cos(Phase + Clock * WobblePitchRate) * Wobble * WobblePitchRadians;
 	if (USceneComponent* Pivot = Pub->GetBoardPivot())
@@ -272,7 +279,7 @@ void ADartsGame::UpdateReticle()
 	// The ring breathes; while the dart is gripped it tightens with the power and turns mint in the sweet spot.
 	const bool bSweet = Local.bGripped && Tuning::IsSweet(Local.Power);
 	const double Breath = (1.0 + ReticleBreath * FMath::Sin(Clock * ReticleBreathRate)) * (Local.bGripped ? 1.0 - ReticleGripTighten * Local.Power : 1.0);
-	Reticle->SetWorldTransform(FTransform(FRotator::ZeroRotator, ToWorld(ADartsPub::BoardPoint(Aim.X * AimReach, Aim.Y * AimReach, 0.03)), FVector(Breath)));
+	Reticle->SetWorldTransform(FTransform(FRotator::ZeroRotator, ToWorld(ADartsPub::BoardPoint(Aim.X * AimReach, Aim.Y * AimReach, ReticleLift)), FVector(Breath)));
 	static const FLinearColor SweetMint = MovecadeKart::Art::Hex(TEXT("#3ee6a8"));
 	const FLinearColor Color = bSweet ? SweetMint : (Thrower ? Thrower->Color : FLinearColor::White);
 	ReticleMaterial->SetVectorParameterValue(NameColor, Color * ((Local.bGripped ? ReticleGripGlow : ReticleGlow) * ADartsPub::GlowGain));

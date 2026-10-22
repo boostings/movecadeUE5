@@ -38,6 +38,10 @@ namespace
 	constexpr double ReactInSeconds = 0.15;
 	/** Points that earn a small cheer (a fat treble or better). */
 	constexpr int32 GoodDartPoints = 40;
+	/** How much a landing cheers or slumps: the bull or a bounty, a good dart, a miss. */
+	constexpr float BigHitCheer = 1.f;
+	constexpr float GoodDartCheer = 0.45f;
+	constexpr float MissSlump = 0.7f;
 	/** At the results everyone half-cheers; the winner cheers properly. */
 	constexpr float ResultsCheer = 0.35f;
 	constexpr float WinnerCheer = 0.8f;
@@ -49,6 +53,46 @@ namespace
 	constexpr double HeldDartPitchDegrees = 10.0;
 	/** The look target is taken from roughly the avatar's eyes, this far above its root (cm). */
 	constexpr double EyeHeightCm = 150.0;
+
+	/**
+	 * The throwing pose (DartsAvatar.tsx's keyframes, avatar-local metres): the dart hand by the cheek, drawn back
+	 * with the wind-up, punched out along the line by the flick, and the body's lean and twist into the throw.
+	 */
+	struct FThrowPoseRecipe
+	{
+		// The throwing hand: rest, then per unit of wind-up, flick and aim.
+		double HandX = 0.42;
+		double HandWindupBack = 0.24;
+		double HandFlickOut = 0.6;
+		double HandY = 0.16;
+		double HandAimSide = 0.17;
+		double HandZ = 0.42;
+		double HandAimUp = 0.2;
+		double HandWindupUp = 0.09;
+		double HandFlickDown = 0.12;
+		/** Aiming high drives the throw: a floor plus this much per unit of vertical aim, capped at 1. */
+		double DriveBase = 0.28;
+		double DriveAimUp = 0.38;
+		// Lean and twist while active, and the lean at rest.
+		double Lean = 0.06;
+		double LeanDrive = 0.1;
+		double LeanFlick = 0.14;
+		double LeanWindup = 0.03;
+		double RestLean = 0.02;
+		double Twist = -0.18;
+		double TwistWindup = 0.06;
+		double TwistFlick = 0.08;
+		float Crouch = 0.04f;
+		/** The other hand out for balance, at this weight while active. */
+		FVector3d OffHand = FVector3d(0.25, -0.35, -0.55);
+		float OffHandWeight = 0.45f;
+		/** The eyes go to half the aim (and a touch above), firmly while active. */
+		double LookAimShare = 0.5;
+		double LookAbove = 0.12;
+		float LookWeight = 0.85f;
+		float RestLookWeight = 0.5f;
+	};
+	const FThrowPoseRecipe ThrowPose;
 
 	const FName NameRightHand(TEXT("rightHand"));
 
@@ -69,15 +113,15 @@ namespace
 		OutSlump = 0.f;
 		if (Landing.Hit.Ring == ERing::Bull || Landing.bBounty)
 		{
-			OutCheer = 1.f;
+			OutCheer = BigHitCheer;
 		}
 		else if (Landing.ScoreDelta == 0)
 		{
-			OutSlump = 0.7f;
+			OutSlump = MissSlump;
 		}
 		else if (Landing.ScoreDelta >= GoodDartPoints)
 		{
-			OutCheer = 0.45f;
+			OutCheer = GoodDartCheer;
 		}
 	}
 }
@@ -101,22 +145,22 @@ void ADartsGame::UpdateThrower()
 	// Bots draw back over the wind-up before they throw; a local hand draws back with the meter.
 	const double Windup = Local.bGripped ? GripWindup + GripWindupPower * Local.Power
 		: (bBotAiming ? Smooth(BotReadyAt - Tuning::BotWindupSeconds, BotReadyAt - BotWindupEndLead, Clock) : 0.0);
+	const FThrowPoseRecipe& R = ThrowPose;
 	// Aiming high leans into the throw.
-	const double Drive = FMath::Min(1.0, 0.28 + FMath::Abs(Aim.Y) * 0.38);
+	const double Drive = FMath::Min(1.0, R.DriveBase + FMath::Abs(Aim.Y) * R.DriveAimUp);
 	const bool bActive = bAiming || bBotAiming || Flick > ActiveFlick;
 
-	// The dart by the cheek (avatar-local, metres), drawn back with the wind-up, punched out along the line by the flick.
-	Pose.Hand[1] = FVector(0.42 - 0.24 * Windup + 0.6 * Flick, 0.16 + Aim.X * 0.17, 0.42 + Aim.Y * 0.2 + 0.09 * Windup - 0.12 * Flick);
+	Pose.Hand[1] = FVector(R.HandX - R.HandWindupBack * Windup + R.HandFlickOut * Flick, R.HandY + Aim.X * R.HandAimSide,
+		R.HandZ + Aim.Y * R.HandAimUp + R.HandWindupUp * Windup - R.HandFlickDown * Flick);
 	Pose.HandWeight[1] = bActive ? 1.f : 0.f;
-	// The other hand out for balance.
-	Pose.Hand[0] = FVector(0.25, -0.35, -0.55);
-	Pose.HandWeight[0] = bActive ? 0.45f : 0.f;
-	Pose.Lean = static_cast<float>(bActive ? 0.06 + 0.1 * Drive + 0.14 * Flick - 0.03 * Windup : 0.02);
-	Pose.Twist = static_cast<float>(bActive ? -0.18 - 0.06 * Windup + 0.08 * Flick : 0.0);
-	Pose.Crouch = 0.04f;
-	const FVector LookAt = ToWorld(ADartsPub::BoardPoint(Aim.X * 0.5, Aim.Y * 0.5 + 0.12));
+	Pose.Hand[0] = R.OffHand;
+	Pose.HandWeight[0] = bActive ? R.OffHandWeight : 0.f;
+	Pose.Lean = static_cast<float>(bActive ? R.Lean + R.LeanDrive * Drive + R.LeanFlick * Flick - R.LeanWindup * Windup : R.RestLean);
+	Pose.Twist = static_cast<float>(bActive ? R.Twist - R.TwistWindup * Windup + R.TwistFlick * Flick : 0.0);
+	Pose.Crouch = R.Crouch;
+	const FVector LookAt = ToWorld(ADartsPub::BoardPoint(Aim.X * R.LookAimShare, Aim.Y * R.LookAimShare + R.LookAbove));
 	Pose.Look = Facing.UnrotateVector((LookAt - Avatar->GetComponentLocation() - FVector(0.0, 0.0, EyeHeightCm)).GetSafeNormal());
-	Pose.LookWeight = bActive ? 0.85f : 0.5f;
+	Pose.LookWeight = bActive ? R.LookWeight : R.RestLookWeight;
 
 	// Reactions: the bull and the bounty cheer, a miss slumps, the end wins or loses.
 	const double SinceLanding = Clock - LastLandingAt;

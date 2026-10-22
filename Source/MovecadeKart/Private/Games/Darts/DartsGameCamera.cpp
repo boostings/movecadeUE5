@@ -52,6 +52,16 @@ namespace
 	constexpr double ReactCutSeconds = 0.05;
 	constexpr double ReactFov = 32.0;
 	constexpr double ReactZoomFov = 2.0;
+	/** The reaction camera follows the landing at this share (the rest is the board's centre), off to the right and
+	 *  up, this far from the board, easing in by ReactPushIn; it looks at this share of the way to the landing. */
+	constexpr double ReactFollow = 0.4;
+	constexpr double ReactRightM = 0.55;
+	constexpr double ReactUpM = 0.3;
+	constexpr double ReactDistanceM = 3.5;
+	constexpr double ReactPushInM = 0.4;
+	constexpr double ReactLookShare = 0.45;
+	/** The shake's second axis runs a little out of phase with the first. */
+	constexpr double ShakePhaseY = 1.3;
 
 	/** The results: a wider shot off to the right, the board and the thrower in frame. */
 	const FVector ResultsPos(2.15, 1.5, 6.4);
@@ -82,8 +92,8 @@ namespace
 	{
 		const double Settle = Smooth(0.0, 1.0, Since / ReactSettleSeconds);
 		const FVector At = ADartsPub::BoardPoint(Landing.X, Landing.Y);
-		return { FVector(At.X * 0.4 + 0.55, At.Y * 0.4 + ADartsPub::BoardY * 0.6 + 0.3, 3.5 - 0.4 * Settle),
-			FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), At, 0.45), ReactFov - ReactZoomFov * Settle };
+		return { FVector(At.X * ReactFollow + ReactRightM, At.Y * ReactFollow + ADartsPub::BoardY * (1.0 - ReactFollow) + ReactUpM, ReactDistanceM - ReactPushInM * Settle),
+			FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), At, ReactLookShare), ReactFov - ReactZoomFov * Settle };
 	}
 
 	/** three.js gives a vertical field of view; UE's is horizontal. */
@@ -149,7 +159,7 @@ void ADartsGame::UpdateCamera(float Dt)
 	// The impact's shake (impactFx.ts), decaying with the board's wobble, plus the big hit's punch: a quick push in
 	// and a harder shake that settle in a quarter second.
 	Punch *= FMath::Exp(-PunchDecay * Dt);
-	const FVector Shake = FVector(FMath::Sin(Clock * ShakeRateX), FMath::Sin(Clock * ShakeRateY + 1.3), 0.0) * (Wobble * WobbleShakeM + Punch * PunchShakeM);
+	const FVector Shake = FVector(FMath::Sin(Clock * ShakeRateX), FMath::Sin(Clock * ShakeRateY + ShakePhaseY), 0.0) * (Wobble * WobbleShakeM + Punch * PunchShakeM);
 	const FVector From = ToWorld(CamPos + Shake);
 	const FVector To = ToWorld(CamLook);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());

@@ -11,6 +11,7 @@
 #include "FX/KartFx.h"
 #include "FX/KartFxSubsystem.h"
 #include "GameFramework/PlayerController.h"
+#include "Games/Darts/DartsFxRecipes.h"
 #include "Games/Darts/DartsGameTuning.h"
 #include "Games/Darts/DartsPub.h"
 #include "Games/Darts/DartsRelease.h"
@@ -47,6 +48,14 @@ namespace
 	constexpr double CalloutLift = 0.02;
 	/** The game HUD's viewport layer: under SArcadeOverlay (30), as every party game's HUD. */
 	constexpr int32 HudZOrder = 10;
+
+	/** The release whoosh: louder and higher the harder the throw (sound.ts). */
+	constexpr double ReleaseVolume = 0.6;
+	constexpr double ReleaseVolumePower = 0.4;
+	constexpr double ReleasePitch = 0.9;
+	constexpr double ReleasePitchPower = 0.35;
+	/** "Long ago" for the clocks a rematch rewinds (a landing, a flash): nothing shows from it. */
+	constexpr double LongAgo = -10.0;
 
 	const FName CueRelease(TEXT("darts.release"));
 	const FName CueMatchOver(TEXT("match.over"));
@@ -146,25 +155,12 @@ void ADartsGame::MakeAmbientFx()
 	}
 	Trail = FxSys->MakeStream(Fx::EField::Fire, RootComponent, TEXT("DartTrail"));
 	// Dust in the board's light: a slow drift of motes between the oche and the board.
-	Motes = FxSys->MakeStream(Fx::EField::Flare, RootComponent, TEXT("DustMotes"), ToWorld(FVector(0.0, ADartsPub::BoardY + 0.5, 1.6)));
+	Motes = FxSys->MakeStream(Fx::EField::Flare, RootComponent, TEXT("DustMotes"), ToWorld(MotesWeb));
 	if (!Motes)
 	{
 		return;
 	}
-	Fx::FKartFxEmit Dust;
-	Dust.Field = Fx::EField::Flare;
-	Dust.Position = Motes->GetComponentLocation();
-	Dust.Spread = UE_DOUBLE_PI;
-	Dust.Speed = FVector2D(0.015, 0.05);
-	Dust.Life = FVector2D(4.0, 7.0);
-	Dust.Size = FVector2D(0.006, 0.012);
-	Dust.SizeEnd = 0.6;
-	Dust.Color = Fx::Hex(TEXT("ffe2b0"));
-	Dust.ColorEnd = Fx::Hex(TEXT("ffc98c"));
-	Dust.Intensity = 0.55;
-	Dust.Jitter = 1.2;
-	constexpr double MotesPerSecond = 6.0;
-	UKartFxSubsystem::UpdateStream(Motes, Dust, MotesPerSecond);
+	UKartFxSubsystem::UpdateStream(Motes, FxRecipes::DustMotes.Make(Motes->GetComponentLocation()), FxRecipes::MotesPerSecond);
 }
 
 void ADartsGame::MakeCameraAndHud()
@@ -412,8 +408,7 @@ void ADartsGame::StepFixed(double DtMs)
 		SeenFlights.Add(Flight.Id, &bAlreadySeen);
 		if (!bAlreadySeen)
 		{
-			// Harder throws whoosh louder and higher.
-			Cues.Play(this, CueRelease, static_cast<float>(0.6 + 0.4 * Flight.Power), static_cast<float>(0.9 + 0.35 * Flight.Power));
+			Cues.Play(this, CueRelease, static_cast<float>(ReleaseVolume + ReleaseVolumePower * Flight.Power), static_cast<float>(ReleasePitch + ReleasePitchPower * Flight.Power));
 		}
 	}
 	for (const FDartsEffect& Effect : Match.Effects)
@@ -485,12 +480,12 @@ void ADartsGame::Rematch()
 	LastVisit = FDartsVisitSummary();
 	Local = FLocalThrow();
 	Accumulator = 0.0;
-	LastLandingAt = -10.0;
+	LastLandingAt = LongAgo;
 	LastLanding = FDartLanding();
 	HeldOverPlayer = INDEX_NONE;
 	ShownVisitor.Reset();
 	Punch = 0.0;
-	FlashAt = -10.0;
+	FlashAt = LongAgo;
 	bChalked = false;
 	SetStage(EDartsStage::Intro);
 }
