@@ -18,6 +18,8 @@ namespace MovecadeKart::Arcade
 				LOCTEXT("SamuraiHow", "Mouse or stick: sweep the katana through the fruit at the top of its arc. Never cut a bomb. Three precise cuts earn Focus: double points."), TEXT("L_Samurai"), KC::Mint, 4, 1, 2.0 },
 			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop each block on the last, trim the overhang, lean the tower against the wind."),
 				LOCTEXT("StackerHow", "A, Space or click drops the sweeping block; the overhang is cut away. Stick, A/D or mouse lean the tower against the wind."), TEXT("L_Stacker"), KC::Sky, 4, 1, 3.0 },
+			{ TEXT("derby"), LOCTEXT("Derby", "Home Run Derby"), LOCTEXT("DerbyTag", "Night lights, ten pitches, one bat. Time the swing and send it into the seats."),
+				LOCTEXT("DerbyHow", "Hold Space, RT or click to load, let go to swing as the ball arrives. Mouse, A/D or stick aim pull or opposite field. Phones: swing it like a bat."), TEXT("L_Derby"), KC::Hot, 4, 4, 3.0 },
 		};
 		return List;
 	}

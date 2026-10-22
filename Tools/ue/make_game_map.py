@@ -4,7 +4,7 @@
 
 Games (KART_GAME): bowling -> L_Bowling (ABowlingAlley, ABowlingGameMode); darts -> L_Darts (ADartsPub, ADartsGameMode);
 samurai -> L_Samurai (ASamuraiDojo, ASamuraiGameMode);
-stacker -> L_Stacker (AStackerRooftop, AStackerGameMode). The venue builds itself in code
+stacker -> L_Stacker (AStackerRooftop, AStackerGameMode); derby -> L_Derby (ADerbyBallpark, ADerbyGameMode). The venue builds itself in code
 (OnConstruction), like ATrackBuilder, so the level only holds the actor and the mode override.
 """
 import os
@@ -18,6 +18,7 @@ GAMES = {
     "darts": ("L_Darts", "/Script/MovecadeKart.DartsPub", "/Script/MovecadeKart.DartsGameMode"),
     "samurai": ("L_Samurai", "/Script/MovecadeKart.SamuraiDojo", "/Script/MovecadeKart.SamuraiGameMode"),
     "stacker": ("L_Stacker", "/Script/MovecadeKart.StackerRooftop", "/Script/MovecadeKart.StackerGameMode"),
+    "derby": ("L_Derby", "/Script/MovecadeKart.DerbyBallpark", "/Script/MovecadeKart.DerbyGameMode"),
 }
 game = os.environ.get("KART_GAME", "bowling")
 quit_after = os.environ.get("KART_QUIT") == "1"

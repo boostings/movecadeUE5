@@ -527,6 +527,25 @@ namespace
 	/** Each game's card art, drawn from primitives like the main menu's. */
 	void GameIcon(const FKartPainter& P, int32 Game, const FVector2D& C, float S, double Now)
 	{
+		if (ArcadeGames().IsValidIndex(Game) && ArcadeGames()[Game].Id == FName(TEXT("derby")))
+		{
+			// A bat swinging through a ball that streaks away.
+			const double Swing = FMath::Sin(Now * 2.4) * 0.25;
+			const FVector2D Ball = C + FVector2D(0.42 * S, -0.38 * S);
+			for (int32 i = 1; i <= 3; ++i)
+			{
+				P.Circle(Ball - FVector2D(0.16 * S * i, -0.13 * S * i), (0.15f - i * 0.03f) * S, Color::WithAlpha(Color::Sun, 0.8f - i * 0.2f));
+			}
+			P.Circle(Ball, 0.2f * S, Color::White, Color::Navy, 0.04f * S);
+			P.Lines({ Ball + FVector2D(-0.1 * S, -0.08 * S), Ball + FVector2D(0.02 * S, 0.12 * S) }, Color::Hot, 0.03f * S);
+			const FVector2D Knob = C + FVector2D(-0.55 * S, 0.62 * S);
+			const double A = -0.95 + Swing;
+			const FVector2D Dir(FMath::Cos(A), FMath::Sin(A));
+			const FVector2D Side(-Dir.Y, Dir.X);
+			P.Polygon({ Knob + Side * 0.04 * S, Knob + Dir * 1.15 * S + Side * 0.12 * S, Knob + Dir * 1.22 * S, Knob + Dir * 1.15 * S - Side * 0.12 * S, Knob - Side * 0.04 * S }, Color::Gold);
+			P.Circle(Knob, 0.07f * S, Color::Navy);
+			return;
+		}
 		switch (Game)
 		{
 		case 0:
@@ -570,12 +589,12 @@ namespace
 	{
 	public:
 		/** Rows: the games, then Players and House players. */
-		static constexpr int32 PlayersRow = 4;
-		static constexpr int32 HouseRow = 5;
+		const int32 PlayersRow = ArcadeGames().Num();
+		const int32 HouseRow = PlayersRow + 1;
 
 		explicit FArcadeScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
 		{
-			Focus.Cursor.Count = 6;
+			Focus.Cursor.Count = HouseRow + 1;
 		}
 
 		virtual FName GetId() const override { return TEXT("arcade"); }

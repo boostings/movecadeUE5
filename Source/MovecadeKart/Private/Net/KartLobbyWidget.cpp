@@ -578,6 +578,7 @@ void UKartLobbyWidget::Refresh()
 		: Subsystem->GetGameId() == TEXT("bowling") ? TEXT("Phones are the ball: scan the code, swing and let go to bowl.")
 		: Subsystem->GetGameId() == TEXT("darts") ? TEXT("Phones are the darts: scan the code, aim, pinch and flick.")
 		: Subsystem->GetGameId() == TEXT("stacker") ? TEXT("Phones are your palm: scan the code, keep it level and tap DROP.")
+		: Subsystem->GetGameId() == TEXT("derby") ? TEXT("Phones are the bat: scan the code, then swing it as the pitch arrives.")
 		: TEXT("Phones are katanas: scan the code, then swing through the fruit.")));
 
 	const TArray<FKartTrackInfo>& Catalog = FKartTrackCatalog::All();
