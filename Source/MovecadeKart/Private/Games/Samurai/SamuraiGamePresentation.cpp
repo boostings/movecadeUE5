@@ -10,6 +10,7 @@
 #include "Games/Samurai/SamuraiDojo.h"
 #include "Games/Samurai/SamuraiFx.h"
 #include "Games/Samurai/SamuraiLog.h"
+#include "Games/Samurai/SamuraiLabels.h"
 #include "Games/Samurai/SamuraiTuning.h"
 #include "KartCoords.h"
 #include "ProceduralMeshComponent.h"
@@ -109,7 +110,7 @@ void ASamuraiGame::PresentCut(const FEffect& Effect)
 	}
 	if (Combo >= ComboShoutEvery && Combo % ComboShoutEvery == 0)
 	{
-		Shout(FText::Format(NSLOCTEXT("Samurai", "ComboShout", "{0}x COMBO!"), FText::AsNumber(Combo)), Combo >= GoldComboShout ? Palette::Gold : Palette::Jade);
+		Shout(FText::Format(Labels::ComboShout(), FText::AsNumber(Combo)), Combo >= GoldComboShout ? Palette::Gold : Palette::Jade);
 		if (Dojo)
 		{
 			Dojo->PetalBurst(FVector(LaneX(Effect.LaneIndex, LaneCount()), ComboPetalY, ComboPetalZ), ComboPetals + Combo);
@@ -339,7 +340,7 @@ void ASamuraiGame::ReleaseSlot(int32 Index)
 	if (Slot.LastProgress > DroppedProgress && Slot.Kind != EKind::Bomb && IsHuman(Slot.Lane) && Stage == ESamuraiStage::Match
 		&& Match.Phase == EMatchPhase::Playing && !LaneCalloutActive(Slot.Lane))
 	{
-		Note(Slot.LastAt + FVector(0.0, 0.0, DroppedLiftCm), NSLOCTEXT("Samurai", "Dropped", "Dropped"), Palette::Dropped, DroppedNoteLife, DroppedNoteScale);
+		Note(Slot.LastAt + FVector(0.0, 0.0, DroppedLiftCm), Labels::Dropped(), Palette::Dropped, DroppedNoteLife, DroppedNoteScale);
 	}
 	TargetSlots.Remove(Slot.TargetId);
 	Slot.TargetId = INDEX_NONE;

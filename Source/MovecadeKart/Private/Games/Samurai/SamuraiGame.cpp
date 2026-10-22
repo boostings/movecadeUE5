@@ -12,6 +12,7 @@
 #include "Games/Samurai/SamuraiArt.h"
 #include "Games/Samurai/SamuraiDojo.h"
 #include "Games/Samurai/SamuraiLog.h"
+#include "Games/Samurai/SamuraiLabels.h"
 #include "Games/Samurai/SamuraiTuning.h"
 #include "Games/Samurai/SSamuraiHud.h"
 #include "KartCoords.h"
@@ -431,7 +432,7 @@ void ASamuraiGame::WatchFocus()
 		const bool bFocus = Match.Players[i].FocusRemainingMs > 0.0;
 		if (bFocus && !Lanes[i].bWasFocus && IsFeatured(i) && Stage == ESamuraiStage::Match)
 		{
-			Shout(NSLOCTEXT("Samurai", "FocusShout", "FOCUS!"), Palette::Gold);
+			Shout(Labels::FocusShout(), Palette::Gold);
 			Flash(Palette::Gold, FocusFlashPower, FocusFlashFringe);
 			if (Dojo)
 			{

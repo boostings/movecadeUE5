@@ -4,6 +4,7 @@
 #include "Games/Samurai/SamuraiGame.h"
 
 #include "GameFramework/PlayerController.h"
+#include "Games/Samurai/SamuraiLabels.h"
 #include "Games/Samurai/SamuraiTuning.h"
 #include "InputCoreTypes.h"
 #include "KartCoords.h"
@@ -290,14 +291,14 @@ void ASamuraiGame::FeedbackForMisses(FLane& Lane, int32 Index)
 	if (Touched && TurnDegPerSecond > TooSlowMinTurnDegPerSecond)
 	{
 		Lane.HintAt = Clock;
-		Note(ToWorld(TargetCentre(*Touched, LaneCount()) + FVector(0.0, NoteLift, 0.0)), NSLOCTEXT("Samurai", "TooSlow", "Swing faster!"), Palette::Gold,
+		Note(ToWorld(TargetCentre(*Touched, LaneCount()) + FVector(0.0, NoteLift, 0.0)), Labels::SwingFaster(), Palette::Gold,
 			TooSlowNoteLife, TooSlowNoteScale);
 		Cues.Play(this, TEXT("samurai.miss"), TooSlowVolume, TooSlowPitch);
 	}
 	else if (bSweepEnded && !Lane.bSweepHit && Nearest && !LaneCalloutActive(Index))
 	{
 		Lane.HintAt = Clock;
-		Note(ToWorld(TargetCentre(*Nearest, LaneCount()) + FVector(0.0, NoteLift, 0.0)), NSLOCTEXT("Samurai", "Whiff", "Missed"), Palette::Whiff,
+		Note(ToWorld(TargetCentre(*Nearest, LaneCount()) + FVector(0.0, NoteLift, 0.0)), Labels::Missed(), Palette::Whiff,
 			WhiffNoteLife, WhiffNoteScale);
 	}
 }

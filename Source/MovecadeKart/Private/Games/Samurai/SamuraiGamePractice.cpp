@@ -7,6 +7,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Games/Samurai/SamuraiLog.h"
+#include "Games/Samurai/SamuraiLabels.h"
 #include "Games/Samurai/SamuraiTuning.h"
 
 using namespace MovecadeKart::Samurai;
@@ -79,7 +80,7 @@ void ASamuraiGame::UpdatePractice(float Dt)
 	{
 		Lane.HintAt = Clock;
 		Practice = ESamuraiPractice::TooSlow;
-		Note(ToWorld(PracticeWeb + FVector(0.0, PracticeNoteLift, 0.0)), NSLOCTEXT("Samurai", "TooSlow", "Swing faster!"), Palette::Gold,
+		Note(ToWorld(PracticeWeb + FVector(0.0, PracticeNoteLift, 0.0)), Labels::SwingFaster(), Palette::Gold,
 			TooSlowNoteLife, PracticeTooSlowNoteScale);
 	}
 	if (Age > PracticeTimeoutSeconds)
@@ -103,7 +104,7 @@ void ASamuraiGame::CutPracticeApple(FLane& Lane, const FVector& At, double Age)
 	FrozenUntil = Clock + PracticeHitStopSeconds;
 	Punch = PracticePunch;
 	SlowMo(PracticeSlowMoSeconds);
-	Note(ToWorld(PracticeWeb + FVector(0.0, PracticeNoteLift, 0.0)), NSLOCTEXT("Samurai", "PracticeCut", "Clean cut!"), Palette::Jade,
+	Note(ToWorld(PracticeWeb + FVector(0.0, PracticeNoteLift, 0.0)), Labels::CleanCut(), Palette::Jade,
 		PracticeCutNoteLife, PracticeCutNoteScale);
 	UE_LOG(LogSamurai, Log, TEXT("Practice apple cut after %.2f s"), Age);
 	Practice = ESamuraiPractice::Cut;

@@ -24,7 +24,8 @@ class UStaticMeshComponent;
  *
  * Placed in L_Samurai (or spawned by ASamuraiGameMode); ASamuraiGame sets its lane count and drives its mood. Web
  * world units map 1:1 to metres (UE cm via MovecadeKart::Coords). The lanes sit around x 0, 3.6 m apart; the
- * swordsmen stand at z 1.15 facing -z; the targets fly at z .55. The props' meshes are in SamuraiDojoMeshes.cpp.
+ * swordsmen stand at z 1.15 facing -z; the targets fly at z .55. The set's parts are placed in SamuraiDojoSet.cpp,
+ * the props' meshes are modelled in SamuraiDojoMeshes.cpp.
  */
 UCLASS()
 class MOVECADEKART_API ASamuraiDojo : public AActor
@@ -54,6 +55,8 @@ public:
 	double StageWidth() const;
 
 private:
+	/** The tag on every component the dojo builds (Clear removes them by it). */
+	static FName DojoTag();
 	void Build();
 	void BuildMeshes();
 	void Clear();
