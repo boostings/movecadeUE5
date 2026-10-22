@@ -4,6 +4,37 @@
 
 using namespace KartUI;
 
+namespace
+{
+	/** The wipe holds a moment past full cover before the callback (and before it reports itself open). */
+	constexpr double SettleSeconds = 0.05;
+	/** Level loads hitch; each tick advances at most this much so the wipe doesn't skip to the end. */
+	constexpr float MaxStep = 1.f / 30.f;
+	/** The bands' slant, as a fraction of the screen's height, and each band's width as a fraction of its width. */
+	constexpr double Slant = 0.35;
+	constexpr double BandWidth = 0.07;
+	constexpr int32 Bands = 4;
+	/** Bands overlap by a unit, and the fill runs a little past the screen's edges, so no seams show. */
+	constexpr double Overlap = 1.0;
+	constexpr double EdgeClamp = 2.0;
+	constexpr double FillOverrun = 4.0;
+	/** The wordmark fades in over the last bit of closing and out over the first bit of opening. */
+	constexpr float WordmarkFrom = 0.95f;
+	constexpr float WordmarkTo = 1.1f;
+	constexpr float WordmarkFadeIn = 0.05f;
+	constexpr float WordmarkFadeOut = 0.1f;
+	/** The wordmark in the bottom-right corner, with three bobbing dots under it. */
+	constexpr double WordmarkRight = 260.0;
+	constexpr double WordmarkUp = 110.0;
+	constexpr float WordmarkSize = 44.f;
+	constexpr double DotSpin = 6.0;
+	constexpr double DotPhase = 0.9;
+	constexpr double DotBob = 6.0;
+	constexpr double DotSpacing = 28.0;
+	constexpr double DotsDrop = 46.0;
+	constexpr float DotRadius = 7.f;
+}
+
 void SKartCurtain::Construct(const FArguments& InArgs)
 {
 	bClosing = InArgs._Closing;
@@ -29,7 +60,7 @@ void SKartCurtain::Open()
 
 bool SKartCurtain::IsFinishedOpening() const
 {
-	return !bClosing && Elapsed >= OpenSeconds + 0.05;
+	return !bClosing && Elapsed >= OpenSeconds + SettleSeconds;
 }
 
 float SKartCurtain::Coverage() const
@@ -41,9 +72,8 @@ float SKartCurtain::Coverage() const
 
 void SKartCurtain::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
-	// Level loads hitch; clamp so the wipe doesn't skip straight to the end.
-	Elapsed += FMath::Min(InDeltaTime, 1.f / 30.f);
-	if (bClosing && Elapsed >= CloseSeconds + 0.05 && OnClosed)
+	Elapsed += FMath::Min(InDeltaTime, MaxStep);
+	if (bClosing && Elapsed >= CloseSeconds + SettleSeconds && OnClosed)
 	{
 		TFunction<void()> Callback = MoveTemp(OnClosed);
 		OnClosed = nullptr;
@@ -62,53 +92,53 @@ int32 SKartCurtain::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 	int32 Layer = LayerId;
 	FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
 	const FVector2D Size = P.Size();
-	const double Slant = Size.Y * 0.35;
-	const double Span = Size.X + Slant;
-	const FLinearColor Bands[] = { Color::Sun, Color::Hot, Color::Sky, Color::Grape };
-	const double BandW = Size.X * 0.07;
+	const double SlantX = Size.Y * Slant;
+	const double Span = Size.X + SlantX;
+	static const FLinearColor BandColors[Bands] = { Color::Sun, Color::Hot, Color::Sky, Color::Grape };
+	const double BandW = Size.X * BandWidth;
 	auto Para = [&](double X0, double X1, const FLinearColor& Fill)
 	{
-		X0 = FMath::Max(X0, -Slant - 2.0);
-		X1 = FMath::Min(X1, Size.X + Slant + 2.0);
+		X0 = FMath::Max(X0, -SlantX - EdgeClamp);
+		X1 = FMath::Min(X1, Size.X + SlantX + EdgeClamp);
 		if (X1 <= X0)
 		{
 			return;
 		}
-		P.Polygon({ FVector2D(X0 + Slant, 0.0), FVector2D(X1 + Slant, 0.0), FVector2D(X1, Size.Y), FVector2D(X0, Size.Y) }, Fill);
+		P.Polygon({ FVector2D(X0 + SlantX, 0.0), FVector2D(X1 + SlantX, 0.0), FVector2D(X1, Size.Y), FVector2D(X0, Size.Y) }, Fill);
 	};
 	if (C <= 1.f)
 	{
 		// Closing: the bands lead the night fill in from the right.
-		const double Lead = Size.X + Slant - (Span + BandW * 4.0) * C;
-		for (int32 i = 0; i < 4; ++i)
+		const double Lead = Size.X + SlantX - (Span + BandW * Bands) * C;
+		for (int32 i = 0; i < Bands; ++i)
 		{
-			Para(Lead + i * BandW, Lead + (i + 1) * BandW + 1.0, Bands[i]);
+			Para(Lead + i * BandW, Lead + (i + 1) * BandW + Overlap, BandColors[i]);
 		}
-		Para(Lead + 4.0 * BandW, Size.X + Slant + 4.0, Color::Night);
+		Para(Lead + Bands * BandW, Size.X + SlantX + FillOverrun, Color::Night);
 	}
 	else
 	{
 		// Opening: the fill's trailing edge, then the bands, carry on off to the left.
-		const double Trail = Size.X - (Size.X + Slant + BandW * 4.0) * (C - 1.f);
-		Para(-Slant - 4.0, Trail + 1.0, Color::Night);
-		for (int32 i = 0; i < 4; ++i)
+		const double Trail = Size.X - (Size.X + SlantX + BandW * Bands) * (C - 1.f);
+		Para(-SlantX - FillOverrun, Trail + Overlap, Color::Night);
+		for (int32 i = 0; i < Bands; ++i)
 		{
-			Para(Trail + i * BandW, Trail + (i + 1) * BandW + 1.0, Bands[3 - i]);
+			Para(Trail + i * BandW, Trail + (i + 1) * BandW + Overlap, BandColors[Bands - 1 - i]);
 		}
 	}
 
 	// While fully covered: the wordmark, small, so a long load doesn't look frozen on a blank screen.
-	if (C > 0.95f && C < 1.1f)
+	if (C > WordmarkFrom && C < WordmarkTo)
 	{
-		const float A = C <= 1.f ? (C - 0.95f) / 0.05f : 1.f - (C - 1.f) / 0.1f;
+		const float A = C <= 1.f ? (C - WordmarkFrom) / WordmarkFadeIn : 1.f - (C - 1.f) / WordmarkFadeOut;
 		const FKartPainter Faded = P.Faded(A);
-		const FVector2D Centre(Size.X - 260.0, Size.Y - 110.0);
-		Faded.Text(TEXT("MOVECADE"), Font(EFont::Display, 44.f), Centre, Color::White, FVector2D(0.5, 0.5));
-		const double Spin = FPlatformTime::Seconds() * 6.0;
+		const FVector2D Centre(Size.X - WordmarkRight, Size.Y - WordmarkUp);
+		Faded.Text(TEXT("MOVECADE"), Font(EFont::Display, WordmarkSize), Centre, Color::White, FVector2D(0.5, 0.5));
+		const double Spin = FPlatformTime::Seconds() * DotSpin;
 		for (int32 i = 0; i < 3; ++i)
 		{
-			const double Bob = FMath::Sin(Spin - i * 0.9) * 6.0;
-			Faded.Circle(Centre + FVector2D(-28.0 + i * 28.0, 46.0 + Bob), 7.f, Bands[i]);
+			const double Bob = FMath::Sin(Spin - i * DotPhase) * DotBob;
+			Faded.Circle(Centre + FVector2D(-DotSpacing + i * DotSpacing, DotsDrop + Bob), DotRadius, BandColors[i]);
 		}
 	}
 	return Layer;

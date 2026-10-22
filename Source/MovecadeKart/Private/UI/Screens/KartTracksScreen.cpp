@@ -19,15 +19,63 @@ namespace
 	constexpr double CardGap = 48.0;
 	constexpr double CardsLift = 30.0;
 	constexpr double CardRise = 120.0;
-	constexpr float FocusedPop = 0.04f;
-	constexpr float UnfocusedScale = 0.95f;
-	constexpr double FocusPopSeconds = 0.25;
-	/** The outline panel at the top of each card, and the marker that runs a lap of it. */
-	constexpr double MapHeight = 330.0;
-	constexpr double MarkerLapsPerSecond = 0.09;
+	constexpr float CardInAt = 0.05f;
+	constexpr float CardStagger = 0.08f;
+	constexpr float CardInSeconds = 0.45f;
+
+	/** Inside a track card: the focus treatment, the outline panel, the text and the stat chips. */
+	namespace TrackCardArt
+	{
+		constexpr float FocusedPop = 0.04f;
+		constexpr float FocusOvershoot = 3.f;
+		constexpr float UnfocusedScale = 0.95f;
+		constexpr double FocusPopSeconds = 0.25;
+		constexpr float FocusedTilt = -1.f;
+		constexpr double GlowPad = 10.0;
+		constexpr float GlowAlpha = 0.5f;
+		constexpr float Shadow = 12.f;
+		constexpr float FocusedRim = 6.f;
+		/** The card not picked steps back: dimmed rather than see-through. */
+		constexpr float DimAlpha = 0.28f;
+		constexpr double MapInset = 18.0;
+		constexpr double MapHeight = 330.0;
+		constexpr float MapShade = 0.4f;
+		/** The outline sits inside the panel with this much room around it. */
+		const FVector2D OutlinePad(40.0, 30.0);
+		constexpr float RoadWidth = 9.f;
+		constexpr double MarkerLapsPerSecond = 0.09;
+		constexpr float LoadingSize = 60.f;
+		constexpr float NameSize = 56.f;
+		const FVector2D NamePos(34.0, 364.0);
+		constexpr float TaglineSize = 21.f;
+		const FVector2D TaglinePos(36.0, 446.0);
+		constexpr double ChipsX = 34.0;
+		constexpr float ChipFontSize = 19.f;
+		constexpr double ChipPadding = 32.0;
+		/** The chips' top edge and text centre, measured up from the card's bottom. */
+		constexpr double ChipLift = 68.0;
+		constexpr double ChipTextLift = 48.0;
+		constexpr double ChipHeight = 40.0;
+		constexpr float ChipRound = 20.f;
+		constexpr double ChipGap = 12.0;
+	}
+
+	/** The shade under the header and behind the cards. */
+	namespace ShadeArt
+	{
+		constexpr double TopHeight = 300.0;
+		constexpr float TopAlpha = 0.65f;
+		constexpr double BottomTop = 0.4;
+		constexpr double BottomHeight = 0.6;
+		constexpr float BottomAlpha = 0.75f;
+	}
+
 	/** The arrows either side of the row, and the start button under it. */
 	constexpr double ArrowGap = 50.0;
 	constexpr double ArrowBob = 5.0;
+	constexpr double ArrowBobSpeed = 6.0;
+	constexpr float ArrowSize = 24.f;
+	constexpr float StartButtonInAt = 0.35f;
 	constexpr double StartButtonDrop = 66.0;
 	constexpr int32 StartHit = 99;
 
@@ -103,8 +151,9 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, 300.0), Color::WithAlpha(Color::Night, 0.65f), Color::WithAlpha(Color::Night, 0.f));
-			P.Gradient(FVector2D(0.0, Frame.Size.Y * 0.4), FVector2D(Frame.Size.X, Frame.Size.Y * 0.6), Color::WithAlpha(Color::Night, 0.f), Color::WithAlpha(Color::Night, 0.75f));
+			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X, ShadeArt::TopHeight), Color::WithAlpha(Color::Night, ShadeArt::TopAlpha), Color::WithAlpha(Color::Night, 0.f));
+			P.Gradient(FVector2D(0.0, Frame.Size.Y * ShadeArt::BottomTop), FVector2D(Frame.Size.X, Frame.Size.Y * ShadeArt::BottomHeight), Color::WithAlpha(Color::Night, 0.f),
+				Color::WithAlpha(Color::Night, ShadeArt::BottomAlpha));
 			KartWidgets::Header(P, Frame, LOCTEXT("TracksTitle", "Choose a track"), FText::GetEmpty(), Color::Mint);
 			KartWidgets::Steps(P, Frame, RaceSetupSteps(), 2);
 
@@ -119,26 +168,26 @@ namespace
 				for (int32 i = 0; i < Tracks.Num(); ++i)
 				{
 					Group.Next();
-					const float In = KartWidgets::Entrance(Frame, 0.05f + i * 0.08f, 0.45f);
+					const float In = KartWidgets::Entrance(Frame, CardInAt + i * CardStagger, CardInSeconds);
 					const FVector2D Pos(Left + i * (CardSize.X + CardGap) + KartWidgets::SlideX(Frame), Top + (1.0 - In) * CardRise);
 					PaintTrackCard(P, Frame, Tracks[i], i, Pos, In, Setup);
 				}
 			}
 			// Arrows either side when there is more to pick.
 			const double MidY = Top + CardSize.Y * 0.5;
-			const double Bob = FMath::Sin(Frame.Now * 6.0) * ArrowBob;
+			const double Bob = FMath::Sin(Frame.Now * ArrowBobSpeed) * ArrowBob;
 			if (Focus.Cursor.Index > 0)
 			{
-				KartWidgets::Arrow(P, FVector2D(Left - ArrowGap - Bob, MidY), 24.f, false, Color::White);
+				KartWidgets::Arrow(P, FVector2D(Left - ArrowGap - Bob, MidY), ArrowSize, false, Color::White);
 			}
 			if (Focus.Cursor.Index < Tracks.Num() - 1)
 			{
-				KartWidgets::Arrow(P, FVector2D(Left + Total + ArrowGap + Bob, MidY), 24.f, true, Color::White);
+				KartWidgets::Arrow(P, FVector2D(Left + Total + ArrowGap + Bob, MidY), ArrowSize, true, Color::White);
 			}
 			FItemState Start;
 			Start.bFocused = true;
 			Start.FocusAge = Frame.Now - Focus.FocusAt;
-			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, 0.35f)), FVector2D(Frame.Size.X * 0.5, Top + CardSize.Y + StartButtonDrop),
+			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, StartButtonInAt)), FVector2D(Frame.Size.X * 0.5, Top + CardSize.Y + StartButtonDrop),
 				LOCTEXT("StartRaceButton", "START RACE"), EKartMenuAction::Accept, Frame.Device, Start, StartHit);
 		}
 
@@ -147,41 +196,43 @@ namespace
 		void PaintTrackCard(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartTrackInfo& Track, int32 Index, const FVector2D& Pos, float In,
 			const FKartRaceSetup* Setup)
 		{
+			using namespace TrackCardArt;
 			const bool bFocused = Index == Focus.Cursor.Index;
 			P.Hit(Index, Pos, CardSize);
-			const float Pop = bFocused ? 1.f + FocusedPop * Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / FocusPopSeconds), FKartAccessibility::ReduceMotion() ? 0.f : 3.f)
+			const float Pop = bFocused ? 1.f + FocusedPop * Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / FocusPopSeconds), FKartAccessibility::ReduceMotion() ? 0.f : FocusOvershoot)
 				: UnfocusedScale;
-			const FKartPainter Card = P.Transformed(Pos + CardSize * 0.5, Pop, bFocused ? -1.f : 0.f).Faded(In);
+			const FKartPainter Card = P.Transformed(Pos + CardSize * 0.5, Pop, bFocused ? FocusedTilt : 0.f).Faded(In);
 			if (bFocused)
 			{
-				Card.Box(Pos - FVector2D(10.0, 10.0), CardSize + FVector2D(20.0, 20.0), Color::WithAlpha(Track.Accent, 0.5f), Metric::RadiusLarge + 10.f);
+				Card.Box(Pos - FVector2D(GlowPad, GlowPad), CardSize + FVector2D(2.0 * GlowPad, 2.0 * GlowPad), Color::WithAlpha(Track.Accent, GlowAlpha),
+					Metric::RadiusLarge + static_cast<float>(GlowPad));
 			}
-			Card.Card(Pos, CardSize, Color::Paper, Metric::RadiusLarge, 12.f, bFocused ? Color::White : FLinearColor::Transparent, 6.f);
+			Card.Card(Pos, CardSize, Color::Paper, Metric::RadiusLarge, Shadow, bFocused ? Color::White : FLinearColor::Transparent, FocusedRim);
 			// The outline panel: the track drawn from its centreline, with a dot running a lap.
-			const FVector2D MapPos = Pos + FVector2D(18.0, 18.0);
-			const FVector2D MapSize(CardSize.X - 36.0, MapHeight);
-			Card.Gradient(MapPos, MapSize, Track.Accent, FMath::Lerp(Track.Accent, Color::Night, 0.4f), true, Metric::Radius);
+			const FVector2D MapPos = Pos + FVector2D(MapInset, MapInset);
+			const FVector2D MapSize(CardSize.X - 2.0 * MapInset, MapHeight);
+			Card.Gradient(MapPos, MapSize, Track.Accent, FMath::Lerp(Track.Accent, Color::Night, MapShade), true, Metric::Radius);
 			const TSharedPtr<const FKartTrackPreview> Preview = FKartTrackCatalog::GetPreview(Track.Id);
 			if (Preview.IsValid())
 			{
-				KartWidgets::TrackOutline(Card, Preview->Outline, MapPos + FVector2D(40.0, 30.0), MapSize - FVector2D(80.0, 60.0), Color::White, 9.f,
+				KartWidgets::TrackOutline(Card, Preview->Outline, MapPos + OutlinePad, MapSize - OutlinePad * 2.0, Color::White, RoadWidth,
 					bFocused ? Frame.Now * MarkerLapsPerSecond : -1.0, Color::Sun);
 			}
 			else
 			{
-				Card.Text(LOCTEXT("Loading", "..."), Font(EFont::Display, 60.f), MapPos + MapSize * 0.5, Color::White, FVector2D(0.5, 0.5));
+				Card.Text(LOCTEXT("Loading", "..."), Font(EFont::Display, LoadingSize), MapPos + MapSize * 0.5, Color::White, FVector2D(0.5, 0.5));
 			}
-			Card.Text(Track.Name, Font(EFont::Display, 56.f), Pos + FVector2D(34.0, 364.0), Color::Navy);
-			Card.TextWrapped(Track.Tagline, Font(EFont::Body, 21.f), Pos + FVector2D(36.0, 446.0), CardSize.X - 72.0, Color::NavyDim);
+			Card.Text(Track.Name, Font(EFont::Display, NameSize), Pos + NamePos, Color::Navy);
+			Card.TextWrapped(Track.Tagline, Font(EFont::Body, TaglineSize), Pos + TaglinePos, CardSize.X - 2.0 * TaglinePos.X, Color::NavyDim);
 			// Stat chips: the lap length and the race's lap count.
-			double ChipX = Pos.X + 34.0;
-			const FSlateFontInfo ChipFont = Font(EFont::Label, 19.f);
+			double ChipX = Pos.X + ChipsX;
+			const FSlateFontInfo ChipFont = Font(EFont::Label, ChipFontSize);
 			auto Chip = [&](const FString& Text, const FLinearColor& Fill)
 			{
-				const double W = FKartPainter::Measure(Text, ChipFont).X + 32.0;
-				Card.Box(FVector2D(ChipX, Pos.Y + CardSize.Y - 68.0), FVector2D(W, 40.0), Fill, 20.f);
-				Card.Text(Text, ChipFont, FVector2D(ChipX + W * 0.5, Pos.Y + CardSize.Y - 48.0), Color::TextOn(Fill), FVector2D(0.5, 0.5));
-				ChipX += W + 12.0;
+				const double W = FKartPainter::Measure(Text, ChipFont).X + ChipPadding;
+				Card.Box(FVector2D(ChipX, Pos.Y + CardSize.Y - ChipLift), FVector2D(W, ChipHeight), Fill, ChipRound);
+				Card.Text(Text, ChipFont, FVector2D(ChipX + W * 0.5, Pos.Y + CardSize.Y - ChipTextLift), Color::TextOn(Fill), FVector2D(0.5, 0.5));
+				ChipX += W + ChipGap;
 			};
 			if (Preview.IsValid())
 			{
@@ -194,7 +245,7 @@ namespace
 			if (!bFocused)
 			{
 				// The card not picked steps back: dimmed rather than see-through.
-				Card.Box(Pos, CardSize, Color::WithAlpha(Color::Night, 0.28f), Metric::RadiusLarge);
+				Card.Box(Pos, CardSize, Color::WithAlpha(Color::Night, DimAlpha), Metric::RadiusLarge);
 			}
 		}
 

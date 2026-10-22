@@ -66,13 +66,13 @@ namespace
 		for (const int32 Index : Candidates)
 		{
 			const FWallSegment& S = Walls.Segments()[Index];
-			const double Denom = Dir.X * S.D.Y - Dir.Y * S.D.X;
+			const double Denom = Dir.X * S.Delta.Y - Dir.Y * S.Delta.X;
 			if (FMath::Abs(Denom) < 1e-12)
 			{
 				continue;
 			}
-			const FVector2D AO = S.A - Origin;
-			const double T = (AO.X * S.D.Y - AO.Y * S.D.X) / Denom;
+			const FVector2D AO = S.Start - Origin;
+			const double T = (AO.X * S.Delta.Y - AO.Y * S.Delta.X) / Denom;
 			const double U = (AO.X * Dir.Y - AO.Y * Dir.X) / Denom;
 			if (T >= 0.0 && T <= Far && U >= 0.0 && U <= 1.0 && T < Best)
 			{

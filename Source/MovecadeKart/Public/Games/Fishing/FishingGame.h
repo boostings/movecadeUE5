@@ -1,8 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Art/KartMaterialCache.h"
 #include "GameFramework/Actor.h"
 #include "Games/ArcadeGame.h"
+#include "Games/Fishing/FishingDebugFlags.h"
 #include "Games/Fishing/FishingMotion.h"
 #include "Games/Fishing/FishingRules.h"
 #include "Games/GameAudio.h"
@@ -14,7 +16,6 @@ class ACameraActor;
 class APlayerController;
 class SFishingHud;
 class UArcadeAvatarComponent;
-class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class UStaticMesh;
 class UStaticMeshComponent;
@@ -55,14 +56,20 @@ struct FFishingSeat
 };
 
 /**
- * One round of Fishing Frenzy on the lake (FishingRules on a fixed 10 ms clock): 1-4 anglers side by side, all at
- * once. Each step reads every angler's hands (a phone's flicks and wrist roll through FFishingMotion, the local
- * button and crank, a bot's timing) and the rules decide the rest. Presentation follows the rules: the rod bends
- * with the line's tension and whips through the cast, the line sags or snaps taut, the bobber bobs, twitches on a
- * nibble and dives on the bite, the fish fights near the surface and leaps on its runs, splashes everywhere, and a
- * catch is lifted out, turned to the camera and held up while the HUD calls its weight (and a new record), then it
- * goes in the bucket (junk goes back in the lake). The camera frames the dock; at the end the anglers turn round
- * with their biggest catch.
+ * One round of Fishing Frenzy on the lake, spawned and set up by AFishingGameMode. FishingRules decide everything on
+ * a fixed 10 ms clock: 1-4 anglers fish side by side, all at once. Each step reads every angler's hands (a phone's
+ * flicks and wrist roll through FFishingMotion, the local button and crank, a bot's timing), then the rules step and
+ * their new effects are presented (sounds, splashes, the phones' toasts).
+ *
+ * Presentation follows the rules every frame: the rod bends with the line's tension and whips through the cast, the
+ * line sags or snaps taut, the bobber bobs, twitches on a nibble and dives on the bite, the fish fights near the
+ * surface and leaps on its runs, and a catch is lifted out, turned to the camera and held up while SFishingHud calls
+ * its weight, then goes in the bucket (junk goes back in the lake). At the end the anglers turn round with their
+ * biggest catch.
+ *
+ * The implementation is split by concern: FishingGame.cpp (flow), FishingGameAnglers.cpp (hands, bots, poses),
+ * FishingGameTackle.cpp (rod, line, bobber), FishingGameCatch.cpp (the fish), FishingGameEffects.cpp (effects to
+ * sound and FX) and FishingGameCamera.cpp.
  */
 UCLASS(NotPlaceable)
 class MOVECADEKART_API AFishingGame : public AActor, public IArcadeGame
@@ -70,15 +77,19 @@ class MOVECADEKART_API AFishingGame : public AActor, public IArcadeGame
 	GENERATED_BODY()
 
 public:
+	/** The title card and the camera's swing round before the round's 3-2-1 (s). */
+	static constexpr double IntroSeconds = 3.6;
+
 	AFishingGame();
 
-	void Setup(AFishingLake* InLake, const TArray<FFishingSeat>& InSeats, APlayerController* InViewer, uint32 InSeed);
+	void Setup(AFishingLake* InLake, const TArray<FFishingSeat>& InSeats, APlayerController* InViewer, uint32 InSeed, const FFishingDebugFlags& InDebugFlags);
 	/** A phone's sensor frame for a seat: flicks cast and hook, the wrist roll reels. */
 	void FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSensorFrame& Frame);
 	/** The motion pad's big button (pad:press / pad:release): hold to charge a cast, press to hook. */
 	void PadPress(const FString& PlayerId);
 	void PadRelease(const FString& PlayerId);
-	void SetPaused(bool bInPaused) { bPaused = bInPaused; }
+	/** A fresh round with the same anglers (and the next seed). */
+	void Rematch();
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -90,7 +101,8 @@ public:
 	double GetClock() const { return Clock; }
 	const TArray<FFishingSeat>& GetSeats() const { return Seats; }
 	const FFishingSeat* SeatOf(const FString& Id) const;
-	bool ScreenOf(const FVector& World, FVector2D& Out01) const;
+	/** The player whose camera the HUD projects through. */
+	APlayerController* GetViewer() const { return Viewer; }
 	double GetFinishedAge() const { return Stage == EFishingStage::Finished ? GetStageAge() : -1.0; }
 	bool HasLocal() const;
 	int32 LaneCount() const { return Match.Anglers.Num(); }
@@ -100,19 +112,15 @@ public:
 	FVector HeadOf(int32 Lane) const;
 	/** The bobber (or the fish on the line), for the HUD's pins. */
 	FVector BobberOf(int32 Lane) const;
-	/** The HUD's order at the end: by score, then the biggest fish. */
-	TArray<const MovecadeKart::Fishing::FAngler*> Standings() const;
 
 	TFunction<void()> OnMatchStart;
 	/** Every new effect (bite, catch, snap, ...): the phones' toasts and haptics. */
 	TFunction<void(const MovecadeKart::Fishing::FEffect&)> OnEffect;
-	/** An angler's state changed (the phones' prompts). */
+	/** An angler's state changed, or the horn went (the phones' prompts). */
 	TFunction<void(const MovecadeKart::Fishing::FAngler&)> OnAnglerState;
 	TFunction<void()> OnFinished;
 	TFunction<void()> OnQuit;
 	TFunction<void()> OnRematch;
-
-	void Rematch();
 
 	// IArcadeGame ---------------------------------------------------------------------------------------------
 	virtual FString GetArcadeId() const override { return TEXT("fishing"); }
@@ -124,71 +132,140 @@ public:
 	virtual void GetArcadeStandings(TArray<FArcadeStanding>& Out) const override;
 
 private:
-	struct FLane
+	/** Local hands: the crank's inputs, each read as revolutions of a reel handle. */
+	struct FLocalCrank
 	{
-		FString PlayerId;
-		EAnglerKind Kind = EAnglerKind::Bot;
-		// A held cast (the local button, the pad's, a bot's wind-up).
-		bool bHolding = false;
-		double HoldAt = 0.0;
-		double Charge = 0.0;
-		// Local: the crank.
-		double CrankRevs = 0.0;
-		double CrankRate = 0.0;
+		/** Revolutions a second, smoothed. */
+		double Rate = 0.0;
 		double StickAngle = 0.0;
 		bool bStickValid = false;
 		double MouseAngle = 0.0;
 		bool bMouseValid = false;
-		int32 LastCrankKey = -1;
-		// Phone.
+		/** The last of the alternating keys pressed (pair * 2 + side), or -1. */
+		int32 LastKey = -1;
+	};
+
+	struct FPhoneRod
+	{
 		MovecadeKart::Fishing::FFishingMotion Motion;
-		double PhoneReel = 0.0;
+		double Reel = 0.0;
+		/** Game clock (s) of the last sensor frame, and of the last backward flick (the wind-up the avatar shows). */
 		double LastFrameAt = -10.0;
 		double WindupAt = -10.0;
-		// Bot (match ms).
+	};
+
+	/** A house angler's plans, in match ms. */
+	struct FBotMind
+	{
 		double NextActAt = 0.0;
-		double BotPower = 0.6;
+		double CastPower = 0.6;
+		/** When it will hook the bite it saw (< 0: none seen yet). */
 		double ReactAt = -1.0;
+		/** When it eases off for the fish's run (< 0: no run). */
 		double EaseFrom = -1.0;
-		double BotReel = 0.0;
-		double BotError = 0.0;
-		// Presentation.
-		MovecadeKart::Fishing::EAnglerState Shown = MovecadeKart::Fishing::EAnglerState::Idle;
-		double ShownAt = -10.0;
+		double Reel = 0.0;
+		/** Its drifting misjudgement of the green (tension units). */
+		double Error = 0.0;
+	};
+
+	/** What the lane shows: smoothed poses and the moments presentation keys off (game clock, s). */
+	struct FLaneShow
+	{
+		MovecadeKart::Fishing::EAnglerState State = MovecadeKart::Fishing::EAnglerState::Idle;
+		double StateAt = -10.0;
 		double TurnYaw = 0.0;
 		double RodPitch = 40.0;
 		double RodBend = 0.0;
 		double ReelPhase = 0.0;
+		/** The floating bobber's spring: height and speed. */
 		double BobZ = 0.0;
 		double BobV = 0.0;
 		FVector CastFrom = FVector::ZeroVector;
 		FVector Tip = FVector::ZeroVector;
 		double JumpAt = -10.0;
-		int32 JumpBurst = 0;
 		double ThrashCarry = 0.0;
 		double HookedAt = -10.0;
-		double SnapAt = -10.0;
 		MovecadeKart::Fishing::EEffectKind Reaction = MovecadeKart::Fishing::EEffectKind::Cast;
 		double ReactionAt = -10.0;
 	};
 
+	struct FLane
+	{
+		FString PlayerId;
+		EAnglerKind Kind = EAnglerKind::Bot;
+		/** A held cast (the local button, the pad's, a bot's wind-up): since when, and the meter. */
+		bool bHolding = false;
+		double HoldAt = 0.0;
+		double Charge = 0.0;
+		FLocalCrank Crank;
+		FPhoneRod Phone;
+		FBotMind Bot;
+		FLaneShow Show;
+	};
+
+	/** One lane's frame of presentation, worked out by the pose and drawn by the tackle and the catch. */
+	struct FLaneFrame;
+
+	// Flow (FishingGame.cpp).
+	void StartRound();
 	void SetStage(EFishingStage Next);
+	void TickStage(float Dt);
 	void StepFixed();
-	void ReadLocal(FLane& Lane, float Dt);
+	void DrainEffects();
+	void AnnounceAnglerStates();
+	void ReleaseAllHolds();
+	void LogResults() const;
+	void ApplyDemoCatch();
+
+	// Hands and bots (FishingGameAnglers.cpp).
+	int32 LaneOf(const FString& PlayerId) const;
+	void ReadHands(float Dt);
+	void ReadLocal(int32 LaneIndex, float Dt);
+	double ReadCrankRevs(FLocalCrank& Crank) const;
 	void Press(int32 LaneIndex);
 	void Release(int32 LaneIndex);
+	void FeedReels();
 	void SteerBot(int32 LaneIndex);
-	void DrainEffects();
-	void PresentEffect(const MovecadeKart::Fishing::FEffect& Effect);
-	void Splash(const FVector& At, double Size, bool bRing = true);
+	void SteerBotCast(int32 LaneIndex, double Skill);
+	void SteerBotFight(int32 LaneIndex, double Skill);
+
+	// Poses (FishingGameAnglers.cpp).
 	void UpdateAnglers(float Dt);
+	void PoseForState(int32 LaneIndex, FLaneFrame& Frame, float Dt);
+	void PoseIdle(int32 LaneIndex, FLaneFrame& Frame);
+	void PoseCasting(int32 LaneIndex, FLaneFrame& Frame);
+	void PoseWaiting(int32 LaneIndex, FLaneFrame& Frame);
+	void PoseFighting(int32 LaneIndex, FLaneFrame& Frame, float Dt);
+	void PoseLanded(int32 LaneIndex, FLaneFrame& Frame);
+	void PoseFinished(int32 LaneIndex, FLaneFrame& Frame);
+	void ApplyPose(int32 LaneIndex, const FLaneFrame& Frame);
+
+	// Tackle (FishingGameTackle.cpp).
+	/** Each lane's avatar, rod, line, bobber and catch components (and their materials). */
+	void BuildLanes();
+	UStaticMeshComponent* MakeMesh(const TCHAR* Name, UStaticMesh* Mesh, bool bShadows = true);
+	void UpdateTackle(int32 LaneIndex, FLaneFrame& Frame, float Dt);
 	void UpdateRod(int32 LaneIndex, const FVector& Base, const FRotator& Facing, double Pitch, double Yaw, double Bend, const FVector& Toward, bool bShow);
 	void UpdateLine(int32 LaneIndex, const FVector& From, const FVector& To, double Sag, bool bShow);
-	void UpdateCamera(float Dt);
-	UStaticMeshComponent* MakeMesh(const TCHAR* Name, UStaticMesh* Mesh, bool bShadows = true);
+	void UpdateBobber(int32 LaneIndex, const FLaneFrame& Frame, float Dt);
+	FVector HoldPoint(int32 LaneIndex) const;
+
+	// The catch (FishingGameCatch.cpp).
 	UStaticMesh* FishMesh(int32 Species);
 	void ShowFish(int32 LaneIndex, int32 Species, int32 WeightG, const FTransform& At);
-	FVector HoldPoint(int32 LaneIndex) const;
+	void UpdateCatch(int32 LaneIndex, const FLaneFrame& Frame, float Dt);
+	bool ShowFightingFish(int32 LaneIndex, const FLaneFrame& Frame, float Dt);
+	bool ShowLandedCatch(int32 LaneIndex, const FLaneFrame& Frame, float Dt);
+
+	// Effects (FishingGameEffects.cpp).
+	void PresentEffect(const MovecadeKart::Fishing::FEffect& Effect);
+	void Splash(const FVector& At, double Size, bool bRing = true);
+	void SnapFlash(const FVector& At);
+	void RecordBurst(int32 LaneIndex);
+
+	// Camera (FishingGameCamera.cpp).
+	void UpdateCamera(float Dt);
+	double ViewportAspect() const;
 
 	UPROPERTY()
 	TObjectPtr<AFishingLake> Lake;
@@ -205,31 +282,37 @@ private:
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> Handles;
 
-	/** Per lane: RodSegments blank pieces, then LineSegments of line. */
+	/** Per lane: RodSegments pieces of the blank. */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> RodPieces;
 
+	/** Per lane: LineSegments pieces of line. */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> LinePieces;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> Bobbers;
 
+	/** Per lane: the fish (or junk) on show, its mesh swapped per species. */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> Fish;
 
+	/** One mesh per species, built the first time it is caught. */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMesh>> FishMeshes;
 
 	UPROPERTY()
-	TObjectPtr<UMaterialInterface> LineMaterial;
+	FKartMaterialCache Materials;
 
+	/** The species each lane's Fish component is dressed as (-1: none yet). */
 	TArray<int32> FishShown;
 	TArray<FFishingSeat> Seats;
 	TArray<FLane> Lanes;
 	MovecadeKart::Fishing::FMatch Match;
 	uint32 Seed = 1;
-	TSet<int32> SeenEffects;
+	FFishingDebugFlags DebugFlags;
+	/** Effect ids rise with every effect: everything above this one is new. */
+	int32 LastPresentedEffectId = 0;
 	FRandomStream BotRng;
 	FRandomStream FxRng;
 	MovecadeKart::Games::FCuePlayer Cues;
@@ -237,17 +320,17 @@ private:
 	EFishingStage Stage = EFishingStage::Intro;
 	double Clock = 0.0;
 	double StageAt = 0.0;
-	double Accumulator = 0.0;
+	double StepAccumulatorMs = 0.0;
 	bool bPaused = false;
-	double Shake = 0.0;
 	bool bResultsCommitted = false;
-	bool bDemo = false;
-	bool bPlayingSeen = false;
+	bool bHornAnnounced = false;
 
 	FVector CamPos = FVector::ZeroVector;
 	FVector CamLook = FVector::ZeroVector;
 	double CamFov = 40.0;
 	bool bCamPlaced = false;
+	/** Camera shake, 0..1, decaying. */
+	double Shake = 0.0;
 
 	TSharedPtr<SFishingHud> Hud;
 };

@@ -85,8 +85,16 @@ the base compares the score list and sends at most once a second, which is what 
 - `FArcadeStandingsOrder`: `mutable FArcadeStandingsOrder Ranks;` then
   `const TArray<int32>& Order = Ranks.Update(Towers.Num(), [&](int32 i) { return Towers[i].Score; });` best first,
   ties in seat order (stable), re-sorted only when a key changes. Return a composite `int64` key for tie-breaks.
+- Fixed localized labels (the convention): no `FText` is built per paint. A constant label painted in `OnPaint`,
+  `Paint` or `GetHints` is `ARCADE_LABEL("<Game>", "Key", "TEXT")`, e.g.
+  `P.Text(ARCADE_LABEL("Stacker", "Wind", "WIND"), Font, ...)`. It expands to a function-local
+  `static const FText` made with `NSLOCTEXT` (the gatherer still finds it), built once. A hand-written
+  `static const FText Label = NSLOCTEXT(...);` at the top of the paint function is equally fine. Text with values
+  goes through `FCachedText` (`FString`) or an `FText::Format` cached when the value changes (see
+  `ArcadeOverlayScreens.cpp`: the next-game, party-points and auto-play-again labels). Never `LOCTEXT(...)`,
+  `FText::FromString` or `FText::Format` directly in a paint path.
 
-## 3. Venue helpers (`Games/ArcadeVenueKit.h`)
+## 3. Venue helpers (`Games/ArcadeVenueKit.h` and `Art/KartMaterialCache.h`)
 
 - `FArcadeInstanceGroups` (USTRUCT; keep as a `UPROPERTY()` on the venue): replaces each venue's
   `TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups` + `Group(...)`.
@@ -94,9 +102,18 @@ the base compares the score list and sends at most once a second, which is what 
   `Groups.Find(Mesh, Material, bShadows, Parent = nullptr, Material2 = nullptr)->AddInstance(...)`. Keys are object
   keys, not formatted strings. Components are created with unique names, mobility set before attaching, no collision,
   tagged, registered.
-- `FArcadeMaterialCache` (USTRUCT, `UPROPERTY()`): replaces `TMap<FString, TObjectPtr<UMaterialInterface>> Materials`
-  + `Cached(Key, Make)`: `Materials.FindOrAdd(TEXT("wood"), [&] { return Art::Plain(this, ...); })` (FName keys).
-- Call `Reset()` on both when the venue rebuilds.
+- Materials: use Art's `FKartMaterialCache` (`Art/KartMaterialCache.h`, USTRUCT; keep as a `UPROPERTY()` on the
+  venue). It replaces each venue's `TMap<FString, TObjectPtr<UMaterialInterface>> Materials` + `Cached(Key, Make)`:
+  - the standard looks are cached on their exact arguments, no key needed:
+    `Materials.Plain(this, Color, Roughness, Metallic, Emissive)`, `.Surface(this, Look)`, `.Glass(...)`, `.Glow(...)`,
+    `.GlowOpaque(...)`, `.Unlit(this, TexturePath, Tint)`;
+  - anything else under your own look name: `Materials.FindOrMake(TEXT("wood"), [&] { return MakeWood(); })`
+    (a null result is not kept, so it is retried).
+  - The instances are shared: never change their parameters per use (make a separate `Art::` material for that).
+- Solid glowing surfaces (lamps, neon, lenses that never fade): `Art::GlowOpaque` (or `Materials.GlowOpaque`), drawn
+  opaque (no translucency pass, correct depth, shows in ray-traced reflections). Keep `Art::Glow` only for glows that
+  fade or must be translucent.
+- Call `Reset()` on both the groups and the material cache when the venue rebuilds.
 
 ## 4. Test hooks (`Games/ArcadeTestHooks.h`)
 
@@ -110,3 +127,6 @@ that derive from the base get it for free.
 - `GetLobbyRevision()` moves whenever anything the lobby shows changes.
 - `MovecadeKart::Net::EvaluateStart` / `DescribeStartBlock` (string-free start rules) and `ParseServerMessageType`
   in `Net/RoomProtocol.h`. Event names the host itself consumes: `KartInputEvent`, `PracticeActionEvent`.
+- `MovecadeKart::Net::HexColor(const FLinearColor&)` returns `"#rrggbb"` (lower case, sRGB-encoded, the same bytes as
+  `Color.ToFColor(true)`) for `SendPadPrompt`'s accent. Replace the private `Hex` / `HexOf` copies in Derby, Sumo and
+  Fishing with it (the output is identical).

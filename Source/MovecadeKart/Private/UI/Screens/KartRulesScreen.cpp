@@ -27,12 +27,37 @@ namespace
 	constexpr double RowHeight = 84.0;
 	constexpr double RowGap = 18.0;
 	constexpr double RowSlide = 200.0;
+	constexpr float RowInAt = 0.05f;
+	constexpr float RowStagger = 0.05f;
+	/** The "Choose track" button under the rows. */
+	const FVector2D NextButtonSize(480.0, 92.0);
+	constexpr double NextButtonGap = 20.0;
+	constexpr float NextButtonInAt = 0.3f;
 
-	/** The summary card: the grid as a row of paint dots. */
-	const FVector2D SummarySize(600.0, 262.0);
-	constexpr int32 SummaryDots = 8;
-	constexpr double DotSpacing = 66.0;
-	constexpr float DotRadius = 26.f;
+	/** The summary card: the racer count, laps and skill, and the grid as a row of paint dots. */
+	namespace SummaryArt
+	{
+		const FVector2D Size(600.0, 262.0);
+		constexpr float InAt = 0.2f;
+		constexpr float Shadow = 10.f;
+		constexpr float Rim = 4.f;
+		constexpr float CountSize = 56.f;
+		const FVector2D CountPos(36.0, 26.0);
+		constexpr float LineSize = 26.f;
+		const FVector2D LinePos(38.0, 104.0);
+		constexpr int32 Dots = 8;
+		constexpr double DotsX = 70.0;
+		constexpr double DotsY = 210.0;
+		constexpr double DotSpacing = 66.0;
+		constexpr float DotRadius = 26.f;
+		constexpr float DotOutline = 3.f;
+		constexpr float EmptyDotAlpha = 0.4f;
+		constexpr float PlayerTagSize = 17.f;
+		constexpr float CpuTagSize = 13.f;
+		/** A bot added with Right pops its dot in. */
+		constexpr double NewDotSeconds = 0.3;
+		constexpr float NewDotOvershoot = 3.f;
+	}
 
 	/** Step 2 of the race setup: opponents, bot skill, laps and the split-screen layout. */
 	class FRulesScreen final : public FKartScreen
@@ -118,7 +143,7 @@ namespace
 
 			const double Top = Frame.SafeMin.Y + RowsTop;
 			PaintRows(P, Frame, Setup, Top);
-			PaintSummary(P, Frame, Setup, FVector2D(Frame.SafeMax.X - SummarySize.X, Top));
+			PaintSummary(P, Frame, Setup, FVector2D(Frame.SafeMax.X - SummaryArt::Size.X, Top));
 		}
 
 	private:
@@ -151,41 +176,42 @@ namespace
 				for (int32 Row = 0; Row < NumOptionRows; ++Row)
 				{
 					Group.Next();
-					const float In = KartWidgets::Entrance(Frame, 0.05f + Row * 0.05f);
+					const float In = KartWidgets::Entrance(Frame, RowInAt + Row * RowStagger);
 					const FVector2D Pos(Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * RowSlide, Top + Row * (RowSize.Y + RowGap));
 					// Bot skill means nothing without bots.
 					const bool bEnabled = Row != SkillRow || Setup.Bots > 0;
 					KartWidgets::OptionRow(P.Faded(In), Pos, RowSize, Labels[Row], Values[Row], Focus.State(Row, Frame.Now, bEnabled), Row);
 				}
 			}
-			const float In = KartWidgets::Entrance(Frame, 0.3f);
-			KartWidgets::Button(P.Faded(In), FVector2D(Frame.SafeMin.X + KartWidgets::SlideX(Frame), Top + static_cast<int32>(NumOptionRows) * (RowSize.Y + RowGap) + 20.0),
-				FVector2D(480.0, 92.0), LOCTEXT("ChooseTrack", "Choose track"), Focus.State(NextRow, Frame.Now), Color::Hot, NextRow);
+			const float In = KartWidgets::Entrance(Frame, NextButtonInAt);
+			KartWidgets::Button(P.Faded(In), FVector2D(Frame.SafeMin.X + KartWidgets::SlideX(Frame), Top + static_cast<int32>(NumOptionRows) * (RowSize.Y + RowGap) + NextButtonGap),
+				NextButtonSize, LOCTEXT("ChooseTrack", "Choose track"), Focus.State(NextRow, Frame.Now), Color::Hot, NextRow);
 		}
 
 		/** The summary card: the racer count, laps and skill, and the grid as dots (the newest bot pops in). */
 		void PaintSummary(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartRaceSetup& Setup, const FVector2D& CardPos) const
 		{
+			using namespace SummaryArt;
 			const int32 Racers = Setup.LocalPlayers + Setup.Bots;
-			const FKartPainter Card = P.Faded(KartWidgets::Entrance(Frame, 0.2f));
-			Card.Card(CardPos, SummarySize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 4.f);
-			Card.Text(RacersText, Font(EFont::Display, 56.f), CardPos + FVector2D(36.0, 26.0), Color::Navy);
-			Card.Text(SummaryText, Font(EFont::Body, 26.f), CardPos + FVector2D(38.0, 104.0), Color::NavyDim);
-			for (int32 i = 0; i < SummaryDots; ++i)
+			const FKartPainter Card = P.Faded(KartWidgets::Entrance(Frame, InAt));
+			Card.Card(CardPos, Size, Color::Paper, Metric::RadiusLarge, Shadow, Color::White, Rim);
+			Card.Text(RacersText, Font(EFont::Display, CountSize), CardPos + CountPos, Color::Navy);
+			Card.Text(SummaryText, Font(EFont::Body, LineSize), CardPos + LinePos, Color::NavyDim);
+			for (int32 i = 0; i < Dots; ++i)
 			{
-				const FVector2D C(CardPos.X + 70.0 + i * DotSpacing, CardPos.Y + 210.0);
+				const FVector2D C(CardPos.X + DotsX + i * DotSpacing, CardPos.Y + DotsY);
 				if (i >= Racers)
 				{
-					Card.Circle(C, DotRadius, FLinearColor::Transparent, Color::WithAlpha(Color::NavyDim, 0.4f), 3.f);
+					Card.Circle(C, DotRadius, FLinearColor::Transparent, Color::WithAlpha(Color::NavyDim, EmptyDotAlpha), DotOutline);
 					continue;
 				}
-				const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - Focus.ChangeAt) / 0.3), 3.f);
+				const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - Focus.ChangeAt) / NewDotSeconds), NewDotOvershoot);
 				const bool bNew = Focus.ChangedRow == BotsRow && i == Racers - 1 && Focus.ChangeDir > 0;
 				const FKartPainter Dot = bNew ? Card.Transformed(C, Pop) : Card;
 				const bool bLocal = i < Setup.LocalPlayers;
 				const FLinearColor Paint = bLocal ? FKartRoster::PaintColor(Setup.Racers[i].Paint) : Color::NavyDim;
-				Dot.Circle(C, DotRadius, Paint, Color::Navy, 3.f);
-				Dot.Text(bLocal ? SeatTag(FMath::Clamp(i, 0, FKartRaceSetup::MaxLocalPlayers - 1)) : CpuTag(), Font(EFont::Label, bLocal ? 17.f : 13.f),
+				Dot.Circle(C, DotRadius, Paint, Color::Navy, DotOutline);
+				Dot.Text(bLocal ? SeatTag(FMath::Clamp(i, 0, FKartRaceSetup::MaxLocalPlayers - 1)) : CpuTag(), Font(EFont::Label, bLocal ? PlayerTagSize : CpuTagSize),
 					C, Color::White, FVector2D(0.5, 0.5));
 			}
 		}

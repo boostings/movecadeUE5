@@ -1,12 +1,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Art/KartMaterialCache.h"
 #include "GameFramework/Actor.h"
+#include "Games/ArcadeVenueKit.h"
 #include "FishingLake.generated.h"
 
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
-class UInstancedStaticMeshComponent;
 class UMaterialInterface;
 class UPointLightComponent;
 class UPostProcessComponent;
@@ -22,6 +23,9 @@ class UStaticMeshComponent;
  * shallows, a moored rowboat, lanterns and string lights along the dock, a bucket and tackle box per angler, and a
  * row of buoys marking each distance band (shallows, reeds, deep, far).
  *
+ * Placed in L_Fishing (or spawned by AFishingGameMode); the game calls SetLanes for its angler count, which rebuilds
+ * the dock to fit. The static helpers place anglers, lines and buckets for AFishingGame and SFishingHud.
+ *
  * UE space, cm: the dock's fishing edge runs along Y at X = EdgeX, the lake is +X, the water's surface is Z = 0.
  */
 UCLASS()
@@ -35,6 +39,7 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void Tick(float DeltaSeconds) override;
 
+	/** Rebuilds the dock for LaneCount anglers (1-4). */
 	void SetLanes(int32 LaneCount);
 	int32 GetLanes() const { return Lanes; }
 
@@ -58,23 +63,40 @@ public:
 private:
 	void Build();
 	void Clear();
-	void BuildLook();
+	void BuildLighting();
+	void BuildSky();
+	void BuildAtmosphere();
 	void BuildWater();
-	void BuildDock();
+	void BuildDeck();
+	void BuildPosts();
+	void BuildLamps();
 	void BuildShores();
+	void BuildTrees(FRandomStream& Rng);
+	void BuildHills(FRandomStream& Rng);
+	void BuildRocks(FRandomStream& Rng);
 	void BuildShallows();
+	void BuildReeds(FRandomStream& Rng);
+	void BuildLilies(FRandomStream& Rng);
+	void BuildBuoys();
 	void BuildProps();
 
+	/** A box of Size (cm) centred at Centre, batched with every other box of the same look. */
 	void Box(UMaterialInterface* Material, const FVector& Centre, const FVector& Size, const FRotator& Rotation = FRotator::ZeroRotator, bool bShadows = true);
 	void Instance(UStaticMesh* Mesh, UMaterialInterface* Material, const FTransform& Transform, bool bShadows = true);
-	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
+	/** A part of its own (it moves, or has several materials): tagged so Clear removes it. */
 	UStaticMeshComponent* Part(const TCHAR* Name, UStaticMesh* Mesh, UMaterialInterface* Material, const FTransform& Transform, bool bShadows = true);
+	/** A bobbing part: it rides the swell from its rest transform. */
+	void Float(UStaticMeshComponent* Part);
+	UPointLightComponent* Lantern(const FVector& At);
 
 	UPROPERTY(EditAnywhere, Category = "Lake")
 	int32 Lanes = 4;
 
 	UPROPERTY(Transient)
-	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+	FArcadeInstanceGroups Groups;
+
+	UPROPERTY(Transient)
+	FKartMaterialCache Materials;
 
 	/** Bobbing things: the rowboat and the band buoys (with their rest transforms). */
 	UPROPERTY(Transient)

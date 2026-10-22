@@ -19,6 +19,16 @@ namespace
 	constexpr double StarInset = 260.0;
 	constexpr float StarOuter = 160.f;
 	constexpr float StarInner = 70.f;
+	constexpr float CoreOuter = 92.f;
+	constexpr float CoreInner = 40.f;
+	constexpr double StarShadowDrop = 10.0;
+	constexpr double StarRockDegrees = 8.0;
+	/** The lines' staggered entrance and slide. */
+	constexpr float LineInAt = 0.08f;
+	constexpr float LineStagger = 0.07f;
+	constexpr double LineSlide = 120.0;
+	constexpr float HeadingSize = 22.f;
+	constexpr float BodySize = 27.f;
 
 	struct FCreditLine
 	{
@@ -65,17 +75,17 @@ namespace
 			double Y = Frame.SafeMin.Y + LinesTop;
 			for (int32 i = 0; i < Lines.Num(); ++i)
 			{
-				const float In = KartWidgets::Entrance(Frame, 0.08f + i * 0.07f);
+				const float In = KartWidgets::Entrance(Frame, LineInAt + i * LineStagger);
 				const FKartPainter L = P.Faded(In);
-				const double X = Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * 120.0;
-				L.Text(Lines[i].Heading, Font(EFont::Label, 22.f), FVector2D(X, Y), Color::Sun);
-				Y += HeadingToBody + L.TextWrapped(Lines[i].Body, Font(EFont::Body, 27.f), FVector2D(X, Y + HeadingToBody), BodyWidth, Color::White).Y + LineGap;
+				const double X = Frame.SafeMin.X + KartWidgets::SlideX(Frame) - (1.0 - In) * LineSlide;
+				L.Text(Lines[i].Heading, Font(EFont::Label, HeadingSize), FVector2D(X, Y), Color::Sun);
+				Y += HeadingToBody + L.TextWrapped(Lines[i].Body, Font(EFont::Body, BodySize), FVector2D(X, Y + HeadingToBody), BodyWidth, Color::White).Y + LineGap;
 			}
 			const FVector2D StarAt(Frame.SafeMax.X - StarInset, Frame.Size.Y * 0.5);
-			const float Spin = static_cast<float>(FMath::Sin(Frame.Now) * 8.0);
-			KartWidgets::Star(P, StarAt + FVector2D(0.0, 10.0), StarOuter, StarInner, Color::Shadow, Spin);
+			const float Spin = static_cast<float>(FMath::Sin(Frame.Now) * StarRockDegrees);
+			KartWidgets::Star(P, StarAt + FVector2D(0.0, StarShadowDrop), StarOuter, StarInner, Color::Shadow, Spin);
 			KartWidgets::Star(P, StarAt, StarOuter, StarInner, Color::Sun, Spin);
-			KartWidgets::Star(P, StarAt, 92.f, 40.f, Color::SunDeep, Spin);
+			KartWidgets::Star(P, StarAt, CoreOuter, CoreInner, Color::SunDeep, Spin);
 		}
 	};
 }
