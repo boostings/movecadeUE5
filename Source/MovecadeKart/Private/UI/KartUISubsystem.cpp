@@ -19,6 +19,7 @@
 #include "UI/KartAccessibility.h"
 #include "UI/KartFrontEnd.h"
 #include "UI/KartPlayerPrefs.h"
+#include "UI/KartUiDebugFlags.h"
 #include "UI/Widgets/SKartCurtain.h"
 #include "UnrealClient.h"
 #include "UObject/UObjectGlobals.h"
@@ -76,27 +77,20 @@ void UKartUISubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	MapLoadedHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UKartUISubsystem::HandleMapLoaded);
 	// The player's UI scale (Settings > Accessibility) multiplies the viewport's DPI curve.
 	FKartAccessibility::ApplyUIScale();
-#if !UE_BUILD_SHIPPING
 	StartTourFromCommandLine();
-#endif
 }
 
 void UKartUISubsystem::StartTourFromCommandLine()
 {
-	// -KartUiPad: gamepad glyphs in screenshots, whatever was pressed last.
-	if (Processor.IsValid() && FParse::Param(FCommandLine::Get(), TEXT("KartUiPad")))
+	// The flags read as empty in Shipping, so no tour can start there.
+	const FKartUiDebugFlags Flags = FKartUiDebugFlags::Parse(FCommandLine::Get());
+	if (Processor.IsValid() && Flags.bForcePad)
 	{
 		Processor->ForceDevice(EKartInputDevice::Gamepad);
 	}
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartUiShots="), Shots, /*bShouldStopOnSeparator*/ false))
+	if (Flags.bTour)
 	{
-		TArray<FString> Steps;
-		Shots.ParseIntoArray(Steps, TEXT(","));
-		for (const FString& Step : Steps)
-		{
-			TourSteps.Add(FName(*Step.TrimStartAndEnd()));
-		}
+		TourSteps = Flags.TourSteps;
 		TourIndex = 0;
 		TourStepStarted = FPlatformTime::Seconds();
 		TourTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UKartUISubsystem::TickTour));
