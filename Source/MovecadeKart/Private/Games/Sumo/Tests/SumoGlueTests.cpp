@@ -1,9 +1,11 @@
 // Tests for Sumo Bumpers' pure glue around the rules: whole bot matches fingerprinted bit for bit (so a refactor of
-// the rules or the bots can't drift silently), the standings key the HUD sorts by and the debug
-// flags. The rules' own golden tests live in SumoTests.cpp.
+// the rules or the bots can't drift silently), the standings key the HUD sorts by, the phone's tilt mapping and the
+// debug flags. The rules' own golden tests live in SumoTests.cpp.
 #include "Games/Sumo/SumoDebugFlags.h"
+#include "Games/Sumo/SumoInput.h"
 #include "Games/Sumo/SumoRules.h"
 #include "Misc/AutomationTest.h"
+#include "Net/RoomProtocol.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -106,6 +108,39 @@ bool FSumoStandingKeyTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("staged ties"), RankByKey(M) == Standings(M));
 	TestTrue(TEXT("staged order"), Standings(M) == TArray<int32>({ 2, 1, 3, 0 }));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSumoPhoneTiltTest, "MovecadeKart.Sumo.PhoneTilt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSumoPhoneTiltTest::RunTest(const FString& Parameters)
+{
+	using MovecadeKart::Net::FSensorFrame;
+	auto Attitude = [](const FQuat& Q)
+	{
+		FSensorFrame Frame;
+		Frame.bHasQuaternion = true;
+		Frame.Quaternion = FVector4d(Q.X, Q.Y, Q.Z, Q.W);
+		return Frame;
+	};
+	TestTrue(TEXT("flat is still"), PhoneTilt(Attitude(FQuat::Identity)).IsNearlyZero());
+	TestTrue(TEXT("inside the dead zone is still"), PhoneTilt(Attitude(FQuat(FVector::YAxisVector, FMath::DegreesToRadians(PhoneTiltDeadDeg * 0.8)))).IsNearlyZero());
+	// Tipped right (about the phone's Y) past full tilt: full right roll.
+	const FVector2D Right = PhoneTilt(Attitude(FQuat(FVector::YAxisVector, FMath::DegreesToRadians(PhoneTiltFullDeg + 6.0))));
+	TestTrue(TEXT("full roll right"), Right.Equals(FVector2D(0.0, 1.0), 1e-6));
+	// Halfway between the dead zone and full: half tilt.
+	const double HalfDeg = (PhoneTiltDeadDeg + PhoneTiltFullDeg) / 2.0;
+	const FVector2D Half = PhoneTilt(Attitude(FQuat(FVector::YAxisVector, FMath::DegreesToRadians(HalfDeg))));
+	TestTrue(TEXT("half roll"), FMath::IsNearlyEqual(Half.Size(), 0.5, 1e-6));
+	// Without an attitude: gamma rolls, beta pitches (forward is -beta).
+	FSensorFrame Angles;
+	Angles.Beta = -40.0;
+	const FVector2D Forward = PhoneTilt(Angles);
+	TestTrue(TEXT("beta pitches forward"), Forward.Equals(FVector2D(1.0, 0.0), 1e-6));
+	Angles.Beta = 0.0;
+	Angles.Gamma = -40.0;
+	TestTrue(TEXT("gamma rolls left"), PhoneTilt(Angles).Equals(FVector2D(0.0, -1.0), 1e-6));
 	return true;
 }
 

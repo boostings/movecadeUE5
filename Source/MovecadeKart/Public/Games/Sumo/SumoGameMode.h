@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Games/ArcadeGameModeBase.h"
 #include "Games/Sumo/SumoDebugFlags.h"
-#include "Games/Sumo/SumoGame.h"
+#include "Games/Sumo/SumoGameTypes.h"
 #include "SumoGameMode.generated.h"
 
 class ASumoArena;
