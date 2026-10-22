@@ -68,6 +68,12 @@ enum class EKartAccessory : uint8
 	Headband,
 	/** The cap hides the hair (spec 03 §6.2). */
 	Cap,
+	// Modelled in code (Avatar/AvatarProps.h), worn on the head bone.
+	Crown,
+	PartyHat,
+	Headphones,
+	/** Hides the hair, like the cap. */
+	Beanie,
 };
 
 /**
