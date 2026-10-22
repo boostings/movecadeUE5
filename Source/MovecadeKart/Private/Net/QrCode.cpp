@@ -462,4 +462,26 @@ namespace MovecadeKart::Qr
 		const FTCHARToUTF8 Utf8(*Text);
 		return Encode(TConstArrayView<uint8>(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length()), ForcedMask);
 	}
+
+	void RasterizeBgra(const FQrMatrix& Matrix, int32 QuietModules, int32 PixelsPerModule, TArray64<uint8>& OutPixels, int32& OutSize)
+	{
+		check(Matrix.IsValid() && QuietModules >= 0 && PixelsPerModule > 0);
+		OutSize = (Matrix.Size + QuietModules * 2) * PixelsPerModule;
+		OutPixels.SetNumUninitialized(int64(OutSize) * OutSize * 4);
+		for (int32 Y = 0; Y < OutSize; ++Y)
+		{
+			const int32 ModuleY = Y / PixelsPerModule - QuietModules;
+			for (int32 X = 0; X < OutSize; ++X)
+			{
+				const int32 ModuleX = X / PixelsPerModule - QuietModules;
+				const bool bDark = ModuleX >= 0 && ModuleY >= 0 && ModuleX < Matrix.Size && ModuleY < Matrix.Size && Matrix.Get(ModuleX, ModuleY);
+				const uint8 Value = bDark ? 0 : 255;
+				uint8* Pixel = &OutPixels[(int64(Y) * OutSize + X) * 4];
+				Pixel[0] = Value;
+				Pixel[1] = Value;
+				Pixel[2] = Value;
+				Pixel[3] = 255;
+			}
+		}
+	}
 }

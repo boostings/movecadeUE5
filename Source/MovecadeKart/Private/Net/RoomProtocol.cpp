@@ -113,6 +113,11 @@ namespace MovecadeKart::Net
 			return FLinearColor(FColor::FromHex(Value));
 		}
 
+		bool Is(const FString& Value, const TCHAR* Literal)
+		{
+			return Value.Equals(Literal, ESearchCase::CaseSensitive);
+		}
+
 		bool IsPlayerId(const FString& Id)
 		{
 			// messages.ts PLAYER_ID_RE /^p[1-9][0-9]{0,2}$/
@@ -440,12 +445,107 @@ namespace MovecadeKart::Net
 
 	EMcRoomStatus ParseStatus(const FString& Status)
 	{
-		if (Status == TEXT("lobby")) return EMcRoomStatus::Lobby;
-		if (Status == TEXT("countdown")) return EMcRoomStatus::Countdown;
-		if (Status == TEXT("in-progress")) return EMcRoomStatus::InProgress;
-		if (Status == TEXT("paused")) return EMcRoomStatus::Paused;
-		if (Status == TEXT("complete")) return EMcRoomStatus::Complete;
+		if (Is(Status, TEXT("lobby"))) return EMcRoomStatus::Lobby;
+		if (Is(Status, TEXT("countdown"))) return EMcRoomStatus::Countdown;
+		if (Is(Status, TEXT("in-progress"))) return EMcRoomStatus::InProgress;
+		if (Is(Status, TEXT("paused"))) return EMcRoomStatus::Paused;
+		if (Is(Status, TEXT("complete"))) return EMcRoomStatus::Complete;
 		return EMcRoomStatus::Unknown;
+	}
+
+	EServerMessage ParseServerMessageType(const FString& Type)
+	{
+		struct FEntry
+		{
+			const TCHAR* Type;
+			EServerMessage Message;
+		};
+		static constexpr FEntry Table[] = {
+			{ TEXT("ping"), EServerMessage::Ping },
+			{ TEXT("welcome"), EServerMessage::Welcome },
+			{ TEXT("state"), EServerMessage::State },
+			{ TEXT("game-event"), EServerMessage::GameEvent },
+			{ TEXT("error"), EServerMessage::Error },
+			{ TEXT("host-changed"), EServerMessage::HostChanged },
+			{ TEXT("signed-scores"), EServerMessage::SignedScores },
+			{ TEXT("room-closed"), EServerMessage::RoomClosed },
+			{ TEXT("action-ack"), EServerMessage::ActionAck },
+			{ TEXT("resume-countdown"), EServerMessage::ResumeCountdown },
+		};
+		for (const FEntry& Entry : Table)
+		{
+			if (Is(Type, Entry.Type))
+			{
+				return Entry.Message;
+			}
+		}
+		return EServerMessage::Unknown;
+	}
+
+	bool IsStartRejectedError(const FString& Code)
+	{
+		return Is(Code, TEXT("PLAYERS_NOT_READY")) || Is(Code, TEXT("NO_ACTIVE_PLAYERS")) || Is(Code, TEXT("INVALID_STATE_TRANSITION"))
+			|| Is(Code, TEXT("ENTITLEMENT_REQUIRED"));
+	}
+
+	FStartCheck EvaluateStart(const FMcRoomState& Room, bool bConnectionOpen, bool bIsHost, bool bPreparationReady)
+	{
+		FStartCheck Check;
+		if (!bConnectionOpen)
+		{
+			Check.Block = EStartBlock::NotConnected;
+			return Check;
+		}
+		if (!bIsHost)
+		{
+			Check.Block = EStartBlock::NotHost;
+			return Check;
+		}
+		if (Room.Status != EMcRoomStatus::Lobby)
+		{
+			Check.Block = EStartBlock::MatchRunning;
+			return Check;
+		}
+		int32 People = 0;
+		for (const FMcSeat& Seat : Room.Players)
+		{
+			People += Seat.bBot ? 0 : 1;
+			Check.NotReady += (Seat.bReady && Seat.bConnected && !Seat.bEliminated) ? 0 : 1;
+		}
+		if (Room.Players.Num() == 0)
+		{
+			Check.Block = EStartBlock::NobodySeated;
+		}
+		else if (People == 0)
+		{
+			Check.Block = EStartBlock::OnlyBots;
+		}
+		else if (!bPreparationReady)
+		{
+			Check.Block = EStartBlock::Preparing;
+		}
+		else if (Check.NotReady > 0)
+		{
+			Check.Block = EStartBlock::NotReady;
+		}
+		return Check;
+	}
+
+	FString DescribeStartBlock(const FStartCheck& Check, const FString& LastError)
+	{
+		switch (Check.Block)
+		{
+		case EStartBlock::None: return FString();
+		case EStartBlock::NotConnected: return LastError.IsEmpty() ? TEXT("Connecting to the room server...") : LastError;
+		case EStartBlock::NotHost: return TEXT("Another screen is hosting this room.");
+		case EStartBlock::MatchRunning: return TEXT("A match is in progress.");
+		case EStartBlock::NobodySeated: return TEXT("Scan the code with a phone to join.");
+		case EStartBlock::OnlyBots: return TEXT("Bots are ready. Scan the code to play with them.");
+		case EStartBlock::Preparing: return TEXT("Preparing Kart Racer...");
+		case EStartBlock::NotReady:
+			return FString::Printf(TEXT("Waiting for %d %s to get ready."), Check.NotReady, Check.NotReady == 1 ? TEXT("player") : TEXT("players"));
+		}
+		return FString();
 	}
 
 	FLinearColor PaintColor(const FString& KartPaint, int32 Seat)
@@ -694,7 +794,7 @@ namespace MovecadeKart::Net
 		static const TCHAR* const Types[] = { TEXT("game-event"), TEXT("advance-turn"), TEXT("score-update"), TEXT("state-ack"), TEXT("host-lobby-visible"), TEXT("ping"), TEXT("pong") };
 		for (const TCHAR* T : Types)
 		{
-			if (Type == T) return true;
+			if (Is(Type, T)) return true;
 		}
 		return false;
 	}
