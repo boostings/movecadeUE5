@@ -8,6 +8,12 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartCapture, Log, All);
 
+namespace
+{
+	/** How long a capture runs without -KartCaptureFor (seconds of world time). */
+	constexpr double DefaultCaptureSeconds = 10.0;
+}
+
 bool UKartCaptureSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
 	const UWorld* World = Cast<UWorld>(Outer);
@@ -29,7 +35,7 @@ void UKartCaptureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	}
 	if (For <= 0.0)
 	{
-		For = 10.0;
+		For = DefaultCaptureSeconds;
 	}
 	IFileManager::Get().MakeDirectory(*Folder, /*Tree*/ true);
 	UE_LOG(LogKartCapture, Display, TEXT("Capturing %.1f s from %.1f s into %s"), For, From, *Folder);

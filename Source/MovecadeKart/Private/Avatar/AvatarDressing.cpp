@@ -1,11 +1,10 @@
 #include "Avatar/AvatarDressing.h"
 
 #include "Avatar/AvatarProps.h"
-#include "Components/StaticMeshComponent.h"
-#include "Engine/StaticMesh.h"
-
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
 #include "KartDriverAnimInstance.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"

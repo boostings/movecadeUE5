@@ -15,7 +15,14 @@
 namespace
 {
 	constexpr int32 ShowcaseCount = 7;
+	/** The stage floats this high above the map's origin (cm), clear of the level, lit by its sun and sky. */
+	constexpr double StageHeight = 40000.0;
+	/** Each avatar plays one variant per beat, easing in and out over the beat's first and last BeatFade seconds. */
+	constexpr float BeatSeconds = 3.f;
+	constexpr float BeatFade = 0.3f;
+	constexpr float BeatFadeOutAt = 2.7f;
 
+#if !UE_BUILD_SHIPPING
 	void SpawnShowcase(const TArray<FString>& Args, UWorld* World)
 	{
 		if (!World || !World->GetFirstPlayerController())
@@ -24,7 +31,7 @@ namespace
 		}
 		// A stage of its own high above the map (the map's sun and sky light it); the line-up faces the camera at -X.
 		const bool bClose = Args.Contains(TEXT("close"));
-		const FVector Stage(0.0, 0.0, 40000.0);
+		const FVector Stage(0.0, 0.0, StageHeight);
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		if (AAvatarShowcase* Showcase = World->SpawnActor<AAvatarShowcase>(Stage, FRotator::ZeroRotator, Params))
@@ -37,6 +44,7 @@ namespace
 	FAutoConsoleCommandWithWorldAndArgs ShowcaseCommand(TEXT("Movecade.AvatarShowcase"),
 		TEXT("Lines up party avatars in front of the view, each playing an avatar feature (dev). Arg: close."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&SpawnShowcase));
+#endif
 }
 
 AAvatarShowcase::AAvatarShowcase()
@@ -104,9 +112,9 @@ void AAvatarShowcase::Tick(float DeltaSeconds)
 	{
 		PC->SetViewTarget(Camera);
 	}
-	const int32 Beat = static_cast<int32>(Clock / 3.f);
-	const float InBeat = FMath::Fmod(Clock, 3.f);
-	const float Envelope = FMath::Clamp(InBeat / 0.3f, 0.f, 1.f) * FMath::Clamp((2.7f - InBeat) / 0.3f, 0.f, 1.f);
+	const int32 Beat = static_cast<int32>(Clock / BeatSeconds);
+	const float InBeat = FMath::Fmod(Clock, BeatSeconds);
+	const float Envelope = FMath::Clamp(InBeat / BeatFade, 0.f, 1.f) * FMath::Clamp((BeatFadeOutAt - InBeat) / BeatFade, 0.f, 1.f);
 	for (int32 i = 0; i < Avatars.Num(); ++i)
 	{
 		FArcadePoseInput& P = Avatars[i]->Pose();
