@@ -5,15 +5,20 @@
 #include "BowlingAlley.generated.h"
 
 class UInstancedStaticMeshComponent;
+class ULightComponent;
+class UMaterialInstanceDynamic;
 class UMaterialInterface;
+class UPostProcessComponent;
+class USpotLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 
 /**
  * The bowling house (movecade-v2 bowling/venue, laneLayout.ts; Docs/Port/06-bowling.md §4), modelled in code like
  * the tracks: five lanes (the player bowls the middle one), the approach and foul line, gutters and capping, the
- * pin deck and pit, masking units and the pinsetter run, walls, a trussed ceiling with linear light troughs, and
- * the light hierarchy (the pin deck brightest, the approach warm). Built in the editor too (OnConstruction).
+ * pin deck and pit with neon-trimmed kickbacks, masking units and the pinsetter run, walls with neon runs, a trussed
+ * ceiling with linear light troughs, the light hierarchy (the pin deck brightest, the approach warm), a grade that
+ * holds the exposure, and a light show the game fires on strikes. Built in the editor too (OnConstruction).
  *
  * Web world units map 1:1 to metres (UE cm via MovecadeKart::Coords): down the lane is the web's -Z, UE +X.
  * The rack and ball use the web's visual scales (VisualPinScale for the rack, LaneVisualScale for the lane).
@@ -57,6 +62,16 @@ public:
 	/** The house lanes' racks (presentation): one instanced component per lane, ten pins each. */
 	UInstancedStaticMeshComponent* GetHouseRack(int32 Lane) const { return HouseRacks.IsValidIndex(Lane) ? HouseRacks[Lane].Get() : nullptr; }
 
+	/**
+	 * The house light show, driven by the game every frame: Energy 0 is the resting room; up to 1 the show spots
+	 * sweep the deck in Tint and the neon pulses (a strike), past 1 a faster strobe (a turkey). Time is the show's
+	 * age in seconds. Cheap when nothing changes: the resting state is applied once.
+	 */
+	void SetShow(double Energy, const FLinearColor& Tint, double Time);
+
+	/** An opaque unlit emissive colour (Color above 1 blooms): neon tubes, lenses, lightboxes. */
+	static UMaterialInstanceDynamic* OpaqueGlow(UObject* Outer, const FLinearColor& Color);
+
 private:
 	void Build();
 	void Clear();
@@ -64,18 +79,30 @@ private:
 	void BuildLanes();
 	void BuildDeck();
 	void BuildCeiling();
+	void BuildNeon();
 	void BuildLights();
+	void BuildGrade();
 	void BuildHouseRacks();
 	void BuildMeshes();
 
 	/** A box centred at C (web units) with size S (web x, y, z), optionally yawed about web Y. */
-	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, double YawRad = 0.0);
+	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, double YawRad = 0.0, bool bShadows = true);
+	/** A box rolled in the plane of the back wall (about the lane axis), for neon drawn on it. */
+	void WallBox(UMaterialInterface* Material, const FVector& C, const FVector& S, double RollRad);
 	/** A cylinder along web Y. */
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height);
 	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows = true);
+	/** One material per key per Build(), so equal looks share a MID (and an instanced group). */
+	UMaterialInterface* Cached(const TCHAR* Key, TFunctionRef<UMaterialInterface*()> Make);
+	/** A neon colour whose glow the light show pulses. */
+	UMaterialInterface* Neon(const TCHAR* Key, const FLinearColor& Color);
 
+	/** Keyed by mesh and material pointers (equal names on different objects stay distinct). */
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UMaterialInterface>> Materials;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> PinMesh;
@@ -91,6 +118,21 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UInstancedStaticMeshComponent>> HouseRacks;
+
+	/** The neon materials and their resting colours, which the show pulses. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> NeonMids;
+	TArray<FLinearColor> NeonColors;
+
+	/** The show spots (off at rest) and their resting intensity when lit. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<USpotLightComponent>> ShowSpots;
+
+	/** The deck key, which the show flashes. */
+	UPROPERTY(Transient)
+	TObjectPtr<USpotLightComponent> DeckKey;
+
+	double ShownEnergy = -1.0;
 
 	UPROPERTY()
 	TObjectPtr<UStaticMesh> Cube;
