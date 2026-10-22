@@ -1,5 +1,9 @@
+// Sumo Bumpers' rules (SumoRules.h): the match, the pucks' physics and contacts, the ring, power-ups and scoring.
+// The house bots live in SumoBots.cpp.
+
 #include "Games/Sumo/SumoRules.h"
 
+#include "Games/Sumo/SumoRulesMath.h"
 #include <limits>
 
 namespace MovecadeKart::Sumo
@@ -9,22 +13,36 @@ namespace MovecadeKart::Sumo
 		/** Whole-step times accumulate 1000/60 with rounding: compare against schedules with this slack. */
 		constexpr double TimeEpsilon = 1e-6;
 
-		FVector2D SafeNormal(const FVector2D& V, const FVector2D& Fallback = FVector2D(1.0, 0.0))
-		{
-			const double L = V.Size();
-			return L > 1e-9 ? V / L : Fallback;
-		}
+		// Dashes: the direction comes from the tilt past a small lean, else the roll past a crawl, else the facing.
+		constexpr double DashTiltMinSq = 0.04;
+		constexpr double DashRollMinSq = 0.25;
+		/** The share of the sideways drift a dash keeps (the rest is traded into the dash's line). */
+		constexpr double DashAcrossKeep = 0.35;
+		/** Pucks rolling faster than this (m/s, squared) turn to face their roll. */
+		constexpr double FacingSpeedSq = 0.16;
 
-		FVector2D ClampDisc(const FVector2D& V)
-		{
-			const double L = V.Size();
-			return L > 1.0 ? V / L : V;
-		}
+		// Contacts.
+		/** A shield makes its holder four times as hard to move for the contact. */
+		constexpr double ShieldInverseMassScale = 0.25;
+		/** A dash only shoves when it drives into the contact at least this fast (m/s along the normal). */
+		constexpr double DashHitMinApproach = 2.0;
+		/** The shove scales with the mass ratio, within these bounds. */
+		constexpr double DashShoveRatioMin = 0.5;
+		constexpr double DashShoveRatioMax = 2.0;
+		/** The attacker keeps this share of the shove as recoil. */
+		constexpr double DashRecoilShare = 0.25;
+		/** A bump closing this fast (m/s) pops a shield even without a dash. */
+		constexpr double ShieldPopSpeed = 5.0;
 
-		FVector2D Perp(const FVector2D& V)
-		{
-			return FVector2D(-V.Y, V.X);
-		}
+		// Power-ups.
+		/** A power-up within this of the ring's edge (m) goes with its band. */
+		constexpr double PowerEdgeMargin = 0.3;
+		/** Spawns keep this far inside the ring that will be left (m), and skip a ring smaller than PowerSpawnMinReach. */
+		constexpr double PowerSpawnInset = 1.6;
+		constexpr double PowerSpawnMinReach = 0.8;
+		/** Tries for a spot clear of every standing puck by PowerSpawnClearance (m) before taking the last one. */
+		constexpr int32 PowerSpawnTries = 6;
+		constexpr double PowerSpawnClearance = 2.0;
 
 		FRingEvent& Emit(FMatch& M, EEventKind Kind, int32 A = INDEX_NONE, int32 B = INDEX_NONE, const FVector2D& Pos = FVector2D::ZeroVector, double Strength = 0.0)
 		{
@@ -86,12 +104,12 @@ namespace MovecadeKart::Sumo
 
 		void DoDash(FMatch& M, FPuck& P)
 		{
-			const FVector2D Dir = P.Input.Tilt.SizeSquared() > 0.04 ? SafeNormal(P.Input.Tilt) : (P.Vel.SizeSquared() > 0.25 ? SafeNormal(P.Vel) : P.Facing);
+			const FVector2D Dir = P.Input.Tilt.SizeSquared() > DashTiltMinSq ? SafeNormal(P.Input.Tilt) : (P.Vel.SizeSquared() > DashRollMinSq ? SafeNormal(P.Vel) : P.Facing);
 			// The dash replaces the speed across its line and adds DashSpeed along it, so a dash away from your
 			// own drift is a real escape rather than a stall.
 			const double Along = FVector2D::DotProduct(P.Vel, Dir);
 			const FVector2D Across = P.Vel - Dir * Along;
-			P.Vel = Across * 0.35 + Dir * (FMath::Max(0.0, Along) + DashSpeed);
+			P.Vel = Across * DashAcrossKeep + Dir * (FMath::Max(0.0, Along) + DashSpeed);
 			if (P.Vel.Size() > MaxSpeed)
 			{
 				P.Vel = SafeNormal(P.Vel) * MaxSpeed;
@@ -100,6 +118,7 @@ namespace MovecadeKart::Sumo
 			P.DashMs = DashMs;
 			P.DashCooldownMs = P.Power == EPower::Turbo ? TurboCooldownMs : DashCooldownMs;
 			P.DashQueuedMs = 0.0;
+			// A dash event's Strength is its heading (radians): the presentation throws its dust back along it.
 			Emit(M, EEventKind::Dash, P.Slot, INDEX_NONE, P.Pos, Dir.X).Strength = FMath::Atan2(Dir.Y, Dir.X);
 		}
 
@@ -177,7 +196,7 @@ namespace MovecadeKart::Sumo
 					P.Vel = SafeNormal(P.Vel) * MaxSpeed;
 				}
 				P.Pos += P.Vel * Dt;
-				if (P.Vel.SizeSquared() > 0.16)
+				if (P.Vel.SizeSquared() > FacingSpeedSq)
 				{
 					P.Facing = SafeNormal(P.Vel);
 				}
@@ -239,7 +258,7 @@ namespace MovecadeKart::Sumo
 				FPowerUp& Up = M.PowerUps[k];
 				Up.AgeMs += StepMs;
 				// A power-up goes with its band, or when it has waited too long.
-				if (Up.AgeMs >= PowerLifeMs || Up.Pos.Size() > M.Radius - 0.3)
+				if (Up.AgeMs >= PowerLifeMs || Up.Pos.Size() > M.Radius - PowerEdgeMargin)
 				{
 					FRingEvent& E = Emit(M, EEventKind::PowerExpire, INDEX_NONE, INDEX_NONE, Up.Pos);
 					E.Power = Up.Kind;
@@ -262,14 +281,14 @@ namespace MovecadeKart::Sumo
 				return;
 			}
 			M.NextPowerMs = M.RoundMs + FMath::Lerp(PowerEveryMinMs, PowerEveryMaxMs, Random01(M.Rng));
-			const double Reach = FMath::Min(M.PendingRadius, M.Radius) - 1.6;
-			if (M.PowerUps.Num() >= MaxPowerUps || Reach < 0.8)
+			const double Reach = FMath::Min(M.PendingRadius, M.Radius) - PowerSpawnInset;
+			if (M.PowerUps.Num() >= MaxPowerUps || Reach < PowerSpawnMinReach)
 			{
 				return;
 			}
 			// A spot inside the ring that will stay, clear of the pucks (a few tries, then anywhere).
 			FVector2D Spot = FVector2D::ZeroVector;
-			for (int32 Try = 0; Try < 6; ++Try)
+			for (int32 Try = 0; Try < PowerSpawnTries; ++Try)
 			{
 				const double R = FMath::Sqrt(Random01(M.Rng)) * Reach;
 				const double A = Random01(M.Rng) * 2.0 * UE_DOUBLE_PI;
@@ -277,7 +296,7 @@ namespace MovecadeKart::Sumo
 				bool bClear = true;
 				for (const FPuck& P : M.Pucks)
 				{
-					bClear &= !P.bStanding || FVector2D::Distance(P.Pos, Spot) > 2.0;
+					bClear &= !P.bStanding || FVector2D::Distance(P.Pos, Spot) > PowerSpawnClearance;
 				}
 				if (bClear)
 				{
@@ -451,8 +470,8 @@ namespace MovecadeKart::Sumo
 		}
 		const FVector2D N = SafeNormal(D, SafeNormal(B.Facing - A.Facing, FVector2D(0.0, 1.0)));
 		// A shield makes its holder hard to move for this contact.
-		const double InvA = (1.0 / A.Mass()) * (A.HasShield() ? 0.25 : 1.0);
-		const double InvB = (1.0 / B.Mass()) * (B.HasShield() ? 0.25 : 1.0);
+		const double InvA = (1.0 / A.Mass()) * (A.HasShield() ? ShieldInverseMassScale : 1.0);
+		const double InvB = (1.0 / B.Mass()) * (B.HasShield() ? ShieldInverseMassScale : 1.0);
 		const double Pen = MinDist - Dist;
 		A.Pos -= N * (Pen * InvA / (InvA + InvB));
 		B.Pos += N * (Pen * InvB / (InvA + InvB));
@@ -470,17 +489,17 @@ namespace MovecadeKart::Sumo
 		B.Vel += N * (J * InvB);
 		// A dash that drives into someone shoves them on (the attacker keeps a little of its own push).
 		bool bDashHit = false;
-		const double Ratio = FMath::Clamp(A.Mass() / B.Mass(), 0.5, 2.0);
-		if (A.DashMs > 0.0 && AlongA > 2.0 && !B.HasShield())
+		const double Ratio = FMath::Clamp(A.Mass() / B.Mass(), DashShoveRatioMin, DashShoveRatioMax);
+		if (A.DashMs > 0.0 && AlongA > DashHitMinApproach && !B.HasShield())
 		{
 			B.Vel += N * (DashShove * Ratio);
-			A.Vel -= N * (DashShove * 0.25);
+			A.Vel -= N * (DashShove * DashRecoilShare);
 			bDashHit = true;
 		}
-		if (B.DashMs > 0.0 && AlongB > 2.0 && !A.HasShield())
+		if (B.DashMs > 0.0 && AlongB > DashHitMinApproach && !A.HasShield())
 		{
 			A.Vel -= N * (DashShove / Ratio);
-			B.Vel += N * (DashShove * 0.25);
+			B.Vel += N * (DashShove * DashRecoilShare);
 			bDashHit = true;
 		}
 		const double Now = M.RoundMs;
@@ -490,7 +509,7 @@ namespace MovecadeKart::Sumo
 		B.LastHitAtMs = Now;
 		const FVector2D At = A.Pos + N * PuckRadius;
 		// A shield pops on a real hit (a dash, or a hard bump) and the attacker bounces off it.
-		const bool bHard = bDashHit || Closing >= 5.0 || A.DashMs > 0.0 || B.DashMs > 0.0;
+		const bool bHard = bDashHit || Closing >= ShieldPopSpeed || A.DashMs > 0.0 || B.DashMs > 0.0;
 		if (bShield && bHard)
 		{
 			FPuck& Holder = A.HasShield() ? A : B;
@@ -568,6 +587,13 @@ namespace MovecadeKart::Sumo
 		return Order;
 	}
 
+	int64 StandingKey(const FPuck& P)
+	{
+		auto Field = [](int32 Value, int32 Max) { return static_cast<int64>(FMath::Clamp(Value, 0, Max)); };
+		// Round wins on top (15 bits keep the key positive), then score, knockouts, and falls inverted.
+		return (Field(P.RoundWins, 0x7fff) << 48) | (Field(P.Score, 0xffff) << 32) | (Field(P.Knockouts, 0xffff) << 16) | (0xffff - Field(P.Falls, 0xffff));
+	}
+
 	uint64 Fingerprint(const FMatch& M)
 	{
 		uint64 H = 14695981039346656037ull;
@@ -598,162 +624,5 @@ namespace MovecadeKart::Sumo
 			MixD(H, Up.Pos.Y);
 		}
 		return H;
-	}
-
-	// ----------------------------------------------------------------------------------------------------- Bots
-
-	FBotBrain MakeBot(double Skill, uint32 Seed)
-	{
-		FBotBrain B;
-		B.Skill = FMath::Clamp(Skill, 0.0, 1.0);
-		B.Rng = Seed ? Seed : 0x1234567u;
-		B.ThinkMs = 200.0 + 400.0 * Random01(B.Rng);
-		return B;
-	}
-
-	FInput ThinkBot(const FMatch& M, int32 Self, FBotBrain& B)
-	{
-		FInput In;
-		if (M.Phase != EPhase::Fight || !M.Pucks.IsValidIndex(Self) || !M.Pucks[Self].bStanding)
-		{
-			return In;
-		}
-		const FPuck& P = M.Pucks[Self];
-		const double S = B.Skill;
-		B.RetargetMs -= StepMs;
-		B.ThinkMs -= StepMs;
-		// The ring that will still be there: a warned band is already lava to a sharp bot.
-		const double Safe = FMath::Lerp(M.Radius, FMath::Min(M.Radius, M.PendingRadius + 0.3), S);
-
-		// The mark: whoever is nearest, weighted toward the ones already near the edge.
-		const FPuck* Target = M.Pucks.IsValidIndex(B.Target) && M.Pucks[B.Target].bStanding && B.Target != Self ? &M.Pucks[B.Target] : nullptr;
-		if (!Target || B.RetargetMs <= 0.0)
-		{
-			double Best = TNumericLimits<double>::Max();
-			B.Target = INDEX_NONE;
-			for (const FPuck& Q : M.Pucks)
-			{
-				if (Q.Slot == Self || !Q.bStanding)
-				{
-					continue;
-				}
-				const double Edge = Q.Pos.Size() / FMath::Max(1.0, M.Radius);
-				const double Cost = FVector2D::Distance(P.Pos, Q.Pos) - 4.0 * Edge * S + 2.0 * Random01(B.Rng) * (1.0 - S);
-				if (Cost < Best)
-				{
-					Best = Cost;
-					B.Target = Q.Slot;
-				}
-			}
-			B.RetargetMs = 900.0 + 900.0 * Random01(B.Rng);
-			Target = B.Target != INDEX_NONE ? &M.Pucks[B.Target] : nullptr;
-		}
-
-		FVector2D Want = -P.Pos * 0.2;
-		FVector2D DashDir = FVector2D::ZeroVector;
-		bool bLinedUp = false;
-		if (Target)
-		{
-			// Lead the target a little, then get between it and the centre: a push from there goes out of the ring.
-			const FVector2D T = Target->Pos + Target->Vel * (0.15 + 0.2 * S);
-			const FVector2D Out = T.Size() > 1.2 ? SafeNormal(T) : SafeNormal(T - P.Pos);
-			const FVector2D ToT = T - P.Pos;
-			const FVector2D Dir = SafeNormal(ToT);
-			const double Behind = FVector2D::DotProduct(Dir, Out);
-			if (Behind > 0.55 - 0.25 * (1.0 - S))
-			{
-				Want = Dir;
-				bLinedUp = true;
-			}
-			else
-			{
-				const FVector2D Spot = T - Out * (PuckRadius * 2.4);
-				// Round the target rather than through it: slide sideways toward the spot behind.
-				const FVector2D ToSpot = Spot - P.Pos;
-				const FVector2D Side = Perp(Dir) * (FVector2D::DotProduct(Perp(Dir), ToSpot) >= 0.0 ? 1.0 : -1.0);
-				Want = SafeNormal(ToSpot) * 0.7 + Side * 0.5 * S;
-			}
-			DashDir = Dir;
-		}
-
-		// A power-up within reach and on the way is worth a detour.
-		if (S > 0.25)
-		{
-			for (const FPowerUp& Up : M.PowerUps)
-			{
-				const double D = FVector2D::Distance(Up.Pos, P.Pos);
-				const double ToTarget = Target ? FVector2D::Distance(Target->Pos, P.Pos) : 99.0;
-				if (D < 4.5 * S + 1.0 && D < ToTarget * 1.1 && Up.Pos.Size() < Safe - 1.0)
-				{
-					Want = SafeNormal(Up.Pos - P.Pos) * 1.2;
-					bLinedUp = false;
-					break;
-				}
-			}
-		}
-
-		// Keep off the edge: where the momentum is taking us, against the ring that will be left.
-		const FVector2D Ahead = P.Pos + P.Vel * (0.3 + 0.3 * S);
-		const double Margin = 2.2 - 0.6 * S;
-		const double Over = Ahead.Size() - (Safe - Margin);
-		bool bDanger = false;
-		if (Over > 0.0)
-		{
-			const FVector2D In0 = SafeNormal(-Ahead);
-			const double Outward = FMath::Max(0.0, FVector2D::DotProduct(P.Vel, -In0));
-			const double W = FMath::Clamp(Over / 1.2, 0.0, 1.0) * (1.5 + 1.5 * S) + Outward * 0.12 * S;
-			Want = Want * (1.0 - FMath::Min(0.8, W * 0.4)) + In0 * W;
-			bDanger = Over > Margin * 0.7;
-		}
-
-		// A dash coming our way: step aside (toward the middle), if we're sharp enough to see it.
-		for (const FPuck& Q : M.Pucks)
-		{
-			if (Q.Slot == Self || !Q.bStanding || Q.DashMs <= 0.0)
-			{
-				continue;
-			}
-			const FVector2D Rel = P.Pos - Q.Pos;
-			const double Dist = Rel.Size();
-			if (Dist < 4.0 && FVector2D::DotProduct(SafeNormal(Q.Vel), SafeNormal(Rel)) > 0.8 && Random01(B.Rng) < S * 0.25)
-			{
-				FVector2D Side = Perp(SafeNormal(Rel));
-				if (FVector2D::DotProduct(Side, -P.Pos) < 0.0)
-				{
-					Side = -Side;
-				}
-				Want += Side * (1.5 * S);
-			}
-		}
-
-		// A sloppy hand wanders.
-		B.Wander = ClampDisc(B.Wander + FVector2D(Random01(B.Rng) - 0.5, Random01(B.Rng) - 0.5) * 0.25);
-		Want += B.Wander * (0.75 * (1.0 - S));
-		In.Tilt = ClampDisc(SafeNormal(Want, FVector2D::ZeroVector) * (0.8 + 0.2 * S));
-
-		// The dash: a decision every so often (faster when sharp).
-		if (B.ThinkMs <= 0.0 && P.CanDash())
-		{
-			B.ThinkMs = 200.0 - 140.0 * S + 100.0 * Random01(B.Rng);
-			const FVector2D Moving = P.Vel.SizeSquared() > 1.0 ? SafeNormal(P.Vel) : In.Tilt;
-			if (bDanger && P.Pos.Size() > Safe - 1.2 && FVector2D::DotProduct(P.Vel, SafeNormal(P.Pos)) > 1.5 && Random01(B.Rng) < 0.25 + 0.65 * S)
-			{
-				// Saved by the dash: straight back to the middle.
-				In.Tilt = SafeNormal(-P.Pos);
-				In.bDash = true;
-			}
-			else if (Target && !DashDir.IsZero())
-			{
-				const double Dist = FVector2D::Distance(Target->Pos, P.Pos);
-				const bool bAligned = FVector2D::DotProduct(Moving, DashDir) > 0.75 - 0.3 * (1.0 - S);
-				const bool bSafe = (P.Pos + DashDir * 3.2).Size() < Safe - 0.4 || bLinedUp;
-				if (Dist < 4.4 && Dist > PuckRadius * 2.0 && bAligned && bSafe && (bLinedUp || S < 0.45) && Random01(B.Rng) < 0.5 + 0.5 * S)
-				{
-					In.Tilt = DashDir;
-					In.bDash = true;
-				}
-			}
-		}
-		return In;
 	}
 }
