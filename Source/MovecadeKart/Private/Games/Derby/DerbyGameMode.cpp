@@ -2,19 +2,15 @@
 
 #include "Art/KartMaterials.h"
 #include "Dom/JsonObject.h"
-#include "Engine/GameInstance.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
-#include "Games/ArcadeSession.h"
 #include "Games/Derby/DerbyBallpark.h"
+#include "Games/Derby/DerbyDebugFlags.h"
 #include "Games/Derby/DerbyGame.h"
-#include "Games/SArcadeOverlay.h"
 #include "HAL/PlatformTime.h"
-#include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
 #include "Net/RoomHostSubsystem.h"
-#include "TimerManager.h"
+#include "Net/RoomProtocol.h"
 
 using namespace MovecadeKart::Derby;
 
@@ -22,56 +18,82 @@ namespace
 {
 	const TCHAR* const SeatColors[] = { TEXT("#ff6b5a"), TEXT("#3fc9c2"), TEXT("#f2b23f"), TEXT("#a083ff") };
 	const TCHAR* const HouseNames[] = { TEXT("Dante"), TEXT("Rosa"), TEXT("Mika"), TEXT("Priya") };
+	/** Local people bat well; house bots range 0.5-0.74 by seat; a room's bots are steady. */
+	constexpr float LocalSkill = 0.85f;
+	constexpr float HouseBaseSkill = 0.5f;
+	constexpr float HouseSkillStep = 0.12f;
+	constexpr int32 HouseSkillSteps = 3;
+	constexpr float RoomBotSkill = 0.62f;
+	/** Local seats wear varied looks from this seed on. */
+	constexpr int32 LookSeedBase = 4;
+	/** A room match's seed: every match number gets its own schedule, the same on any host. */
+	constexpr uint32 RoomSeedBase = 0xDE4Bu;
+	constexpr uint32 RoomSeedStep = 7919u;
+	const TCHAR* const PitchEvent = TEXT("derby:pitch");
 
-	URoomHostSubsystem* RoomOf(const UObject* Context)
+	FString Hex(const FLinearColor& Color)
 	{
-		const UGameInstance* GI = Context && Context->GetWorld() ? Context->GetWorld()->GetGameInstance() : nullptr;
-		return GI ? GI->GetSubsystem<URoomHostSubsystem>() : nullptr;
-	}
-
-	FString Hex(const FLinearColor& C)
-	{
-		const FColor S = C.ToFColor(true);
+		const FColor S = Color.ToFColor(true);
 		return FString::Printf(TEXT("#%02x%02x%02x"), S.R, S.G, S.B);
 	}
 
-	/** The phone's toast for a pitch: the call and the detail. */
-	void CallFor(const FOutcome& O, int32 Strikes, FString& Title, FString& Detail, FString& Tone, FString& Haptic, bool& bMajor)
+	/** The phone's toast for a pitch (play:feedback). */
+	struct FDerbyCall
 	{
-		bMajor = IsHomeRun(O.Result);
-		Tone = O.Points > 0 ? TEXT("success") : (O.bStrike ? TEXT("warning") : TEXT("neutral"));
-		Haptic = IsHomeRun(O.Result) ? TEXT("celebration") : (O.Result == EResult::InPlay || O.Result == EResult::Foul ? TEXT("impact") : TEXT("warning"));
-		switch (O.Result)
+		FString Title;
+		FString Detail;
+		FString Tone;
+		FString Haptic;
+		bool bMajor = false;
+	};
+
+	FString CallTitle(const FOutcome& Outcome, int32 Strikes)
+	{
+		const bool bOut = Strikes >= StrikesPerOut;
+		switch (Outcome.Result)
 		{
-		case EResult::Moonshot: Title = FString::Printf(TEXT("MOONSHOT! %d FT"), O.DistanceFt); break;
-		case EResult::HomeRun: Title = FString::Printf(TEXT("HOME RUN! %d FT"), O.DistanceFt); break;
-		case EResult::InPlay: Title = FString::Printf(TEXT("%d FT"), O.DistanceFt); break;
-		case EResult::Foul: Title = TEXT("FOUL BALL"); break;
-		case EResult::Whiff: Title = Strikes >= StrikesPerOut ? TEXT("STRUCK OUT") : TEXT("SWING AND A MISS"); break;
-		default: Title = Strikes >= StrikesPerOut ? TEXT("STRUCK OUT") : TEXT("STRIKE"); break;
+		case EResult::Moonshot: return FString::Printf(TEXT("MOONSHOT! %d FT"), Outcome.DistanceFt);
+		case EResult::HomeRun: return FString::Printf(TEXT("HOME RUN! %d FT"), Outcome.DistanceFt);
+		case EResult::InPlay: return FString::Printf(TEXT("%d FT"), Outcome.DistanceFt);
+		case EResult::Foul: return TEXT("FOUL BALL");
+		case EResult::Whiff: return bOut ? TEXT("STRUCK OUT") : TEXT("SWING AND A MISS");
+		default: return bOut ? TEXT("STRUCK OUT") : TEXT("STRIKE");
 		}
-		if (O.Result == EResult::Take)
+	}
+
+	FString CallDetail(const FOutcome& Outcome, int32 Strikes)
+	{
+		if (Outcome.Result == EResult::Take)
 		{
-			Detail = FString::Printf(TEXT("%d strike%s · swing when the ball arrives"), Strikes, Strikes == 1 ? TEXT("") : TEXT("s"));
+			return FString::Printf(TEXT("%d strike%s · swing when the ball arrives"), Strikes, Strikes == 1 ? TEXT("") : TEXT("s"));
 		}
-		else
-		{
-			const double Ms = O.TimingMs;
-			const FString Timing = O.Contact.Quality >= 0.97 ? FString(TEXT("perfect timing")) : FString::Printf(TEXT("%d ms %s"), FMath::RoundToInt32(FMath::Abs(Ms)), Ms < 0.0 ? TEXT("early") : TEXT("late"));
-			Detail = O.Points > 0 ? FString::Printf(TEXT("+%d · %s"), O.Points, *Timing) : Timing;
-		}
+		const double Ms = Outcome.TimingMs;
+		const FString Timing = Outcome.Contact.Quality >= PerfectCallQuality ? FString(TEXT("perfect timing"))
+			: FString::Printf(TEXT("%d ms %s"), FMath::RoundToInt32(FMath::Abs(Ms)), Ms < 0.0 ? TEXT("early") : TEXT("late"));
+		return Outcome.Points > 0 ? FString::Printf(TEXT("+%d · %s"), Outcome.Points, *Timing) : Timing;
+	}
+
+	FDerbyCall MakeCall(const FOutcome& Outcome, int32 Strikes)
+	{
+		FDerbyCall Call;
+		Call.bMajor = IsHomeRun(Outcome.Result);
+		Call.Tone = Outcome.Points > 0 ? TEXT("success") : (Outcome.bStrike ? TEXT("warning") : TEXT("neutral"));
+		const bool bContact = Outcome.Result == EResult::InPlay || Outcome.Result == EResult::Foul;
+		Call.Haptic = IsHomeRun(Outcome.Result) ? TEXT("celebration") : (bContact ? TEXT("impact") : TEXT("warning"));
+		Call.Title = CallTitle(Outcome, Strikes);
+		Call.Detail = CallDetail(Outcome, Strikes);
+		return Call;
 	}
 }
 
 ADerbyGameMode::ADerbyGameMode()
 {
-	DefaultPawnClass = nullptr;
-	PlayerControllerClass = APlayerController::StaticClass();
+	ArcadeId = TEXT("derby");
+	CommandLinePrefix = TEXT("Derby");
 }
 
-void ADerbyGameMode::StartPlay()
+void ADerbyGameMode::SpawnVenue()
 {
-	Super::StartPlay();
 	UWorld* World = GetWorld();
 	for (TActorIterator<ADerbyBallpark> It(World); It; ++It)
 	{
@@ -82,93 +104,102 @@ void ADerbyGameMode::StartPlay()
 	{
 		Park = World->SpawnActor<ADerbyBallpark>();
 	}
-	int32 Locals = UGameplayStatics::GetIntOption(OptionsString, TEXT("Players"), 1);
-	int32 Bots = UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 1);
-	FParse::Value(FCommandLine::Get(), TEXT("DerbyPlayers="), Locals);
-	FParse::Value(FCommandLine::Get(), TEXT("DerbyBots="), Bots);
-	const bool bAuto = FParse::Param(FCommandLine::Get(), TEXT("DerbyAuto"));
-	uint32 Seed = FPlatformTime::Cycles();
-	FParse::Value(FCommandLine::Get(), TEXT("DerbySeed="), Seed);
-	Locals = FMath::Clamp(Locals, 0, 4);
-	Bots = FMath::Clamp(Bots, 0, 4 - Locals);
-	if (Locals + Bots == 0)
-	{
-		Bots = 1;
-	}
-	TArray<FDerbySeat> Seats;
-	bRoomMatch = SetupRoom(Seats);
-	if (bRoomMatch)
-	{
-		if (const URoomHostSubsystem* Room = RoomOf(this))
-		{
-			Seed = 0xDE4Bu ^ (7919u * static_cast<uint32>(Room->GetRoom().MatchNumber + 1));
-		}
-	}
-	for (int32 i = 0; !bRoomMatch && i < Locals + Bots; ++i)
-	{
-		FDerbySeat& Seat = Seats.AddDefaulted_GetRef();
-		const bool bLocal = i < Locals;
-		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
-		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !bAuto ? EDerbyKind::Local : EDerbyKind::Bot;
-		Seat.Skill = bLocal ? 0.85f : 0.5f + 0.12f * (i % 3);
-		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
-		Seat.Look = FKartLook::MakeVaried(i + 4);
-	}
-	Game = World->SpawnActor<ADerbyGame>();
-	Game->Setup(Park, Seats, World->GetFirstPlayerController(), Seed);
-	Game->OnQuit = [this]() { UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor")); };
-	if (bRoomMatch)
-	{
-		BindRoom();
-	}
-	if (APlayerController* PC = World->GetFirstPlayerController())
-	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
-	}
-	if (!bRoomMatch)
-	{
-		if (UArcadeSession* Session = UArcadeSession::Get(this))
-		{
-			Session->NoteLaunch(TEXT("derby"), Locals, Bots);
-		}
-	}
-	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
-	SetupTestHooks();
 }
 
-bool ADerbyGameMode::SetupRoom(TArray<FDerbySeat>& OutSeats)
+void ADerbyGameMode::BuildRoomSeats(TConstArrayView<FMcSeat> Players)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Room->IsMatchRunning(TEXT("derby")))
-	{
-		return false;
-	}
-	TArray<FMcSeat> Players = Room->GetSeats();
-	Players.Sort([](const FMcSeat& A, const FMcSeat& B) { return A.Seat < B.Seat; });
 	for (const FMcSeat& Player : Players)
 	{
-		if (Player.bEliminated || OutSeats.Num() >= 4)
-		{
-			continue;
-		}
-		FDerbySeat& Seat = OutSeats.AddDefaulted_GetRef();
+		FDerbySeat& Seat = Seats.AddDefaulted_GetRef();
 		Seat.Id = Player.PlayerId;
 		Seat.Name = Player.Name;
 		Seat.Kind = Player.bBot ? EDerbyKind::Bot : EDerbyKind::Phone;
-		Seat.Skill = 0.62f;
+		Seat.Skill = RoomBotSkill;
 		Seat.Color = Player.PaintColor;
 		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Player.SeatIndex());
 	}
-	UE_LOG(LogTemp, Display, TEXT("Derby: room match %d with %d batter(s)"), Room->GetRoom().MatchNumber, OutSeats.Num());
-	return OutSeats.Num() > 0;
 }
 
-void ADerbyGameMode::Prompt(const FString& BatterId)
+void ADerbyGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
+	for (int32 i = 0; i < InLaunch.Locals + InLaunch.Bots; ++i)
+	{
+		FDerbySeat& Seat = Seats.AddDefaulted_GetRef();
+		const bool bLocal = i < InLaunch.Locals;
+		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
+		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EDerbyKind::Local : EDerbyKind::Bot;
+		Seat.Skill = bLocal ? LocalSkill : HouseBaseSkill + HouseSkillStep * (i % HouseSkillSteps);
+		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
+		Seat.Look = FKartLook::MakeVaried(i + LookSeedBase);
+	}
+}
+
+uint32 ADerbyGameMode::MatchSeed() const
+{
+	if (IsRoomMatch())
+	{
+		if (const URoomHostSubsystem* Room = GetRoom())
+		{
+			return RoomSeedBase ^ (RoomSeedStep * static_cast<uint32>(Room->GetRoom().MatchNumber + 1));
+		}
+	}
+	return FDerbyDebugFlags::Parse(FCommandLine::Get()).Seed.Get(FPlatformTime::Cycles());
+}
+
+void ADerbyGameMode::SpawnGame()
+{
+	Game = SpawnArcadeGame<ADerbyGame>();
+	Game->Setup(Park, Seats, GetWorld()->GetFirstPlayerController(), MatchSeed());
+	Game->OnQuit = MakeQuitCallback();
+	Game->OnRematch = MakeRematchCallback();
+}
+
+void ADerbyGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
+{
+	TWeakObjectPtr<ADerbyGameMode> WeakThis = this;
+	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
+	Game->OnTurn = [WeakThis, WeakRoom](const FString& PlayerId)
+	{
+		ADerbyGameMode* Mode = WeakThis.Get();
+		URoomHostSubsystem* R = WeakRoom.Get();
+		if (Mode && R)
+		{
+			R->AdvanceTurn(PlayerId);
+			Mode->PromptPhones(*R, PlayerId);
+		}
+	};
+	Game->OnPitch = [WeakThis, WeakRoom](const FString& PlayerId, const FPitch& Pitch)
+	{
+		ADerbyGameMode* Mode = WeakThis.Get();
+		URoomHostSubsystem* R = WeakRoom.Get();
+		if (Mode && R)
+		{
+			Mode->SendPitch(*R, PlayerId, Pitch);
+		}
+	};
+	Game->OnOutcome = [WeakThis, WeakRoom](const FString& PlayerId, const FOutcome& Outcome)
+	{
+		ADerbyGameMode* Mode = WeakThis.Get();
+		URoomHostSubsystem* R = WeakRoom.Get();
+		if (Mode && R && Mode->Game)
+		{
+			Mode->SendCall(*R, PlayerId, Outcome);
+			Mode->PushLiveScores();
+		}
+	};
+	Game->OnFinished = [WeakThis]()
+	{
+		if (ADerbyGameMode* Mode = WeakThis.Get())
+		{
+			Mode->CompleteRoomMatch();
+		}
+	};
+}
+
+void ADerbyGameMode::PromptPhones(URoomHostSubsystem& Room, const FString& BatterId) const
+{
+	if (!Game)
 	{
 		return;
 	}
@@ -182,172 +213,57 @@ void ADerbyGameMode::Prompt(const FString& BatterId)
 		const bool bUp = Seat.Id == BatterId;
 		const FString Title = bUp ? TEXT("Swing your phone like a bat") : FString::Printf(TEXT("%s is batting"), Up ? *Up->Name : TEXT("Someone"));
 		const FString Subtitle = bUp ? TEXT("Hold it by the bottom, screen to you. Swing as the ball reaches you.") : TEXT("Get loose: you're up soon");
-		Room->SendPadPrompt(Seat.Id, Title, Subtitle, bUp ? TEXT("READY") : TEXT(""), TEXT(""), Hex(Seat.Color), TEXT("swing"));
+		Room.SendPadPrompt(Seat.Id, Title, Subtitle, bUp ? TEXT("READY") : TEXT(""), TEXT(""), Hex(Seat.Color), TEXT("swing"));
 	}
 }
 
-void ADerbyGameMode::BindRoom()
+void ADerbyGameMode::SendPitch(URoomHostSubsystem& Room, const FString& BatterId, const FPitch& Pitch) const
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
-	{
-		return;
-	}
-	Room->SetPreparationReady(true);
-	Room->OnReturnedToLobby.AddDynamic(this, &ADerbyGameMode::HandleRoomLobby);
-	Room->OnPauseChanged.AddDynamic(this, &ADerbyGameMode::HandleRoomPause);
-	Game->SetPaused(Room->GetRoom().Status == EMcRoomStatus::Paused);
-	TWeakObjectPtr<ADerbyGame> WeakGame = Game;
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = Room;
-	SensorHandle = Room->OnSensorFrame.AddLambda([WeakGame, WeakRoom](int32 SeatIndex, const MovecadeKart::Net::FSensorFrame& Frame)
-	{
-		ADerbyGame* G = WeakGame.Get();
-		const URoomHostSubsystem* R = WeakRoom.Get();
-		const FMcSeat* Seat = R ? R->GetRoom().FindBySeat(SeatIndex + 1) : nullptr;
-		if (G && Seat)
-		{
-			G->FeedPhone(Seat->PlayerId, Frame);
-		}
-	});
-	// The motion pad's button: READY while the pitcher waits, a button swing while the ball is on its way.
-	GameEventHandle = Room->OnGameEvent.AddLambda([WeakGame](const FString& From, const FString& Event, const TSharedPtr<FJsonObject>& Data)
-	{
-		ADerbyGame* G = WeakGame.Get();
-		TCHAR Button = 0;
-		if (!G || Event != MovecadeKart::Net::PadPressEvent || !Data.IsValid() || !MovecadeKart::Net::ReadPadButton(*Data, Button))
-		{
-			return;
-		}
-		if (Button == TEXT('a'))
-		{
-			G->PressButton(From);
-		}
-	});
-	Game->OnTurn = [this, WeakRoom](const FString& PlayerId)
-	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->AdvanceTurn(PlayerId);
-		}
-		Prompt(PlayerId);
-	};
-	Game->OnPitch = [WeakRoom](const FString& PlayerId, const FPitch& Pitch)
-	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->SendGameEvent(TEXT("derby:pitch"), FString::Printf(TEXT("{\"playerId\":%s,\"pitch\":%d,\"type\":\"%s\",\"mph\":%d,\"arriveInMs\":%d}"),
-				*MovecadeKart::Net::QuoteJson(PlayerId), Pitch.Index + 1, *FString(PitchName(Pitch.Type)).ToLower(), FMath::RoundToInt32(Pitch.SpeedMph), FMath::RoundToInt32(Pitch.FlightMs)));
-		}
-	};
-	Game->OnOutcome = [this, WeakRoom](const FString& PlayerId, const FOutcome& O)
-	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		if (!R || !Game)
-		{
-			return;
-		}
-		FString Title, Detail, Tone, Haptic;
-		bool bMajor = false;
-		CallFor(O, Game->ShownStrikes(), Title, Detail, Tone, Haptic, bMajor);
-		R->SendPlayFeedback(PlayerId, Title, Detail, Tone, Haptic, bMajor);
-		PushScores(false);
-	};
-	Game->OnFinished = [this]() { PushScores(true); };
-	Game->OnRematch = [WeakRoom]()
-	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
-		{
-			R->RestartGame();
-		}
-	};
-	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
+	// The phones' timing hint (phone-sim.mjs swings to it): the pitch number, its type and speed, when it arrives.
+	Room.SendGameEvent(PitchEvent, FString::Printf(TEXT("{\"playerId\":%s,\"pitch\":%d,\"type\":\"%s\",\"mph\":%d,\"arriveInMs\":%d}"),
+		*MovecadeKart::Net::QuoteJson(BatterId), Pitch.Index + 1, *FString(PitchName(Pitch.Type)).ToLower(), FMath::RoundToInt32(Pitch.SpeedMph),
+		FMath::RoundToInt32(Pitch.FlightMs)));
 }
 
-void ADerbyGameMode::PushScores(bool bFinal)
+void ADerbyGameMode::SendCall(URoomHostSubsystem& Room, const FString& BatterId, const FOutcome& Outcome) const
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
-	{
-		return;
-	}
-	TArray<FMcScoreEntry> Scores;
-	FString Key;
-	for (const FBatter& B : Game->GetMatch().Batters)
-	{
-		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
-		Entry.PlayerId = B.Id;
-		Entry.Score = FMath::Clamp(B.Score, 0, MovecadeKart::Net::MaxScore);
-		Key += FString::Printf(TEXT("%s=%d;"), *B.Id, B.Score);
-	}
-	if (bFinal)
-	{
-		Room->CompleteGame(Scores);
-	}
-	else if (Key != LastScores)
-	{
-		LastScores = Key;
-		Room->UpdateLiveScores(Scores);
-	}
+	const FDerbyCall Call = MakeCall(Outcome, Game->ShownStrikes());
+	Room.SendPlayFeedback(BatterId, Call.Title, Call.Detail, Call.Tone, Call.Haptic, Call.bMajor);
 }
 
-void ADerbyGameMode::HandleRoomLobby()
-{
-	UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor"));
-}
-
-void ADerbyGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId)
+void ADerbyGameMode::HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame)
 {
 	if (Game)
 	{
-		Game->SetPaused(bPaused);
+		Game->FeedPhone(Seat.PlayerId, Frame);
 	}
 }
 
-void ADerbyGameMode::EndPlay(const EEndPlayReason::Type Reason)
+void ADerbyGameMode::HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data)
 {
-	if (Overlay.IsValid())
+	// The motion pad's A button: READY while the pitcher waits, a button swing while the ball is on its way.
+	TCHAR Button = 0;
+	if (!Game || Event != MovecadeKart::Net::PadPressEvent || !Data.IsValid() || !MovecadeKart::Net::ReadPadButton(*Data, Button))
 	{
-		Overlay->Detach();
-		Overlay.Reset();
+		return;
 	}
-	GetWorldTimerManager().ClearTimer(ScoreTimer);
-	if (URoomHostSubsystem* Room = RoomOf(this))
+	if (Button == TEXT('a'))
 	{
-		Room->OnGameEvent.Remove(GameEventHandle);
-		Room->OnSensorFrame.Remove(SensorHandle);
-		Room->OnReturnedToLobby.RemoveDynamic(this, &ADerbyGameMode::HandleRoomLobby);
-		Room->OnPauseChanged.RemoveDynamic(this, &ADerbyGameMode::HandleRoomPause);
+		Game->PressButton(FromPlayerId);
 	}
-	Super::EndPlay(Reason);
 }
 
-void ADerbyGameMode::SetupTestHooks()
+bool ADerbyGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const
 {
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartShots="), Shots, false))
+	if (!Game)
 	{
-		TArray<FString> Times;
-		Shots.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
-		{
-			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-			{
-				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-				{
-					PC->ConsoleCommand(TEXT("Shot showui"));
-				}
-			}), FCString::Atof(*Time), false);
-		}
+		return false;
 	}
-	float QuitAfter = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
+	for (const FBatter& Batter : Game->GetMatch().Batters)
 	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}), QuitAfter, false);
+		FMcScoreEntry& Entry = OutScores.AddDefaulted_GetRef();
+		Entry.PlayerId = Batter.Id;
+		Entry.Score = FMath::Clamp(Batter.Score, 0, MovecadeKart::Net::MaxScore);
 	}
+	return true;
 }

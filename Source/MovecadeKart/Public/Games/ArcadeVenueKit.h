@@ -13,9 +13,9 @@ class UStaticMesh;
 
 /**
  * Helpers for the party games' code-built venues (ABowlingAlley, ADartsPub, AStackerRooftop, ...), which today each
- * carry their own copy of both: an instanced-mesh group per (mesh, materials, shadow, parent) so a venue of a few
- * thousand boxes draws in a few dozen batches, and a per-build material cache keyed by look name. Hold them as
- * UPROPERTY members of the venue actor and Reset() them when the venue rebuilds.
+ * carry their own copy: an instanced-mesh group per (mesh, materials, shadow, parent), so a venue of a few thousand
+ * boxes draws in a few dozen batches. Hold it as a UPROPERTY member of the venue actor and Reset() it when the venue
+ * rebuilds. The per-build material cache is Art's FKartMaterialCache (Art/KartMaterialCache.h).
  */
 
 /** What makes two instances batchable: the same mesh, materials, shadow casting and parent. */
@@ -74,25 +74,4 @@ private:
 	FString NamePrefix = TEXT("VenueGroup");
 	FName Tag;
 	EComponentMobility::Type Mobility = EComponentMobility::Static;
-};
-
-/**
- * Materials made once per venue build and shared by every part with the same look:
- * `Materials.FindOrAdd(TEXT("wood"), [&] { return Art::Plain(this, Wood, 0.6); })`.
- */
-USTRUCT()
-struct MOVECADEKART_API FArcadeMaterialCache
-{
-	GENERATED_BODY()
-
-	/** The cached material for Look, or Make()'s (cached, even when null) on the first ask. */
-	UMaterialInterface* FindOrAdd(FName Look, TFunctionRef<UMaterialInterface*()> Make);
-
-	UMaterialInterface* Find(FName Look) const;
-	int32 Num() const { return Materials.Num(); }
-	void Reset() { Materials.Reset(); }
-
-private:
-	UPROPERTY()
-	TMap<FName, TObjectPtr<UMaterialInterface>> Materials;
 };

@@ -79,10 +79,10 @@ namespace MovecadeKart
 		int32 Owner = 0;
 		FVector2D Pos = FVector2D::ZeroVector;
 		/** Height above the ground plane (three.js y). */
-		double Y = 0.0;
+		double Height = 0.0;
 		FVector2D Vel = FVector2D::ZeroVector;
 		/** Vertical speed (the bomb's lob). */
-		double VY = 0.0;
+		double VerticalSpeed = 0.0;
 		/** Seconds since launch. */
 		double Age = 0.0;
 		int32 Bounces = 0;
@@ -93,7 +93,8 @@ namespace MovecadeKart
 	struct FKartItemBox
 	{
 		FVector2D Pos = FVector2D::ZeroVector;
-		double Y = 1.0;
+		/** Centre height above the ground plane (three.js y). */
+		double Height = 1.0;
 		/** Per seat: sim time it was collected, or < 0 if available. */
 		TArray<double> CollectedAt;
 	};
@@ -178,12 +179,25 @@ namespace MovecadeKart
 		void StepProjectile(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
 		void RamWithInvincibles(TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
 
+		// Using an item (KartItems.cpp).
 		void Use(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+		/** A new projectile Offset metres ahead of the kart, flying straight on at Speed. */
+		FKartItemProjectile& SpawnProjectile(EKartItem Item, int32 Owner, const FKartState& Kart, double Offset, double Speed);
+		void LaunchSkySeeker(int32 Seat, const TArray<FKartItemRacer>& Racers, TArray<FKartItemEvent>& Events);
+		void StrikeOthersWithLightning(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+		void InkOthers(int32 Seat, int32 KartCount, double Now, TArray<FKartItemEvent>& Events);
+
+		// Projectiles in flight (KartItemProjectiles.cpp).
+		void FlySeeker(FKartItemProjectile& Projectile, const TArray<FKartItemRacer>& Racers, double Travel, TArray<FKartItemEvent>& Events) const;
+		void FlySkySeeker(FKartItemProjectile& Projectile, const TArray<FKartItemRacer>& Racers, double Travel, TArray<FKartItemEvent>& Events) const;
+		void FlyBomb(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Travel, double Now, TArray<FKartItemEvent>& Events);
 		/** Reflects the projectile off a wall within this step's travel; false if there is none. */
 		bool Bounce(FKartItemProjectile& Projectile, double Travel, double Retention) const;
 		/** Bounce (raising a Bounce event), or else fly straight on. */
 		void BounceOrMove(FKartItemProjectile& Projectile, double Travel, double Retention, TArray<FKartItemEvent>& Events) const;
 		void HitKarts(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+
+		// Hits (KartItemHits.cpp).
 		void Explode(const FVector2D& Center, double Radius, int32 Owner, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
 		void SpinOut(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
 

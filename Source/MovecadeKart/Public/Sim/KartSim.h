@@ -128,6 +128,11 @@ namespace MovecadeKart
 		double UpdateSlipstream(const FKartRaceContext& Race, double Dt);
 		void ProbeRadial();
 		FBarrier ProbeBarrier(const FVector2D& MoveDir);
+		void AdvanceAirborne(const FStepMotion& Motion, double Dt);
+		/** The wall response when the forward probe hit: slow down and slide along the wall. */
+		void ApplyBlockedResponse(const FBarrier& Barrier, const FStepMotion& Motion, double AbsSpeed, double Dt);
+		/** Harbor: a start outside the analytic walls is pulled back inside them first. True if it was. */
+		bool PullInsideAnalyticWalls(const FVector2D& Start, FVector2D& InOutP) const;
 
 		const FTrack* TrackData = nullptr;
 		FKartState Kart;

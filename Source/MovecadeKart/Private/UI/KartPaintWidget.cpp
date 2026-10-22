@@ -36,7 +36,7 @@ namespace
 			Frame.SafeMin = Frame.Size * KartUI::Metric::SafeFraction;
 			Frame.SafeMax = Frame.Size - Frame.SafeMin;
 			Frame.Now = FSlateApplication::Get().GetCurrentTime();
-			Frame.Age = 10.0;
+			Frame.Age = 10.0; // well past every entrance animation: painted settled
 			const UKartUISubsystem* UI = UKartUISubsystem::Get(Widget->GetWorld());
 			Frame.Device = UI ? UI->GetInputDevice() : EKartInputDevice::Keyboard;
 			Widget->OnPaintKart(P, Frame);

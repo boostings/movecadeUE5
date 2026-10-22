@@ -12,7 +12,25 @@ namespace
 	const FVector2D ButtonSize(310.0, 84.0);
 	constexpr double ButtonInset = 40.0;
 	constexpr double ButtonsFromBottom = 124.0;
+	/** The screen dims behind the dialog over this long. */
 	constexpr double DimSeconds = 0.2;
+	constexpr float DimAlpha = 0.6f;
+	/** The dialog pops from 70 % (an eased grow without the overshoot under Reduce motion). */
+	constexpr double PopSeconds = 0.3;
+	constexpr float PopOvershoot = 1.8f;
+	constexpr double ReducedPopSeconds = 0.2;
+	constexpr float PopFrom = 0.7f;
+	constexpr float PopGrowth = 0.3f;
+	constexpr float Shadow = 12.f;
+	constexpr float Rim = 5.f;
+	/** The accent tab along the top edge. */
+	const FVector2D TabSize(120.0, 10.0);
+	constexpr double TabY = 14.0;
+	constexpr float TabRound = 5.f;
+	constexpr float TitleSize = 54.f;
+	constexpr double TitleY = 84.0;
+	constexpr float BodySize = 26.f;
+	constexpr double BodyY = 150.0;
 
 	enum EConfirmButton : int32 { YesButton, NoButton };
 
@@ -57,14 +75,15 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			const float In = FKartAccessibility::ReduceMotion() ? Ease::OutCubic(static_cast<float>(Frame.Age / 0.2)) : Ease::OutBack(static_cast<float>(Frame.Age / 0.3), 1.8f);
-			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.6f * FMath::Min(1.f, static_cast<float>(Frame.Age / DimSeconds))));
+			const float In = FKartAccessibility::ReduceMotion() ? Ease::OutCubic(static_cast<float>(Frame.Age / ReducedPopSeconds))
+				: Ease::OutBack(static_cast<float>(Frame.Age / PopSeconds), PopOvershoot);
+			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, DimAlpha * FMath::Min(1.f, static_cast<float>(Frame.Age / DimSeconds))));
 			const FVector2D Pos = Frame.Centre() - DialogSize * 0.5;
-			const FKartPainter D = P.Transformed(Frame.Centre(), 0.7f + 0.3f * In);
-			D.Card(Pos, DialogSize, Color::Paper, Metric::RadiusLarge, 12.f, Color::White, 5.f);
-			D.Box(Pos + FVector2D(DialogSize.X * 0.5 - 60.0, 14.0), FVector2D(120.0, 10.0), Color::Hot, 5.f);
-			D.Text(Title, Font(EFont::Display, 54.f), Pos + FVector2D(DialogSize.X * 0.5, 84.0), Color::Navy, FVector2D(0.5, 0.5));
-			D.Text(Body, Font(EFont::Body, 26.f), Pos + FVector2D(DialogSize.X * 0.5, 150.0), Color::NavyDim, FVector2D(0.5, 0.5));
+			const FKartPainter D = P.Transformed(Frame.Centre(), PopFrom + PopGrowth * In);
+			D.Card(Pos, DialogSize, Color::Paper, Metric::RadiusLarge, Shadow, Color::White, Rim);
+			D.Box(Pos + FVector2D(DialogSize.X * 0.5 - TabSize.X * 0.5, TabY), TabSize, Color::Hot, TabRound);
+			D.Text(Title, Font(EFont::Display, TitleSize), Pos + FVector2D(DialogSize.X * 0.5, TitleY), Color::Navy, FVector2D(0.5, 0.5));
+			D.Text(Body, Font(EFont::Body, BodySize), Pos + FVector2D(DialogSize.X * 0.5, BodyY), Color::NavyDim, FVector2D(0.5, 0.5));
 			const FVector2D YesPos = Pos + FVector2D(ButtonInset, DialogSize.Y - ButtonsFromBottom);
 			const FVector2D NoPos = Pos + FVector2D(DialogSize.X - ButtonInset - ButtonSize.X, DialogSize.Y - ButtonsFromBottom);
 			{

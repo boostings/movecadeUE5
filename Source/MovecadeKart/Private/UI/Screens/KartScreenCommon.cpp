@@ -36,6 +36,30 @@ namespace
 	constexpr double RibbonWidth = 620.0;
 	constexpr double RibbonHeight = 84.0;
 	constexpr float RibbonTilt = -3.f;
+	constexpr float RibbonOvershoot = 1.6f;
+	/** The banner's slanted ends and its shadow's, in logo units (scaled with the logo). */
+	constexpr float ShadowDrop = 8.f;
+	constexpr float ShadowTopLead = 20.f;
+	constexpr float ShadowBottomLead = 40.f;
+	constexpr float BannerTopTail = 30.f;
+	constexpr float BannerBottomTail = 10.f;
+	constexpr float BannerBottomLead = 20.f;
+	/** A 3 x 3 chequer in from each end of the banner. */
+	constexpr int32 ChequerCells = 3;
+	constexpr double ChequerInset = 30.0;
+	constexpr double ChequerNudge = 4.0;
+	constexpr float RibbonTextSize = 64.f;
+	constexpr float RibbonTextOutline = 4.f;
+	constexpr double RibbonTextLift = -2.0;
+	/** The letters' drop-in overshoot. */
+	constexpr float LetterOvershoot = 2.2f;
+	constexpr double LetterBobSpeed = 2.6;
+	constexpr double LetterBobPhase = 0.55;
+	constexpr float LetterTiltSpeed = 1.8f;
+	constexpr float LetterTiltPhase = 0.7f;
+	/** A letter never draws smaller than this while it drops in (a zero scale would collapse its transform). */
+	constexpr float MinLetterScale = 0.01f;
+	constexpr float PanelStripeAlpha = 0.9f;
 }
 
 namespace KartScreens::Shared
@@ -117,7 +141,7 @@ namespace KartScreens::Shared
 		const double W = Width * In;
 		P.Polygon({ FVector2D(0, 0), FVector2D(W + PanelLean, 0), FVector2D(W, Frame.Size.Y), FVector2D(0, Frame.Size.Y) }, Color::WithAlpha(Color::Night, Alpha));
 		P.Polygon({ FVector2D(W + PanelLean, 0), FVector2D(W + (PanelLean + PanelStripe), 0), FVector2D(W + PanelStripe, Frame.Size.Y), FVector2D(W, Frame.Size.Y) },
-			Color::WithAlpha(Color::Sun, 0.9f));
+			Color::WithAlpha(Color::Sun, PanelStripeAlpha));
 	}
 
 	void Logo(const FKartPainter& P, const FVector2D& Centre, float Scale, double Age, double Now)
@@ -147,24 +171,24 @@ namespace KartScreens::Shared
 		for (int32 i = 0; i < Word.Num(); ++i)
 		{
 			// Each letter drops in on its own beat, then bobs on a wave.
-			const float In = Ease::OutBack(static_cast<float>((Age - LetterFirstDrop - i * LetterStagger) / LetterDropSeconds), 2.2f);
+			const float In = Ease::OutBack(static_cast<float>((Age - LetterFirstDrop - i * LetterStagger) / LetterDropSeconds), LetterOvershoot);
 			if (In <= 0.f)
 			{
 				X += Widths[i];
 				continue;
 			}
-			const double Bob = FMath::Sin(Now * 2.6 - i * 0.55) * LetterBob * Scale * Motion;
-			const float Tilt = FMath::Sin(static_cast<float>(Now) * 1.8f - i * 0.7f) * LetterTilt * Motion + (i % 2 == 0 ? -LetterTilt : LetterTilt);
+			const double Bob = FMath::Sin(Now * LetterBobSpeed - i * LetterBobPhase) * LetterBob * Scale * Motion;
+			const float Tilt = FMath::Sin(static_cast<float>(Now) * LetterTiltSpeed - i * LetterTiltPhase) * LetterTilt * Motion + (i % 2 == 0 ? -LetterTilt : LetterTilt);
 			const FVector2D C(X + Widths[i] * 0.5, Centre.Y + Bob - (1.f - FMath::Min(In, 1.f)) * LetterDropHeight * Scale);
-			const FKartPainter L = P.Transformed(C, FMath::Max(In, 0.01f), Tilt).Faded(FMath::Min(1.f, In * 2.f));
+			const FKartPainter L = P.Transformed(C, FMath::Max(In, MinLetterScale), Tilt).Faded(FMath::Min(1.f, In * 2.f));
 			const FString& Ch = Word[i];
 			L.Text(Ch, RimFont, C + FVector2D(0.0, LetterRimDrop * Scale), Color::Night, FVector2D(0.5, 0.5));
 			L.Text(Ch, LetterFont, C, Letters[i % UE_ARRAY_COUNT(Letters)], FVector2D(0.5, 0.5));
 			X += Widths[i];
 		}
 
-		// The ribbon: a slanted pink banner with a checker strip at each end.
-		const float RibbonIn = Ease::OutBack(static_cast<float>((Age - RibbonAt) / RibbonPopSeconds), 1.6f);
+		// The ribbon: a slanted pink banner over a dark shadow, with a checker strip at each end.
+		const float RibbonIn = Ease::OutBack(static_cast<float>((Age - RibbonAt) / RibbonPopSeconds), RibbonOvershoot);
 		if (RibbonIn <= 0.f)
 		{
 			return;
@@ -172,26 +196,29 @@ namespace KartScreens::Shared
 		const FVector2D RC(Centre.X, Centre.Y + RibbonDrop * Scale);
 		const FKartPainter R = P.Transformed(RC, RibbonIn, RibbonTilt);
 		const double W = RibbonWidth * Scale, H = RibbonHeight * Scale;
-		R.Polygon({ RC + FVector2D(-W * 0.5 - 20 * Scale, -H * 0.5 + 8 * Scale), RC + FVector2D(W * 0.5 + 20 * Scale, -H * 0.5 + 8 * Scale),
-			RC + FVector2D(W * 0.5, H * 0.5 + 8 * Scale), RC + FVector2D(-W * 0.5 - 40 * Scale, H * 0.5 + 8 * Scale) }, Color::Night);
-		R.Polygon({ RC + FVector2D(-W * 0.5, -H * 0.5), RC + FVector2D(W * 0.5 + 30 * Scale, -H * 0.5),
-			RC + FVector2D(W * 0.5 + 10 * Scale, H * 0.5), RC + FVector2D(-W * 0.5 - 20 * Scale, H * 0.5) }, Color::Hot);
-		const double Cell = H / 3.0;
+		const float Drop = ShadowDrop * Scale;
+		R.Polygon({ RC + FVector2D(-W * 0.5 - ShadowTopLead * Scale, -H * 0.5 + Drop), RC + FVector2D(W * 0.5 + ShadowTopLead * Scale, -H * 0.5 + Drop),
+			RC + FVector2D(W * 0.5, H * 0.5 + Drop), RC + FVector2D(-W * 0.5 - ShadowBottomLead * Scale, H * 0.5 + Drop) }, Color::Night);
+		R.Polygon({ RC + FVector2D(-W * 0.5, -H * 0.5), RC + FVector2D(W * 0.5 + BannerTopTail * Scale, -H * 0.5),
+			RC + FVector2D(W * 0.5 + BannerBottomTail * Scale, H * 0.5), RC + FVector2D(-W * 0.5 - BannerBottomLead * Scale, H * 0.5) }, Color::Hot);
+		const double Cell = H / ChequerCells;
 		for (int32 Side = -1; Side <= 1; Side += 2)
 		{
-			for (int32 Row = 0; Row < 3; ++Row)
+			for (int32 Row = 0; Row < ChequerCells; ++Row)
 			{
-				for (int32 Col = 0; Col < 3; ++Col)
+				for (int32 Col = 0; Col < ChequerCells; ++Col)
 				{
 					if ((Row + Col) % 2 == 0)
 					{
-						const FVector2D CellPos(RC.X + Side * (W * 0.5 - 30.0 * Scale) - Cell * 1.5 + Col * Cell + Side * 4.0, RC.Y - H * 0.5 + Row * Cell);
+						const FVector2D CellPos(RC.X + Side * (W * 0.5 - ChequerInset * Scale) - Cell * (ChequerCells * 0.5) + Col * Cell + Side * ChequerNudge,
+							RC.Y - H * 0.5 + Row * Cell);
 						R.Box(CellPos, FVector2D(Cell, Cell), Color::White);
 					}
 				}
 			}
 		}
-		R.Text(TEXT("KART RACER"), Font(EFont::Display, 64.f * Scale, 4.f * Scale), RC + FVector2D(0.0, -2.0), Color::White, FVector2D(0.5, 0.5), 4.f * Scale);
+		R.Text(TEXT("KART RACER"), Font(EFont::Display, RibbonTextSize * Scale, RibbonTextOutline * Scale), RC + FVector2D(0.0, RibbonTextLift), Color::White,
+			FVector2D(0.5, 0.5), RibbonTextOutline * Scale);
 	}
 
 	const TArray<FText>& RaceSetupSteps()

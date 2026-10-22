@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 
+struct FKartMaterialCache;
 class UMaterialInterface;
 class UObject;
 class UStaticMesh;
@@ -35,8 +36,8 @@ namespace MovecadeKart::Fishing::Art
 	MOVECADEKART_API const FFishLook& LookOf(int32 Species);
 	/** A mesh 100 cm long (nose at +50 X) for the species: slots Back, Flank, Belly, Pattern, Fin, Eye. */
 	MOVECADEKART_API UStaticMesh* BuildFish(UObject* Outer, int32 Species);
-	/** Dresses a fish mesh component with the species' materials (made once per species on Outer). */
-	MOVECADEKART_API void DressFish(UObject* Outer, UStaticMeshComponent* Component, int32 Species);
+	/** Dresses a fish mesh component with the species' materials (made once per look in Materials, on Outer). */
+	MOVECADEKART_API void DressFish(FKartMaterialCache& Materials, UObject* Outer, UStaticMeshComponent* Component, int32 Species);
 	/** Length in cm of a catch. */
 	MOVECADEKART_API double LengthCm(int32 Species, int32 WeightG);
 

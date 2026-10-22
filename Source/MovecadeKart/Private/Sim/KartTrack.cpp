@@ -8,6 +8,21 @@ namespace MovecadeKart
 	{
 		/** A ray this close to parallel with a segment never hits it. */
 		constexpr double ParallelEpsilon = 1e-12;
+
+		/** Where a ray (unit Dir) crosses a segment, as the distance along the ray; false if it misses within Far. */
+		FORCEINLINE bool RayHitsSegment(const FVector2D& Origin, const FVector2D& Dir, double Far, const FWallSegment& Segment, double& OutRayT)
+		{
+			// Solve Origin + RayT * Dir = Start + SegmentU * Delta.
+			const double Denom = Dir.X * Segment.Delta.Y - Dir.Y * Segment.Delta.X;
+			if (FMath::Abs(Denom) < ParallelEpsilon)
+			{
+				return false;
+			}
+			const FVector2D AO = Segment.Start - Origin;
+			OutRayT = (AO.X * Segment.Delta.Y - AO.Y * Segment.Delta.X) / Denom;
+			const double SegmentU = (AO.X * Dir.Y - AO.Y * Dir.X) / Denom;
+			return OutRayT >= 0.0 && OutRayT <= Far && SegmentU >= 0.0 && SegmentU <= 1.0;
+		}
 	}
 
 	// ---- FWallSet -------------------------------------------------------------------------------
@@ -25,9 +40,9 @@ namespace MovecadeKart
 		for (int32 i = 0; i < WallSegments.Num(); ++i)
 		{
 			const FWallSegment& Segment = WallSegments[i];
-			const FVector2D B = Segment.A + Segment.D;
-			const FIntPoint C0 = CellOf(FVector2D(FMath::Min(Segment.A.X, B.X), FMath::Min(Segment.A.Y, B.Y)));
-			const FIntPoint C1 = CellOf(FVector2D(FMath::Max(Segment.A.X, B.X), FMath::Max(Segment.A.Y, B.Y)));
+			const FVector2D B = Segment.Start + Segment.Delta;
+			const FIntPoint C0 = CellOf(FVector2D(FMath::Min(Segment.Start.X, B.X), FMath::Min(Segment.Start.Y, B.Y)));
+			const FIntPoint C1 = CellOf(FVector2D(FMath::Max(Segment.Start.X, B.X), FMath::Max(Segment.Start.Y, B.Y)));
 			for (int32 X = C0.X; X <= C1.X; ++X)
 			{
 				for (int32 Y = C0.Y; Y <= C1.Y; ++Y)
@@ -87,7 +102,7 @@ namespace MovecadeKart
 	bool FWallSet::Raycast(const FVector2D& Origin, const FVector2D& Dir, double Far, double& OutDistance, FVector2D& OutNormal) const
 	{
 		// Walks the cells in place instead of gathering, sorting and deduplicating candidates. The winner is the
-		// smallest T with the lowest index among exact ties, which is what an ascending scan with a strict < picks;
+		// smallest RayT with the lowest index among exact ties, which is what an ascending scan with a strict < picks;
 		// a segment seen again from a neighbouring cell cannot change it.
 		const FVector2D End = Origin + Dir * Far;
 		double Best = TNumericLimits<double>::Max();
@@ -107,17 +122,8 @@ namespace MovecadeKart
 					}
 					for (const int32 Index : *Cell)
 					{
-						const FWallSegment& Segment = WallSegments[Index];
-						// Solve Origin + RayT * Dir = A + SegmentU * D.
-						const double Denom = Dir.X * Segment.D.Y - Dir.Y * Segment.D.X;
-						if (FMath::Abs(Denom) < ParallelEpsilon)
-						{
-							continue;
-						}
-						const FVector2D AO = Segment.A - Origin;
-						const double RayT = (AO.X * Segment.D.Y - AO.Y * Segment.D.X) / Denom;
-						const double SegmentU = (AO.X * Dir.Y - AO.Y * Dir.X) / Denom;
-						if (RayT >= 0.0 && RayT <= Far && SegmentU >= 0.0 && SegmentU <= 1.0
+						double RayT = 0.0;
+						if (RayHitsSegment(Origin, Dir, Far, WallSegments[Index], RayT)
 							&& (RayT < Best || (RayT == Best && BestIndex != INDEX_NONE && Index < BestIndex)))
 						{
 							Best = RayT;
@@ -162,18 +168,18 @@ namespace MovecadeKart
 	{
 		FCentreSegment MakeCentreSegment(const FVector2D& A, const FVector2D& B)
 		{
-			FCentreSegment S;
-			S.A = A;
-			S.D = B - A;
-			S.LengthSq = S.D.SizeSquared();
-			return S;
+			FCentreSegment Segment;
+			Segment.Start = A;
+			Segment.Delta = B - A;
+			Segment.LengthSq = Segment.Delta.SizeSquared();
+			return Segment;
 		}
 
 		/** The closest point Q of a centre segment to P and its squared distance: NearestCentre's per-segment maths. */
-		FORCEINLINE double DistSqToSegment(const FVector2D& P, const FCentreSegment& S, FVector2D& OutQ)
+		FORCEINLINE double DistSqToSegment(const FVector2D& P, const FCentreSegment& Segment, FVector2D& OutQ)
 		{
-			const double T = S.LengthSq > 0.0 ? FMath::Clamp(FVector2D::DotProduct(P - S.A, S.D) / S.LengthSq, 0.0, 1.0) : 0.0;
-			OutQ = S.A + S.D * T;
+			const double Along = Segment.LengthSq > 0.0 ? FMath::Clamp(FVector2D::DotProduct(P - Segment.Start, Segment.Delta) / Segment.LengthSq, 0.0, 1.0) : 0.0;
+			OutQ = Segment.Start + Segment.Delta * Along;
 			return FVector2D::DistSquared(P, OutQ);
 		}
 
@@ -208,16 +214,16 @@ namespace MovecadeKart
 		OutPoint = P;
 		OutOffset = 0.0;
 		TArray<FCentreSegment> Scratch;
-		for (const FCentreSegment& S : CentreSegmentsOf(*this, Scratch))
+		for (const FCentreSegment& Segment : CentreSegmentsOf(*this, Scratch))
 		{
 			FVector2D Q;
-			const double DistSq = DistSqToSegment(P, S, Q);
+			const double DistSq = DistSqToSegment(P, Segment, Q);
 			if (DistSq < BestSq)
 			{
 				BestSq = DistSq;
 				OutPoint = Q;
 				// Right of travel is (-dz, dx) on the three.js ground plane.
-				const FVector2D Right = S.LengthSq > 0.0 ? FVector2D(-S.D.Y, S.D.X) / FMath::Sqrt(S.LengthSq) : FVector2D::ZeroVector;
+				const FVector2D Right = Segment.LengthSq > 0.0 ? FVector2D(-Segment.Delta.Y, Segment.Delta.X) / FMath::Sqrt(Segment.LengthSq) : FVector2D::ZeroVector;
 				OutOffset = FVector2D::DotProduct(P - Q, Right);
 			}
 		}

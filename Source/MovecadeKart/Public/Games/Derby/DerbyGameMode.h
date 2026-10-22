@@ -1,18 +1,24 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/GameModeBase.h"
-#include "Templates/SharedPointer.h"
+#include "Games/ArcadeGameModeBase.h"
+#include "Games/Derby/DerbyTypes.h"
 #include "DerbyGameMode.generated.h"
 
 class ADerbyBallpark;
 class ADerbyGame;
-class SArcadeOverlay;
+
+namespace MovecadeKart::Derby
+{
+	struct FOutcome;
+	struct FPitch;
+}
 
 /**
- * Home Run Derby's level mode (L_Derby): finds the ballpark (or builds one) and starts a derby. Local play: 1-4
- * batters sharing the controls (turn-based) plus house bots, from ?Players=&Bots= or -DerbyPlayers= -DerbyBots=
- * -DerbyAuto (the local seats bat as bots) -DerbySeed=, and the Kart test hooks -KartShots= and -KartQuitAfter=.
+ * Home Run Derby's level mode (L_Derby): finds the ballpark (or builds one) and starts a derby. The arcade base does
+ * the launch (seats from ?Players=&Bots= or -DerbyPlayers= -DerbyBots= -DerbyAuto, the test hooks, the overlay);
+ * the derby's own flags are in FDerbyDebugFlags. Local play: 1-4 batters sharing the controls (turn-based) plus
+ * house bots.
  *
  * Party Mode (the motion pad): every seat bats in turn; the mode names the batter up (advance-turn, so only their
  * phone's frames come through), prompts the phones (pad:prompt, mode swing: "Swing your phone like a bat", READY on
@@ -20,31 +26,32 @@ class SArcadeOverlay;
  * phones' timing hint), play:feedback for every pitch, live scores, and completes the match at the end.
  */
 UCLASS()
-class MOVECADEKART_API ADerbyGameMode : public AGameModeBase
+class MOVECADEKART_API ADerbyGameMode : public AArcadeGameModeBase
 {
 	GENERATED_BODY()
 
 public:
 	ADerbyGameMode();
 
-	virtual void StartPlay() override;
-	virtual void RestartPlayer(AController* NewPlayer) override {}
-	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
-
 	ADerbyGame* GetGame() const { return Game; }
 
+protected:
+	virtual void SpawnVenue() override;
+	virtual void BuildRoomSeats(TConstArrayView<FMcSeat> Players) override;
+	virtual void BuildLocalSeats(const FArcadeLaunchOptions& InLaunch) override;
+	virtual void SpawnGame() override;
+	virtual void BindRoomCallbacks(URoomHostSubsystem& Room) override;
+	virtual void HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame) override;
+	virtual void HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data) override;
+	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const override;
+
 private:
-	void SetupTestHooks();
-	bool SetupRoom(TArray<struct FDerbySeat>& OutSeats);
-	void BindRoom();
-	void PushScores(bool bFinal);
-	void Prompt(const FString& BatterId);
-
-	UFUNCTION()
-	void HandleRoomLobby();
-
-	UFUNCTION()
-	void HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId);
+	/** The match seed: the room's (every host of a room's match pitches the same) or the local one. */
+	uint32 MatchSeed() const;
+	/** The phones' pad prompts for the batter up: the swing prompt for them, "X is batting" for the rest. */
+	void PromptPhones(URoomHostSubsystem& Room, const FString& BatterId) const;
+	void SendPitch(URoomHostSubsystem& Room, const FString& BatterId, const MovecadeKart::Derby::FPitch& Pitch) const;
+	void SendCall(URoomHostSubsystem& Room, const FString& BatterId, const MovecadeKart::Derby::FOutcome& Outcome) const;
 
 	UPROPERTY()
 	TObjectPtr<ADerbyBallpark> Park;
@@ -52,10 +59,6 @@ private:
 	UPROPERTY()
 	TObjectPtr<ADerbyGame> Game;
 
-	bool bRoomMatch = false;
-	TSharedPtr<SArcadeOverlay> Overlay;
-	FDelegateHandle GameEventHandle;
-	FDelegateHandle SensorHandle;
-	FTimerHandle ScoreTimer;
-	FString LastScores;
+	/** Filled by BuildRoomSeats / BuildLocalSeats, handed to the game in SpawnGame. */
+	TArray<FDerbySeat> Seats;
 };
