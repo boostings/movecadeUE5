@@ -1,10 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Games/ArcadeHud.h"
 #include "Widgets/SLeafWidget.h"
-#include "Games/Samurai/SamuraiGame.h"
 
+class ASamuraiGame;
 class FKartPainter;
+namespace MovecadeKart::Samurai { struct FPlayer; }
 
 /**
  * Samurai Slice's HUD (SamuraiCanvas.tsx, restyled in the Kart UI's painter): the round clock and wave; a panel per
@@ -13,6 +15,9 @@ class FKartPainter;
  * the presentation's own notes (Swing faster!, Missed, Dropped); the centre banner (FOCUS!, 10x COMBO!) and the
  * Focus frame; the local swordsman's controls; the cinematic intro card, the practice apple's coach mark, and the
  * final standings.
+ *
+ * ASamuraiGame adds it to the viewport in Setup and removes it in EndPlay; it only reads the game. Every number it
+ * paints is formatted when it changes, not per frame, and the camera projection is taken once per paint.
  */
 class SSamuraiHud : public SLeafWidget
 {
@@ -28,8 +33,11 @@ public:
 		FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
 
 private:
+	// S is the canvas scale (the viewport's height over the 1080-line design canvas).
 	void PaintClock(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintLanes(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
+	void PaintLanePanel(const FKartPainter& P, const ASamuraiGame& Game, const MovecadeKart::Samurai::FPlayer& Player, float Width, float S) const;
+	void PaintFocusMeter(const FKartPainter& P, const MovecadeKart::Samurai::FPlayer& Player, const FVector2D& PanelPos, float PanelWidth, float S) const;
 	void PaintCallouts(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintNotes(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintBanner(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
@@ -37,33 +45,35 @@ private:
 	void PaintCountdown(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintControls(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintIntro(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
+	void PaintIntroSeats(const FKartPainter& P, const ASamuraiGame& Game, const FVector2D& Centre, double Age, float S) const;
 	void PaintPractice(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
+	void PaintPracticeSwipe(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintStandings(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 
-	/** A number's text, rebuilt only when the number changes. */
-	struct FCachedNumber
-	{
-		int32 Value = TNumericLimits<int32>::Min();
-		FString Text;
-		const FString& Get(int32 V, const TCHAR* Suffix = nullptr);
-	};
-
+	/** One lane panel's numbers. */
 	struct FLaneTexts
 	{
-		FCachedNumber Score;
-		FCachedNumber Combo;
+		FCachedText Score;
+		FCachedText Combo;
+	};
+
+	/** Standings text: Place is per row (rank), Score and Detail (the stats line) per player. */
+	struct FStandingTexts
+	{
+		FCachedText Place;
+		FCachedText Score;
+		TArcadeCachedText<FIntVector> Detail;
 	};
 
 	TWeakObjectPtr<ASamuraiGame> Game;
-	mutable FCachedNumber SecondsText;
-	mutable FCachedNumber CountText;
-	mutable FCachedNumber Wave;
+	mutable FCachedText SecondsText;
+	mutable FCachedText CountText;
+	mutable FCachedText WaveText;
 	mutable TArray<FLaneTexts> LaneTexts;
-	/** The final order and each row's line, built once when the round ends (keyed by that stage's start). */
-	mutable TArray<int32> Order;
-	mutable TArray<FString> OrderDetail;
-	mutable double OrderFor = -1.0;
+	mutable FArcadeStandingsOrder Ranks;
+	mutable TArray<FStandingTexts> StandingTexts;
 	/** This paint's projection. */
-	mutable FSamuraiView View;
+	mutable FArcadeHudView View;
+	/** Polygon and polyline points, reused. */
 	mutable TArray<FVector2D> Scratch;
 };

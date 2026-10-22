@@ -1,18 +1,13 @@
 #include "Games/Samurai/SamuraiGameMode.h"
 
 #include "Art/KartMaterials.h"
-#include "Engine/GameInstance.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "Games/Samurai/SamuraiDojo.h"
 #include "Games/Samurai/SamuraiGame.h"
-#include "Games/ArcadeSession.h"
-#include "Games/SArcadeOverlay.h"
-#include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetSystemLibrary.h"
+#include "Games/Samurai/SamuraiLog.h"
 #include "Misc/CommandLine.h"
 #include "Net/RoomHostSubsystem.h"
-#include "TimerManager.h"
 
 using namespace MovecadeKart::Samurai;
 
@@ -20,23 +15,42 @@ namespace
 {
 	const TCHAR* const SeatColors[] = { TEXT("#f0506e"), TEXT("#3fc9c2"), TEXT("#f2b23f"), TEXT("#a083ff") };
 	const TCHAR* const HouseNames[] = { TEXT("Rosa"), TEXT("Mika"), TEXT("Dante"), TEXT("Priya") };
+	/** A local seat only uses a skill when -SamuraiAuto hands it to the house AI: then it plays sharp. */
+	constexpr float LocalAutoSkill = 0.85f;
+	/** House bots cycle through three skills by seat (0.45, 0.6, 0.75). */
+	constexpr float HouseSkillBase = 0.45f;
+	constexpr float HouseSkillStep = 0.15f;
+	constexpr int32 HouseSkillLevels = 3;
+	/** Room bots all play at this skill. */
+	constexpr float RoomBotSkill = 0.6f;
+	/** Local seat i wears FKartLook::MakeVaried(i + this). */
+	constexpr int32 SeatLookOffset = 4;
+	/** A combo this long is a celebration on the phone, not just an impact. */
+	constexpr int32 PhoneCelebrationCombo = 10;
+}
 
-	URoomHostSubsystem* RoomOf(const UObject* Context)
+FSamuraiDebugFlags FSamuraiDebugFlags::Parse(const TCHAR* CommandLine)
+{
+	FSamuraiDebugFlags Flags;
+#if !UE_BUILD_SHIPPING
+	if (CommandLine)
 	{
-		const UGameInstance* GI = Context && Context->GetWorld() ? Context->GetWorld()->GetGameInstance() : nullptr;
-		return GI ? GI->GetSubsystem<URoomHostSubsystem>() : nullptr;
+		Flags.bPracticeDemo = FParse::Param(CommandLine, TEXT("SamuraiPracticeDemo"));
 	}
+#endif
+	return Flags;
 }
 
 ASamuraiGameMode::ASamuraiGameMode()
 {
-	DefaultPawnClass = nullptr;
-	PlayerControllerClass = APlayerController::StaticClass();
+	ArcadeId = TEXT("samurai");
+	CommandLinePrefix = TEXT("Samurai");
+	DefaultLocals = 1;
+	DefaultBots = 1;
 }
 
-void ASamuraiGameMode::StartPlay()
+void ASamuraiGameMode::SpawnVenue()
 {
-	Super::StartPlay();
 	UWorld* World = GetWorld();
 	for (TActorIterator<ASamuraiDojo> It(World); It; ++It)
 	{
@@ -47,228 +61,114 @@ void ASamuraiGameMode::StartPlay()
 	{
 		Dojo = World->SpawnActor<ASamuraiDojo>();
 	}
-	int32 Locals = UGameplayStatics::GetIntOption(OptionsString, TEXT("Players"), 1);
-	int32 Bots = UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 1);
-	FParse::Value(FCommandLine::Get(), TEXT("SamuraiPlayers="), Locals);
-	FParse::Value(FCommandLine::Get(), TEXT("SamuraiBots="), Bots);
-	const bool bAuto = FParse::Param(FCommandLine::Get(), TEXT("SamuraiAuto"));
-	// One local swordsman: a simultaneous game needs a pair of hands each.
-	Locals = FMath::Clamp(Locals, 0, 1);
-	Bots = FMath::Clamp(Bots, 0, 4 - Locals);
-	if (Locals + Bots == 0)
-	{
-		Bots = 1;
-	}
-	TArray<FSamuraiSeat> Seats;
-	uint32 Seed = DefaultSeed;
-	bRoomMatch = SetupRoom(Seats, Seed);
-	for (int32 i = 0; !bRoomMatch && i < Locals + Bots; ++i)
-	{
-		FSamuraiSeat& Seat = Seats.AddDefaulted_GetRef();
-		const bool bLocal = i < Locals;
-		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
-		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !bAuto ? ESwordKind::Local : ESwordKind::Bot;
-		Seat.Skill = bLocal ? 0.85f : 0.45f + 0.15f * (i % 3);
-		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
-		Seat.Look = FKartLook::MakeVaried(i + 4);
-	}
-	Game = World->SpawnActor<ASamuraiGame>();
-	Game->Setup(Dojo, Seats, World->GetFirstPlayerController(), Seed);
-	Game->OnQuit = [this]() { UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor")); };
-	if (bRoomMatch)
-	{
-		BindRoom();
-	}
-	if (APlayerController* PC = World->GetFirstPlayerController())
-	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
-	}
-	if (!bRoomMatch)
-	{
-		// Play again and next game keep these seats.
-		if (UArcadeSession* Session = UArcadeSession::Get(this))
-		{
-			Session->NoteLaunch(TEXT("samurai"), Locals, Bots);
-		}
-	}
-	Overlay = SArcadeOverlay::Attach(Game.Get(), bRoomMatch);
-	SetupTestHooks();
 }
 
-bool ASamuraiGameMode::SetupRoom(TArray<FSamuraiSeat>& OutSeats, uint32& OutSeed)
+void ASamuraiGameMode::BuildRoomSeats(TConstArrayView<FMcSeat> Players)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Room->IsMatchRunning(TEXT("samurai")))
-	{
-		return false;
-	}
-	TArray<FMcSeat> Players = Room->GetSeats();
-	Players.Sort([](const FMcSeat& A, const FMcSeat& B) { return A.Seat < B.Seat; });
 	for (const FMcSeat& Player : Players)
 	{
-		if (Player.bEliminated || OutSeats.Num() >= 4)
-		{
-			continue;
-		}
-		FSamuraiSeat& Seat = OutSeats.AddDefaulted_GetRef();
+		FSamuraiSeat& Seat = Seats.AddDefaulted_GetRef();
 		Seat.Id = Player.PlayerId;
 		Seat.Name = Player.Name;
 		Seat.Kind = Player.bBot ? ESwordKind::Bot : ESwordKind::Phone;
-		Seat.Skill = 0.6f;
+		Seat.Skill = RoomBotSkill;
 		Seat.Color = Player.PaintColor;
 		Seat.Look = FKartLook::FromRoomAvatar(Player.Vehicle, Player.Face, Player.Body, Player.SeatIndex());
 	}
 	// runtime.ts: the round's seed is 0x5a3c + the match number.
-	OutSeed = DefaultSeed + static_cast<uint32>(FMath::Max(0, Room->GetRoom().MatchNumber));
-	UE_LOG(LogTemp, Display, TEXT("Samurai: room match %d with %d swordsm(e)n"), Room->GetRoom().MatchNumber, OutSeats.Num());
-	return OutSeats.Num() > 0;
+	const int32 MatchNumber = GetRoom() ? GetRoom()->GetRoom().MatchNumber : 0;
+	Seed = DefaultSeed + static_cast<uint32>(FMath::Max(0, MatchNumber));
+	UE_LOG(LogSamurai, Log, TEXT("Room match %d: %d swordsm(e)n, seed %u"), MatchNumber, Seats.Num(), Seed);
 }
 
-void ASamuraiGameMode::BindRoom()
+void ASamuraiGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game)
+	for (int32 i = 0; i < InLaunch.Locals + InLaunch.Bots; ++i)
 	{
-		return;
+		FSamuraiSeat& Seat = Seats.AddDefaulted_GetRef();
+		const bool bLocal = i < InLaunch.Locals;
+		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
+		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? ESwordKind::Local : ESwordKind::Bot;
+		Seat.Skill = bLocal ? LocalAutoSkill : HouseSkillBase + HouseSkillStep * (i % HouseSkillLevels);
+		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
+		Seat.Look = FKartLook::MakeVaried(i + SeatLookOffset);
 	}
-	Room->SetPreparationReady(true);
-	Room->OnReturnedToLobby.AddDynamic(this, &ASamuraiGameMode::HandleRoomLobby);
-	Room->OnPauseChanged.AddDynamic(this, &ASamuraiGameMode::HandleRoomPause);
-	Game->SetPaused(Room->GetRoom().Status == EMcRoomStatus::Paused);
-	TWeakObjectPtr<ASamuraiGame> WeakGame = Game;
-	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = Room;
-	SensorHandle = Room->OnSensorFrame.AddLambda([WeakGame, WeakRoom](int32 SeatIndex, const MovecadeKart::Net::FSensorFrame& Frame)
-	{
-		ASamuraiGame* G = WeakGame.Get();
-		const URoomHostSubsystem* R = WeakRoom.Get();
-		const FMcSeat* Seat = R ? R->GetRoom().FindBySeat(SeatIndex + 1) : nullptr;
-		if (G && Seat)
-		{
-			G->FeedPhone(Seat->PlayerId, Frame);
-		}
-	});
+}
+
+void ASamuraiGameMode::SpawnGame()
+{
+	Game = SpawnArcadeGame<ASamuraiGame>();
+	Game->Setup(Dojo, Seats, GetWorld()->GetFirstPlayerController(), Seed, FSamuraiDebugFlags::Parse(FCommandLine::Get()));
+	Game->OnQuit = MakeQuitCallback();
+	Game->OnRematch = MakeRematchCallback();
+}
+
+void ASamuraiGameMode::BindRoomCallbacks(URoomHostSubsystem& Room)
+{
+	TWeakObjectPtr<URoomHostSubsystem> WeakRoom = &Room;
+	TWeakObjectPtr<ASamuraiGameMode> WeakThis = this;
 	// Simultaneous: every phone streams; the engine counts its own 3-2-1.
 	Game->OnMatchStart = [WeakRoom]()
 	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
+		if (URoomHostSubsystem* Host = WeakRoom.Get())
 		{
-			R->AdvanceTurn(FString());
-			R->PublishMatchCountdown(static_cast<int32>(CountdownMs));
+			Host->AdvanceTurn(FString());
+			Host->PublishMatchCountdown(static_cast<int32>(CountdownMs));
 		}
 	};
-	Game->OnEffect = [this, WeakRoom](const FEffect& E)
+	Game->OnEffect = [WeakThis, WeakRoom](const FEffect& Effect)
 	{
-		URoomHostSubsystem* R = WeakRoom.Get();
-		const FPlayer* Player = Game ? Game->GetMatch().FindPlayer(E.PlayerId) : nullptr;
-		if (!R || E.Label.IsEmpty())
+		const ASamuraiGameMode* Mode = WeakThis.Get();
+		if (URoomHostSubsystem* Host = WeakRoom.Get(); Mode && Host)
 		{
-			return;
+			Mode->SendEffectFeedback(*Host, Effect);
 		}
-		const bool bBad = E.Kind == EEffectKind::Bomb || E.Kind == EEffectKind::Miss;
-		const FString Detail = FString::Printf(TEXT("%s%d points · %d lives · combo %d"), E.ScoreDelta > 0 ? TEXT("+") : TEXT(""), E.ScoreDelta,
-			Player ? Player->Lives : 0, Player ? Player->Combo : 0);
-		R->SendPlayFeedback(E.PlayerId, E.Label, Detail, bBad ? TEXT("warning") : TEXT("success"),
-			bBad ? TEXT("warning") : (E.Kind == EEffectKind::Combo ? TEXT("celebration") : TEXT("impact")), E.Kind == EEffectKind::Combo && Player && Player->Combo >= 10);
 	};
-	Game->OnFinished = [this]() { PushScores(true); };
-	Game->OnRematch = [WeakRoom]()
+	Game->OnFinished = [WeakThis]()
 	{
-		if (URoomHostSubsystem* R = WeakRoom.Get())
+		if (ASamuraiGameMode* Mode = WeakThis.Get())
 		{
-			R->RestartGame();
+			Mode->CompleteRoomMatch();
 		}
 	};
-	Game->OnQuit = Game->OnRematch;
-	GetWorldTimerManager().SetTimer(ScoreTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { PushScores(false); }), 1.0f, true);
 }
 
-void ASamuraiGameMode::PushScores(bool bFinal)
+void ASamuraiGameMode::SendEffectFeedback(URoomHostSubsystem& Room, const FEffect& Effect) const
 {
-	URoomHostSubsystem* Room = RoomOf(this);
-	if (!Room || !Game || Game->GetMatch().Phase == EMatchPhase::Countdown)
+	if (Effect.Label.IsEmpty())
 	{
 		return;
 	}
-	TArray<FMcScoreEntry> Scores;
-	FString Key;
-	for (const FPlayer& P : Game->GetMatch().Players)
-	{
-		FMcScoreEntry& Entry = Scores.AddDefaulted_GetRef();
-		Entry.PlayerId = P.Id;
-		Entry.Score = P.Score;
-		Key += FString::Printf(TEXT("%s=%d;"), *P.Id, P.Score);
-	}
-	if (bFinal)
-	{
-		Room->CompleteGame(Scores);
-	}
-	else if (Key != LastScores)
-	{
-		// Only when a score moved (the room relays every update to every phone).
-		LastScores = Key;
-		Room->UpdateLiveScores(Scores);
-	}
+	const FPlayer* Player = Game ? Game->GetMatch().FindPlayer(Effect.PlayerId) : nullptr;
+	const bool bBad = Effect.Kind == EEffectKind::Bomb || Effect.Kind == EEffectKind::Miss;
+	const bool bCombo = Effect.Kind == EEffectKind::Combo;
+	const FString Detail = FString::Printf(TEXT("%s%d points · %d lives · combo %d"), Effect.ScoreDelta > 0 ? TEXT("+") : TEXT(""), Effect.ScoreDelta,
+		Player ? Player->Lives : 0, Player ? Player->Combo : 0);
+	Room.SendPlayFeedback(Effect.PlayerId, Effect.Label, Detail, bBad ? TEXT("warning") : TEXT("success"),
+		bBad ? TEXT("warning") : (bCombo ? TEXT("celebration") : TEXT("impact")), bCombo && Player && Player->Combo >= PhoneCelebrationCombo);
 }
 
-void ASamuraiGameMode::HandleRoomLobby()
-{
-	UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor"));
-}
-
-void ASamuraiGameMode::HandleRoomPause(bool bPaused, const FString& Reason, const FString& PlayerId)
+void ASamuraiGameMode::HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame)
 {
 	if (Game)
 	{
-		Game->SetPaused(bPaused);
+		Game->FeedPhone(Seat.PlayerId, Frame);
 	}
 }
 
-void ASamuraiGameMode::EndPlay(const EEndPlayReason::Type Reason)
+bool ASamuraiGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const
 {
-	if (Overlay.IsValid())
+	// Nothing to report during the countdown (every score is still 0).
+	if (!Game || Game->GetMatch().Phase == EMatchPhase::Countdown)
 	{
-		Overlay->Detach();
-		Overlay.Reset();
+		return false;
 	}
-	// The world's timers live on the game instance and outlast the level.
-	GetWorldTimerManager().ClearTimer(ScoreTimer);
-	if (URoomHostSubsystem* Room = RoomOf(this))
+	for (const FPlayer& Player : Game->GetMatch().Players)
 	{
-		Room->OnSensorFrame.Remove(SensorHandle);
-		Room->OnReturnedToLobby.RemoveDynamic(this, &ASamuraiGameMode::HandleRoomLobby);
-		Room->OnPauseChanged.RemoveDynamic(this, &ASamuraiGameMode::HandleRoomPause);
+		FMcScoreEntry& Entry = OutScores.AddDefaulted_GetRef();
+		Entry.PlayerId = Player.Id;
+		Entry.Score = Player.Score;
 	}
-	Super::EndPlay(Reason);
-}
-
-void ASamuraiGameMode::SetupTestHooks()
-{
-	FString Shots;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartShots="), Shots, false))
-	{
-		TArray<FString> Times;
-		Shots.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
-		{
-			FTimerHandle Handle;
-			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-			{
-				if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-				{
-					PC->ConsoleCommand(TEXT("Shot showui"));
-				}
-			}), FCString::Atof(*Time), false);
-		}
-	}
-	float QuitAfter = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)
-	{
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-		}), QuitAfter, false);
-	}
+	return true;
 }
