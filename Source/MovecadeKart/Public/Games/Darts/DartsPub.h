@@ -12,6 +12,7 @@ class UMaterialInterface;
 class UStaticMesh;
 class UStaticMeshComponent;
 class UTextRenderComponent;
+struct FDartsPubBox;
 struct FDartsPubLooks;
 
 /**
@@ -85,6 +86,11 @@ private:
 	void BuildProps(const FDartsPubLooks& Looks);
 	void BuildLights(const FDartsPubLooks& Looks);
 	void BuildGrade();
+	/** The layout tables' boxes (pub-local, moved by Offset), and the side walls' (mirrored onto Side, moved along z). */
+	void AddBoxes(const FDartsPubLooks& Looks, TConstArrayView<FDartsPubBox> Boxes, const FVector& Offset = FVector::ZeroVector);
+	void AddSideBoxes(const FDartsPubLooks& Looks, TConstArrayView<FDartsPubBox> Boxes, double Side, double Z);
+	void AddPint(const FDartsPubLooks& Looks, double X, double Y, double Z);
+	void AddStool(const FDartsPubLooks& Looks, double X, double Z, double Yaw);
 
 	// DartsPubMeshes.cpp: the meshes modelled in code (the board, the spider, the wedge, the dart, the props).
 	void BuildMeshes();

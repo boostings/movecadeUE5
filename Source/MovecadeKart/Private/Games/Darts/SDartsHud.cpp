@@ -9,7 +9,6 @@ using namespace MovecadeKart::Darts;
 namespace KC = KartUI::Color;
 using KartUI::EFont;
 
-#define LOCTEXT_NAMESPACE "Darts"
 
 // The layout, one namespace per panel. Sizes are canvas units (KartUI::Metric::CanvasH tall), scaled by S at paint
 // time; fonts are (size, outline) and cards (corner radius, shadow depth, outline width) in the same units.
@@ -331,7 +330,7 @@ namespace
 		const FVector2D StatsAt(100.0, 64.0);
 		constexpr float StatsSize = 19.f;
 		constexpr float StatsAlpha = 0.78f;
-		const FVector2D ScoreAt(770.0, 44.0);
+		const FVector2D TotalAt(770.0, 44.0);
 		constexpr float ScoreSize = 56.f;
 	}
 
@@ -543,7 +542,7 @@ void SDartsHud::PaintUp(const FKartPainter& P, const ADartsGame& G, float S) con
 {
 	// Who's up, the visit, the called shot, the darts in hand.
 	using namespace UpPanel;
-	static const FText BountyLabel = LOCTEXT("Bounty", "BOUNTY");
+	const FText& BountyLabel = ARCADE_LABEL("Darts", "Bounty", "BOUNTY");
 	static const FString Times2(TEXT("×2"));
 	const FDartsMatch& M = G.GetMatch();
 	const FDartsPlayer* Up = M.ActivePlayer();
@@ -554,7 +553,7 @@ void SDartsHud::PaintUp(const FKartPainter& P, const ADartsGame& G, float S) con
 	const FDartsSeat* Seat = G.SeatOf(*Up);
 	const int32 Visit = LiveVisit(*Up, M);
 	const FVector2D TopRight(P.Size().X * (1.f - KartUI::Metric::SafeFraction), P.Size().Y * KartUI::Metric::SafeFraction);
-	const FString& Round = RoundText.Get(Visit, [](int32 V) { return FText::Format(LOCTEXT("RoundOf", "ROUND {0} / {1}"), V + 1, RoundCount).ToString(); });
+	const FString& Round = RoundText.Get(Visit, [](int32 V) { return FText::Format(ARCADE_LABEL("Darts", "RoundOf", "ROUND {0} / {1}"), V + 1, RoundCount).ToString(); });
 	P.Text(Round, KartUI::Font(EFont::Display, RoundSize * S, RoundOutline * S), TopRight, KC::White, FVector2D(1.0, 0.0), RoundShadow * S);
 	// The bounty chip: the called sector's number in the wedge's gold, "x2".
 	const FVector2D Size = ChipSize * S;
@@ -583,7 +582,7 @@ void SDartsHud::PaintUp(const FKartPainter& P, const ADartsGame& G, float S) con
 void SDartsHud::PaintCountdown(const FKartPainter& P, const ADartsGame& G, float S) const
 {
 	using namespace Countdown;
-	static const FText ThrowLabel = LOCTEXT("Throw", "THROW!");
+	const FText& ThrowLabel = ARCADE_LABEL("Darts", "Throw", "THROW!");
 	const FDartsMatch& M = G.GetMatch();
 	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * CentreY);
 	if (M.Phase == EMatchPhase::Countdown)
@@ -691,7 +690,7 @@ void SDartsHud::RefreshVisitText(const FDartsVisitSummary& V, float S) const
 	const FSlateFontInfo CallFont = KartUI::Font(EFont::Display, (IsBigVisit(V) ? BigCallSize : CallSize) * S, CallOutline * S, KC::Night);
 	VisitText.CallWidth = static_cast<float>(FKartPainter::Measure(VisitText.Call, CallFont).X) + RibbonPadX * S;
 	VisitText.Total = FString::FromInt(V.Total + V.Bonus);
-	VisitText.Footer = V.Bonus > 0 ? FText::Format(LOCTEXT("VisitBonus", "incl. +{0} bonus"), V.Bonus) : LOCTEXT("VisitPoints", "points");
+	VisitText.Footer = V.Bonus > 0 ? FText::Format(ARCADE_LABEL("Darts", "VisitBonus", "incl. +{0} bonus"), V.Bonus) : ARCADE_LABEL("Darts", "VisitPoints", "points");
 	VisitText.Points.Reset();
 	VisitText.LabelSizes.Reset();
 	for (int32 i = 0; i < V.Labels.Num(); ++i)
@@ -762,10 +761,10 @@ void SDartsHud::PaintGauge(const FKartPainter& P, const ADartsGame& G, const FAr
 	// The aim read: by the reticle, a vertical power gauge while the dart is gripped (the sweet band in mint), and a
 	// quiet "hold" hint while it isn't.
 	using namespace Gauge;
-	static const FText HoldLabel = LOCTEXT("GaugeHold", "HOLD TO THROW");
-	static const FText NowLabel = LOCTEXT("GaugeNow", "NOW!");
-	static const FText HighLabel = LOCTEXT("GaugeHigh", "HIGH");
-	static const FText LowLabel = LOCTEXT("GaugeLow", "LOW");
+	const FText& HoldLabel = ARCADE_LABEL("Darts", "GaugeHold", "HOLD TO THROW");
+	const FText& NowLabel = ARCADE_LABEL("Darts", "GaugeNow", "NOW!");
+	const FText& HighLabel = ARCADE_LABEL("Darts", "GaugeHigh", "HIGH");
+	const FText& LowLabel = ARCADE_LABEL("Darts", "GaugeLow", "LOW");
 	const FDartsSeat* Thrower = G.GetThrower();
 	FVector2D Aim;
 	if (!Thrower || Thrower->Kind != EThrowerKind::Local || !G.GetReticle(Aim) || G.IsReacting())
@@ -813,12 +812,12 @@ void SDartsHud::PaintGauge(const FKartPainter& P, const ADartsGame& G, const FAr
 void SDartsHud::PaintControls(const FKartPainter& P, const ADartsGame& G, float S) const
 {
 	using namespace Controls;
-	static const FText PhoneHint = LOCTEXT("PhoneHint", "Aim with your phone, pinch, flick and let go");
-	static const FText BotHint = LOCTEXT("BotHint", "Lining up...");
-	static const FText ReleaseHint = LOCTEXT("Release", "Let go in the green  ·  or flick the mouse up");
-	static const FText GripHint = LOCTEXT("Grip", "Aim: WASD, stick or mouse  ·  Throw: hold SPACE, RT or click");
-	static const FText LowLabel = LOCTEXT("Low", "LOW");
-	static const FText HighLabel = LOCTEXT("High", "HIGH");
+	const FText& PhoneHint = ARCADE_LABEL("Darts", "PhoneHint", "Aim with your phone, pinch, flick and let go");
+	const FText& BotHint = ARCADE_LABEL("Darts", "BotHint", "Lining up...");
+	const FText& ReleaseHint = ARCADE_LABEL("Darts", "Release", "Let go in the green  ·  or flick the mouse up");
+	const FText& GripHint = ARCADE_LABEL("Darts", "Grip", "Aim: WASD, stick or mouse  ·  Throw: hold SPACE, RT or click");
+	const FText& LowLabel = ARCADE_LABEL("Darts", "Low", "LOW");
+	const FText& HighLabel = ARCADE_LABEL("Darts", "High", "HIGH");
 	const FDartsSeat* Thrower = G.GetThrower();
 	const FDartsMatch& M = G.GetMatch();
 	if (!Thrower || M.Phase != EMatchPhase::Playing)
@@ -827,7 +826,7 @@ void SDartsHud::PaintControls(const FKartPainter& P, const ADartsGame& G, float 
 	}
 	const FVector2D Centre(P.Size().X * (1.f - KartUI::Metric::SafeFraction) - LeftOfSafeRight * S, P.Size().Y * CentreY);
 	const int32 SeatIndex = static_cast<int32>(Thrower - G.GetSeats().GetData());
-	const FString& Up = UpText.Get(SeatIndex, [Thrower](int32) { return FText::Format(LOCTEXT("Up", "{0} is up"), FText::FromString(Thrower->Name)).ToString(); });
+	const FString& Up = UpText.Get(SeatIndex, [Thrower](int32) { return FText::Format(ARCADE_LABEL("Darts", "Up", "{0} is up"), FText::FromString(Thrower->Name)).ToString(); });
 	if (Thrower->Kind != EThrowerKind::Local)
 	{
 		const FText& Hint = Thrower->Kind == EThrowerKind::Phone ? PhoneHint : BotHint;
@@ -875,9 +874,9 @@ void SDartsHud::PaintCoach(const FKartPainter& P, const ADartsGame& G, float S) 
 		FString Number;
 	};
 	static const FStep Steps[] = {
-		{ LOCTEXT("CoachAim", "AIM"), LOCTEXT("CoachAimKeys", "WASD  ·  left stick  ·  mouse"), TEXT("1") },
-		{ LOCTEXT("CoachHold", "HOLD"), LOCTEXT("CoachHoldKeys", "SPACE  ·  RT  ·  left click"), TEXT("2") },
-		{ LOCTEXT("CoachLetGo", "LET GO"), LOCTEXT("CoachLetGoKeys", "when the meter is in the green"), TEXT("3") },
+		{ ARCADE_LABEL("Darts", "CoachAim", "AIM"), ARCADE_LABEL("Darts", "CoachAimKeys", "WASD  ·  left stick  ·  mouse"), TEXT("1") },
+		{ ARCADE_LABEL("Darts", "CoachHold", "HOLD"), ARCADE_LABEL("Darts", "CoachHoldKeys", "SPACE  ·  RT  ·  left click"), TEXT("2") },
+		{ ARCADE_LABEL("Darts", "CoachLetGo", "LET GO"), ARCADE_LABEL("Darts", "CoachLetGoKeys", "when the meter is in the green"), TEXT("3") },
 	};
 	enum EStep : int32 { AimStep, HoldStep, LetGoStep };
 	const FLocalThrow& L = G.GetLocal();
@@ -903,8 +902,8 @@ void SDartsHud::PaintCoach(const FKartPainter& P, const ADartsGame& G, float S) 
 void SDartsHud::PaintIntro(const FKartPainter& P, const ADartsGame& G, float S) const
 {
 	using namespace Intro;
-	static const FText Title = LOCTEXT("Title", "BULLSEYE BASH");
-	static const FText Rules = LOCTEXT("Rules", "Three darts a visit, three visits. Hit the called sector for double points.");
+	const FText& Title = ARCADE_LABEL("Darts", "Title", "BULLSEYE BASH");
+	const FText& Rules = ARCADE_LABEL("Darts", "Rules", "Three darts a visit, three visits. Hit the called sector for double points.");
 	const double Age = G.GetStageAge();
 	const double Life = ADartsGame::IntroSeconds;
 	const float A = FMath::Clamp(static_cast<float>(Age / FadeInSeconds), 0.f, 1.f) * FMath::Clamp(static_cast<float>((Life - Age) / FadeOutSeconds), 0.f, 1.f);
@@ -930,7 +929,7 @@ void SDartsHud::PaintIntro(const FKartPainter& P, const ADartsGame& G, float S) 
 void SDartsHud::PaintStandings(const FKartPainter& P, const ADartsGame& G, float S) const
 {
 	using namespace Standings;
-	static const FText FinalTitle = LOCTEXT("Final", "FINAL SCORES");
+	const FText& FinalTitle = ARCADE_LABEL("Darts", "Final", "FINAL SCORES");
 	const FDartsMatch& M = G.GetMatch();
 	// Best first, ties in seat order: the rules' Leaderboard order.
 	const TArray<int32>& Order = Ranks.Update(M.Players.Num(), [&M](int32 i) { return static_cast<int64>(M.Players[i].Score); });
@@ -957,11 +956,10 @@ void SDartsHud::PaintStandings(const FKartPainter& P, const ADartsGame& G, float
 		const int64 StatsKey = (static_cast<int64>(Player.BestRound) << 32) | (static_cast<int64>(Player.Bulls & 0xffff) << 16) | (Player.Bounties & 0xffff);
 		const FString& Stats = Text.Stats.Get(StatsKey, [&Player](int64)
 		{
-			return FText::Format(LOCTEXT("StandingStats", "best round {0}  ·  {1} bulls  ·  {2} bounties"), Player.BestRound, Player.Bulls, Player.Bounties).ToString();
+			return FText::Format(ARCADE_LABEL("Darts", "StandingStats", "best round {0}  ·  {1} bulls  ·  {2} bounties"), Player.BestRound, Player.Bulls, Player.Bounties).ToString();
 		});
 		RowPainter.Text(Stats, KartUI::Font(EFont::Body, StatsSize * S), Pos + StatsAt * S, KC::WithAlpha(Ink, StatsAlpha), LeftMiddle);
-		RowPainter.Text(Text.Score.Get(Player.Score, NumberText), KartUI::Font(EFont::Display, ScoreSize * S), Pos + ScoreAt * S, Ink, RightMiddle);
+		RowPainter.Text(Text.Score.Get(Player.Score, NumberText), KartUI::Font(EFont::Display, ScoreSize * S), Pos + TotalAt * S, Ink, RightMiddle);
 	}
 }
 
-#undef LOCTEXT_NAMESPACE

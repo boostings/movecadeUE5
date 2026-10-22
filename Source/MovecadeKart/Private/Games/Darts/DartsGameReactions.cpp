@@ -6,6 +6,7 @@
 #include "FX/KartFx.h"
 #include "FX/KartFxSubsystem.h"
 #include "GameFramework/PlayerController.h"
+#include "Games/ArcadeHud.h"
 #include "Games/Darts/DartsFxRecipes.h"
 #include "Games/Darts/DartsGameTuning.h"
 #include "Games/Darts/DartsPub.h"
@@ -15,7 +16,6 @@ using namespace MovecadeKart::Darts;
 using MovecadeKart::Darts::Tuning::ToWorld;
 namespace Fx = MovecadeKart::Fx;
 
-#define LOCTEXT_NAMESPACE "Darts"
 
 namespace
 {
@@ -159,29 +159,29 @@ namespace
 	{
 		if (Visit.Bounties >= DartsPerRound)
 		{
-			return LOCTEXT("CallHatTrick", "BOUNTY HAT-TRICK!");
+			return ARCADE_LABEL("Darts", "CallHatTrick", "BOUNTY HAT-TRICK!");
 		}
 		if (Bulls >= DartsPerRound)
 		{
-			return LOCTEXT("CallBulls", "THREE IN THE BULL!");
+			return ARCADE_LABEL("Darts", "CallBulls", "THREE IN THE BULL!");
 		}
 		if (Visit.Total >= MaxVisit)
 		{
-			return LOCTEXT("Call180", "ONE HUNDRED AND EIGHTY!");
+			return ARCADE_LABEL("Darts", "Call180", "ONE HUNDRED AND EIGHTY!");
 		}
 		if (Visit.Total >= TonForty)
 		{
-			return LOCTEXT("Call140", "TON-FORTY!");
+			return ARCADE_LABEL("Darts", "Call140", "TON-FORTY!");
 		}
 		if (Visit.Total >= Ton)
 		{
-			return LOCTEXT("CallTon", "TON!");
+			return ARCADE_LABEL("Darts", "CallTon", "TON!");
 		}
 		if (Visit.Total == 0)
 		{
-			return LOCTEXT("CallBlank", "BLANK VISIT");
+			return ARCADE_LABEL("Darts", "CallBlank", "BLANK VISIT");
 		}
-		return FText::Format(LOCTEXT("CallVisit", "VISIT {0}"), Visit.Round + 1);
+		return FText::Format(ARCADE_LABEL("Darts", "CallVisit", "VISIT {0}"), Visit.Round + 1);
 	}
 }
 
@@ -403,4 +403,3 @@ void ADartsGame::Celebrate(double Confetti, const FLinearColor& Color)
 	FxSys->Emit(Out);
 }
 
-#undef LOCTEXT_NAMESPACE

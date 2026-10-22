@@ -48,6 +48,8 @@ namespace
 	constexpr double CalloutLift = 0.02;
 	/** The game HUD's viewport layer: under SArcadeOverlay (30), as every party game's HUD. */
 	constexpr int32 HudZOrder = 10;
+	/** The dust motes hang between the oche and the board, a little above it (web metres). */
+	const FVector MotesWeb(0.0, ADartsPub::BoardY + 0.5, 1.6);
 
 	/** The release whoosh: louder and higher the harder the throw (sound.ts). */
 	constexpr double ReleaseVolume = 0.6;
