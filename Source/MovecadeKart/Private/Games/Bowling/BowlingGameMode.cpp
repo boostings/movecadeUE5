@@ -108,7 +108,14 @@ void ABowlingGameMode::StartPlay()
 	Game = World->SpawnActor<ABowlingGame>();
 	Game->Setup(Alley, Seats, World->GetFirstPlayerController());
 	// Back to the front end, which lives on the default level.
-	Game->OnQuit = [this]() { UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor")); };
+	TWeakObjectPtr<ABowlingGameMode> WeakMode = this;
+	Game->OnQuit = [WeakMode]()
+	{
+		if (ABowlingGameMode* Mode = WeakMode.Get())
+		{
+			UGameplayStatics::OpenLevel(Mode, TEXT("L_SunsetHarbor"));
+		}
+	};
 	if (bRoomMatch)
 	{
 		BindRoom();
@@ -210,11 +217,13 @@ void ABowlingGameMode::BindRoom()
 			R->AdvanceTurn(PlayerId);
 		}
 	};
-	Game->OnRoll = [this, WeakRoom, WeakGame](const FString& PlayerId, int32 Pins, EBowlingBeat Beat)
+	TWeakObjectPtr<ABowlingGameMode> WeakMode = this;
+	Game->OnRoll = [WeakMode, WeakRoom, WeakGame](const FString& PlayerId, int32 Pins, EBowlingBeat Beat)
 	{
 		URoomHostSubsystem* R = WeakRoom.Get();
 		const ABowlingGame* G = WeakGame.Get();
-		if (!R || !G || PlayerId.IsEmpty())
+		ABowlingGameMode* Mode = WeakMode.Get();
+		if (!R || !G || !Mode || PlayerId.IsEmpty())
 		{
 			return;
 		}
@@ -226,9 +235,15 @@ void ABowlingGameMode::BindRoom()
 			bBig ? TEXT("celebration") : (Pins > 0 ? TEXT("impact") : TEXT("warning")), bBig);
 		R->SendGameEvent(TEXT("bowling:replay-outcome"), FString::Printf(TEXT("{\"playerId\":%s,\"pins\":%d,\"label\":%s,\"beat\":\"%s\"}"),
 			*MovecadeKart::Net::QuoteJson(PlayerId), Pins, *MovecadeKart::Net::QuoteJson(Label), BeatId(Beat)));
-		PushScores(false);
+		Mode->PushScores(false);
 	};
-	Game->OnFinished = [this]() { PushScores(true); };
+	Game->OnFinished = [WeakMode]()
+	{
+		if (ABowlingGameMode* Mode = WeakMode.Get())
+		{
+			Mode->PushScores(true);
+		}
+	};
 	// A room rematches (and quits) through its lobby: everyone re-readies there (engine.ts restart-game).
 	Game->OnRematch = [WeakRoom]()
 	{
@@ -287,7 +302,7 @@ void ABowlingGameMode::EndPlay(const EEndPlayReason::Type Reason)
 		Overlay->Detach();
 		Overlay.Reset();
 	}
-	// The world's timers live on the game instance and outlast the level.
+	// The world owns its timer manager, but in practice it outlives level travel: clear ours here.
 	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))
 	{

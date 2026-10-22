@@ -60,6 +60,8 @@ private:
 	FDelegateHandle SensorHandle;
 	FTimerHandle ScoreTimer;
 	FTimerHandle AimTimer;
+	FTimerHandle TestTimer;
+	double TestGripAt = -1.0;
 	FString LastTurnKey;
 	double TurnPushedAt = -10.0;
 };

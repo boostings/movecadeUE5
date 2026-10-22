@@ -19,6 +19,7 @@
 #include "Audio/KartAudioSubsystem.h"
 #include "Race/KartItemPresenter.h"
 #include "Race/SKartRaceOverlay.h"
+#include "Store/KartStoreSubsystem.h" // store: unlock progress
 
 using namespace MovecadeKart;
 
@@ -969,6 +970,9 @@ void AKartRaceManager::EndRace()
 		Result.ProgressScore = ProgressScore(Racer);
 	}
 	SetPhase(EKartRacePhase::Finished);
+	// Store: free unlocks count finished races and wins by players (not bots).
+	UKartStoreSubsystem::NoteRaceFinished(this, Racers.ContainsByPredicate([](const FKartRacer& R) { return R.Kind != EKartSeatKind::Bot; }),
+		Results.Num() > 0 && Racers[Results[0].Seat].Kind != EKartSeatKind::Bot && Racers[Results[0].Seat].bFinished);
 	OnResults.Broadcast(Results);
 	OnCue.Broadcast(-1, TEXT("race.results"));
 }
