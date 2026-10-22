@@ -79,6 +79,12 @@ namespace MovecadeKart::Net
 		return FJsonOut::Quote(Value);
 	}
 
+	FString HexColor(const FLinearColor& Color)
+	{
+		const FColor Srgb = Color.ToFColor(/*bSRGB*/ true);
+		return FString::Printf(TEXT("#%02x%02x%02x"), Srgb.R, Srgb.G, Srgb.B);
+	}
+
 	FString PadPromptData(const FString& PlayerId, const FString& Title, const FString& Subtitle,
 		const FString& A, const FString& B, const FString& AccentHex, const FString& Mode)
 	{

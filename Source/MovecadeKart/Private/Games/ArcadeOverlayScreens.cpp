@@ -5,6 +5,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Games/ArcadeCatalog.h"
 #include "Games/ArcadeGame.h"
+#include "Games/ArcadeHud.h"
 #include "Games/ArcadeSession.h"
 #include "Games/SArcadeOverlay.h"
 #include "Net/RoomHostSubsystem.h"
@@ -164,7 +165,7 @@ namespace
 
 		virtual TArray<FKartHint> GetHints() const override
 		{
-			return { { EKartMenuAction::Accept, LOCTEXT("Select", "Select") }, { EKartMenuAction::Back, LOCTEXT("Resume", "Resume") } };
+			return { { EKartMenuAction::Accept, ARCADE_LABEL("ArcadeOverlay", "Select", "Select") }, { EKartMenuAction::Back, ARCADE_LABEL("ArcadeOverlay", "Resume", "Resume") } };
 		}
 
 		virtual bool HandleEvent(const FKartMenuEvent& Event) override
@@ -207,7 +208,7 @@ namespace
 			const float Pop = Ease::OutBack(static_cast<float>(Frame.Age / PopSeconds), 2.f);
 			const FKartPainter Card = P.Transformed(Frame.Centre(), 0.8f + 0.2f * Pop);
 			Card.Card(Pos, CardSize, Color::WithAlpha(Color::Night, 0.94f), Metric::RadiusLarge, 12.f, Accent, 5.f);
-			Card.Text(LOCTEXT("Paused", "PAUSED"), Font(EFont::Display, 84.f, 5.f), Pos + FVector2D(TitleX, 92.0), Accent, FVector2D(0.5, 0.5), 5.f);
+			Card.Text(ARCADE_LABEL("ArcadeOverlay", "Paused", "PAUSED"), Font(EFont::Display, 84.f, 5.f), Pos + FVector2D(TitleX, 92.0), Accent, FVector2D(0.5, 0.5), 5.f);
 			if (Info)
 			{
 				Card.Text(Info->Name, Font(EFont::Title, 30.f), Pos + FVector2D(TitleX, 160.0), Color::WithAlpha(Color::White, 0.85f), FVector2D(0.5, 0.5));
@@ -227,7 +228,7 @@ namespace
 		{
 			using namespace PauseLayout;
 			Card.Box(Help, HelpSize, Color::WithAlpha(Color::White, 0.06f), 28.f);
-			Card.Text(LOCTEXT("HowToTitle", "HOW TO PLAY"), Font(EFont::Label, 22.f, 2.f), Help + FVector2D(32.0, 44.0), Accent, FVector2D(0.0, 0.5));
+			Card.Text(ARCADE_LABEL("ArcadeOverlay", "HowToTitle", "HOW TO PLAY"), Font(EFont::Label, 22.f, 2.f), Help + FVector2D(32.0, 44.0), Accent, FVector2D(0.0, 0.5));
 			if (Info)
 			{
 				Card.TextWrapped(Info->HowTo, Font(EFont::Body, 26.f), Help + FVector2D(32.0, 84.0), HelpTextWidth, Color::White);
@@ -321,7 +322,7 @@ namespace
 
 		virtual TArray<FKartHint> GetHints() const override
 		{
-			return { { EKartMenuAction::Left, LOCTEXT("Choose", "Choose") }, { EKartMenuAction::Accept, LOCTEXT("Select", "Select") } };
+			return { { EKartMenuAction::Left, ARCADE_LABEL("ArcadeOverlay", "Choose", "Choose") }, { EKartMenuAction::Accept, ARCADE_LABEL("ArcadeOverlay", "Select", "Select") } };
 		}
 
 		virtual bool HandleEvent(const FKartMenuEvent& Event) override
