@@ -1,4 +1,4 @@
-#include "Avatar/ArcadeAvatar.h"
+#include "Avatar/ArcadeAvatarFace.h"
 
 #include "Components/SkeletalMeshComponent.h"
 

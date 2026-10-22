@@ -44,6 +44,9 @@ namespace
 	/** The hair's spring: lightly damped, so it bounces a couple of times before settling. */
 	constexpr float HairOmega = 9.f;
 	constexpr float HairZeta = 0.22f;
+
+	// The pose layers below key their shapes inline (radians of bend, shares of an arm's reach): each number is read
+	// with its neighbours as one hand-tuned pose, so they stay where the pose is built.
 }
 
 FAnimInstanceProxy* UKartDriverAnimInstance::CreateAnimInstanceProxy()
