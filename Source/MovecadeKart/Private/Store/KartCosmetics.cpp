@@ -56,11 +56,29 @@ void FKartCosmetics::ApplyBowlingBall(UMaterialInstanceDynamic* BallMaterial, bo
 		return;
 	}
 	// The ball is one material shared by every bowler: set every parameter each turn so a skin never sticks to a bot.
+	// The stock finish is whatever the game built the material with, read once before any skin touches it.
+	struct FStock { float Roughness = 0.f, Metallic = 0.f, Emissive = 0.f; };
+	static TMap<TWeakObjectPtr<UMaterialInstanceDynamic>, FStock> Stocks;
+	FStock* Stock = Stocks.Find(BallMaterial);
+	if (!Stock)
+	{
+		for (auto It = Stocks.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid())
+			{
+				It.RemoveCurrent();
+			}
+		}
+		Stock = &Stocks.Add(BallMaterial);
+		BallMaterial->GetScalarParameterValue(FName(TEXT("Roughness")), Stock->Roughness);
+		BallMaterial->GetScalarParameterValue(FName(TEXT("Metallic")), Stock->Metallic);
+		BallMaterial->GetScalarParameterValue(FName(TEXT("Emissive")), Stock->Emissive);
+	}
 	const FItem* Skin = bLocalBowler ? Equipped(ESlot::BowlingBall) : nullptr;
 	BallMaterial->SetVectorParameterValue(TEXT("Color"), Skin ? Skin->Visual.Primary : DefaultColor);
-	BallMaterial->SetScalarParameterValue(TEXT("Roughness"), Skin ? Skin->Visual.Roughness : 0.12f);
-	BallMaterial->SetScalarParameterValue(TEXT("Metallic"), Skin ? Skin->Visual.Metallic : 0.f);
-	BallMaterial->SetScalarParameterValue(TEXT("Emissive"), Skin ? Skin->Visual.Emissive : 0.f);
+	BallMaterial->SetScalarParameterValue(TEXT("Roughness"), Skin ? Skin->Visual.Roughness : Stock->Roughness);
+	BallMaterial->SetScalarParameterValue(TEXT("Metallic"), Skin ? Skin->Visual.Metallic : Stock->Metallic);
+	BallMaterial->SetScalarParameterValue(TEXT("Emissive"), Skin ? Skin->Visual.Emissive : Stock->Emissive);
 }
 
 TArray<UMaterialInterface*> FKartCosmetics::KatanaMaterials(UObject* Outer, bool bLocal, const TArray<UMaterialInterface*>& Default)
