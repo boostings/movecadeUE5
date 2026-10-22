@@ -15,6 +15,9 @@ namespace MovecadeKart::Darts
 		constexpr double RollReferenceDegPerSec = 520.0;
 		constexpr double RollToVertical = 0.45;
 		constexpr double UnsteadyPull = 0.55;
+		/** A gesture's power is 0..1 (a house bot's scatter strays a little past it). Beyond this it would overflow
+		 *  the landing maths to infinity and land the dart at NaN; any such throw sails off the catch disc anyway. */
+		constexpr double MaxAbsPower = 1000.0;
 
 		double ClampSigned(double Value, double Limit)
 		{
@@ -133,6 +136,11 @@ namespace MovecadeKart::Darts
 
 	int32 SectorIndexAt(double X, double Y)
 	{
+		// NaN would reach the int32 cast below (undefined behaviour, then an out-of-range SectorOrder index).
+		if (FMath::IsNaN(X) || FMath::IsNaN(Y))
+		{
+			return 0;
+		}
 		const double Angle = FMath::Atan2(Y, X);
 		const double FromTop = UE_DOUBLE_PI / 2.0 - Angle;
 		const double Shifted = FromTop + SectorArc / 2.0;
@@ -201,7 +209,7 @@ namespace MovecadeKart::Darts
 		double X = AimX * AimReach;
 		double Y = AimY * AimReach;
 		// Under the sweet spot the dart drops, over it the dart sails.
-		Y += ((FMath::IsFinite(Gesture.Power) ? Gesture.Power : SweetSpot) - SweetSpot) * PowerToVertical;
+		Y += ((FMath::IsFinite(Gesture.Power) ? FMath::Clamp(Gesture.Power, -MaxAbsPower, MaxAbsPower) : SweetSpot) - SweetSpot) * PowerToVertical;
 		X += ClampSigned(Gesture.SpinDegPerSec / SpinReferenceDegPerSec, 1.5) * SpinToLateral;
 		Y += ClampSigned(Gesture.RollDegPerSec / RollReferenceDegPerSec, 1.5) * RollToVertical;
 		// An unsettled hand carries the dart along the line it was sweeping; a centred one drifts low.

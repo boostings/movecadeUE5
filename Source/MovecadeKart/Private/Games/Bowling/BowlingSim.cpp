@@ -18,7 +18,10 @@ namespace MovecadeKart::Bowling
 
 	FVector2D PinPosition(int32 Id)
 	{
-		// Rows of 1, 2, 3, 4 pins, numbered left to right from the head pin.
+		// Rows of 1, 2, 3, 4 pins, numbered left to right from the head pin. Clamped to the rack: a huge id would
+		// overflow the row walk below and never finish.
+		constexpr int32 RackPins = 10;
+		Id = FMath::Clamp(Id, 1, RackPins);
 		int32 Row = 0, First = 1;
 		while (Id >= First + Row + 1)
 		{

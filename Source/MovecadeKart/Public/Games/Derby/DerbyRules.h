@@ -199,6 +199,10 @@ namespace MovecadeKart::Derby
 	MOVECADEKART_API FRecord Record(FMatch& Match, const FOutcome& Outcome);
 	/** Batter indices best first (score, then home runs, then the longest), ties keep the batting order. */
 	MOVECADEKART_API TArray<int32> Ranking(const FMatch& Match);
-	/** JS-style rounding: halves up. */
-	inline int32 RoundHalfUp(double X) { return static_cast<int32>(FMath::FloorToDouble(X + 0.5)); }
+	/** JS-style rounding: halves up. NaN reads as 0 and the result is clamped to int32 (the cast is undefined past it). */
+	inline int32 RoundHalfUp(double X)
+	{
+		const double Rounded = FMath::FloorToDouble(X + 0.5);
+		return FMath::IsNaN(Rounded) ? 0 : static_cast<int32>(FMath::Clamp(Rounded, static_cast<double>(MIN_int32), static_cast<double>(MAX_int32)));
+	}
 }

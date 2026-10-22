@@ -171,7 +171,8 @@ namespace MovecadeKart::Bowling
 		{
 			return Result;
 		}
-		const int32 Felled = FMath::Clamp(FMath::IsFinite(PinsDown) ? FMath::FloorToInt32(PinsDown) : 0, 0, Match.Standing);
+		// Clamped as a double before the conversion, which is undefined past int32 (the same result for any count in range).
+		const int32 Felled = FMath::IsFinite(PinsDown) ? FMath::FloorToInt32(FMath::Clamp(PinsDown, 0.0, static_cast<double>(Match.Standing))) : 0;
 		Result.Felled = Felled;
 		const int32 Frame = FrameNumberFor(*Card);
 		TArray<int32> Rolls = Card->Rolls;

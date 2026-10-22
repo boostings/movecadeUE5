@@ -259,7 +259,8 @@ namespace MovecadeKart::Derby
 			O.bStrike = true;
 			return O;
 		}
-		if (FMath::Abs(Swing.TimingMs) > Pitch.ContactMs)
+		// Negated so a NaN timing whiffs too, instead of flying a NaN ball into the distance and points.
+		if (!(FMath::Abs(Swing.TimingMs) <= Pitch.ContactMs))
 		{
 			O.Result = EResult::Whiff;
 			O.bStrike = true;
