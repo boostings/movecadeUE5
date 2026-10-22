@@ -1,25 +1,21 @@
 #include "Race/KartRaceManager.h"
 
 #include "Algo/Count.h"
-
-#include "Camera/CameraActor.h"
-#include "Camera/PlayerCameraManager.h"
-#include "Camera/CameraComponent.h"
+#include "Audio/KartAudioComponent.h"
+#include "Audio/KartAudioSubsystem.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "KartCoords.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "KartMovementComponent.h"
 #include "KartPawn.h"
 #include "KartPlayerController.h"
-#include "Audio/KartAudioComponent.h"
-#include "Audio/KartAudioSubsystem.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Race/KartItemPresenter.h"
 #include "Race/SKartRaceOverlay.h"
-#include "Store/KartStoreSubsystem.h" // store: unlock progress
+#include "Store/KartStoreSubsystem.h"
 
 using namespace MovecadeKart;
 
@@ -29,43 +25,25 @@ namespace
 	constexpr double WaitingSeconds = 1.0;
 	constexpr double IntroSeconds = 6.0;
 	constexpr double CountdownSeconds = 5.0;
-	constexpr double IntroShotSeconds = 1.2;
-	constexpr int32 IntroShots = 5;
+	constexpr int32 CountdownFrom = 5;
 	constexpr double MaxRaceMs = 300000.0;
 	constexpr double FinishGraceMs = 30000.0;
+	/** Up to this many steps of real time per frame: a busy GPU (down to 15 fps) keeps race time, and only a long
+	 *  hitch drops time instead of spiralling. */
 	constexpr int32 MaxStepsPerFrame = 4;
+	/** The countdown crane lasts this long (AKartPawn::PlayCountdownSwoop). */
+	constexpr double SwoopSeconds = 2.4;
+	/** The item world's fixed seed; every restart takes the next one, so a rematch plays differently. */
+	constexpr int32 ItemSeed = 1234;
+	/** Bots rev on the grid for the last two counts, each in its own rhythm. */
+	constexpr double BotRevLead = 2.0;
 
-	// Occluders: a kart is hidden from a viewport when it sits between that viewport's camera and its own kart.
-	constexpr double OccluderCentreHeight = 80.0;    // cm above the kart's origin: the body, not the wheels
-	constexpr double OccluderMaxAlong = 0.92;        // only karts in front of the own kart along the sight line
-	constexpr double OccluderRadius = 220.0;         // cm from the sight line
-
-	/** The web's item ids, which the audio observer keys item-spend sounds on. */
-	FName WebItemId(EKartItem Item)
-	{
-		// Read per kart per frame, so the names are interned once rather than looked up on every call.
-		static const FName Ids[] = { NAME_None, TEXT("GREEN_SHELL"), TEXT("RED_SHELL"), TEXT("BLUE_SHELL"), TEXT("BANANA"), TEXT("MUSHROOM"),
-			TEXT("TRIPLE_MUSHROOM"), TEXT("STAR"), TEXT("LIGHTNING"), TEXT("BLOOPER"), TEXT("BOB_OMB"), TEXT("BULLET_BILL") };
-		static_assert(UE_ARRAY_COUNT(Ids) == static_cast<SIZE_T>(EKartItem::Count), "one web id per item");
-		const SIZE_T Index = static_cast<uint8>(Item);
-		return Index < UE_ARRAY_COUNT(Ids) ? Ids[Index] : NAME_None;
-	}
-
-	EKartAudioPhase AudioPhase(EKartRacePhase Phase)
-	{
-		switch (Phase)
-		{
-		case EKartRacePhase::Countdown: return EKartAudioPhase::Countdown;
-		case EKartRacePhase::Racing: return EKartAudioPhase::Racing;
-		case EKartRacePhase::Finished: return EKartAudioPhase::Results;
-		default: return EKartAudioPhase::Waiting;
-		}
-	}
-
-	double HorizontalFov(double VerticalDegrees, double Aspect)
-	{
-		return FMath::RadiansToDegrees(2.0 * FMath::Atan(FMath::Tan(FMath::DegreesToRadians(VerticalDegrees) * 0.5) * Aspect));
-	}
+	/** MultiplayerKart.tsx:996-1042: the rocket aims at the waypoint 3 past the nearest (gain 2.5), and blends toward
+	 *  the nearest kart ahead within 30 m (gain 3). */
+	constexpr int32 RocketLookAheadWaypoints = 3;
+	constexpr double RocketPathGain = 2.5;
+	constexpr double RocketRivalRange = 30.0;
+	constexpr double RocketRivalGain = 3.0;
 }
 
 AKartRaceManager::AKartRaceManager()
@@ -117,6 +95,19 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 {
 	check(InTrack.IsValid());
 	Track = InTrack;
+	SpawnRacers(Seats, Viewers);
+	SpawnCameras();
+	Items.Init(Track.Get(), Track->ItemBoxes, Racers.Num(), ItemSeed);
+	if (!ItemPresenter)
+	{
+		ItemPresenter = GetWorld()->SpawnActor<AKartItemPresenter>();
+	}
+	ItemPresenter->Bind(this);
+	RestartRace();
+}
+
+void AKartRaceManager::SpawnRacers(const TArray<FKartSeatSpec>& Seats, const TArray<APlayerController*>& Viewers)
+{
 	// Setup may run again (a new room race): the previous karts go with the old racers.
 	for (FKartRacer& Old : Racers)
 	{
@@ -138,9 +129,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 		{
 			break; // seats stay contiguous: racer i is seat i everywhere
 		}
-		FKartLook Look = Seats[Seat].bHasLook ? Seats[Seat].Look : FKartLook::MakeVaried(Seat);
-		Look.Paint = Seats[Seat].Paint;
-		Look.Name = Seats[Seat].Name;
+		const FKartSeatSpec& Spec = Seats[Seat];
+		FKartLook Look = Spec.bHasLook ? Spec.Look : FKartLook::MakeVaried(Seat);
+		Look.Paint = Spec.Paint;
+		Look.Name = Spec.Name;
 		Kart->SetLook(Look);
 		Kart->GetKartMovement()->SetExternallyStepped(true);
 		Kart->GetKartMovement()->MutableSim().bLegacyStickyWalls = bLegacyWalls;
@@ -148,10 +140,10 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 
 		FKartRacer& Racer = Racers.AddDefaulted_GetRef();
 		Racer.Seat = Seat;
-		Racer.Name = Seats[Seat].Name;
-		Racer.Kind = Seats[Seat].Kind;
-		Racer.Paint = Seats[Seat].Paint;
-		switch (Seats[Seat].BotSkill)
+		Racer.Name = Spec.Name;
+		Racer.Kind = Spec.Kind;
+		Racer.Paint = Spec.Paint;
+		switch (Spec.BotSkill)
 		{
 		case EKartBotSkill::Easy: Racer.Bot.Tuning = FKartBotTuning::Easy(); break;
 		case EKartBotSkill::Hard: Racer.Bot.Tuning = FKartBotTuning::Hard(); break;
@@ -172,41 +164,6 @@ void AKartRaceManager::Setup(TSharedPtr<const FTrack> InTrack, const TArray<FKar
 			Audio->SetSeat(Seat, Seat, Count);
 		}
 	}
-
-	// Intro shots: the track's static cameras (store.ts: 5 shots x 1.2 s).
-	for (ACameraActor* Camera : IntroCameras)
-	{
-		if (Camera)
-		{
-			Camera->Destroy();
-		}
-	}
-	IntroCameras.Reset();
-	for (int32 i = 0; i < FMath::Min(IntroShots, Track->StaticCameras.Num()); ++i)
-	{
-		const FStaticCamera& Shot = Track->StaticCameras[i];
-		const FVector Eye = Coords::ToUE(Shot.Position + FVector(0.0, Track->SuggestedRebaseY, 0.0));
-		const FVector Look = Coords::ToUE(Shot.LookAt + FVector(0.0, Track->SuggestedRebaseY, 0.0));
-		ACameraActor* Camera = GetWorld()->SpawnActor<ACameraActor>(Eye, (Look - Eye).Rotation());
-		Camera->GetCameraComponent()->SetFieldOfView(HorizontalFov(60.0, 16.0 / 9.0));
-		Camera->GetCameraComponent()->bConstrainAspectRatio = false;
-		IntroCameras.Add(Camera);
-	}
-	if (!ResultsCamera)
-	{
-		ResultsCamera = GetWorld()->SpawnActor<ACameraActor>();
-		ResultsCamera->GetCameraComponent()->SetFieldOfView(HorizontalFov(64.0, 16.0 / 9.0));
-		ResultsCamera->GetCameraComponent()->bConstrainAspectRatio = false;
-	}
-
-	Items.Init(Track.Get(), Track->ItemBoxes, Racers.Num(), 1234);
-	if (!ItemPresenter)
-	{
-		ItemPresenter = GetWorld()->SpawnActor<AKartItemPresenter>();
-	}
-	ItemPresenter->Bind(this);
-
-	RestartRace();
 }
 
 void AKartRaceManager::RestartRace()
@@ -233,7 +190,7 @@ void AKartRaceManager::RestartRace()
 		Racer.Kart->SetFinishPlace(0);
 	}
 	++RaceNumber;
-	Items.Reset(1234 + RaceNumber);
+	Items.Reset(ItemSeed + RaceNumber);
 	PendingItemEvents.Reset();
 	Results.Reset();
 	LeaderFinishMs = 0.0;
@@ -253,7 +210,7 @@ void AKartRaceManager::SkipIntro()
 
 int32 AKartRaceManager::GetCountdownValue() const
 {
-	return Phase == EKartRacePhase::Countdown ? FMath::Clamp(5 - FMath::FloorToInt32(PhaseSeconds), 1, 5) : 0;
+	return Phase == EKartRacePhase::Countdown ? FMath::Clamp(CountdownFrom - FMath::FloorToInt32(PhaseSeconds), 1, CountdownFrom) : 0;
 }
 
 double AKartRaceManager::GetDeadlineMs() const
@@ -289,24 +246,15 @@ void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
 	IntroShot = -1;
 	LastCountdownCue = 0;
 
-	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
+	// The intro flyover and the results are one full-screen shot; the race is one view per viewer.
 	const bool bFullScreenShot = NewPhase == EKartRacePhase::Intro || NewPhase == EKartRacePhase::Finished;
-	if (Viewport)
+	if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
 	{
 		Viewport->SetForceDisableSplitscreen(bFullScreenShot);
 	}
 	if (NewPhase == EKartRacePhase::Finished && ResultsCamera)
 	{
-		ResultsCameraPos = FVector::ZeroVector;
-		if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-		{
-			// A cut under a quick white flash: blending between two moving cameras flies through the scenery.
-			PC->SetViewTarget(ResultsCamera);
-			if (PC->PlayerCameraManager)
-			{
-				PC->PlayerCameraManager->StartCameraFade(0.85f, 0.f, 0.55f, FLinearColor(1.f, 0.97f, 0.92f), false, false);
-			}
-		}
+		CutToResults();
 	}
 	else if (!bFullScreenShot)
 	{
@@ -319,29 +267,11 @@ void AKartRaceManager::SetPhase(EKartRacePhase NewPhase)
 	{
 		for (FKartRacer& Racer : Racers)
 		{
-			Racer.Kart->PlayCountdownSwoop(bSkipIntro ? WaitingSeconds + 2.4 : 2.4);
+			Racer.Kart->PlayCountdownSwoop(bSkipIntro ? WaitingSeconds + SwoopSeconds : SwoopSeconds);
 		}
 	}
-	for (FKartRacer& Racer : Racers)
-	{
-		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
-		{
-			Audio->SetRacePhase(AudioPhase(NewPhase));
-		}
-	}
+	SetAudioPhase(NewPhase);
 	OnPhaseChanged.Broadcast(NewPhase);
-}
-
-void AKartRaceManager::UseRaceViews()
-{
-	for (FKartRacer& Racer : Racers)
-	{
-		if (Racer.Viewer && Racer.Viewer->GetViewTarget() != Racer.Kart)
-		{
-			// A cut: the countdown opens on the crane shot (AKartPawn::PlayCountdownSwoop), which carries the motion.
-			Racer.Viewer->SetViewTarget(Racer.Kart);
-		}
-	}
 }
 
 void AKartRaceManager::SetPaused(bool bInPaused, const FString& Reason)
@@ -428,8 +358,6 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 		// Everything freezes: the pause menu, or the room waiting for a phone (pauseLifecycle.ts).
 		return;
 	}
-	// Up to MaxStepsPerFrame steps of real time per frame: a busy GPU (down to 15 fps) keeps race time, and only a
-	// long hitch drops time instead of spiralling.
 	const double Dt = FMath::Min(static_cast<double>(DeltaSeconds), MaxStepsPerFrame * FKartSim::StepSeconds);
 	PhaseSeconds += Dt;
 
@@ -441,123 +369,59 @@ void AKartRaceManager::Tick(float DeltaSeconds)
 			SetPhase(bSkipIntro ? EKartRacePhase::Countdown : EKartRacePhase::Intro);
 		}
 		break;
-
 	case EKartRacePhase::Intro:
 		if (PhaseSeconds >= IntroSeconds)
 		{
 			SetPhase(EKartRacePhase::Countdown);
 		}
 		break;
-
 	case EKartRacePhase::Countdown:
-	{
-		if (GetCountdownValue() != LastCountdownCue)
-		{
-			LastCountdownCue = GetCountdownValue();
-			OnCue.Broadcast(-1, TEXT("race.countdown"));
-			if (UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this))
-			{
-				Mixer->PlayCountdown(LastCountdownCue);
-			}
-		}
-		// Rocket start: when the gas went down (MultiplayerKart.tsx:850-898). Releasing clears it.
-		for (FKartRacer& Racer : Racers)
-		{
-			if (Racer.Kind == EKartSeatKind::Bot)
-			{
-				// Bots rev up for the last two counts, in their own rhythm.
-				const double Eager = PhaseSeconds > CountdownSeconds - 2.0 ? 0.6 + 0.4 * FMath::Sin(PhaseSeconds * 5.0 + Racer.Seat * 1.7) : 0.0;
-				Racer.Kart->SetGridRev(static_cast<float>(Eager));
-				continue;
-			}
-			const FKartInput Input = GatherInput(Racer, false);
-			Racer.Kart->SetGridRev(Input.bForward ? 1.f : 0.f);
-			if (!Input.bForward)
-			{
-				Racer.GasHeldSince = -1.0;
-			}
-			else if (Racer.GasHeldSince < 0.0)
-			{
-				Racer.GasHeldSince = PhaseSeconds;
-			}
-		}
-		if (PhaseSeconds >= CountdownSeconds)
-		{
-			BeginRacing();
-		}
+		UpdateCountdown();
 		break;
-	}
-
 	case EKartRacePhase::Racing:
 	case EKartRacePhase::Finished:
-	{
-		constexpr double Step = FKartSim::StepSeconds;
-		Accumulator += Dt;
-		int32 Steps = 0;
-		while (Accumulator >= Step && Steps < MaxStepsPerFrame)
-		{
-			StepRace();
-			Accumulator -= Step;
-			++Steps;
-		}
-		if (Steps == MaxStepsPerFrame)
-		{
-			Accumulator = FMath::Min(Accumulator, Step);
-		}
-		const float Alpha = static_cast<float>(FMath::Clamp(Accumulator / Step, 0.0, 1.0));
-		for (FKartRacer& Racer : Racers)
-		{
-			Racer.Kart->GetKartMovement()->Present(Alpha);
-		}
+		AdvanceSim(Dt);
 		break;
-	}
 	}
 
 	UpdateCameras(DeltaSeconds);
 	UpdateOccluders();
 }
 
-void AKartRaceManager::UpdateOccluders()
+void AKartRaceManager::UpdateCountdown()
 {
-	// A kart bunched between a viewport's chase camera and its own kart blocks the view (the web has the
-	// same problem). Hide such karts for that viewport only.
+	if (GetCountdownValue() != LastCountdownCue)
+	{
+		LastCountdownCue = GetCountdownValue();
+		OnCue.Broadcast(-1, TEXT("race.countdown"));
+		if (UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this))
+		{
+			Mixer->PlayCountdown(LastCountdownCue);
+		}
+	}
+	// Rocket start: when the gas went down (MultiplayerKart.tsx:850-898). Releasing clears it.
 	for (FKartRacer& Racer : Racers)
 	{
-		APlayerController* PC = Racer.Viewer;
-		if (!PC || !PC->PlayerCameraManager)
+		if (Racer.Kind == EKartSeatKind::Bot)
 		{
+			const double Eager = PhaseSeconds > CountdownSeconds - BotRevLead ? 0.6 + 0.4 * FMath::Sin(PhaseSeconds * 5.0 + Racer.Seat * 1.7) : 0.0;
+			Racer.Kart->SetGridRev(static_cast<float>(Eager));
 			continue;
 		}
-		// Only un-hide the karts this function hid, so other systems can hide actors too.
-		for (FKartRacer& Other : Racers)
+		const FKartInput Input = GatherInput(Racer, false);
+		Racer.Kart->SetGridRev(Input.bForward ? 1.f : 0.f);
+		if (!Input.bForward)
 		{
-			PC->HiddenActors.Remove(Other.Kart);
+			Racer.GasHeldSince = -1.0;
 		}
-		if (PC->GetViewTarget() != Racer.Kart)
+		else if (Racer.GasHeldSince < 0.0)
 		{
-			continue;
+			Racer.GasHeldSince = PhaseSeconds;
 		}
-		const FVector Eye = PC->PlayerCameraManager->GetCameraLocation();
-		const FVector Own = Racer.Kart->GetActorLocation();
-		const FVector Seg = Own - Eye;
-		const double SegLenSq = Seg.SizeSquared();
-		if (SegLenSq < 1.0)
-		{
-			continue;
-		}
-		for (FKartRacer& Other : Racers)
-		{
-			if (&Other == &Racer)
-			{
-				continue;
-			}
-			const FVector P = Other.Kart->GetActorLocation() + FVector(0.0, 0.0, OccluderCentreHeight);
-			const double T = FVector::DotProduct(P - Eye, Seg) / SegLenSq;
-			if (T > 0.0 && T < OccluderMaxAlong && FVector::Dist(P, Eye + Seg * T) < OccluderRadius)
-			{
-				PC->HiddenActors.Add(Other.Kart);
-			}
-		}
+	}
+	if (PhaseSeconds >= CountdownSeconds)
+	{
+		BeginRacing();
 	}
 }
 
@@ -589,11 +453,39 @@ void AKartRaceManager::BeginRacing()
 	}
 }
 
+void AKartRaceManager::AdvanceSim(double Dt)
+{
+	constexpr double Step = FKartSim::StepSeconds;
+	Accumulator += Dt;
+	int32 Steps = 0;
+	while (Accumulator >= Step && Steps < MaxStepsPerFrame)
+	{
+		StepRace();
+		Accumulator -= Step;
+		++Steps;
+	}
+	if (Steps == MaxStepsPerFrame)
+	{
+		Accumulator = FMath::Min(Accumulator, Step);
+	}
+	// Every kart is drawn the same fraction of a step past its last one.
+	const float Alpha = static_cast<float>(FMath::Clamp(Accumulator / Step, 0.0, 1.0));
+	for (FKartRacer& Racer : Racers)
+	{
+		Racer.Kart->GetKartMovement()->Present(Alpha);
+	}
+}
+
+bool AKartRaceManager::IsBotDriven(const FKartRacer& Racer) const
+{
+	return Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal);
+}
+
 FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
 {
 	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
 	const double Now = RaceSteps * FKartSim::StepSeconds;
-	if (Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal))
+	if (Racer.bFinished || IsBotDriven(Racer))
 	{
 		// Finished karts cruise on the bot's line so they keep clear of the racers. Empty-handed racers may
 		// detour through an item box they can collect.
@@ -613,11 +505,8 @@ FKartInput AKartRaceManager::GatherInput(FKartRacer& Racer, bool bRacing)
 	}
 	if (Racer.Kind == EKartSeatKind::Local)
 	{
-		if (const AKartPlayerController* PC = Cast<AKartPlayerController>(Racer.Viewer))
-		{
-			return PC->GetLocalInput();
-		}
-		return FKartInput();
+		const AKartPlayerController* PC = Cast<AKartPlayerController>(Racer.Viewer);
+		return PC ? PC->GetLocalInput() : FKartInput();
 	}
 	FKartInput Input;
 	if (ExternalInput && ExternalInput(Racer.Seat, Input))
@@ -672,29 +561,27 @@ void AKartRaceManager::StepRace()
 		ItemRacer.Progress = S.ProgressPercent;
 		ItemRacer.bFinished = Racer.bFinished;
 		ItemRacer.bUseItem = bUsePressed;
-		ItemRacer.bBot = Racer.bFinished || Racer.Kind == EKartSeatKind::Bot || (Racer.Kind == EKartSeatKind::Local && bAutoDriveLocal);
+		ItemRacer.bBot = Racer.bFinished || IsBotDriven(Racer);
 	}
 	TArray<FKartItemEvent>& ItemEvents = StepItemEvents;
 	ItemEvents.Reset();
 	Items.Step(ItemRacers, ItemTime, ItemEvents);
 	DispatchItemEvents(ItemEvents);
-	for (FKartRacer& Racer : Racers)
+	UpdateAudioStatus(ItemTime);
+	RecordLaps(RaceMs);
+
+	if (Phase == EKartRacePhase::Racing)
 	{
-		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
+		const bool bAllFinished = !Racers.ContainsByPredicate([](const FKartRacer& Racer) { return !Racer.bFinished; });
+		if (bAllFinished || RaceMs >= GetDeadlineMs())
 		{
-			const FKartItemSlot& Slot = Items.Slots()[Racer.Seat];
-			MovecadeKart::Audio::FKartAudioStatus Status;
-			Status.bRollingItem = Slot.bRolling;
-			Status.bHasItem = Slot.Held != EKartItem::None;
-			Status.HeldItem = WebItemId(Slot.Held);
-			Status.bInvincible = Items.IsInvincible(Racer.Seat, ItemTime);
-			Status.bBulletBill = Items.IsRocket(Racer.Seat, ItemTime);
-			Status.bShrunk = ItemTime < Slot.ShrinkUntil;
-			Status.bInk = ItemTime < Slot.InkUntil;
-			Audio->SetStatus(Status);
+			EndRace();
 		}
 	}
+}
 
+void AKartRaceManager::RecordLaps(double RaceMs)
+{
 	for (FKartRacer& Racer : Racers)
 	{
 		const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
@@ -722,57 +609,21 @@ void AKartRaceManager::StepRace()
 			}
 		}
 	}
-
-	if (Phase == EKartRacePhase::Racing)
-	{
-		const bool bAllFinished = !Racers.ContainsByPredicate([](const FKartRacer& Racer) { return !Racer.bFinished; });
-		if (bAllFinished || RaceMs >= GetDeadlineMs())
-		{
-			EndRace();
-		}
-	}
-}
-
-void AKartRaceManager::EmitStepEvents(FKartRacer& Racer)
-{
-	static const FName BarrierHaptic(TEXT("barrier"));
-	static const FName KartHaptic(TEXT("kart"));
-	static const FName TerrainHaptic(TEXT("terrain"));
-	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
-	if (S.BarrierEvent > 0.0)
-	{
-		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BarrierEvent), BarrierHaptic, S.bBarrierEventSustained);
-	}
-	if (S.BumpEvent > 0.0)
-	{
-		OnHaptic.Broadcast(Racer.Seat, static_cast<float>(S.BumpEvent), KartHaptic, false);
-		if (UKartAudioComponent* Audio = Racer.Kart->GetKartAudio())
-		{
-			Audio->PlayImpact(static_cast<float>(S.BumpEvent));
-		}
-	}
-	// Off-road rumble: 0.075 every 200 ms while moving (MultiplayerKart.tsx:1552-1568).
-	if (S.bOnDirt && FMath::Abs(S.Speed) > 5.0 && S.Time - Racer.LastTerrainRumble >= 0.2)
-	{
-		Racer.LastTerrainRumble = S.Time;
-		OnHaptic.Broadcast(Racer.Seat, 0.075f, TerrainHaptic, true);
-	}
 }
 
 FKartInput AKartRaceManager::RocketAutopilot(const FKartRacer& Racer) const
 {
-	// MultiplayerKart.tsx:996-1042: full gas, aim at waypoint nearest + 3, gain 2.5, and blend toward the
-	// nearest kart ahead within 30 m (gain 3).
+	// Full gas, aimed down the line, homing on the nearest kart ahead.
 	const FKartState& S = Racer.Kart->GetKartMovement()->SimState();
 	const TArray<FVector2D>& Path = Track->Waypoints;
-	const FVector2D Target = Path[(Track->NearestWaypoint(S.Pos) + 3) % Path.Num()];
+	const FVector2D Target = Path[(Track->NearestWaypoint(S.Pos) + RocketLookAheadWaypoints) % Path.Num()];
 	auto AngleTo = [&S](const FVector2D& P)
 	{
 		const FVector2D D = P - S.Pos;
 		return FMath::FindDeltaAngleRadians(S.Yaw, FMath::Atan2(-D.X, -D.Y));
 	};
-	double Steer = FMath::Clamp(AngleTo(Target) * 2.5, -1.0, 1.0);
-	double Nearest = 30.0;
+	double Steer = FMath::Clamp(AngleTo(Target) * RocketPathGain, -1.0, 1.0);
+	double Nearest = RocketRivalRange;
 	const FKartRacer* Rival = nullptr;
 	for (const FKartRacer& Other : Racers)
 	{
@@ -785,106 +636,13 @@ FKartInput AKartRaceManager::RocketAutopilot(const FKartRacer& Racer) const
 	}
 	if (Rival)
 	{
-		const double Blend = FMath::Max(0.0, 1.0 - Nearest / 30.0);
-		Steer = Steer * (1.0 - Blend) + FMath::Clamp(AngleTo(Rival->Kart->GetKartMovement()->SimState().Pos) * 3.0, -1.0, 1.0) * Blend;
+		const double Blend = FMath::Max(0.0, 1.0 - Nearest / RocketRivalRange);
+		Steer = Steer * (1.0 - Blend) + FMath::Clamp(AngleTo(Rival->Kart->GetKartMovement()->SimState().Pos) * RocketRivalGain, -1.0, 1.0) * Blend;
 	}
 	FKartInput Input;
 	Input.bForward = true;
 	Input.SteeringX = Steer;
 	return Input;
-}
-
-void AKartRaceManager::DispatchItemEvents(const TArray<FKartItemEvent>& Events)
-{
-	// Cue names follow app/src/audio/kartCues.ts.
-	for (const FKartItemEvent& E : Events)
-	{
-		switch (E.Type)
-		{
-		case EKartItemEventType::Pickup: OnCue.Broadcast(E.Seat, TEXT("kart.item-pickup")); break;
-		case EKartItemEventType::Ready: OnCue.Broadcast(E.Seat, TEXT("kart.item-ready")); break;
-		case EKartItemEventType::Used:
-			if (Racers.IsValidIndex(E.Seat))
-			{
-				Racers[E.Seat].Kart->PlayItemThrow();
-			}
-			break;
-		case EKartItemEventType::Launch:
-			OnCue.Broadcast(E.Seat, TEXT("kart.projectile-launch"));
-			if (E.Item == EKartItem::Seeker || E.Item == EKartItem::SkySeeker)
-			{
-				OnCue.Broadcast(-1, TEXT("kart.warning"));
-			}
-			break;
-		case EKartItemEventType::Drop: OnCue.Broadcast(E.Seat, TEXT("kart.hazard-drop")); break;
-		case EKartItemEventType::Bounce: OnCue.Broadcast(E.Other, TEXT("kart.projectile-bounce")); break;
-		case EKartItemEventType::Hit: OnCue.Broadcast(E.Seat, TEXT("kart.projectile-hit")); break;
-		case EKartItemEventType::SpinOut:
-			OnCue.Broadcast(E.Seat, TEXT("kart.spinout"));
-			OnHaptic.Broadcast(E.Seat, 0.8f, TEXT("item"), false);
-			break;
-		case EKartItemEventType::Explosion:
-			OnCue.Broadcast(-1, TEXT("kart.explosion"));
-			for (const FKartRacer& Racer : Racers)
-			{
-				if (FVector2D::Distance(Racer.Kart->GetKartMovement()->SimState().Pos, E.Position) < E.Radius)
-				{
-					OnHaptic.Broadcast(Racer.Seat, 1.0f, TEXT("item"), false);
-				}
-			}
-			break;
-		case EKartItemEventType::Lightning: OnCue.Broadcast(E.Seat, TEXT("kart.lightning")); break;
-		case EKartItemEventType::Inked: OnCue.Broadcast(E.Seat, TEXT("kart.ink")); break;
-		case EKartItemEventType::Invincible: OnCue.Broadcast(E.Seat, TEXT("kart.invincible-start")); break;
-		case EKartItemEventType::RocketStart: OnCue.Broadcast(E.Seat, TEXT("kart.boost")); break;
-		case EKartItemEventType::Bump: OnHaptic.Broadcast(E.Seat, 0.6f, TEXT("kart"), false); break;
-		default: break;
-		}
-	}
-	// Sounds the audio observer can't derive from state: projectiles, hits, explosions, the shell warning.
-	UKartAudioSubsystem* Mixer = UKartAudioSubsystem::Get(this);
-	auto KartCue = [this](int32 Seat, const TCHAR* Cue)
-	{
-		if (Racers.IsValidIndex(Seat))
-		{
-			if (UKartAudioComponent* Audio = Racers[Seat].Kart->GetKartAudio())
-			{
-				Audio->PlayCue(Cue);
-			}
-		}
-	};
-	for (const FKartItemEvent& E : Events)
-	{
-		switch (E.Type)
-		{
-		case EKartItemEventType::Launch:
-			KartCue(E.Seat, TEXT("kart.projectile-launch"));
-			if (Mixer && (E.Item == EKartItem::Seeker || E.Item == EKartItem::SkySeeker))
-			{
-				Mixer->PlayCue(TEXT("kart.warning"), 0.6f);
-			}
-			break;
-		case EKartItemEventType::Drop: KartCue(E.Seat, TEXT("kart.hazard-drop")); break;
-		case EKartItemEventType::Bounce: KartCue(E.Other, TEXT("kart.projectile-bounce")); break;
-		case EKartItemEventType::Hit: KartCue(E.Seat, TEXT("kart.projectile-hit")); break;
-		case EKartItemEventType::SpinOut: KartCue(E.Seat, TEXT("kart.spinout")); break;
-		case EKartItemEventType::Explosion:
-			if (Mixer)
-			{
-				Mixer->PlayCue(TEXT("kart.explosion"));
-			}
-			break;
-		case EKartItemEventType::Bump:
-			if (Racers.IsValidIndex(E.Seat) && Racers[E.Seat].Kart->GetKartAudio())
-			{
-				Racers[E.Seat].Kart->GetKartAudio()->PlayImpact(0.8f);
-			}
-			break;
-		default:
-			break;
-		}
-	}
-	PendingItemEvents.Append(Events);
 }
 
 void AKartRaceManager::UpdateStandings()
@@ -922,57 +680,9 @@ void AKartRaceManager::EndRace()
 	}
 	SetPhase(EKartRacePhase::Finished);
 	// Store: free unlocks count finished races and wins by players (not bots).
-	UKartStoreSubsystem::NoteRaceFinished(this, Racers.ContainsByPredicate([](const FKartRacer& R) { return R.Kind != EKartSeatKind::Bot; }),
-		Results.Num() > 0 && Racers[Results[0].Seat].Kind != EKartSeatKind::Bot && Racers[Results[0].Seat].bFinished);
+	const bool bPlayersRaced = Racers.ContainsByPredicate([](const FKartRacer& R) { return R.Kind != EKartSeatKind::Bot; });
+	const bool bPlayerWon = Results.Num() > 0 && Racers[Results[0].Seat].Kind != EKartSeatKind::Bot && Racers[Results[0].Seat].bFinished;
+	UKartStoreSubsystem::NoteRaceFinished(this, bPlayersRaced, bPlayerWon);
 	OnResults.Broadcast(Results);
 	OnCue.Broadcast(-1, TEXT("race.results"));
-}
-
-void AKartRaceManager::UpdateCameras(float DeltaSeconds)
-{
-	APlayerController* PC = GetWorld()->GetFirstPlayerController();
-	if (!PC)
-	{
-		return;
-	}
-	if (Phase == EKartRacePhase::Intro && IntroCameras.Num() > 0)
-	{
-		const int32 Shot = FMath::Min(FMath::FloorToInt32(PhaseSeconds / IntroShotSeconds), IntroCameras.Num() - 1);
-		if (Shot != IntroShot)
-		{
-			IntroShot = Shot;
-			PC->SetViewTargetWithBlend(IntroCameras[Shot], Shot == 0 ? 0.f : 0.8f, VTBlend_Cubic);
-		}
-		// Each shot is a slow dolly (a push in, and a crab that alternates side per shot) instead of a still,
-		// like a broadcast flyover. Every camera keeps moving through the blend into the next one.
-		for (int32 i = 0; i < IntroCameras.Num(); ++i)
-		{
-			const FStaticCamera& Base = Track->StaticCameras[i];
-			const FVector Rebase(0.0, Track->SuggestedRebaseY, 0.0);
-			const FVector Eye = Coords::ToUE(Base.Position + Rebase);
-			const FVector Look = Coords::ToUE(Base.LookAt + Rebase);
-			const FVector Toward = (Look - Eye).GetSafeNormal();
-			const FVector Side = FVector::CrossProduct(FVector::UpVector, Toward).GetSafeNormal() * (i % 2 == 0 ? 1.0 : -1.0);
-			const double T = PhaseSeconds - i * IntroShotSeconds + 0.4;
-			const FVector Moved = Eye + (Toward * 70.0 + Side * 40.0) * T;
-			IntroCameras[i]->SetActorLocationAndRotation(Moved, (Look + Side * 20.0 * T - Moved).Rotation());
-		}
-	}
-	else if (Phase == EKartRacePhase::Finished && ResultsCamera && Results.Num() > 0)
-	{
-		// Results shot: a low, slow orbit round the winner (the web sat high at (6.4, 4.6, 8.4)), close enough
-		// to see the driver celebrate.
-		const AKartPawn* Winner = Racers[Results[0].Seat].Kart;
-		const FVector2D P = Winner->GetKartMovement()->RenderPosition();
-		const double Orbit = FMath::Atan2(8.4, 6.4) + 0.18 * PhaseSeconds;
-		constexpr double Radius = 6.5;
-		const FVector Target = Coords::ToUE(FVector(P.X + Radius * FMath::Cos(Orbit), 2.1, P.Y + Radius * FMath::Sin(Orbit)));
-		const FVector Look = Coords::ToUE(P, 1.2);
-		const double Alpha = 1.0 - FMath::Exp(-4.6 * FMath::Min(static_cast<double>(DeltaSeconds), 1.0 / 30.0));
-		ResultsCameraPos = ResultsCameraPos.IsZero() ? Target : FMath::Lerp(ResultsCameraPos, Target, Alpha);
-		// The standings card fills the left of the screen: turn the view so the winner sits on the right third.
-		FRotator View = (Look - ResultsCameraPos).Rotation();
-		View.Yaw -= 22.0;
-		ResultsCamera->SetActorLocationAndRotation(ResultsCameraPos, View);
-	}
 }
