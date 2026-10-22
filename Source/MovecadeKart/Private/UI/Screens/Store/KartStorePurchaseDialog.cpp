@@ -52,19 +52,19 @@ FKartStorePurchaseDialog::FKartStorePurchaseDialog(int32 InDefId, EDialogPhase I
 
 FKartStorePurchaseDialog::~FKartStorePurchaseDialog()
 {
-	if (FKartStore* S = UKartStoreSubsystem::Active(); S && S == BoundStore)
+	if (FKartStore* Store = UKartStoreSubsystem::Active(); Store && Store == BoundStore)
 	{
-		S->OnPurchaseFinished.Remove(Handle);
+		Store->OnPurchaseFinished.Remove(Handle);
 	}
 }
 
 void FKartStorePurchaseDialog::OnShown()
 {
 	FocusAt = PhaseAt = NowSeconds();
-	if (FKartStore* S = UKartStoreSubsystem::Active(); S && !BoundStore)
+	if (FKartStore* Store = UKartStoreSubsystem::Active(); Store && !BoundStore)
 	{
-		BoundStore = S;
-		Handle = S->OnPurchaseFinished.AddSP(this, &FKartStorePurchaseDialog::OnFinished);
+		BoundStore = Store;
+		Handle = Store->OnPurchaseFinished.AddSP(this, &FKartStorePurchaseDialog::OnFinished);
 	}
 }
 
@@ -117,7 +117,7 @@ void FKartStorePurchaseDialog::Paint(const FKartPainter& P, const FKartScreenFra
 	{
 		return;
 	}
-	const FKartStore* S = UKartStoreSubsystem::Active();
+	const FKartStore* Store = UKartStoreSubsystem::Active();
 	const float In = Ease::OutBack(static_cast<float>(Frame.Age / 0.3), 1.8f);
 	P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.66f * FMath::Min(1.f, static_cast<float>(Frame.Age / 0.2))));
 	const FVector2D& Size = DialogSize;
@@ -145,7 +145,7 @@ void FKartStorePurchaseDialog::Paint(const FKartPainter& P, const FKartScreenFra
 	Y += TitleAdvance;
 	if (Phase == EDialogPhase::Confirm)
 	{
-		D.Text(S ? S->GetPriceText(DefId) : FText::GetEmpty(), Font(EFont::Display, PriceSize, 2.f), FVector2D(TX, Y), Color::Hot);
+		D.Text(Store ? Store->GetPriceText(DefId) : FText::GetEmpty(), Font(EFont::Display, PriceSize, 2.f), FVector2D(TX, Y), Color::Hot);
 		Y += PriceAdvance;
 	}
 	else if (Phase == EDialogPhase::Waiting)
@@ -153,7 +153,7 @@ void FKartStorePurchaseDialog::Paint(const FKartPainter& P, const FKartScreenFra
 		PaintSpinner(D, FVector2D(TX + 26.0, Y + 26.0), SpinnerRadius, Frame.Now, Color::Sky);
 		Y += SpinnerAdvance;
 	}
-	for (const FText& Line : DialogLines(Phase, S, *Item, Detail))
+	for (const FText& Line : DialogLines(Phase, Store, *Item, Detail))
 	{
 		if (!Line.IsEmpty())
 		{
@@ -214,11 +214,11 @@ void FKartStorePurchaseDialog::SetPhase(EDialogPhase NewPhase)
 
 void FKartStorePurchaseDialog::Choose(int32 Button)
 {
-	FKartStore* S = UKartStoreSubsystem::Active();
+	FKartStore* Store = UKartStoreSubsystem::Active();
 	switch (Phase)
 	{
 	case EDialogPhase::Confirm:
-		if (Button == 0 && S && S->Purchase(DefId))
+		if (Button == 0 && Store && Store->Purchase(DefId))
 		{
 			Host->PlaySound(EKartUISound::Accept);
 			SetPhase(EDialogPhase::Waiting);
@@ -246,9 +246,9 @@ void FKartStorePurchaseDialog::Choose(int32 Button)
 		}
 		break;
 	case EDialogPhase::Success:
-		if (Button == 0 && CanEquip() && S)
+		if (Button == 0 && CanEquip() && Store)
 		{
-			S->Equip(DefId);
+			Store->Equip(DefId);
 			Host->PlaySound(EKartUISound::Go);
 		}
 		else
