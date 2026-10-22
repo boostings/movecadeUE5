@@ -108,7 +108,8 @@ namespace
 		}
 		P.Box(O + FVector2D(-0.28 * S, -0.3 * S), FVector2D(0.5 * S, 0.18 * S), Color::Night, 0.08f * S);
 		P.Circle(O + FVector2D(-0.04 * S, -0.42 * S), 0.17f * S, Color::White, Color::Night, 0.03f * S);
-		P.Box(O + FVector2D(-0.02 * S, -0.48 * S), FVector2D(0.16 * S, 0.08 * S), Color::Night, 0.03f * S);
+		P.Box(O + FVector2D(-0.19 * S, -0.52 * S), FVector2D(0.3 * S, 0.05 * S), Color::Hot, 0.02f * S);
+		P.Box(O + FVector2D(0.02 * S, -0.44 * S), FVector2D(0.12 * S, 0.1 * S), Color::Night, 0.04f * S);
 		P.Box(O + FVector2D(0.62 * S, -0.02 * S), FVector2D(0.18 * S, 0.06 * S), Color::Sun, 0.02f * S);
 	}
 
@@ -319,7 +320,7 @@ namespace
 		B.Box(Pos + FVector2D(0.0, 7.0), Size, Color::Shadow, R);
 		B.Gradient(Pos, Size, Body, Darker(Body, 0.18f), true, R);
 		B.Box(Pos, Size, FLinearColor::Transparent, R, Color::White, bEnabled ? 4.f : 2.f);
-		const FSlateFontInfo LabelFont = Font(EFont::Display, static_cast<float>(Size.Y) * 0.44f, bEnabled ? 3.f : 0.f);
+		const FSlateFontInfo LabelFont = Font(EFont::Title, static_cast<float>(Size.Y) * 0.42f);
 		const float GlyphH = static_cast<float>(Size.Y) * 0.5f;
 		const float TextW = static_cast<float>(FKartPainter::Measure(Label.ToString(), LabelFont).X);
 		const bool bGlyph = bEnabled && Action != EKartMenuAction::None;
@@ -421,7 +422,10 @@ namespace
 			}
 		}
 
-		virtual FName GetId() const override { return TEXT("store-purchase"); }
+		virtual FName GetId() const override
+		{
+			return Phase == EDialogPhase::Confirm ? FName(TEXT("store-buy")) : Phase == EDialogPhase::Success ? FName(TEXT("store-done")) : FName(TEXT("store-purchase"));
+		}
 		virtual bool IsModal() const override { return true; }
 		virtual TArray<FKartHint> GetHints() const override { return {}; }
 
@@ -487,7 +491,7 @@ namespace
 			const FKartStore* S = Store();
 			const float In = Ease::OutBack(static_cast<float>(Frame.Age / 0.3), 1.8f);
 			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.66f * FMath::Min(1.f, static_cast<float>(Frame.Age / 0.2))));
-			const FVector2D Size(980.0, 560.0);
+			const FVector2D Size(1000.0, 600.0);
 			const FVector2D Pos = Frame.Centre() - Size * 0.5;
 			const FKartPainter D = P.Transformed(Frame.Centre(), 0.7f + 0.3f * In);
 			const FLinearColor Accent = Phase == EDialogPhase::Success ? Color::Mint : Phase == EDialogPhase::Failed ? Color::Hot : Phase == EDialogPhase::Cancelled ? Color::NavyDim : Color::Sun;
@@ -510,18 +514,23 @@ namespace
 			Chip(D, FVector2D(TX, Y), SlotName(Item->Slot), Accent, 34.f);
 			Y += 52.0;
 			D.Text(Title(*Item), Font(EFont::Display, 46.f), FVector2D(TX, Y), Color::Navy);
-			Y += 66.0;
-			for (const FText& Line : Lines(S, *Item))
-			{
-				Y += D.TextWrapped(Line, Font(EFont::Body, 23.f), FVector2D(TX, Y), TW, Color::NavyDim).Y + 10.0;
-			}
+			Y += 64.0;
 			if (Phase == EDialogPhase::Confirm)
 			{
-				D.Text(S ? S->GetPriceText(DefId) : FText::GetEmpty(), Font(EFont::Display, 64.f, 3.f), FVector2D(TX, Pos.Y + 330.0), Color::Hot, FVector2D(0.0, 0.5));
+				D.Text(S ? S->GetPriceText(DefId) : FText::GetEmpty(), Font(EFont::Display, 52.f, 2.f), FVector2D(TX, Y), Color::Hot);
+				Y += 70.0;
 			}
 			else if (Phase == EDialogPhase::Waiting)
 			{
-				Spinner(D, FVector2D(TX + 36.0, Pos.Y + 330.0), 26.f, Frame.Now, Color::Sky);
+				Spinner(D, FVector2D(TX + 26.0, Y + 26.0), 22.f, Frame.Now, Color::Sky);
+				Y += 64.0;
+			}
+			for (const FText& Line : Lines(S, *Item))
+			{
+				if (!Line.IsEmpty())
+				{
+					Y += D.TextWrapped(Line, Font(EFont::Body, 21.f), FVector2D(TX, Y), TW, Color::NavyDim).Y + 10.0;
+				}
 			}
 
 			// Buttons along the bottom.
@@ -572,7 +581,7 @@ namespace
 			{
 			case EDialogPhase::Confirm:
 			{
-				TArray<FText> Out = { Item.Name, LOCTEXT("CosmeticOnly", "Cosmetic only: it changes how things look, never how they play.") };
+				TArray<FText> Out = { LOCTEXT("CosmeticOnly", "Cosmetic only: it changes how things look, never how they play.") };
 				if (Item.Slot == ESlot::Bundle && S)
 				{
 					const int32 Have = S->NumOwnedContents(Item.DefId);
@@ -856,7 +865,7 @@ namespace
 			PaintStatus(P, Frame, S);
 			PaintTabs(P, Frame);
 
-			const double Top = Frame.SafeMin.Y + 210.0;
+			const double Top = Frame.SafeMin.Y + 248.0;
 			PaintGrid(P, Frame, S, FVector2D(Frame.SafeMin.X + KartWidgets::SlideX(Frame), Top));
 			if (Items.IsValidIndex(Focus))
 			{
@@ -867,8 +876,8 @@ namespace
 
 	private:
 		static constexpr double TileW = 206.0;
-		static constexpr double TileH = 218.0;
-		static constexpr double Gap = 16.0;
+		static constexpr double TileH = 200.0;
+		static constexpr double Gap = 14.0;
 		static constexpr double DetailW = 600.0;
 
 		void Bind()
@@ -1064,7 +1073,7 @@ namespace
 			const FSlateFontInfo TabFont = Font(EFont::Button, 26.f);
 			const double H = 58.0, TabGap = 12.0;
 			double X = Frame.SafeMin.X + 56.0;
-			const double Y = Frame.SafeMin.Y + 126.0;
+			const double Y = Frame.SafeMin.Y + 166.0;
 			const float In = KartWidgets::Entrance(Frame, 0.05f);
 			const float GH = 36.f;
 			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::PrevTab, Frame.Device, FVector2D(Frame.SafeMin.X, Y + H * 0.5), GH);
@@ -1135,17 +1144,23 @@ namespace
 			const FLinearColor Edge = bFocused ? Color::Sun : State == EItemState::Equipped ? Color::Mint : FLinearColor::Transparent;
 			T.Card(Pos, Size, bDim ? Color::PaperShade : Color::Paper, Metric::Radius, bFocused ? 10.f : 6.f, Edge, bFocused ? 6.f : 4.f);
 			const FVector2D Art(Pos.X + 10.0, Pos.Y + 10.0);
-			const FVector2D ArtSize(Size.X - 20.0, 132.0);
+			const FVector2D ArtSize(Size.X - 20.0, 116.0);
 			T.Gradient(Art, ArtSize, Lighter(Item.Visual.Primary, 0.6f), Lighter(Item.Visual.Primary, 0.3f), true, Metric::Radius - 6.f);
 			const FKartPainter ArtP = bDim || State == EItemState::Locked || State == EItemState::NotDropped ? T.Faded(0.55f) : T;
-			PaintPreview(ArtP, Item, Art + ArtSize * 0.5, 52.f, bFocused ? Frame.Now : 0.0);
+			PaintPreview(ArtP, Item, Art + ArtSize * 0.5, 48.f, bFocused ? Frame.Now : 0.0);
 			if (State == EItemState::Locked || State == EItemState::NotDropped)
 			{
 				Lock(T, Art + FVector2D(ArtSize.X - 24.0, 30.0), 22.f, Color::Navy);
 			}
 			// Name and its state line.
-			T.Text(Item.Name, Font(EFont::Button, 21.f), FVector2D(Pos.X + 14.0, Pos.Y + 152.0), Color::Navy);
-			const FVector2D ChipPos(Pos.X + 12.0, Pos.Y + Size.Y - 42.0);
+			// The name shrinks to fit the tile rather than running off it.
+			float NameSize = 21.f;
+			while (NameSize > 15.f && FKartPainter::Measure(Item.Name.ToString(), Font(EFont::Button, NameSize)).X > Size.X - 26.0)
+			{
+				NameSize -= 1.f;
+			}
+			T.Text(Item.Name, Font(EFont::Button, NameSize), FVector2D(Pos.X + 14.0, Pos.Y + 134.0), Color::Navy);
+			const FVector2D ChipPos(Pos.X + 12.0, Pos.Y + Size.Y - 38.0);
 			switch (State)
 			{
 			case EItemState::Equipped:
@@ -1174,7 +1189,7 @@ namespace
 				Chip(T, ChipPos, LOCTEXT("ChipSoon", "SOON"), Color::NavyDim, 30.f);
 				break;
 			default:
-				Chip(T, ChipPos, S ? S->GetPriceText(Item.DefId) : FText::GetEmpty(), Color::Sun, 30.f);
+				Chip(T, ChipPos, S && S->HasPrice(Item.DefId) ? S->GetPriceText(Item.DefId) : LOCTEXT("ChipNoPrice", "NO PRICE"), S && S->HasPrice(Item.DefId) ? Color::Sun : Color::PaperShade, 30.f);
 				break;
 			}
 		}
@@ -1186,7 +1201,7 @@ namespace
 			const FKartPainter Card = P.Transformed(Pos + Size * 0.5, 0.95f + 0.05f * Pop).Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
 			const FVector2D Art(Pos.X + 18.0, Pos.Y + 18.0);
-			const FVector2D ArtSize(Size.X - 36.0, 280.0);
+			const FVector2D ArtSize(Size.X - 36.0, 230.0);
 			Card.Gradient(Art, ArtSize, Lighter(Item.Visual.Primary, 0.5f), FMath::Lerp(Item.Visual.Primary, Color::Night, 0.15f), true, Metric::Radius);
 			for (int32 Stripe = 0; Stripe < 5; ++Stripe)
 			{
@@ -1198,7 +1213,7 @@ namespace
 					Card.Box(FVector2D(X0, Art.Y), FVector2D(X1 - X0, ArtSize.Y), Color::WithAlpha(Color::White, 0.12f));
 				}
 			}
-			PaintPreview(Card, Item, Art + ArtSize * 0.5, 110.f, Frame.Now);
+			PaintPreview(Card, Item, Art + ArtSize * 0.5, 96.f, Frame.Now);
 			const EItemState State = S ? S->GetState(Item.DefId) : EItemState::ComingSoon;
 
 			double Y = Art.Y + ArtSize.Y + 18.0;

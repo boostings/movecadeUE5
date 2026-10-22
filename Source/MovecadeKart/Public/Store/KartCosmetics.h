@@ -25,6 +25,8 @@ struct MOVECADEKART_API FKartCosmetics
 	static void ApplyToLook(FKartLook& Look, int32 LocalPlayer);
 	/** The equipped paint's name for Player 1's paint row, or Fallback. */
 	static FText PaintName(int32 LocalPlayer, const FText& Fallback);
+	/** The equipped paint's colour for Player 1, or Fallback. */
+	static FLinearColor PaintColor(int32 LocalPlayer, const FLinearColor& Fallback);
 
 	/** Colours the shared bowling ball material for the bowler who is up. */
 	static void ApplyBowlingBall(UMaterialInstanceDynamic* BallMaterial, bool bLocalBowler, const FLinearColor& DefaultColor);

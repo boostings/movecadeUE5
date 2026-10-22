@@ -43,6 +43,12 @@ FText FKartCosmetics::PaintName(int32 LocalPlayer, const FText& Fallback)
 	return Paint ? Paint->Name : Fallback;
 }
 
+FLinearColor FKartCosmetics::PaintColor(int32 LocalPlayer, const FLinearColor& Fallback)
+{
+	const FItem* Paint = LocalPlayer == 0 ? Equipped(ESlot::KartPaint) : nullptr;
+	return Paint ? Paint->Visual.Primary : Fallback;
+}
+
 void FKartCosmetics::ApplyBowlingBall(UMaterialInstanceDynamic* BallMaterial, bool bLocalBowler, const FLinearColor& DefaultColor)
 {
 	if (!BallMaterial)

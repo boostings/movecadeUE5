@@ -390,7 +390,7 @@ bool AKartFrontEnd::TourShow(FName Step, double SecondsInStep)
 		return false;
 	}
 	const TSharedPtr<FKartScreen>& Top = Screens->Top();
-	const FName Expected = Step == TEXT("quit") ? FName(TEXT("confirm")) : Step == TEXT("storebuy") || Step == TEXT("storedone") ? FName(TEXT("store-purchase")) : Step;
+	const FName Expected = Step == TEXT("quit") ? FName(TEXT("confirm")) : Step == TEXT("storebuy") ? FName(TEXT("store-buy")) : Step == TEXT("storedone") ? FName(TEXT("store-done")) : Step;
 	if (!Top.IsValid() || Top->GetId() != Expected)
 	{
 		if (SecondsInStep < 0.2)

@@ -77,6 +77,8 @@ Screenshots of the store: `.\Tools\ui\shots.ps1 -Steps 'store,storeparty,storefr
    $env:MOVECADE_STEAM = '1'
    & "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" MyProjectEditor Win64 Development "-Project=$p\MyProject.uproject" -NoMutex -NoHotReloadFromIDE
    ```
+   UBT caches the module rules, so after switching the variable on or off, touch `Source/MovecadeKart/MovecadeKart.Build.cs`
+   (any edit or a new timestamp) or the build stays "up to date" in the old mode.
    `MovecadeKart.Build.cs` then adds the engine's `Steamworks` module (SDK 1.64, in
    `Engine/Source/ThirdParty/Steamworks`) and defines `MOVECADE_WITH_STEAM=1`. No plugin is required: the backend
    loads `steam_api64.dll` from `Engine/Binaries/ThirdParty/Steamworks/Steamv164/Win64` (it is staged with packaged

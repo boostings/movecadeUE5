@@ -1127,7 +1127,7 @@ namespace
 		{
 			const FSlot& Slot = Slots[Player];
 			const FKartRacerChoice C = FKartRoster::Sanitize(Session(Host) ? Choice(Player) : FKartRoster::DefaultChoice(Player));
-			const FLinearColor Paint = FKartRoster::PaintColor(C.Paint);
+			const FLinearColor Paint = FKartCosmetics::PaintColor(Player, FKartRoster::PaintColor(C.Paint)); // store cosmetics
 			const float Join = Ease::OutBack(static_cast<float>((Frame.Now - Slot.JoinedAt) / 0.4), 2.f);
 			const float In = FMath::Min(KartWidgets::Entrance(Frame, 0.1f + Player * 0.06f), FMath::Max(Join, 0.f));
 			const FKartPainter Card = P.Transformed(Pos + Size * 0.5, 0.85f + 0.15f * In).Faded(In);
@@ -1149,7 +1149,7 @@ namespace
 				// Only P1's card is mouse-driven (the keyboard and mouse belong to player 1).
 				const FKartPainter RowPainter = Player == 0 ? Card : Card.Faded(0.999f);
 				CompactRow(RowPainter, RowPos, FVector2D(Size.X - 32.0, RowH), Labels[Row], Values[Row], State, Player == 0 ? Row : -1,
-					Row == 3 ? FKartRoster::PaintColor(C.Paint) : FLinearColor::Transparent);
+					Row == 3 ? Paint : FLinearColor::Transparent);
 			}
 			// Ready bar / stamp.
 			const FVector2D ReadyPos(Pos.X + 16.0, Pos.Y + Size.Y - 70.0);

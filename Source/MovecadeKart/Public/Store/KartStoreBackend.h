@@ -76,6 +76,8 @@ namespace MovecadeKart::Store
 		double InventorySeconds = 0.45;
 		double PriceSeconds = 0.35;
 		const TSet<int32>& GetServerInventory() const { return Inventory; }
+		/** Development: puts items in the pretend inventory (-KartStoreEquip). */
+		void DevGrant(const TArray<int32>& DefIds) { Grant(DefIds); }
 		/** A refund, as Steam support would do it: the item leaves the inventory. */
 		void Revoke(int32 DefId);
 		/** Forgets everything, including the save slot. */

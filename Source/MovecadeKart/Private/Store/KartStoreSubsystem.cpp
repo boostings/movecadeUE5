@@ -44,18 +44,51 @@ void UKartStoreSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		Backend = MakeSteamBackend(DevAppId);
 	}
+	// Development: -KartStoreEquip=paint.chrome,ball.galaxy grants (mock only) and wears items, for screenshots and checks.
+	TArray<int32> DevEquip;
+#if !UE_BUILD_SHIPPING
+	FString EquipList;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KartStoreEquip="), EquipList, false))
+	{
+		TArray<FString> Keys;
+		EquipList.ParseIntoArray(Keys, TEXT(","));
+		for (const FString& Key : Keys)
+		{
+			if (const FItem* Item = FindItem(FName(*Key.TrimStartAndEnd())))
+			{
+				DevEquip.Add(Item->DefId);
+			}
+		}
+	}
+#endif
 	if (!Backend)
 	{
 		TUniquePtr<FMockStoreBackend> Mock = MakeUnique<FMockStoreBackend>();
 #if UE_BUILD_SHIPPING
 		// A shipped game never hands out paid items without Steam: offline shows what the cache says is owned.
 		Mock->SetOnline(false);
+#else
+		Mock->DevGrant(DevEquip);
 #endif
 		Backend = MoveTemp(Mock);
 	}
 	UE_LOG(LogKartStoreSubsystem, Display, TEXT("Store backend: %s"), *Backend->GetName().ToString());
 	Store = MakeUnique<FKartStore>(MoveTemp(Backend), TEXT("KartStore"));
 	Store->Start();
+	if (DevEquip.Num() > 0)
+	{
+		// Wear them once the inventory has them.
+		TSharedRef<FDelegateHandle> Once = MakeShared<FDelegateHandle>();
+		*Once = Store->OnRestored.AddLambda([this, DevEquip, Once](bool)
+		{
+			for (int32 Def : DevEquip)
+			{
+				Store->Equip(Def);
+			}
+			UE_LOG(LogKartStoreSubsystem, Display, TEXT("KartStoreEquip: %d items worn"), DevEquip.Num());
+			Store->OnRestored.Remove(*Once);
+		});
+	}
 	GLiveStore = Store.Get();
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UKartStoreSubsystem::Tick));
 }

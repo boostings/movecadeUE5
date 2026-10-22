@@ -75,6 +75,8 @@ namespace MovecadeKart::Store
 		EItemState GetState(int32 DefId) const;
 		/** True and the price when it can be bought now. */
 		bool CanPurchase(int32 DefId) const;
+		/** The backend gave a price for it. */
+		bool HasPrice(int32 DefId) const { return Prices.Contains(DefId); }
 		/** "$1.99", "Free", "Price unavailable". */
 		FText GetPriceText(int32 DefId) const;
 		/** Earned items: current value and goal of the stat. False for others. */
