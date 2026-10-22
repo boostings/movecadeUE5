@@ -7,13 +7,16 @@ Run headless from the project root, after `node Tools/art/decode.mjs` and the ve
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'vehicles' }   (vehicles | drivers | outfits | materials)
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'kartmaterials' }   (vehicle masters + detail maps only)
     .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'avatarmaterials' }   (avatar masters + shared eye instances)
+    .\\Tools\\ue\\run.ps1 import_karts.py @{ KART_ART = 'avatarfaces' }   (face maps, skin and eye masters, skin tones)
 
 Layout:
     /Game/Karts/Materials      M_KartPaint (clear coat, metallic flake), M_KartTyre, M_VehiclePart (detail maps),
                                M_KartCarbon (clear-coated weave), default textures
     /Game/Karts/Materials/Textures   the generated detail maps (Tools/art/detail/textures, make_textures.py)
     /Game/Karts/<Vehicle>      SM_<Vehicle>_<node> static meshes (node-local pivots: wheels spin about their hub)
-    /Game/Avatars/Materials    M_AvatarSkin (subsurface profile), M_AvatarHair, M_AvatarCloth (cloth), M_AvatarSurface
+    /Game/Avatars/Materials    M_AvatarSkin (subsurface profile), MI_AvatarSkin_<Tone> (a profile per skin tone),
+                               M_AvatarEye (the painted, turning iris), M_AvatarBrow (brows and lashes), M_AvatarHair, M_AvatarCloth (cloth), M_AvatarSurface
+    /Game/Avatars/Materials/Textures   the face maps (Tools/art/detail/make_avatar_textures.py)
     /Game/Avatars/SK_Avatar4_Skeleton   the one 26-joint skeleton every driver and outfit shares
     /Game/Avatars/Drivers/<face>_<body>/SK_Driver_<face>_<body>
     /Game/Avatars/Outfits/<outfit>_<body>/SK_Outfit_<outfit>_<body>
@@ -203,13 +206,22 @@ def default_tex(name):
 # Master materials
 # --------------------------------------------------------------------------------------------------
 class Graph:
-    def __init__(self, folder, name, shading):
+    def __init__(self, folder, name, shading, in_place=False):
         path = f"{folder}/{name}"
         self.path = path
-        self.replaces = ASSETS.load_asset(path) if ASSETS.does_asset_exist(path) else None
-        # An existing master is rebuilt beside it and swapped in on save, so its instances keep a parent.
-        self.mat = TOOLS.create_asset(f"{name}_Rebuilt" if self.replaces else name, folder, unreal.Material,
-                                      unreal.MaterialFactoryNew())
+        existing = ASSETS.load_asset(path) if ASSETS.does_asset_exist(path) else None
+        if existing is not None and in_place:
+            # Rebuilt in the same asset: its instances keep their parent and are left untouched on disk.
+            self.replaces = None
+            self.mat = existing
+            MEL.delete_all_material_expressions(self.mat)
+            for node in MEL.get_material_expressions(self.mat):  # anything the bulk delete leaves behind
+                MEL.delete_material_expression(self.mat, node)
+        else:
+            self.replaces = existing
+            # An existing master is rebuilt beside it and swapped in on save, so its instances keep a parent.
+            self.mat = TOOLS.create_asset(f"{name}_Rebuilt" if self.replaces else name, folder, unreal.Material,
+                                          unreal.MaterialFactoryNew())
         self.mat.set_editor_property("shading_model", shading)
         self.x = -900
         self.y = -300
@@ -313,6 +325,29 @@ class Graph:
             self.link(src, src_out, n, name)
         return n
 
+    def static_switch(self, name, when_on, when_off, default=False):
+        """A static switch parameter: compiled out of every instance that leaves it at its default."""
+        n = self.node(unreal.MaterialExpressionStaticSwitchParameter)
+        n.set_editor_property("parameter_name", name)
+        n.set_editor_property("default_value", default)
+        self.link(when_on, "", n, "True")
+        self.link(when_off, "", n, "False")
+        return n
+
+    def transform(self, node, source, dest, output=""):
+        n = self.node(unreal.MaterialExpressionTransform)
+        n.set_editor_property("transform_source_type", source)
+        n.set_editor_property("transform_type", dest)
+        self.link(node, output, n, "")
+        return n
+
+    def rest_position(self):
+        """The skinned mesh's rest-pose (pre-skinning) position, carried to the pixel shader through an interpolator
+        (the node itself only exists in the vertex shader)."""
+        n = self.node(unreal.MaterialExpressionVertexInterpolator)
+        self.link(self.node(unreal.MaterialExpressionPreSkinnedPosition), "", n, "VS")
+        return n
+
     def const(self, value):
         n = self.node(unreal.MaterialExpressionConstant)
         n.set_editor_property("r", value)
@@ -363,7 +398,7 @@ def set_usage(mat):
 
 
 def fix_usage():
-    for name in ("M_AvatarSkin", "M_AvatarHair", "M_AvatarCloth", "M_AvatarSurface"):
+    for name in ("M_AvatarSkin", "M_AvatarEye", "M_AvatarBrow", "M_AvatarHair", "M_AvatarCloth", "M_AvatarSurface"):
         mat = ASSETS.load_asset(f"{AVATAR_MATS}/{name}")
         set_usage(mat)
         MEL.recompile_material(mat)
@@ -454,6 +489,40 @@ def import_detail_textures():
             set_if(tex, "srgb", False)
         ASSETS.save_asset(f"{DETAIL_TEX}/{name}", only_if_is_dirty=False)
     log(f"detail textures: {len(tasks)} in {DETAIL_TEX}")
+
+
+# The avatar face maps (Tools/art/detail/make_avatar_textures.py): file stem -> (asset, kind).
+AVATAR_TEX = f"{AVATAR_MATS}/Textures"
+AVATAR_TEXTURE_FILES = {"skin_pores_n": ("T_SkinPores_N", "normal"), "iris_c": ("T_Iris_C", "mask")}
+
+
+def import_avatar_textures():
+    tasks = []
+    for stem, (name, _) in sorted(AVATAR_TEXTURE_FILES.items()):
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", os.path.join(DETAIL_TEXTURES, f"{stem}.png"))
+        task.set_editor_property("destination_path", AVATAR_TEX)
+        task.set_editor_property("destination_name", name)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("replace_existing", True)
+        tasks.append(task)
+    TOOLS.import_asset_tasks(tasks)
+    for stem, (name, kind) in sorted(AVATAR_TEXTURE_FILES.items()):
+        tex = ASSETS.load_asset(f"{AVATAR_TEX}/{name}")
+        if kind == "normal":
+            set_if(tex, "compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
+            set_if(tex, "srgb", False)
+            set_if(tex, "flip_green_channel", False)
+        else:
+            set_if(tex, "compression_settings", unreal.TextureCompressionSettings.TC_MASKS)
+            set_if(tex, "srgb", False)
+        ASSETS.save_asset(f"{AVATAR_TEX}/{name}", only_if_is_dirty=False)
+    log(f"avatar textures: {len(tasks)} in {AVATAR_TEX}")
+
+
+def avatar_tex(name, fallback=None):
+    path = f"{AVATAR_TEX}/{name}"
+    return ASSETS.load_asset(path) if ASSETS.does_asset_exist(path) else fallback
 
 
 def detail_tex(name, fallback=None):
@@ -614,62 +683,289 @@ return (pow(saturate(dot(r, key)), 220.0) + 0.55 * pow(saturate(dot(r, fill)), 9
 """
 
 
-def make_avatar_masters():
+def avatar_common(g, tint_default, rough, use_vertex_color=False, ao=True, detail=1.0, ao_strength=1.0, detail_normal=False):
+    """Tint over the baked albedo, roughness, the baked normal (optionally a tiled weave over it) and baked AO:
+    what every avatar master shares. Returns the Tint node."""
     white, linear = default_tex("T_Default_White"), default_tex("T_Default_WhiteLinear")
-
-    def common(g, tint_default, rough, use_vertex_color=False, ao=True, detail=1.0, ao_strength=1.0, detail_normal=False):
-        tint = g.vector("Tint", tint_default)
-        tex = g.texture("BaseTex", white, SAMPLER_COLOR)
-        if detail < 1.0:
-            # How much of the baked albedo shows under the tint (the atlas carries blush and seams).
-            base = g.mul(g.lerp(g.const(1.0), tex, g.scalar("AlbedoDetail", detail), "", "RGB"), tint, "", "RGB")
+    tint = g.vector("Tint", tint_default)
+    tex = g.texture("BaseTex", white, SAMPLER_COLOR)
+    if detail < 1.0:
+        # How much of the baked albedo shows under the tint (the atlas carries blush and seams).
+        base = g.mul(g.lerp(g.const(1.0), tex, g.scalar("AlbedoDetail", detail), "", "RGB"), tint, "", "RGB")
+    else:
+        base = g.mul(tex, tint, "RGB")
+    if use_vertex_color:
+        vc = g.node(unreal.MaterialExpressionVertexColor)
+        base = g.mul(base, vc, "", "")
+    g.out(base, "BaseColor")
+    g.out(g.scalar("Roughness", rough), "Roughness")
+    normal = g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL)
+    if detail_normal:
+        # A tiled weave over the baked normal (off by default; the stock clothes turn it on).
+        weave = g.texture_at("DetailNormalTex", flat_normal(), SAMPLER_NORMAL, g.uv(0, g.scalar("DetailScale", 24.0)))
+        g.out(g.blend_normals(normal, "RGB", weave, "RGB", g.scalar("DetailNormalStrength", 0.0)), "Normal")
+    else:
+        g.out(normal, "Normal", "RGB")
+    if ao:
+        occlusion = g.texture("AOTex", linear, SAMPLER_MASKS)
+        if ao_strength < 1.0:
+            # The 512 px atlas bakes heavy blobs into eye sockets and nostrils: only a share of it shows.
+            g.out(g.lerp(g.const(1.0), occlusion, g.scalar("AOStrength", ao_strength), "", "R"), "AmbientOcclusion")
         else:
-            base = g.mul(tex, tint, "RGB")
-        if use_vertex_color:
-            vc = g.node(unreal.MaterialExpressionVertexColor)
-            base = g.mul(base, vc, "", "")
-        g.out(base, "BaseColor")
-        g.out(g.scalar("Roughness", rough), "Roughness")
-        normal = g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL)
-        if detail_normal:
-            # A tiled weave over the baked normal (off by default; the stock clothes turn it on).
-            weave = g.texture_at("DetailNormalTex", flat_normal(), SAMPLER_NORMAL, g.uv(0, g.scalar("DetailScale", 24.0)))
-            g.out(g.blend_normals(normal, "RGB", weave, "RGB", g.scalar("DetailNormalStrength", 0.0)), "Normal")
-        else:
-            g.out(normal, "Normal", "RGB")
-        if ao:
-            occlusion = g.texture("AOTex", linear, SAMPLER_MASKS)
-            if ao_strength < 1.0:
-                # The 512 px atlas bakes heavy blobs into eye sockets and nostrils: only a share of it shows.
-                g.out(g.lerp(g.const(1.0), occlusion, g.scalar("AOStrength", ao_strength), "", "R"), "AmbientOcclusion")
-            else:
-                g.out(occlusion, "AmbientOcclusion", "R")
-        return tint
+            g.out(occlusion, "AmbientOcclusion", "R")
+    return tint
 
-    def view(g):
-        return g.node(unreal.MaterialExpressionCameraVectorWS), g.node(unreal.MaterialExpressionVertexNormalWS)
 
-    def rim_colour(g):
-        return g.vector("RimColor", (0.0, 0.0, 0.0)), g.scalar("RimBoost", 0.0)
+def avatar_view(g):
+    return g.node(unreal.MaterialExpressionCameraVectorWS), g.node(unreal.MaterialExpressionVertexNormalWS)
 
-    # Skin: screen-space subsurface (a warm profile of its own) over a softened albedo bake, vertex-colour
-    # warmth on cheeks and nose, the peach-fuzz rim and the lift.
-    g = Graph(AVATAR_MATS, "M_AvatarSkin", unreal.MaterialShadingModel.MSM_SUBSURFACE_PROFILE)
-    tint = common(g, (0.63, 0.25, 0.14), 0.55, use_vertex_color=True, detail=0.7, ao_strength=0.35)
-    v, n = view(g)
-    rim, boost = rim_colour(g)
-    g.out(g.custom(SKIN_GLOW, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.12), "Power": g.scalar("RimPower", 3.0),
-                               "Lift": g.scalar("Lift", 0.008), "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="SkinGlow"), "EmissiveColor")
-    g.out(g.scalar("Specular", 0.36), "Specular")
-    profile = skin_profile()
+
+def avatar_rim_colour(g):
+    return g.vector("RimColor", (0.0, 0.0, 0.0)), g.scalar("RimBoost", 0.0)
+
+
+# The face's regions from its rest-space position, hung off the eyes (FEyeRig, AvatarDressing.cpp: the right eye's
+# centre, +X; the mesh faces -Y, Z up), scaled by the eye spacing so they fit every face: x the oily T-zone (forehead
+# and nose), y the matte cheeks, z the cavities (eye sockets and lid creases, nose wings, mouth corners), w the thin
+# parts that glow through (ears, nose tip).
+SKIN_REGIONS = r"""
+float s = max(EyeCentre.x, 1.0) / 6.2;
+float3 h = (P - float3(0.0, EyeCentre.y, EyeCentre.z)) / s;
+float ax = abs(h.x);
+float front = saturate((-h.y - 1.0) / 3.0);
+float forehead = saturate(1.0 - length(float2(h.x / 6.0, (h.z - 6.5) / 4.0)));
+float nose = saturate(1.0 - length(float3(h.x / 2.0, (h.y + 6.0) / 3.5, (h.z + 3.0) / 5.5)));
+float oily = saturate(max(forehead, nose) * 1.8) * front;
+float cheek = smoothstep(0.0, 1.0, saturate(1.0 - length(float2((ax - 6.5) / 4.2, (h.z + 5.5) / 4.0)))) * front;
+float eye = length(float3(ax - EyeCentre.x / s, h.y, h.z));
+float socket = saturate(1.0 - abs(eye - 5.1) / 0.9) * (0.55 + 0.45 * saturate(h.z / 2.0 + 0.5)) * front;
+float wings = saturate(1.0 - length(float3(ax - 2.1, h.y + 5.3, h.z + 6.2)) / 1.2);
+float corners = saturate(1.0 - length(float3(ax - 4.0, h.y + 4.6, h.z + 11.0)) / 1.1);
+float cavity = saturate(max(socket * 0.85, max(wings, corners)));
+float ears = saturate((ax - 13.6) / 1.4) * saturate(1.0 - abs(h.z + 2.5) / 6.0);
+float tip = saturate(1.0 - length(float3(h.x, h.y + 7.6, h.z + 5.2)) / 1.8);
+return float4(oily, cheek, cavity, saturate(max(ears, tip)));
+"""
+
+# Skin colour: the bake under the tint, with the vertex blush (cheeks, nose, ears) as a flush rather than a flat
+# multiply (which turned deep tones maroon), redder over the cheeks, nose tip and ears, and the lids and creases a
+# little darker and warmer, as real ones are. Flush scales the redness per tone (FSkinTuning).
+SKIN_COLOUR = r"""
+float blush = saturate((1.0 - VC.g) * 2.1);
+float red = saturate(blush * 0.5 + Regions.y * 0.6 + Regions.w * 0.6) * Flush;
+float3 col = Base * lerp(float3(1.0, 1.0, 1.0), float3(1.0, 0.72, 0.68), red * 0.75);
+col *= lerp(float3(1.0, 1.0, 1.0), float3(0.8, 0.7, 0.7), Regions.z * Cavity);
+return lerp(dot(col, float3(0.3, 0.59, 0.11)).xxx, col, Saturation);
+"""
+
+
+def make_skin_master(in_place=False):
+    """Skin: screen-space subsurface (each tone's instance picks its own profile) over a softened albedo bake; a
+    tiled pore micro-normal that fades out with distance; roughness that is oilier on the T-zone and matte on the
+    cheeks; cavity occlusion round the eyes, nose and mouth; the vertex blush deepened into a flush (cheeks, nose,
+    ears); thin parts scattering more; the peach-fuzz rim and the lift."""
+    linear = default_tex("T_Default_WhiteLinear")
+    g = Graph(AVATAR_MATS, "M_AvatarSkin", unreal.MaterialShadingModel.MSM_SUBSURFACE_PROFILE, in_place=in_place)
+    tint = g.vector("Tint", (0.63, 0.25, 0.14))
+    tex = g.texture("BaseTex", default_tex("T_Default_White"), SAMPLER_COLOR)
+    vc = g.node(unreal.MaterialExpressionVertexColor)
+    base = g.mul(g.lerp(g.const(1.0), tex, g.scalar("AlbedoDetail", 0.7), "", "RGB"), tint, "", "RGB")
+    regions = g.custom(SKIN_REGIONS, {"P": g.rest_position(),
+                                      "EyeCentre": (g.vector("EyeCentre", (5.99, -9.125, 224.053)), "RGB")},
+                       out=unreal.CustomMaterialOutputType.CMOT_FLOAT4, desc="SkinRegions")
+    cavity_strength = g.scalar("Cavity", 0.85)
+    colour = g.custom(SKIN_COLOUR, {"Base": base, "VC": vc, "Regions": regions, "Flush": g.scalar("Flush", 1.0), "Cavity": cavity_strength,
+                                    "Saturation": g.scalar("Saturation", 0.9)},
+                      desc="SkinColour")
+    oily, cheek, cavity, thin = (g.mask(regions, "", c) for c in "rgba")
+
+    # Roughness: oily T-zone, matte cheeks.
+    rough = g.add(g.scalar("Roughness", 0.47), g.add(g.mul(cheek, g.scalar("CheekMatte", 0.1)), g.mul(oily, g.scalar("TZoneOil", -0.15))))
+    g.out(rough, "Roughness")
+    g.out(g.mul(g.scalar("Specular", 0.42), g.lerp(g.const(1.0), g.const(0.45), cavity)), "Specular")
+
+    # Pores over the baked normal, fading out by PoreFadeDistance (cm) so they never shimmer.
+    normal = g.texture("NormalTex", flat_normal(), SAMPLER_NORMAL)
+    pores = g.texture_at("PoreNormalTex", avatar_tex("T_SkinPores_N", flat_normal()), SAMPLER_NORMAL, g.uv(0, g.scalar("PoreScale", 80.0)))
+    fade = g.node(unreal.MaterialExpressionPixelDepth)
+    near = g.custom("return saturate(1.0 - Depth / FadeAt);", {"Depth": fade, "FadeAt": g.scalar("PoreFadeDistance", 900.0)},
+                    out=unreal.CustomMaterialOutputType.CMOT_FLOAT1, desc="PoreFade")
+    g.out(g.blend_normals(normal, "RGB", pores, "RGB", g.mul(g.scalar("PoreStrength", 0.35), near)), "Normal")
+
+    # Occlusion: a share of the bake, deepened in the cavities.
+    occlusion = g.texture("AOTex", linear, SAMPLER_MASKS)
+    baked = g.lerp(g.const(1.0), occlusion, g.scalar("AOStrength", 0.35), "", "R")
+    g.out(g.mul(baked, g.lerp(g.const(1.0), g.const(0.55), g.mul(cavity, cavity_strength))), "AmbientOcclusion")
+    # Scatter (the profile's radius, per pixel): more through the ears and nose tip.
+    g.out(g.mul(g.scalar("Scatter", 0.8), g.lerp(g.const(0.8), g.const(1.0), thin)), "Opacity")
+
+    v, n = avatar_view(g)
+    rim, boost = avatar_rim_colour(g)
+    glow = g.custom(SKIN_GLOW, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.12), "Power": g.scalar("RimPower", 3.0),
+                                "Lift": g.scalar("Lift", 0.008), "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="SkinGlow")
+    g.out(g.static_switch("DebugRegions", regions, glow), "EmissiveColor")
+    g.out(g.static_switch("DebugRegions", g.const(0.0), colour), "BaseColor")
+    profile = skin_profile("SP_AvatarSkin", SKIN_PROFILES["Medium"])
     if profile is not None:
         set_if(g.mat, "subsurface_profile", profile)
-    g.save()
+    return g.save()
+
+
+# Eyes: one material paints the whole eyeball (the modelled iris and pupil are hidden, FDressing::DressEyes), so the
+# iris can turn (EyeGaze, the eyes' direction in the mesh's rest space, written by UArcadeAvatarComponent). The iris
+# sits under a clear cornea (IrisDepth shifts it away from the viewer: parallax), its stroma from T_Iris_C, a warmer
+# collarette round the pupil and a soft dark limbal ring; the sclera is a warm off-white, pinker and faintly veined
+# toward the corners, shadowed under the upper lid and in the corners; a wet line runs along the lower lid.
+# Returns the colour, and in alpha how wet (glossy) the surface is: the cornea and the tear line.
+EYE_COLOUR = r"""
+float3 side = float3(P.x < 0.0 ? -1.0 : 1.0, 1.0, 1.0);
+float3 d = normalize(P - EyeCentre * side);
+float3 g = normalize(Gaze);
+float3 v = normalize(View);
+float cosA = dot(d, g);
+float sinR = sin(IrisSize);
+float3 q = ((d - g * cosA) - (v - g * dot(v, g)) * IrisDepth * sinR) / sinR;
+float r = length(q);
+float3 ax = normalize(cross(float3(0.0, 0.0, 1.0), g));
+float3 ay = cross(g, ax);
+float4 st = Texture2DSample(IrisTex, IrisTexSampler, 0.5 + 0.5 * float2(dot(q, ax), -dot(q, ay)));
+float3 iris = Iris * (0.5 + 1.0 * st.r);
+iris = lerp(iris, Iris * float3(1.5, 1.2, 0.65) + 0.01, st.g * 0.35);
+iris *= 1.0 - 0.45 * st.b;
+iris = lerp(iris, float3(0.006, 0.005, 0.007), 1.0 - smoothstep(Pupil - 0.06, Pupil + 0.04, r));
+float edge = cosA > 0.0 ? smoothstep(1.0 - Limbal, 1.0 + Limbal * 0.4, r) : 1.0;
+float ring = saturate(edge * (1.0 - edge) * 4.0);
+float corner = saturate((1.0 + d.y) * 2.2);
+float veins = saturate((0.42 - Texture2DSample(IrisTex, IrisTexSampler, d.xz * 1.7 + 0.31).r) * 5.0) * corner;
+float3 sclera = Sclera * lerp(float3(1.0, 1.0, 1.0), float3(1.0, 0.86, 0.82), corner * 0.2);
+sclera = lerp(sclera, Sclera * float3(0.9, 0.45, 0.42), veins * 0.1);
+float3 col = lerp(iris, sclera, edge) * (1.0 - LimbalDark * ring);
+float shade = saturate(smoothstep(0.0, 0.6, d.z) * LidShadow + smoothstep(0.55, 0.9, abs(d.x)) * 0.3);
+col *= 1.0 - shade;
+float tear = (1.0 - saturate(abs(d.z - TearLine) / 0.05)) * TearWet;
+return float4(col, saturate(max(1.0 - edge, tear)));
+"""
+
+# Lid occlusion on the eyeball (AO), the same shadow the colour carries.
+EYE_SHADOW = r"""
+float3 side = float3(P.x < 0.0 ? -1.0 : 1.0, 1.0, 1.0);
+float3 d = normalize(P - EyeCentre * side);
+return 1.0 - saturate(smoothstep(0.0, 0.6, d.z) * LidShadow + smoothstep(0.55, 0.9, abs(d.x)) * 0.3);
+"""
+
+
+def make_eye_master(in_place=False):
+    """The eyeball (see EYE_COLOUR): its colour and wetness, a mirror-sharp cornea, catchlights over the iris only,
+    a faint glow so a shaded iris never goes dead, and the lids' occlusion."""
+    g = Graph(AVATAR_MATS, "M_AvatarEye", unreal.MaterialShadingModel.MSM_DEFAULT_LIT, in_place=in_place)
+    pos = g.rest_position()
+    centre = (g.vector("EyeCentre", (5.99, -9.125, 224.053)), "RGB")
+    view_ws = g.node(unreal.MaterialExpressionCameraVectorWS)
+    view_local = g.transform(view_ws, unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
+                             unreal.MaterialVectorCoordTransform.TRANSFORM_LOCAL)
+    iris_tex = g.node(unreal.MaterialExpressionTextureObjectParameter)
+    iris_tex.set_editor_property("parameter_name", "IrisTex")
+    iris_tex.set_editor_property("texture", avatar_tex("T_Iris_C", default_tex("T_Default_WhiteLinear")))
+    iris_tex.set_editor_property("sampler_type", SAMPLER_MASKS)
+    lid_shadow = g.scalar("LidShadow", 0.6)
+    eye = g.custom(EYE_COLOUR, {
+        "P": pos, "EyeCentre": centre, "Gaze": (g.vector("EyeGaze", (0.0, -1.0, 0.0)), "RGB"), "View": view_local,
+        "IrisTex": iris_tex, "Iris": (g.vector("IrisColor", IRIS), "RGB"), "IrisSize": g.scalar("IrisSize", 0.47),
+        "IrisDepth": g.scalar("IrisDepth", 0.3), "Pupil": g.scalar("PupilSize", 0.36), "Limbal": g.scalar("LimbalWidth", 0.16),
+        "LimbalDark": g.scalar("LimbalDark", 0.9), "Sclera": (g.vector("ScleraColor", (0.66, 0.63, 0.59)), "RGB"),
+        "LidShadow": lid_shadow, "TearLine": g.scalar("TearLine", -0.25), "TearWet": g.scalar("TearWet", 0.8),
+    }, out=unreal.CustomMaterialOutputType.CMOT_FLOAT4, desc="EyeColour")
+    colour = g.mask(eye, "", "rgb")
+    wet = g.mask(eye, "", "a")
+    g.out(colour, "BaseColor")
+    g.out(g.lerp(g.scalar("ScleraRoughness", 0.16), g.scalar("CorneaRoughness", 0.03), wet), "Roughness")
+    g.out(g.scalar("Specular", 0.6), "Specular")
+    g.out(g.custom(EYE_SHADOW, {"P": pos, "EyeCentre": centre, "LidShadow": lid_shadow}, out=unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                   desc="EyeShadow"), "AmbientOcclusion")
+    v, n = avatar_view(g)
+    glint = g.custom(EYE_CATCHLIGHT, {"N": n, "V": v, "Catchlight": g.scalar("Catchlight", 6.0)},
+                     out=unreal.CustomMaterialOutputType.CMOT_FLOAT1, desc="Catchlight")
+    g.out(g.add(g.mul(glint, wet), g.mul(colour, g.scalar("Glow", 0.06))), "EmissiveColor")
+    return g.save()
+
+
+# Brows and lashes (the drivers' "hair" slot): one mesh part, told apart by height over the eyes (FEyeRig: lashes sit
+# within 2 cm of the eye's centre height, brows 2.8 cm and more above it). Brows are the hair colour softened toward
+# the skin under them; lashes are near black whatever the hair, which frames the eyes.
+BROW_COLOUR = r"""
+float s = max(EyeCentre.x, 1.0) / 6.2;
+float lash = 1.0 - smoothstep(2.0, 2.6, (P.z - EyeCentre.z) / s);
+return lerp(lerp(Tint, Skin, SkinShow), lerp(Lash, Tint, 0.15), lash);
+"""
+
+
+def make_brow_master(in_place=False):
+    g = Graph(AVATAR_MATS, "M_AvatarBrow", unreal.MaterialShadingModel.MSM_DEFAULT_LIT, in_place=in_place)
+    g.out(g.custom(BROW_COLOUR, {"P": g.rest_position(), "EyeCentre": (g.vector("EyeCentre", (5.99, -9.125, 224.053)), "RGB"),
+                                 "Tint": (g.vector("Tint", (0.04, 0.018, 0.012)), "RGB"), "Skin": (g.vector("SkinTint", (0.63, 0.25, 0.14)), "RGB"),
+                                 "SkinShow": g.scalar("SkinShow", 0.2), "Lash": (g.vector("LashColor", (0.01, 0.007, 0.006)), "RGB")},
+                   desc="BrowColour"), "BaseColor")
+    g.out(g.scalar("Roughness", 0.62), "Roughness")
+    g.out(g.scalar("Specular", 0.35), "Specular")
+    return g.save()
+
+
+# Subsurface profiles per skin tone (FSkinTuning picks one): light skin scatters further and redder; deep skin's
+# melanin keeps the scatter shorter and browner, so it never greys or glows orange.
+SKIN_PROFILES = {
+    "Light": {"surface_albedo": (0.95, 0.44, 0.36), "mean_free_path_color": (1.0, 0.42, 0.24), "mean_free_path_distance": 0.85,
+              "subsurface_color": (0.98, 0.4, 0.3), "falloff_color": (1.0, 0.4, 0.33)},
+    "Medium": {"surface_albedo": (0.91, 0.34, 0.27), "mean_free_path_color": (1.0, 0.36, 0.18), "mean_free_path_distance": 0.7,
+               "subsurface_color": (0.95, 0.32, 0.22), "falloff_color": (1.0, 0.37, 0.3)},
+    "Deep": {"surface_albedo": (0.72, 0.3, 0.2), "mean_free_path_color": (0.9, 0.32, 0.16), "mean_free_path_distance": 0.5,
+             "subsurface_color": (0.7, 0.26, 0.16), "falloff_color": (0.8, 0.32, 0.24)},
+}
+
+
+def make_skin_tones(skin):
+    """MI_AvatarSkin_<Tone>: M_AvatarSkin with each tone's subsurface profile (the driver's maps go on at runtime)."""
+    for tone, settings in SKIN_PROFILES.items():
+        profile = skin_profile("SP_AvatarSkin" if tone == "Medium" else f"SP_AvatarSkin_{tone}", settings)
+        # Made afresh each time (nothing on disk references them: FDressing loads them by path).
+        mi = make_mi(AVATAR_MATS, f"MI_AvatarSkin_{tone}", skin)
+        set_if(mi, "override_subsurface_profile", True)
+        set_if(mi, "subsurface_profile", profile)
+        ASSETS.save_loaded_asset(mi)
+        log(f"skin tone {tone}: {mi.get_path_name()}")
+
+
+def make_avatar_faces():
+    """The face pass: the face textures, the skin and eye masters rebuilt in place, the tone instances, and the shared
+    eye-white instance moved onto the eye master (the drivers' meshes reference it, so it is kept, not recreated)."""
+    make_writable(AVATAR_MATS)
+    import_avatar_textures()
+    skin = make_skin_master(in_place=True)
+    eye = make_eye_master(in_place=True)
+    brow = make_brow_master(in_place=True)
+    make_skin_tones(skin)
+    white_path = f"{AVATAR_MATS}/Shared/MI_Avatar_EyeWhite"
+    white = ASSETS.load_asset(white_path)
+    MEL.set_material_instance_parent(white, eye)
+    MEL.clear_all_material_instance_parameters(white)
+    # Re-parenting doesn't dirty the package, so save it regardless.
+    ASSETS.save_asset(white_path, only_if_is_dirty=False)
+    for mat in (skin, eye, brow):
+        stats = MEL.get_statistics(mat)
+        log(f"  {mat.get_name()}: {stats.num_vertex_shader_instructions} VS / {stats.num_pixel_shader_instructions} PS instructions, "
+            f"{stats.num_samplers} samplers")
+    log("avatar faces done")
+
+
+def make_avatar_masters():
+    skin = make_skin_master()
+    make_skin_tones(skin)
+    make_eye_master()
+    make_brow_master()
 
     g = Graph(AVATAR_MATS, "M_AvatarHair", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
-    tint = common(g, (0.04, 0.018, 0.012), 0.4, detail=0.5, ao_strength=0.45)
-    v, n = view(g)
-    rim, boost = rim_colour(g)
+    tint = avatar_common(g, (0.04, 0.018, 0.012), 0.4, detail=0.5, ao_strength=0.45)
+    v, n = avatar_view(g)
+    rim, boost = avatar_rim_colour(g)
     g.out(g.custom(HAIR_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.42), "Rim": g.scalar("Rim", 0.55),
                                 "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="HairSheen"), "EmissiveColor")
     g.out(g.scalar("Specular", 0.5), "Specular")
@@ -678,12 +974,12 @@ def make_avatar_masters():
     # Fabric: the cloth shading model (fuzz sheen at grazing angles) for jersey, pants, shoes and outfits, a
     # velvet edge in emissive so the folds read under flat light, and an optional tiled weave.
     g = Graph(AVATAR_MATS, "M_AvatarCloth", unreal.MaterialShadingModel.MSM_CLOTH)
-    tint = common(g, (0.8, 0.8, 0.8), 0.82, ao_strength=0.6, detail_normal=True)
+    tint = avatar_common(g, (0.8, 0.8, 0.8), 0.82, ao_strength=0.6, detail_normal=True)
     fuzz = g.mul(g.add(tint, g.scalar("FuzzLift", 0.35)), g.scalar("FuzzScale", 0.5))
     g.out(fuzz, "SubsurfaceColor")
     g.out(g.scalar("Cloth", 0.55), "ClearCoat")
-    v, n = view(g)
-    rim, boost = rim_colour(g)
+    v, n = avatar_view(g)
+    rim, boost = avatar_rim_colour(g)
     g.out(g.custom(CLOTH_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.07), "RimColor": (rim, "RGB"),
                                  "RimBoost": boost}, desc="ClothSheen"), "EmissiveColor")
     g.save()
@@ -696,31 +992,28 @@ def make_avatar_masters():
     g.out(g.scalar("Roughness", 0.5), "Roughness")
     g.out(g.scalar("Specular", 0.5), "Specular")
     g.out(g.scalar("Metallic", 0.0), "Metallic")
-    v, n = view(g)
+    v, n = avatar_view(g)
     glint = g.custom(EYE_CATCHLIGHT, {"N": n, "V": v, "Catchlight": g.scalar("Catchlight", 0.0)},
                      out=unreal.CustomMaterialOutputType.CMOT_FLOAT1, desc="Catchlight")
     g.out(g.add(glint, g.mul(tint, g.scalar("Glow", 0.0), "RGB")), "EmissiveColor")
     g.save()
 
 
-def skin_profile():
-    """A warm skin subsurface profile (the engine default scatters grey-pink): red-orange scatter, soft falloff."""
-    path = f"{AVATAR_MATS}/SP_AvatarSkin"
+def skin_profile(name, tuning):
+    """A warm skin subsurface profile (the engine default scatters grey-pink): tuning gives its colours (linear RGB)
+    and scatter distance (SKIN_PROFILES)."""
+    path = f"{AVATAR_MATS}/{name}"
     try:
         if ASSETS.does_asset_exist(path):
             profile = ASSETS.load_asset(path)
         else:
             factory = unreal.SubsurfaceProfileFactory() if hasattr(unreal, "SubsurfaceProfileFactory") else None
-            profile = TOOLS.create_asset("SP_AvatarSkin", AVATAR_MATS, unreal.SubsurfaceProfile, factory)
+            profile = TOOLS.create_asset(name, AVATAR_MATS, unreal.SubsurfaceProfile, factory)
         settings = profile.get_editor_property("settings")
-        for prop, value in (("surface_albedo", unreal.LinearColor(0.91, 0.34, 0.27, 1.0)),
-                            ("mean_free_path_color", unreal.LinearColor(1.0, 0.36, 0.18, 1.0)),
-                            ("mean_free_path_distance", 0.7),
-                            ("world_unit_scale", 0.12),
-                            ("subsurface_color", unreal.LinearColor(0.95, 0.32, 0.22, 1.0)),
-                            ("falloff_color", unreal.LinearColor(1.0, 0.37, 0.3, 1.0)),
-                            ("boundary_color_bleed", unreal.LinearColor(0.85, 0.75, 0.7, 1.0))):
-            set_if(settings, prop, value)
+        values = {"world_unit_scale": 0.12, "boundary_color_bleed": (0.85, 0.75, 0.7)}
+        values.update(tuning)
+        for prop, value in values.items():
+            set_if(settings, prop, unreal.LinearColor(value[0], value[1], value[2], 1.0) if isinstance(value, tuple) else value)
         profile.set_editor_property("settings", settings)
         ASSETS.save_loaded_asset(profile)
         log(f"subsurface profile {path}")
@@ -972,7 +1265,6 @@ FACES = ["mira", "kai", "leo", "nia", "omar", "rose"]
 BODIES = ["female", "male"]
 
 # appearanceColors.ts fixed surfaces
-EYE_WHITE = hex_linear("#fff8f0")
 EYE_DARK = hex_linear("#1a1220")
 IRIS = hex_linear("#5c3a22")
 
@@ -983,7 +1275,7 @@ def shared_avatar_mis():
     cloth = ASSETS.load_asset(f"{AVATAR_MATS}/M_AvatarCloth")
     folder = f"{AVATAR_MATS}/Shared"
     return {
-        "eyeWhite": make_mi(folder, "MI_Avatar_EyeWhite", surface, {"Roughness": 0.18, "Specular": 0.6, "Glow": 0.06}, {"Tint": EYE_WHITE}),
+        "eyeWhite": make_mi(folder, "MI_Avatar_EyeWhite", ASSETS.load_asset(f"{AVATAR_MATS}/M_AvatarEye")),
         "iris": make_mi(folder, "MI_Avatar_Iris", surface, {"Roughness": 0.06, "Specular": 0.7, "Catchlight": 6.0, "Glow": 0.25}, {"Tint": IRIS}),
         "eyeDark": make_mi(folder, "MI_Avatar_EyeDark", surface, {"Roughness": 0.06, "Specular": 0.7, "Catchlight": 6.0}, {"Tint": EYE_DARK}),
         "mouth": make_mi(folder, "MI_Avatar_Mouth", surface, {"Roughness": 0.6}, {"Tint": (0.038, 0.014, 0.014)}),
@@ -1104,6 +1396,7 @@ def main():
     if STAGE in ("all", "materials"):
         import_defaults()
         import_detail_textures()
+        import_avatar_textures()
         make_kart_masters()
         make_avatar_masters()
     if STAGE == "avatarmaterials":
@@ -1111,13 +1404,15 @@ def main():
         make_writable(AVATAR_MATS, "/Game/Avatars/Drivers")
         make_avatar_masters()
         # Update the shared instances in place: the driver meshes reference them, so they must not be recreated.
-        for name, scalars in (("EyeWhite", {"Glow": 0.06}), ("Iris", {"Roughness": 0.06, "Catchlight": 6.0, "Glow": 0.25}),
+        for name, scalars in (("Iris", {"Roughness": 0.06, "Catchlight": 6.0, "Glow": 0.25}),
                               ("EyeDark", {"Roughness": 0.06, "Catchlight": 6.0})):
             mi = ASSETS.load_asset(f"{AVATAR_MATS}/Shared/MI_Avatar_{name}")
             for key, value in scalars.items():
                 MEL.set_material_instance_scalar_parameter_value(mi, key, value)
             ASSETS.save_loaded_asset(mi)
         tune_driver_instances()
+    if STAGE == "avatarfaces":
+        make_avatar_faces()
     if STAGE == "swaps":
         finish_swaps()
     if STAGE == "usage":
