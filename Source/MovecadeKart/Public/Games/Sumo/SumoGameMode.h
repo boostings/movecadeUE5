@@ -37,6 +37,7 @@ public:
 
 protected:
 	virtual void SpawnVenue() override;
+	virtual void AdjustLaunchSeats(FArcadeLaunchOptions& InOutLaunch) const override;
 	virtual void BuildRoomSeats(TConstArrayView<FMcSeat> Players) override;
 	virtual void BuildLocalSeats(const FArcadeLaunchOptions& InLaunch) override;
 	virtual void SpawnGame() override;
