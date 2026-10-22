@@ -4,25 +4,30 @@
 #include "Avatar/ArcadeAvatar.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/LocalPlayer.h"
 #include "FX/KartFx.h"
 #include "FX/KartFxSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "Games/Darts/DartsPub.h"
 #include "Games/Darts/SDartsHud.h"
 #include "InputCoreTypes.h"
-#include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "NiagaraComponent.h"
+#include "SceneView.h"
+#include "UnrealClient.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDarts, Log, All);
 
 using namespace MovecadeKart::Darts;
 namespace Fx = MovecadeKart::Fx;
 
+#define LOCTEXT_NAMESPACE "Darts"
+
 namespace
 {
-	constexpr double IntroSeconds = 3.0;
 	constexpr double StepMs = 1000.0 / 60.0;
 	/** The keys and pad meter swings 0 -> 1 -> 0 over this period while the dart is gripped. */
 	constexpr double MeterPeriod = 1.5;
@@ -33,6 +38,28 @@ namespace
 	constexpr double ThrowDistance = 4.3;
 	/** The tip sits a centimetre into the sisal. */
 	constexpr double StuckZ = -0.012;
+	/** A bot's first dart after the board passes to it, and its next darts (the old 1.4 s / 1.15 s dragged). */
+	constexpr double DartsBotFirstDelay = 0.95;
+	constexpr double DartsBotNextDelay = 0.85;
+	/** The reaction shot holds this long after a landing (longer on the visit's last dart). */
+	constexpr double DartsReactSeconds = 0.95;
+	constexpr double DartsReactLastSeconds = 1.3;
+
+	/** The coach marks show once per session (play again and next game don't repeat them). */
+	bool DartsGCoachDone = false;
+
+	const FName DartsNameOpacity(TEXT("Opacity"));
+	const FName DartsNameColor(TEXT("Color"));
+	const FName DartsNameRightHand(TEXT("rightHand"));
+	const FName DartsCueRelease(TEXT("darts.release"));
+	const FName DartsCueThud(TEXT("darts.thud"));
+	const FName DartsCueMiss(TEXT("darts.miss"));
+	const FName DartsCueBull(TEXT("darts.bull"));
+	const FName DartsCueWire(TEXT("darts.wire"));
+	const FName DartsCueBounty(TEXT("darts.bounty"));
+	const FName DartsCueRound(TEXT("darts.round"));
+	const FName DartsCueChatter(TEXT("darts.pub-chatter"));
+	const FName DartsCueMatchOver(TEXT("match.over"));
 
 	double Smooth(double A, double B, double X)
 	{
@@ -58,6 +85,17 @@ namespace
 		const double V = Rng.FRand();
 		return FMath::Sqrt(-2.0 * FMath::Loge(U)) * FMath::Cos(2.0 * UE_DOUBLE_PI * V);
 	}
+}
+
+bool FDartsView::Project(const FVector& World, FVector2D& Out01) const
+{
+	FVector2D Pixels;
+	if (!bValid || Rect.Width() <= 0 || Rect.Height() <= 0 || !FSceneView::ProjectWorldToScreen(World, Rect, ViewProjection, Pixels))
+	{
+		return false;
+	}
+	Out01 = (Pixels - FVector2D(Rect.Min)) / FVector2D(Rect.Size());
+	return true;
 }
 
 ADartsGame::ADartsGame()
@@ -91,6 +129,7 @@ void ADartsGame::Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APla
 		D->SetupAttachment(RootComponent);
 		D->SetMobility(EComponentMobility::Movable);
 		D->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		D->SetCastShadow(false);
 		D->SetVisibility(false);
 		D->RegisterComponent();
 		return D;
@@ -100,10 +139,10 @@ void ADartsGame::Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APla
 		Darts.Add(MakeDart(*FString::Printf(TEXT("Dart%d"), i)));
 	}
 	HeldDart = MakeDart(TEXT("HeldDart"));
-	// Each thrower's flights wear their colour.
+	// Each thrower's flights wear their colour, with a touch of glow so they read across the room.
 	for (const FDartsSeat& Seat : Seats)
 	{
-		FlightMaterials.Add(MovecadeKart::Art::Plain(this, Seat.Color, 0.6));
+		FlightMaterials.Add(MovecadeKart::Art::Plain(this, Seat.Color, 0.45, 0.0, 0.18));
 	}
 
 	Reticle = NewObject<UStaticMeshComponent>(this, TEXT("Reticle"));
@@ -124,6 +163,29 @@ void ADartsGame::Setup(ADartsPub* InPub, const TArray<FDartsSeat>& InSeats, APla
 	{
 		Avatar->SetLook(Seats[0].Look);
 		DressedFor = Seats[0].Id;
+	}
+
+	if (UKartFxSubsystem* FxSys = UKartFxSubsystem::Get(this))
+	{
+		Trail = FxSys->MakeStream(Fx::EField::Fire, RootComponent, TEXT("DartTrail"));
+		// Dust in the board's light: a slow drift of motes between the oche and the board.
+		Motes = FxSys->MakeStream(Fx::EField::Flare, RootComponent, TEXT("DustMotes"), W(FVector(0.0, ADartsPub::BoardY + 0.5, 1.6)));
+		if (Motes)
+		{
+			Fx::FKartFxEmit Dust;
+			Dust.Field = Fx::EField::Flare;
+			Dust.Position = Motes->GetComponentLocation();
+			Dust.Spread = UE_DOUBLE_PI;
+			Dust.Speed = FVector2D(0.015, 0.05);
+			Dust.Life = FVector2D(4.0, 7.0);
+			Dust.Size = FVector2D(0.006, 0.012);
+			Dust.SizeEnd = 0.6;
+			Dust.Color = Fx::Hex(TEXT("ffe2b0"));
+			Dust.ColorEnd = Fx::Hex(TEXT("ffc98c"));
+			Dust.Intensity = 0.55;
+			Dust.Jitter = 1.2;
+			UKartFxSubsystem::UpdateStream(Motes, Dust, 6.0);
+		}
 	}
 
 	Camera = GetWorld()->SpawnActor<ACameraActor>();
@@ -150,6 +212,12 @@ void ADartsGame::EndPlay(const EEndPlayReason::Type Reason)
 		}
 		Hud.Reset();
 	}
+	// The camera is our own actor: it goes with the game.
+	if (Camera)
+	{
+		Camera->Destroy();
+		Camera = nullptr;
+	}
 	Super::EndPlay(Reason);
 }
 
@@ -158,10 +226,27 @@ const FDartsSeat* ADartsGame::SeatOf(const FString& Id) const
 	return Seats.FindByPredicate([&Id](const FDartsSeat& S) { return S.Id == Id; });
 }
 
+const FDartsSeat* ADartsGame::SeatOf(const FDartsPlayer& Player) const
+{
+	if (Seats.IsValidIndex(Player.LaneIndex) && Seats[Player.LaneIndex].Id == Player.Id)
+	{
+		return &Seats[Player.LaneIndex];
+	}
+	return SeatOf(Player.Id);
+}
+
 const FDartsSeat* ADartsGame::GetThrower() const
 {
 	const FDartsPlayer* Active = Match.ActivePlayer();
-	return Active ? SeatOf(Active->Id) : nullptr;
+	if (!Active)
+	{
+		return nullptr;
+	}
+	if (Seats.IsValidIndex(ThrowerSeat) && Seats[ThrowerSeat].Id == Active->Id)
+	{
+		return &Seats[ThrowerSeat];
+	}
+	return SeatOf(*Active);
 }
 
 FVector ADartsGame::BoardWorld(double X, double Y) const
@@ -169,21 +254,40 @@ FVector ADartsGame::BoardWorld(double X, double Y) const
 	return W(ADartsPub::BoardPoint(X, Y, 0.02));
 }
 
-bool ADartsGame::ScreenOf(const FVector& World, FVector2D& Out01) const
+FDartsView ADartsGame::MakeView() const
 {
-	FVector2D Pixels;
-	int32 X = 0, Y = 0;
-	if (!Viewer || !UGameplayStatics::ProjectWorldToScreen(Viewer, World, Pixels))
+	FDartsView View;
+	const ULocalPlayer* Player = Viewer ? Viewer->GetLocalPlayer() : nullptr;
+	if (Player && Player->ViewportClient && Player->ViewportClient->Viewport)
 	{
-		return false;
+		FSceneViewProjectionData Data;
+		if (Player->GetProjectionData(Player->ViewportClient->Viewport, Data))
+		{
+			View.ViewProjection = Data.ComputeViewProjectionMatrix();
+			View.Rect = Data.GetConstrainedViewRect();
+			View.bValid = true;
+		}
 	}
-	Viewer->GetViewportSize(X, Y);
-	if (X <= 0 || Y <= 0)
+	return View;
+}
+
+float ADartsGame::GetFlash() const
+{
+	const double Since = Clock - FlashAt;
+	return Since < 0.0 || Since > 0.6 ? 0.f : FlashStrength * static_cast<float>(FMath::Exp(-Since / 0.11));
+}
+
+float ADartsGame::GetCoachAlpha() const
+{
+	if (!bCoachShown)
 	{
-		return false;
+		return 0.f;
 	}
-	Out01 = Pixels / FVector2D(X, Y);
-	return true;
+	if (CoachDoneAt < 0.0)
+	{
+		return 1.f;
+	}
+	return FMath::Clamp(1.f - static_cast<float>((Clock - CoachDoneAt) / 0.7), 0.f, 1.f);
 }
 
 void ADartsGame::SetStage(EDartsStage Next)
@@ -196,7 +300,13 @@ void ADartsGame::SetStage(EDartsStage Next)
 	}
 	if (Next == EDartsStage::Finished)
 	{
-		Cues.Play(this, TEXT("match.over"));
+		Cues.Play(this, DartsCueMatchOver);
+		// The results don't change once the match ends: rank them once for the HUD.
+		StandingsOrder.Reset();
+		for (const FDartsPlayer* P : Leaderboard(Match))
+		{
+			StandingsOrder.Add(static_cast<int32>(P - Match.Players.GetData()));
+		}
 	}
 }
 
@@ -270,7 +380,7 @@ void ADartsGame::StepFixed(double DtMs)
 		if (!SeenFlights.Contains(Flight.Id))
 		{
 			SeenFlights.Add(Flight.Id);
-			Cues.Play(this, TEXT("darts.release"), static_cast<float>(0.6 + 0.4 * Flight.Power), static_cast<float>(0.9 + 0.35 * Flight.Power));
+			Cues.Play(this, DartsCueRelease, static_cast<float>(0.6 + 0.4 * Flight.Power), static_cast<float>(0.9 + 0.35 * Flight.Power));
 		}
 	}
 	for (const FDartsEffect& Effect : Match.Effects)
@@ -288,11 +398,8 @@ void ADartsGame::OnArrival(const FDartsEffect& Effect)
 	switch (Effect.Kind)
 	{
 	case EEffectKind::Round:
-		Cues.Play(this, TEXT("darts.round"), Effect.ScoreDelta > 0 ? 1.f : 0.7f, Effect.ScoreDelta > 0 ? 1.12f : 1.f);
-		if (Effect.ScoreDelta > 0)
-		{
-			Celebrate(Effect.ScoreDelta >= 20 ? 36.0 : 21.0, SeatOf(Effect.PlayerId) ? SeatOf(Effect.PlayerId)->Color : FLinearColor::White);
-		}
+		// The engine announces the round as the third dart leaves the hand; the visit card pays it off when it sticks.
+		PendingBonus.Add(Effect.PlayerId, Effect.ScoreDelta);
 		return;
 	case EEffectKind::Finished:
 		Celebrate(48.0, SeatOf(Effect.PlayerId) ? SeatOf(Effect.PlayerId)->Color : FLinearColor::White);
@@ -320,30 +427,137 @@ void ADartsGame::OnArrival(const FDartsEffect& Effect)
 	}
 	LastLanding = *Landing;
 	LastLandingAt = Clock;
+	// The next dart in the board retires the visit card.
+	if (LastVisit.At > 0.0 && Clock > LastVisit.At && LastVisit.EndAt > Clock)
+	{
+		LastVisit.EndAt = Clock;
+	}
 	WobbleSeed = Landing->Id;
-	WobbleTarget = FMath::Max(WobbleTarget, Landing->ScoreDelta == 0 ? 0.25 : 0.72 * Effect.Intensity);
+	WobbleTarget = FMath::Max(WobbleTarget, Landing->ScoreDelta == 0 ? 0.3 : 0.72 * Effect.Intensity);
 	// sound.ts: the thud, then the bull, the wire's ring on trebles and doubles, the bounty's sting.
 	if (Landing->ScoreDelta == 0)
 	{
-		Cues.Play(this, TEXT("darts.miss"));
+		Cues.Play(this, DartsCueMiss);
 	}
 	else
 	{
-		Cues.Play(this, TEXT("darts.thud"), 1.f, static_cast<float>(0.92 + 0.18 * FMath::Min(1.0, Landing->ScoreDelta / 60.0)));
+		Cues.Play(this, DartsCueThud, 1.f, static_cast<float>(0.92 + 0.18 * FMath::Min(1.0, Landing->ScoreDelta / 60.0)));
 		switch (Landing->Hit.Ring)
 		{
-		case ERing::Bull: Cues.Play(this, TEXT("darts.bull")); break;
-		case ERing::OuterBull: Cues.Play(this, TEXT("darts.bull"), 0.55f, 0.75f); break;
-		case ERing::Triple: Cues.Play(this, TEXT("darts.wire"), 1.f); break;
-		case ERing::Double: Cues.Play(this, TEXT("darts.wire"), 0.8f); break;
+		case ERing::Bull: Cues.Play(this, DartsCueBull); break;
+		case ERing::OuterBull: Cues.Play(this, DartsCueBull, 0.55f, 0.75f); break;
+		case ERing::Triple: Cues.Play(this, DartsCueWire, 1.f); break;
+		case ERing::Double: Cues.Play(this, DartsCueWire, 0.8f); break;
 		default: break;
 		}
 		if (Landing->bBounty)
 		{
-			Cues.Play(this, TEXT("darts.bounty"));
+			Cues.Play(this, DartsCueBounty);
 		}
 	}
+	// The big ones land with a punch: the camera kicks in, the screen flashes, the pub cheers.
+	const FDartsSeat* Seat = SeatOf(*Player);
+	double Kick = 0.0;
+	float Flash = 0.f;
+	FLinearColor Tint = Fx::Hex(TEXT("fff2c4"));
+	if (Landing->Hit.Ring == ERing::Bull)
+	{
+		Kick = 1.0;
+		Flash = 0.42f;
+	}
+	else if (Landing->bBounty)
+	{
+		Kick = 0.65;
+		Flash = 0.22f;
+		Tint = Seat ? FMath::Lerp(Seat->Color, FLinearColor::White, 0.5f) : Tint;
+	}
+	else if (Landing->Hit.Ring == ERing::OuterBull)
+	{
+		Kick = 0.5;
+		Flash = 0.16f;
+	}
+	else if (Landing->Hit.Ring == ERing::Triple)
+	{
+		Kick = 0.3;
+	}
+	Punch = FMath::Max(Punch, Kick);
+	if (Flash > 0.f)
+	{
+		FlashAt = Clock;
+		FlashStrength = Flash;
+		FlashColor = Tint;
+	}
+	if (Kick >= 0.6)
+	{
+		// The crowd: the pub's murmur, lifted and quickened into a cheer, on its own player so it isn't throttled.
+		CrowdCues.Play(this, DartsCueChatter, Kick >= 1.0 ? 3.2f : 2.4f, 1.18f);
+		Celebrate(Kick >= 1.0 ? 22.0 : 12.0, Seat ? Seat->Color : FLinearColor::White);
+	}
 	ImpactFx(*Landing);
+	if (Landing->DartIndex == DartsPerRound - 1)
+	{
+		FinishVisit(*Player, *Landing);
+	}
+}
+
+void ADartsGame::FinishVisit(const FDartsPlayer& Player, const FDartLanding& Last)
+{
+	FDartsVisitSummary V;
+	V.PlayerId = Player.Id;
+	V.Round = Last.Round;
+	int32 Bulls = 0;
+	for (const FDartLanding& L : Player.Landings)
+	{
+		if (L.Round != Last.Round)
+		{
+			continue;
+		}
+		V.Labels.Add(L.ScoreDelta == 0 ? FString(TEXT("MISS")) : L.Hit.Label);
+		V.Points.Add(L.ScoreDelta);
+		V.Total += L.ScoreDelta;
+		V.Bounties += L.bBounty ? 1 : 0;
+		Bulls += L.Hit.Ring == ERing::Bull || L.Hit.Ring == ERing::OuterBull ? 1 : 0;
+	}
+	V.Bonus = PendingBonus.FindRef(Player.Id);
+	PendingBonus.Remove(Player.Id);
+	// The checkout board's calls, scaled to this game's bounty-doubled scores.
+	if (V.Bounties >= DartsPerRound)
+	{
+		V.Call = LOCTEXT("CallHatTrick", "BOUNTY HAT-TRICK!");
+	}
+	else if (Bulls >= DartsPerRound)
+	{
+		V.Call = LOCTEXT("CallBulls", "THREE IN THE BULL!");
+	}
+	else if (V.Total >= 180)
+	{
+		V.Call = LOCTEXT("Call180", "ONE HUNDRED AND EIGHTY!");
+	}
+	else if (V.Total >= 140)
+	{
+		V.Call = LOCTEXT("Call140", "TON-FORTY!");
+	}
+	else if (V.Total >= 100)
+	{
+		V.Call = LOCTEXT("CallTon", "TON!");
+	}
+	else if (V.Total == 0)
+	{
+		V.Call = LOCTEXT("CallBlank", "BLANK VISIT");
+	}
+	else
+	{
+		V.Call = FText::Format(LOCTEXT("CallVisit", "VISIT {0}"), V.Round + 1);
+	}
+	V.At = Clock;
+	LastVisit = MoveTemp(V);
+	const bool bBig = LastVisit.Total >= 100 || LastVisit.Bonus > 0;
+	Cues.Play(this, DartsCueRound, bBig ? 1.f : 0.7f, bBig ? 1.12f : 1.f);
+	if (bBig)
+	{
+		const FDartsSeat* Seat = SeatOf(Player);
+		Celebrate(LastVisit.Total >= 180 ? 40.0 : 21.0, Seat ? Seat->Color : FLinearColor::White);
+	}
 }
 
 void ADartsGame::ImpactFx(const FDartLanding& L)
@@ -353,33 +567,33 @@ void ADartsGame::ImpactFx(const FDartLanding& L)
 	{
 		return;
 	}
-	// impactFx.ts tiers: dust, sparks, spark speed, ring (m), flash.
-	struct FTier { int32 Dust; int32 Sparks; double Speed; double Ring; double Flash; };
+	// impactFx.ts tiers: dust, sparks, spark speed, ring (m), flash; the port adds sisal chips knocked out.
+	struct FTier { int32 Dust; int32 Sparks; double Speed; double Ring; double Flash; int32 Chips; };
 	const double R = L.Hit.Radius;
-	FTier T = { 3, 0, 0.0, 0.0, 0.0 };
+	FTier T = { 3, 0, 0.0, 0.0, 0.0, 3 };
 	switch (L.Hit.Ring)
 	{
-	case ERing::Bull: T = { 12, 32, 3.4, 0.5, 0.22 }; break;
-	case ERing::OuterBull: T = { 10, 20, 2.8, 0.34, 0.14 }; break;
-	case ERing::Triple: T = { 9, 16, 2.6, 0.30, 0.12 }; break;
-	case ERing::Double: T = { 9, 10, 2.2, 0.26, 0.08 }; break;
-	case ERing::Single: T = { 8, 0, 0.0, 0.0, 0.0 }; break;
-	default: T = R <= 1.32 ? FTier{ 5, 0, 0.0, 0.0, 0.0 } : FTier{ 3, 0, 0.0, 0.0, 0.0 }; break;
+	case ERing::Bull: T = { 12, 40, 3.6, 0.55, 0.28, 10 }; break;
+	case ERing::OuterBull: T = { 10, 24, 3.0, 0.36, 0.16, 8 }; break;
+	case ERing::Triple: T = { 9, 18, 2.6, 0.30, 0.12, 7 }; break;
+	case ERing::Double: T = { 9, 12, 2.2, 0.26, 0.08, 7 }; break;
+	case ERing::Single: T = { 8, 0, 0.0, 0.0, 0.0, 5 }; break;
+	default: T = R <= 1.32 ? FTier{ 5, 0, 0.0, 0.0, 0.0, 6 } : FTier{ 3, 0, 0.0, 0.0, 0.0, 6 }; break;
 	}
 	const FDartsSeat* Seat = SeatOf(L.PlayerId);
 	const bool bBull = L.Hit.Ring == ERing::Bull || L.Hit.Ring == ERing::OuterBull;
 	FLinearColor Accent = bBull ? Fx::Hex(TEXT("#ffd166")) : FLinearColor::White;
 	if (L.bBounty)
 	{
-		T.Sparks = FMath::Max(12, FMath::RoundToInt32(T.Sparks * 1.3));
+		T.Sparks = FMath::Max(14, FMath::RoundToInt32(T.Sparks * 1.3));
 		T.Speed = FMath::Max(2.4, T.Speed);
-		T.Ring = FMath::Max(0.3, T.Ring);
-		T.Flash = FMath::Min(0.3, T.Flash + 0.06);
+		T.Ring = FMath::Max(0.32, T.Ring);
+		T.Flash = FMath::Min(0.32, T.Flash + 0.08);
 		Accent = Seat ? Seat->Color : Accent;
 	}
 	const FVector At = W(ADartsPub::BoardPoint(L.X, L.Y, 0.03));
 	const FVector Out(-1.0, 0.0, 0.0);
-	TArray<Fx::FKartFxEmit> Emits;
+	TArray<Fx::FKartFxEmit, TInlineAllocator<5>> Emits;
 	{
 		Fx::FKartFxEmit Dust;
 		Dust.Field = Fx::EField::Smoke;
@@ -395,6 +609,24 @@ void ADartsGame::ImpactFx(const FDartLanding& L)
 		Dust.ColorEnd = Fx::Hex(TEXT("#a8977f"));
 		Dust.Intensity = 0.7;
 		Emits.Add(Dust);
+	}
+	{
+		// Sisal (or, off the board, wood) chips flicked out of the hole, tumbling down.
+		const bool bWood = L.Hit.Ring == ERing::Miss && R > 1.32;
+		Fx::FKartFxEmit Chips;
+		Chips.Field = Fx::EField::Confetti;
+		Chips.Position = At;
+		Chips.Count = T.Chips;
+		Chips.Direction = (Out + FVector(0.0, 0.0, 0.45)).GetSafeNormal();
+		Chips.Spread = 0.9;
+		Chips.Speed = FVector2D(0.8, 1.9);
+		Chips.Life = FVector2D(0.45, 0.8);
+		Chips.Size = FVector2D(0.009, 0.018);
+		Chips.SizeEnd = 0.8;
+		Chips.Color = bWood ? Fx::Hex(TEXT("#6b4129")) : Fx::Hex(TEXT("#e6d6b8"));
+		Chips.ColorEnd = Chips.Color;
+		Chips.Intensity = 2.0;
+		Emits.Add(Chips);
 	}
 	if (T.Sparks > 0)
 	{
@@ -443,7 +675,10 @@ void ADartsGame::ImpactFx(const FDartLanding& L)
 		Flash.Intensity = 3.0;
 		Emits.Add(Flash);
 	}
-	FxSys->Emit(Emits);
+	for (const Fx::FKartFxEmit& E : Emits)
+	{
+		FxSys->Emit(E);
+	}
 }
 
 void ADartsGame::Celebrate(double Confetti, const FLinearColor& Color)
@@ -455,6 +690,11 @@ void ADartsGame::Celebrate(double Confetti, const FLinearColor& Color)
 		for (Fx::FKartFxEmit& E : Out)
 		{
 			E.Count = FMath::Max(1, FMath::RoundToInt32(E.Count * Confetti / 48.0));
+			// The paper is lit: in the pub's dim exposure it needs lifting or it reads as dark scraps.
+			if (E.Field == Fx::EField::Confetti)
+			{
+				E.Intensity *= 3.5;
+			}
 		}
 		FxSys->Emit(Out);
 	}
@@ -490,17 +730,26 @@ void ADartsGame::Tick(float DeltaSeconds)
 			Accumulator -= StepMs;
 		}
 		const FDartsPlayer* Active = Match.ActivePlayer();
-		const FString ActiveId = Active ? Active->Id : FString();
+		const FString& ActiveId = Active ? Active->Id : FString();
 		if (ActiveId != AnnouncedThrower)
 		{
 			AnnouncedThrower = ActiveId;
+			ThrowerSeat = Active ? Seats.IndexOfByPredicate([&ActiveId](const FDartsSeat& S) { return S.Id == ActiveId; }) : INDEX_NONE;
 			PhoneDetectors.Reset();
 			Local = FLocalThrow();
-			BotReadyAt = Clock + 1.4;
-			if (const FDartsSeat* Seat = SeatOf(ActiveId); Seat && Seat->Id != DressedFor)
+			BotReadyAt = Clock + DartsBotFirstDelay;
+			const FDartsSeat* Seat = Seats.IsValidIndex(ThrowerSeat) ? &Seats[ThrowerSeat] : nullptr;
+			if (Seat && Seat->Id != DressedFor)
 			{
 				DressedFor = Seat->Id;
 				Avatar->SetLook(Seat->Look);
+				HandBone = INDEX_NONE;
+			}
+			// The first local visit of the session gets the coach marks.
+			if (Seat && Seat->Kind == EThrowerKind::Local && !DartsGCoachDone && !bCoachShown)
+			{
+				bCoachShown = true;
+				CoachDoneAt = -1.0;
 			}
 			if (OnTurn && !ActiveId.IsEmpty())
 			{
@@ -523,19 +772,38 @@ void ADartsGame::Tick(float DeltaSeconds)
 	}
 	UpdateAmbience();
 	UpdateDarts();
+	UpdateTrail();
 	UpdateBoard(Dt);
 	UpdateReticle();
 	UpdateThrower(Dt);
 	UpdateCamera(Dt);
-	if (Pub)
+	UpdateChalk();
+}
+
+void ADartsGame::UpdateChalk()
+{
+	if (!Pub)
 	{
-		TArray<FString> Chalk;
-		for (const FDartsPlayer* P : Leaderboard(Match))
-		{
-			Chalk.Add(FString::Printf(TEXT("%s  %d"), *P->Name.Left(10).ToUpper(), P->Score));
-		}
-		Pub->SetChalk(Chalk);
+		return;
 	}
+	// The chalkboard re-chalks only when a score moves (SetText rebuilds the text's render state).
+	uint32 Key = 0;
+	for (const FDartsPlayer& P : Match.Players)
+	{
+		Key = HashCombine(Key, ::GetTypeHash(P.Score));
+	}
+	if (bChalked && Key == ChalkKey)
+	{
+		return;
+	}
+	bChalked = true;
+	ChalkKey = Key;
+	TArray<FString> Chalk;
+	for (const FDartsPlayer* P : Leaderboard(Match))
+	{
+		Chalk.Add(FString::Printf(TEXT("%s  %d"), *P->Name.Left(10).ToUpper(), P->Score));
+	}
+	Pub->SetChalk(Chalk);
 }
 
 void ADartsGame::UpdateLocalInput(float Dt)
@@ -566,7 +834,7 @@ void ADartsGame::UpdateLocalInput(float Dt)
 	Local.AimSpeed += (Speed - Local.AimSpeed) * 0.3;
 
 	const FKey GripKeys[] = { EKeys::SpaceBar, EKeys::Gamepad_RightTrigger, EKeys::Gamepad_FaceButton_Bottom, EKeys::LeftMouseButton, EKeys::Enter };
-	bool bGripDown = false;
+	bool bGripDown = bTestGrip;
 	for (const FKey& K : GripKeys)
 	{
 		bGripDown |= Down(K);
@@ -609,6 +877,12 @@ void ADartsGame::UpdateLocalInput(float Dt)
 		Local.bGripped = false;
 		Local.Power = 0.0;
 		Throw(Thrower->Id, G);
+		// The first dart is away: the coach marks have done their job.
+		if (bCoachShown && CoachDoneAt < 0.0)
+		{
+			CoachDoneAt = Clock;
+			DartsGCoachDone = true;
+		}
 	}
 }
 
@@ -639,7 +913,7 @@ void ADartsGame::UpdateBot()
 	G.Power = SweetSpot + Gauss(BotRng) * (0.02 + 0.07 * (1.0 - S));
 	G.SpinDegPerSec = Gauss(BotRng) * 30.0 * (1.0 - S);
 	G.Steadiness = 0.85 + 0.15 * S;
-	BotReadyAt = Clock + 1.15;
+	BotReadyAt = Clock + DartsBotNextDelay;
 	Throw(Thrower->Id, G);
 }
 
@@ -662,56 +936,89 @@ void ADartsGame::PlaceDart(UStaticMeshComponent* Dart, const FVector& TipWeb, do
 	Dart->SetVisibility(true);
 }
 
+void ADartsGame::SetFlightColor(UStaticMeshComponent* Dart, int32 Lane)
+{
+	if (FlightMaterials.IsValidIndex(Lane))
+	{
+		// SetMaterial early-outs on the same material.
+		Dart->SetMaterial(ADartsPub::DartFlightSlot, FlightMaterials[Lane]);
+	}
+}
+
 void ADartsGame::UpdateDarts()
 {
 	int32 Used = 0;
+	auto Stick = [this, &Used](const FDartLanding& L)
+	{
+		if (Used >= Darts.Num())
+		{
+			return;
+		}
+		const double Age = L.AgeMs;
+		const double Bounce = FMath::Sin(Age / 38.0) * FMath::Exp(-Age / 260.0) * (1.0 - FMath::Exp(-Age / 70.0));
+		const FVector Tip(L.X * ADartsPub::BoardRadius, ADartsPub::BoardY + L.Y * ADartsPub::BoardRadius + Bounce * 0.08,
+			StuckZ + Bounce * 0.008 + FMath::Min(1.0, Age / 420.0) * 0.002);
+		UStaticMeshComponent* D = Darts[Used++];
+		SetFlightColor(D, L.LaneIndex);
+		// A stuck dart shadows the board under the board spot; one in flight doesn't bother.
+		D->SetCastShadow(true);
+		PlaceDart(D, Tip, 0.14 + Bounce * 0.035, -0.08 + Bounce * 0.025);
+	};
 	// Only the current visit's darts are on the board (DartsScene.tsx:1369-1392).
 	const FDartsPlayer* Visitor = Match.Players.IsValidIndex(Match.CurrentPlayerIndex) ? &Match.Players[Match.CurrentPlayerIndex] : nullptr;
 	if (Visitor && Stage != EDartsStage::Intro)
 	{
 		const int32 Visit = (Visitor->DartsThrown - Match.TurnDarts) / DartsPerRound;
-		TArray<FDartLanding> Current;
-		for (const FDartLanding& L : Visitor->Landings)
+		const bool bEnded = Match.Phase == EMatchPhase::Ended;
+		auto IsCurrent = [this, Visitor, Visit, bEnded](const FDartLanding& L)
 		{
-			const bool bInFlight = Match.Flights.ContainsByPredicate([&L](const FDartFlight& F) { return F.Landing.Id == L.Id; });
-			const bool bThisVisit = Match.Phase == EMatchPhase::Ended ? L.Round == Visitor->Round - 1 : L.Round == Visit;
-			if (!bInFlight && bThisVisit)
-			{
-				Current.Add(L);
-			}
-		}
+			const bool bThisVisit = bEnded ? L.Round == Visitor->Round - 1 : L.Round == Visit;
+			return bThisVisit && !Match.Flights.ContainsByPredicate([&L](const FDartFlight& F) { return F.Landing.Id == L.Id; });
+		};
 		if (Visitor->Id != ShownVisitor)
 		{
 			// The board passed: the finished visit lingers until the next dart lands or a beat goes by.
 			// The third dart lands in the same step that passes the board, so read the visit from the match.
-			HeldOver.Reset();
-			if (const FDartsPlayer* Previous = Match.FindPlayer(ShownVisitor); Previous && Previous->DartsThrown > 0)
+			HeldOverPlayer = Match.Players.IndexOfByPredicate([this](const FDartsPlayer& P) { return P.Id == ShownVisitor; });
+			if (Match.Players.IsValidIndex(HeldOverPlayer) && Match.Players[HeldOverPlayer].DartsThrown > 0)
 			{
-				const int32 LastVisit = (Previous->DartsThrown - 1) / DartsPerRound;
-				HeldOver = Previous->Landings.FilterByPredicate([LastVisit](const FDartLanding& L) { return L.Round == LastVisit; });
+				HeldOverVisit = (Match.Players[HeldOverPlayer].DartsThrown - 1) / DartsPerRound;
+			}
+			else
+			{
+				HeldOverPlayer = INDEX_NONE;
 			}
 			HeldOverUntil = Clock + 1.6;
 			ShownVisitor = Visitor->Id;
 		}
-		const bool bHold = Current.Num() == 0 && Clock < HeldOverUntil;
-		ShownVisit = bHold ? ShownVisit : Current;
-		for (const FDartLanding& L : bHold ? HeldOver : Current)
+		bool bAny = false;
+		for (const FDartLanding& L : Visitor->Landings)
 		{
-			if (Used >= Darts.Num())
+			if (IsCurrent(L))
 			{
+				bAny = true;
 				break;
 			}
-			const int32 Flight = FlightMaterials.IsValidIndex(L.LaneIndex) ? L.LaneIndex : 0;
-			const double Age = L.AgeMs;
-			const double Bounce = FMath::Sin(Age / 38.0) * FMath::Exp(-Age / 260.0) * (1.0 - FMath::Exp(-Age / 70.0));
-			const FVector Tip(L.X * ADartsPub::BoardRadius, ADartsPub::BoardY + L.Y * ADartsPub::BoardRadius + Bounce * 0.08,
-				StuckZ + Bounce * 0.008 + FMath::Min(1.0, Age / 420.0) * 0.002);
-			UStaticMeshComponent* D = Darts[Used++];
-			if (FlightMaterials.IsValidIndex(Flight))
+		}
+		if (!bAny && Clock < HeldOverUntil && Match.Players.IsValidIndex(HeldOverPlayer))
+		{
+			for (const FDartLanding& L : Match.Players[HeldOverPlayer].Landings)
 			{
-				D->SetMaterial(5, FlightMaterials[Flight]);
+				if (L.Round == HeldOverVisit)
+				{
+					Stick(L);
+				}
 			}
-			PlaceDart(D, Tip, 0.14 + Bounce * 0.035, -0.08 + Bounce * 0.025);
+		}
+		else
+		{
+			for (const FDartLanding& L : Visitor->Landings)
+			{
+				if (IsCurrent(L))
+				{
+					Stick(L);
+				}
+			}
 		}
 	}
 	for (const FDartFlight& F : Match.Flights)
@@ -725,16 +1032,44 @@ void ADartsGame::UpdateDarts()
 		const double Pitch = FMath::Lerp(0.18 + (1.0 - F.Power) * 0.18 * FMath::Cos(UE_DOUBLE_PI * T), 0.14, S);
 		const double Yaw = FMath::Lerp(F.Curve * 0.4 * (1.0 - T), -0.08, S);
 		UStaticMeshComponent* D = Darts[Used++];
-		if (FlightMaterials.IsValidIndex(F.LaneIndex))
-		{
-			D->SetMaterial(5, FlightMaterials[F.LaneIndex]);
-		}
+		SetFlightColor(D, F.LaneIndex);
+		D->SetCastShadow(false);
 		PlaceDart(D, FlightWeb(F, T), Pitch, Yaw);
 	}
 	for (int32 i = Used; i < Darts.Num(); ++i)
 	{
 		Darts[i]->SetVisibility(false);
 	}
+}
+
+void ADartsGame::UpdateTrail()
+{
+	if (!Trail)
+	{
+		return;
+	}
+	// The newest flight streams a short glowing tail in its thrower's colour.
+	const FDartFlight* F = Match.Flights.Num() > 0 ? &Match.Flights.Last() : nullptr;
+	Fx::FKartFxEmit Tail;
+	Tail.Field = Fx::EField::Fire;
+	double Rate = 0.0;
+	if (F && F->Progress < 0.97)
+	{
+		const FDartsSeat* Seat = Seats.IsValidIndex(F->LaneIndex) ? &Seats[F->LaneIndex] : nullptr;
+		const FVector Pos = W(FlightWeb(*F, FMath::Max(0.0, F->Progress - 0.035)));
+		Trail->SetWorldLocation(Pos);
+		Tail.Position = Pos;
+		Tail.Spread = 0.2;
+		Tail.Speed = FVector2D(0.0, 0.05);
+		Tail.Life = FVector2D(0.14, 0.22);
+		Tail.Size = FVector2D(0.035, 0.05);
+		Tail.SizeEnd = 0.15;
+		Tail.Color = Seat ? FMath::Lerp(Seat->Color, FLinearColor::White, 0.35f) : FLinearColor::White;
+		Tail.ColorEnd = Seat ? Seat->Color : FLinearColor::White;
+		Tail.Intensity = 2.2;
+		Rate = 140.0;
+	}
+	UKartFxSubsystem::UpdateStream(Trail, Tail, Rate);
 }
 
 void ADartsGame::UpdateBoard(float Dt)
@@ -753,7 +1088,7 @@ void ADartsGame::UpdateBoard(float Dt)
 	{
 		Pivot->SetRelativeRotation(FRotator(FMath::RadiansToDegrees(RotX), 0.0, FMath::RadiansToDegrees(RotZ)));
 	}
-	// The called shot: the visit's bounty wedge, pulsing.
+	// The called shot: the visit's bounty wedge, pulsing, with its outline brighter.
 	if (UStaticMeshComponent* Wedge = Pub->GetBountyWedge())
 	{
 		const FDartsPlayer* Active = Match.ActivePlayer();
@@ -769,9 +1104,14 @@ void ADartsGame::UpdateBoard(float Dt)
 				++Index;
 			}
 			Wedge->SetRelativeRotation(FQuat(FVector::ForwardVector, SectorCenterAngle(Index) - UE_DOUBLE_PI / 2.0));
+			const float Pulse = static_cast<float>(0.5 + 0.5 * FMath::Sin(Clock * 4.0));
 			if (UMaterialInstanceDynamic* M = Pub->GetBountyMaterial())
 			{
-				M->SetScalarParameterValue(TEXT("Opacity"), static_cast<float>(0.3 + 0.22 * (0.5 + 0.5 * FMath::Sin(Clock * 4.0))));
+				M->SetScalarParameterValue(DartsNameOpacity, 0.26f + 0.2f * Pulse);
+			}
+			if (UMaterialInstanceDynamic* M = Pub->GetBountyEdgeMaterial())
+			{
+				M->SetScalarParameterValue(DartsNameOpacity, 0.7f + 0.3f * Pulse);
 			}
 		}
 	}
@@ -807,12 +1147,13 @@ void ADartsGame::UpdateReticle()
 	{
 		return;
 	}
-	ReticleShown = Aim;
 	const FDartsSeat* Thrower = GetThrower();
-	const double Breath = 1.0 + 0.08 * FMath::Sin(Clock * 3.0);
-	Reticle->SetWorldLocationAndRotation(W(ADartsPub::BoardPoint(Aim.X * AimReach, Aim.Y * AimReach, 0.03)), FRotator::ZeroRotator);
-	Reticle->SetWorldScale3D(FVector(Breath));
-	ReticleMaterial->SetVectorParameterValue(TEXT("Color"), (Thrower ? Thrower->Color : FLinearColor::White) * ((Local.bGripped ? 3.5f : 2.2f) * ADartsPub::GlowGain));
+	// The ring breathes; while the dart is gripped it tightens with the power and turns mint in the sweet spot.
+	const bool bSweet = Local.bGripped && FMath::Abs(Local.Power - SweetSpot) < 0.05;
+	const double Breath = (1.0 + 0.08 * FMath::Sin(Clock * 3.0)) * (Local.bGripped ? 1.0 - 0.25 * Local.Power : 1.0);
+	Reticle->SetWorldTransform(FTransform(FRotator::ZeroRotator, W(ADartsPub::BoardPoint(Aim.X * AimReach, Aim.Y * AimReach, 0.03)), FVector(Breath)));
+	const FLinearColor Color = bSweet ? MovecadeKart::Art::Hex(TEXT("#3ee6a8")) : (Thrower ? Thrower->Color : FLinearColor::White);
+	ReticleMaterial->SetVectorParameterValue(DartsNameColor, Color * ((Local.bGripped ? 3.5f : 2.2f) * ADartsPub::GlowGain));
 }
 
 void ADartsGame::UpdateThrower(float Dt)
@@ -828,20 +1169,22 @@ void ADartsGame::UpdateThrower(float Dt)
 	const bool bAiming = GetReticle(Aim);
 	const FDartsSeat* Thrower = GetThrower();
 	const bool bBotAiming = Thrower && Thrower->Kind == EThrowerKind::Bot && Stage == EDartsStage::Match && Match.Phase == EMatchPhase::Playing && Match.TurnDarts < DartsPerRound;
-	// The flick: over 320 ms from a release (sin(pi p)(1 - .35 p)).
-	const double P = FMath::Clamp((Clock - LastReleaseAt) / 0.32, 0.0, 1.0);
-	const double Flick = Clock - LastReleaseAt < 0.32 ? FMath::Sin(UE_DOUBLE_PI * P) * (1.0 - 0.35 * P) : 0.0;
-	const double Windup = Local.bGripped ? Local.Power : (bBotAiming ? Smooth(BotReadyAt - 0.6, BotReadyAt, Clock) : 0.0);
+	// The throw: a snap forward over 90 ms from the release (the dart leaves at the cheek, the arm chases it), then
+	// the follow-through held and eased back over the next half second.
+	const double Since = Clock - LastReleaseAt;
+	const double Flick = Since < 0.0 || Since > 0.7 ? 0.0 : (Since < 0.09 ? Smooth(0.0, 0.09, Since) : FMath::Exp(-(Since - 0.09) / 0.2));
+	// Bots draw back over the 0.55 s before they throw; a local hand draws back with the meter.
+	const double Windup = Local.bGripped ? 0.35 + 0.65 * Local.Power : (bBotAiming ? Smooth(BotReadyAt - 0.55, BotReadyAt - 0.05, Clock) : 0.0);
 	const double Drive = FMath::Min(1.0, 0.28 + FMath::Abs(Aim.Y) * 0.38);
-	const bool bActive = bAiming || bBotAiming || Flick > 0.0;
+	const bool bActive = bAiming || bBotAiming || Flick > 0.02;
 	// The dart by the cheek, drawn back with the wind-up, punched out along the line by the flick.
-	FVector Hand(0.42 - 0.22 * Windup + 0.55 * Flick, 0.16 + Aim.X * 0.17, 0.42 + Aim.Y * 0.2 + 0.08 * Windup - 0.1 * Flick);
+	FVector Hand(0.42 - 0.24 * Windup + 0.6 * Flick, 0.16 + Aim.X * 0.17, 0.42 + Aim.Y * 0.2 + 0.09 * Windup - 0.12 * Flick);
 	Pose.Hand[1] = Hand;
 	Pose.HandWeight[1] = bActive ? 1.f : 0.f;
 	Pose.Hand[0] = FVector(0.25, -0.35, -0.55);
 	Pose.HandWeight[0] = bActive ? 0.45f : 0.f;
-	Pose.Lean = static_cast<float>(bActive ? 0.06 + 0.1 * Drive + 0.12 * Flick : 0.02);
-	Pose.Twist = static_cast<float>(bActive ? -0.18 : 0.0);
+	Pose.Lean = static_cast<float>(bActive ? 0.06 + 0.1 * Drive + 0.14 * Flick - 0.03 * Windup : 0.02);
+	Pose.Twist = static_cast<float>(bActive ? -0.18 - 0.06 * Windup + 0.08 * Flick : 0.0);
 	Pose.Crouch = 0.04f;
 	const FVector LookAt = W(ADartsPub::BoardPoint(Aim.X * 0.5, Aim.Y * 0.5 + 0.12));
 	Pose.Look = (LookAt - Avatar->GetComponentLocation() - FVector(0.0, 0.0, 150.0)).GetSafeNormal();
@@ -849,8 +1192,8 @@ void ADartsGame::UpdateThrower(float Dt)
 	Pose.LookWeight = bActive ? 0.85f : 0.5f;
 
 	// Reactions: the bull and the bounty cheer, a miss slumps, the end wins or loses.
-	const double Since = Clock - LastLandingAt;
-	const double React = Since < 1.5 ? Smooth(0.0, 0.15, Since) * Smooth(1.5, 1.2, Since) : 0.0;
+	const double SinceLanding = Clock - LastLandingAt;
+	const double React = SinceLanding < 1.5 ? Smooth(0.0, 0.15, SinceLanding) * Smooth(1.5, 1.2, SinceLanding) : 0.0;
 	float Cheer = 0.f, Slump = 0.f;
 	if (LastLanding.Hit.Ring == ERing::Bull || LastLanding.bBounty)
 	{
@@ -874,18 +1217,22 @@ void ADartsGame::UpdateThrower(float Dt)
 	Pose.Idle = 1.f;
 
 	// The held dart, in the throwing hand, pointing at the board, while the hand has one to throw.
-	const bool bHeld = bActive && Flick <= 0.0 && Match.Flights.Num() == 0;
+	const bool bHeld = bActive && Since > 0.32 && Match.Flights.Num() == 0;
 	HeldDart->SetVisibility(bHeld);
 	if (bHeld)
 	{
-		const FVector HandWorld = Avatar->BoneWorld(TEXT("rightHand"));
+		FVector HandWorld = Avatar->GetComponentLocation();
+		if (USkeletalMeshComponent* Mesh = Avatar->GetMesh())
+		{
+			if (HandBone == INDEX_NONE)
+			{
+				HandBone = Mesh->GetBoneIndex(DartsNameRightHand);
+			}
+			HandWorld = HandBone != INDEX_NONE ? Mesh->GetBoneTransform(HandBone).GetLocation() : Avatar->BoneWorld(DartsNameRightHand);
+		}
 		const FVector ToBoard = (W(ADartsPub::BoardPoint(Aim.X * AimReach, Aim.Y * AimReach)) - HandWorld).GetSafeNormal();
 		HeldDart->SetWorldLocationAndRotation(HandWorld + ToBoard * 14.0, ToBoard.Rotation() + FRotator(10.0, 0.0, 0.0));
-		const int32 Lane = Thrower ? Seats.IndexOfByPredicate([Thrower](const FDartsSeat& S) { return S.Id == Thrower->Id; }) : INDEX_NONE;
-		if (FlightMaterials.IsValidIndex(Lane))
-		{
-			HeldDart->SetMaterial(5, FlightMaterials[Lane]);
-		}
+		SetFlightColor(HeldDart, ThrowerSeat);
 	}
 }
 
@@ -900,6 +1247,7 @@ void ADartsGame::UpdateCamera(float Dt)
 	const FDartsSeat* Thrower = GetThrower();
 	const bool bBotUp = Thrower && Thrower->Kind == EThrowerKind::Bot;
 	const double Since = Clock - LastLandingAt;
+	const double Hold = LastLanding.DartIndex == DartsPerRound - 1 ? DartsReactLastSeconds : DartsReactSeconds;
 	switch (Stage)
 	{
 	case EDartsStage::Intro:
@@ -911,14 +1259,17 @@ void ADartsGame::UpdateCamera(float Dt)
 		break;
 	}
 	case EDartsStage::Match:
-		if (Since < 1.2 && Match.Flights.Num() == 0)
+		// A thrower winding up for the next dart (a bot drawing back, a local hand on the grip) ends the reaction early,
+		// so the camera is back over the shoulder by the time the dart leaves.
+		if (Since < Hold && Match.Flights.Num() == 0 && !Local.bGripped && !(bBotUp && Clock >= BotReadyAt - 0.55))
 		{
-			// The reaction: a hard cut to the thrower's eye line on the landing, settling in.
+			// The reaction: a hard cut to a close look at the dart in the board from off its right shoulder (in
+			// front of the thrower, so nobody's head fills the frame), easing in.
 			const double Settle = Smooth(0.0, 1.0, Since / 0.9);
-			Pos = FVector(S.X + 0.52 + LastLanding.X * 0.12, S.Y + 1.55, S.Z + 0.15 - 0.28 * Settle);
 			const FVector Landing = ADartsPub::BoardPoint(LastLanding.X, LastLanding.Y);
-			Look = FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), Landing, 0.3);
-			Fov = 34.0 - 2.0 * Settle;
+			Pos = FVector(Landing.X * 0.5 + 0.42, Landing.Y * 0.5 + ADartsPub::BoardY * 0.5 + 0.22, 2.05 - 0.3 * Settle);
+			Look = FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), Landing, 0.6);
+			Fov = 32.0 - 2.0 * Settle;
 			bCut = Since < 0.05;
 		}
 		else if ((GetReticle(Aim) || bBotUp) && Match.Phase == EMatchPhase::Playing)
@@ -947,8 +1298,10 @@ void ADartsGame::UpdateCamera(float Dt)
 	CamPos += (Pos - CamPos) * K;
 	CamLook += (Look - CamLook) * K;
 	CamFov += (Fov - CamFov) * K;
-	// The impact's shake (impactFx.ts), decaying with the board's wobble.
-	const FVector Shake = FVector(FMath::Sin(Clock * 53.0), FMath::Sin(Clock * 47.0 + 1.3), 0.0) * Wobble * 0.006;
+	// The impact's shake (impactFx.ts), decaying with the board's wobble, plus the big hit's punch: a quick push in
+	// and a harder shake that settle in a quarter second.
+	Punch *= FMath::Exp(-5.5 * Dt);
+	const FVector Shake = FVector(FMath::Sin(Clock * 53.0), FMath::Sin(Clock * 47.0 + 1.3), 0.0) * (Wobble * 0.006 + Punch * 0.012);
 	const FVector From = W(CamPos + Shake);
 	const FVector To = W(CamLook);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());
@@ -960,7 +1313,8 @@ void ADartsGame::UpdateCamera(float Dt)
 		Aspect = Size.Y > 0.0 ? Size.X / Size.Y : Aspect;
 	}
 	// three.js gives a vertical field of view; UE's is horizontal.
-	const double HFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(CamFov) / 2.0) * Aspect));
+	const double VFov = FMath::Max(10.0, CamFov - 6.0 * Punch);
+	const double HFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(VFov) / 2.0) * Aspect));
 	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HFov));
 }
 
@@ -969,7 +1323,7 @@ void ADartsGame::UpdateAmbience()
 	// The pub murmurs: chatter at 2.5 s, then every 9 s (sound.ts).
 	if (Clock >= NextChatterAt)
 	{
-		Cues.Play(this, TEXT("darts.pub-chatter"));
+		Cues.Play(this, DartsCueChatter);
 		NextChatterAt = Clock + 9.0;
 	}
 }
@@ -985,11 +1339,20 @@ void ADartsGame::Rematch()
 	SeenEffects.Reset();
 	SeenFlights.Reset();
 	AnnouncedThrower.Reset();
+	ThrowerSeat = INDEX_NONE;
 	PhoneDetectors.Reset();
+	PendingBonus.Reset();
+	StandingsOrder.Reset();
+	LastVisit = FDartsVisitSummary();
 	Local = FLocalThrow();
 	Accumulator = 0.0;
 	LastLandingAt = -10.0;
 	LastLanding = FDartLanding();
+	HeldOverPlayer = INDEX_NONE;
+	ShownVisitor.Reset();
+	Punch = 0.0;
+	FlashAt = -10.0;
+	bChalked = false;
 	SetStage(EDartsStage::Intro);
 }
 
@@ -1000,10 +1363,10 @@ void ADartsGame::ArcadeRestart()
 
 void ADartsGame::GetArcadeStandings(TArray<FArcadeStanding>& Out) const
 {
-	for (const MovecadeKart::Darts::FDartsPlayer& P : Match.Players)
+	for (const FDartsPlayer& P : Match.Players)
 	{
 		FArcadeStanding& Row = Out.AddDefaulted_GetRef();
-		const FDartsSeat* Seat = Seats.FindByPredicate([&P](const FDartsSeat& S) { return S.Id == P.Id; });
+		const FDartsSeat* Seat = SeatOf(P);
 		Row.Name = P.Name;
 		Row.Color = Seat ? Seat->Color : FLinearColor::White;
 		Row.bHuman = Seat && Seat->Kind != EThrowerKind::Bot;
@@ -1011,3 +1374,5 @@ void ADartsGame::GetArcadeStandings(TArray<FArcadeStanding>& Out) const
 	}
 	RankByScore(Out);
 }
+
+#undef LOCTEXT_NAMESPACE
