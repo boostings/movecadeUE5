@@ -8,8 +8,8 @@
 
 /**
  * The game's cosmetics store (MovecadeKart::Store::FKartStore) for the life of the game instance. Picks the backend:
- * Steam Inventory when the build has Steamworks and Steam is running (-KartStoreBackend=mock forces the mock),
- * otherwise the offline mock (purchases disabled in Shipping). Ticks the store, counts play time, and takes the
+ * Steam Inventory when the build has Steamworks and Steam is running (development builds: -KartStoreBackend=mock
+ * forces the mock), otherwise the offline mock (purchases disabled in Shipping). Ticks the store, counts play time, and takes the
  * play stats the games report (NoteArcadeGame, NoteRaceFinished).
  */
 UCLASS()

@@ -17,7 +17,7 @@ namespace MovecadeKart::Store
 	 * The offline backend: a pretend Steam. Its inventory lives in its own save slot (as Steam's servers would
 	 * hold it), so wiping the store's local cache and restoring works like the real thing. Calls finish after
 	 * realistic delays, stepped by Tick so tests control time. Outcomes come from SetNextOutcome, or the
-	 * -KartStoreMock=succeed|cancel|fail command line (default succeed).
+	 * -KartStoreMock=succeed|cancel|fail|offline command line (default succeed; development builds).
 	 */
 	class MOVECADEKART_API FMockStoreBackend : public IKartStoreBackend
 	{

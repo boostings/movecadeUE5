@@ -7,7 +7,9 @@
 #include "Containers/Queue.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeLock.h"
 #include "Store/KartStoreCatalog.h"
 
 THIRD_PARTY_INCLUDES_START
@@ -43,6 +45,14 @@ namespace MovecadeKart::Store
 			Handle = reinterpret_cast<void*>(1); // linked normally elsewhere
 #endif
 			return Handle != nullptr;
+		}
+
+		/** A result counts only when Steam signed it for the account that is signed in (not a copied or forged one). */
+		bool IsOwnResult(SteamInventoryResult_t Handle, EResult Status)
+		{
+			// Expired: a cached result (Steam offline, or a saved proof older than an hour). Still signed, still ours.
+			const bool bStatusOk = Status == k_EResultOK || Status == k_EResultExpired;
+			return bStatusOk && SteamUser() && SteamInventory()->CheckResultSteamID(Handle, SteamUser()->GetSteamID());
 		}
 
 		TSet<int32> DefsOf(SteamInventoryResult_t Handle)
@@ -102,6 +112,7 @@ namespace MovecadeKart::Store
 			{
 				Work();
 			}
+			PollProof(DeltaSeconds);
 			if (Purchase.Def != 0)
 			{
 				Purchase.Age += DeltaSeconds;
@@ -117,10 +128,21 @@ namespace MovecadeKart::Store
 			SteamInventoryResult_t Handle = k_SteamInventoryResultInvalid;
 			if (!SteamInventory()->GetAllItems(&Handle))
 			{
-				Done(false, {});
+				LoadProof(MoveTemp(Done));
 				return;
 			}
-			Results.Add(Handle, [Done = MoveTemp(Done)](bool bOk, const TSet<int32>& Defs) { Done(bOk, Defs); });
+			// Steam usually answers from its own cache when offline; if even that fails, the last signed inventory.
+			Results.Add(Handle, [this, Done = MoveTemp(Done)](bool bOk, const TSet<int32>& Defs) mutable
+			{
+				if (bOk)
+				{
+					Done(true, Defs);
+				}
+				else
+				{
+					LoadProof(MoveTemp(Done));
+				}
+			});
 		}
 
 		virtual void RequestPrices(const TArray<int32>& DefIds, TFunction<void(bool, const TMap<int32, FPrice>&)> Done) override
@@ -189,6 +211,15 @@ namespace MovecadeKart::Store
 		};
 
 		static constexpr double PurchaseTimeoutSeconds = 15.0 * 60.0;
+		/** A serialised inventory is a few hundred bytes per item; anything near this is not one. */
+		static constexpr int32 MaxProofBytes = 1 << 20;
+		static constexpr double ProofTimeoutSeconds = 10.0;
+
+		struct FProof
+		{
+			TFunction<void(bool, const TSet<int32>&)> Done;
+			double Age = 0.0;
+		};
 
 		void EndPurchase(EPurchaseResult Result, const FString& Detail)
 		{
@@ -239,6 +270,80 @@ namespace MovecadeKart::Store
 			}
 		}
 
+		/** The last full inventory, as Steam serialised and signed it, per account. */
+		static FString ProofPath()
+		{
+			const uint64 Account = SteamUser() ? SteamUser()->GetSteamID().ConvertToUint64() : 0;
+			return FPaths::ProjectSavedDir() / TEXT("SaveGames") / FString::Printf(TEXT("KartStoreSteam_%llu.proof"), Account);
+		}
+
+		/** Called with a full inventory result (any thread): keeps Steam's signed copy for offline launches. */
+		void SaveProof(SteamInventoryResult_t Handle)
+		{
+			uint32 Size = 0;
+			if (!SteamInventory()->SerializeResult(Handle, nullptr, &Size) || Size == 0 || Size > MaxProofBytes)
+			{
+				return;
+			}
+			TArray<uint8> Bytes;
+			Bytes.SetNumUninitialized(Size);
+			if (SteamInventory()->SerializeResult(Handle, Bytes.GetData(), &Size))
+			{
+				GameThreadWork.Enqueue([Bytes = MoveTemp(Bytes)]() { FFileHelper::SaveArrayToFile(Bytes, *ProofPath()); });
+			}
+		}
+
+		/** The saved signed inventory, checked by Steam (signature) and against the signed-in account. */
+		void LoadProof(TFunction<void(bool, const TSet<int32>&)> Done)
+		{
+			TArray<uint8> Bytes;
+			SteamInventoryResult_t Handle = k_SteamInventoryResultInvalid;
+			if (Proof.Done || !FFileHelper::LoadFileToArray(Bytes, *ProofPath()) || Bytes.Num() > MaxProofBytes
+				|| !SteamInventory()->DeserializeResult(&Handle, Bytes.GetData(), Bytes.Num()))
+			{
+				Done(false, {});
+				return;
+			}
+			{
+				FScopeLock Guard(&ProofLock);
+				ProofHandle = Handle;
+			}
+			Proof.Done = MoveTemp(Done);
+			Proof.Age = 0.0;
+		}
+
+		/** A deserialised result is polled here, not through the result callback (which ignores it). */
+		void PollProof(double DeltaSeconds)
+		{
+			if (!Proof.Done)
+			{
+				return;
+			}
+			Proof.Age += DeltaSeconds;
+			const EResult Status = SteamInventory()->GetResultStatus(ProofHandle);
+			if (Status == k_EResultPending && Proof.Age < ProofTimeoutSeconds)
+			{
+				return;
+			}
+			const bool bOk = IsOwnResult(ProofHandle, Status);
+			const TSet<int32> Defs = bOk ? DefsOf(ProofHandle) : TSet<int32>();
+			SteamInventory()->DestroyResult(ProofHandle);
+			{
+				FScopeLock Guard(&ProofLock);
+				ProofHandle = k_SteamInventoryResultInvalid;
+			}
+			UE_LOG(LogKartSteamStore, Log, TEXT("Saved Steam inventory: %s (%d items)"), bOk ? TEXT("verified") : TEXT("rejected"), Defs.Num());
+			TFunction<void(bool, const TSet<int32>&)> Done = MoveTemp(Proof.Done);
+			Proof = FProof();
+			Done(bOk, Defs);
+		}
+
+		bool IsProofHandle(SteamInventoryResult_t Handle)
+		{
+			FScopeLock Guard(&ProofLock);
+			return Handle == ProofHandle;
+		}
+
 		STEAM_CALLBACK(FSteamInventoryBackend, OnResultReady, SteamInventoryResultReady_t);
 		STEAM_CALLBACK(FSteamInventoryBackend, OnFullUpdate, SteamInventoryFullUpdate_t);
 		STEAM_CALLBACK(FSteamInventoryBackend, OnMicroTxn, MicroTxnAuthorizationResponse_t);
@@ -273,12 +378,20 @@ namespace MovecadeKart::Store
 		CCallResult<FSteamInventoryBackend, SteamInventoryRequestPricesResult_t> PricesCall;
 		TFunction<void(bool, const TMap<int32, FPrice>&)> PricesDone;
 		TArray<int32> PricesFor;
+		FProof Proof;
+		/** Read on the callback thread too (OnResultReady skips it). */
+		SteamInventoryResult_t ProofHandle = k_SteamInventoryResultInvalid;
+		FCriticalSection ProofLock;
 	};
 
 	void FSteamInventoryBackend::OnResultReady(SteamInventoryResultReady_t* Event)
 	{
 		const SteamInventoryResult_t Handle = Event->m_handle;
-		const bool bOk = Event->m_result == k_EResultOK || Event->m_result == k_EResultExpired;
+		if (IsProofHandle(Handle))
+		{
+			return; // PollProof owns it
+		}
+		const bool bOk = IsOwnResult(Handle, Event->m_result);
 		const TSet<int32> Defs = bOk ? DefsOf(Handle) : TSet<int32>();
 		SteamInventory()->DestroyResult(Handle);
 		GameThreadWork.Enqueue([this, Handle, bOk, Defs]()
@@ -293,6 +406,11 @@ namespace MovecadeKart::Store
 	void FSteamInventoryBackend::OnFullUpdate(SteamInventoryFullUpdate_t* Event)
 	{
 		// A full inventory (from GetAllItems) newer than the last one: the authoritative owned set.
+		if (!IsOwnResult(Event->m_handle, SteamInventory()->GetResultStatus(Event->m_handle)))
+		{
+			return;
+		}
+		SaveProof(Event->m_handle);
 		const TSet<int32> Defs = DefsOf(Event->m_handle);
 		GameThreadWork.Enqueue([this, Defs]()
 		{
@@ -366,6 +484,12 @@ namespace MovecadeKart::Store
 }
 
 #else // MOVECADE_WITH_STEAM
+
+#if UE_BUILD_SHIPPING
+// MovecadeKart.Build.cs turns Steam on for every desktop Shipping game; a shipped store without it sells nothing and
+// confirms nothing. Reaching this means a platform or target the store hasn't been set up for.
+#error "Shipping builds need the Steam Inventory backend (MOVECADE_WITH_STEAM=1)."
+#endif
 
 namespace MovecadeKart::Store
 {

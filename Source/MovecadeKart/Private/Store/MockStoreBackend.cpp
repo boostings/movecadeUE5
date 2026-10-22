@@ -5,6 +5,7 @@
 #include "Misc/Parse.h"
 #include "Store/KartStoreCatalog.h"
 #include "Store/KartStoreSave.h"
+#include "Store/KartStoreSaveFile.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartStoreMock, Log, All);
 
@@ -19,12 +20,14 @@ namespace MovecadeKart::Store
 	FMockStoreBackend::FMockStoreBackend(const FString& InSaveSlot) : SaveSlot(InSaveSlot)
 	{
 #if !UE_BUILD_SHIPPING
-		// Development: -KartStoreMock=succeed|cancel|fail picks how every checkout ends.
+		// Development: -KartStoreMock=succeed|cancel|fail picks how every checkout ends; =offline plays the store as a
+		// Shipping build without Steam sees it (nothing confirmed, nothing for sale).
 		FString Outcome;
 		if (FParse::Value(FCommandLine::Get(), TEXT("KartStoreMock="), Outcome))
 		{
 			NextOutcome = Outcome.Equals(TEXT("cancel"), ESearchCase::IgnoreCase) ? EMockOutcome::Cancel
 				: Outcome.Equals(TEXT("fail"), ESearchCase::IgnoreCase) ? EMockOutcome::Fail : EMockOutcome::Succeed;
+			bOnline = !Outcome.Equals(TEXT("offline"), ESearchCase::IgnoreCase);
 		}
 #endif
 		Load();
@@ -194,11 +197,8 @@ namespace MovecadeKart::Store
 
 	void FMockStoreBackend::Load()
 	{
-		if (SaveSlot.IsEmpty() || !UGameplayStatics::DoesSaveGameExist(SaveSlot, 0))
-		{
-			return;
-		}
-		if (const UKartStoreSave* Saved = Cast<UKartStoreSave>(UGameplayStatics::LoadGameFromSlot(SaveSlot, 0)))
+		UKartStoreSave* Saved = nullptr;
+		if (!SaveSlot.IsEmpty() && SaveFile::Read(SaveSlot, Saved) == SaveFile::EReadResult::Loaded)
 		{
 			Inventory = TSet<int32>(Saved->OwnedCache);
 		}
@@ -213,6 +213,6 @@ namespace MovecadeKart::Store
 		// The mock's "server" reuses the store save type; only the owned list means anything here.
 		UKartStoreSave* Out = Cast<UKartStoreSave>(UGameplayStatics::CreateSaveGameObject(UKartStoreSave::StaticClass()));
 		Out->OwnedCache = Inventory.Array();
-		UGameplayStatics::SaveGameToSlot(Out, SaveSlot, 0);
+		SaveFile::Write(SaveSlot, *Out);
 	}
 }
