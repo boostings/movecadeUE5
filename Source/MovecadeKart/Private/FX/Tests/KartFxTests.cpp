@@ -2,6 +2,7 @@
 #include "FX/KartItemMeshes.h"
 #include "Engine/StaticMesh.h"
 #include "Misc/AutomationTest.h"
+#include "UObject/Package.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -145,6 +146,36 @@ bool FKartFxItemsTest::RunTest(const FString& Parameters)
 	// The strike lands where it is aimed: from its height down to the origin.
 	const FBox Strike = BuildStrikeMesh(Outer, 3, 1000.0)->GetBoundingBox();
 	TestTrue(TEXT("strike spans its height"), Strike.Min.Z < 5.0 && Strike.Max.Z > 990.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartFxMeshNamesTest, "MovecadeKart.Fx.MeshNamesUnique",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FKartFxMeshNamesTest::RunTest(const FString& Parameters)
+{
+	// Building a mesh twice on one outer must make a second mesh, never reconstruct the first in place (a live
+	// mesh rebuilt under a renderer is a use-after-free).
+	UObject* Outer = NewObject<UPackage>(nullptr, MakeUniqueObjectName(nullptr, UPackage::StaticClass(), TEXT("/Temp/KartFxMeshNames")), RF_Transient);
+	UStaticMesh* First = BuildShellMesh(Outer);
+	const FBox Before = First->GetBoundingBox();
+	UStaticMesh* Second = BuildShellMesh(Outer);
+	TestTrue(TEXT("a new mesh each build"), First != Second);
+	TestTrue(TEXT("the first is untouched"), IsValid(First) && First->GetBoundingBox() == Before && First->GetName() != Second->GetName());
+	TestTrue(TEXT("the shared rocket is shared"), SharedRocketMesh() != nullptr && SharedRocketMesh() == SharedRocketMesh());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartFxHexTest, "MovecadeKart.Fx.Hex",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FKartFxHexTest::RunTest(const FString& Parameters)
+{
+	// The in-place parser agrees with FColor::FromHex on every form the recipes use (and falls back on the rest).
+	for (const TCHAR* Value : { TEXT("ffe2a0"), TEXT("#5FF0FF"), TEXT("00000000"), TEXT("b45cffcc"), TEXT("fff"), TEXT("zz12ab") })
+	{
+		TestTrue(FString::Printf(TEXT("Hex(%s)"), Value), Hex(Value).Equals(FLinearColor::FromSRGBColor(FColor::FromHex(Value)), 1e-6f));
+	}
 	return true;
 }
 

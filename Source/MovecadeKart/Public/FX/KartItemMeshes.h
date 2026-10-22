@@ -29,6 +29,8 @@ namespace MovecadeKart::Fx
 	/** About 3 m long, 1.3 m wide, along +X. Slots: Body, Band, Fins, Exhaust. The exhaust is at RocketExhaust(). */
 	MOVECADEKART_API UStaticMesh* BuildRocketMesh(UObject* Outer);
 	MOVECADEKART_API FVector RocketExhaust();
+	/** One rocket mesh shared by every kart (built on first use; rebuilt if nothing held it through a GC). */
+	MOVECADEKART_API UStaticMesh* SharedRocketMesh();
 	/** A cube of edge 1 m with chamfered edges (the item box's inner core). Slot: Core. */
 	MOVECADEKART_API UStaticMesh* BuildChamferCubeMesh(UObject* Outer);
 	/**

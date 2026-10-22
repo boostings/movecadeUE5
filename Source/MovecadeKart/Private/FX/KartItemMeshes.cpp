@@ -4,6 +4,8 @@
 #include "Math/RandomStream.h"
 #include "MeshDescription.h"
 #include "StaticMeshAttributes.h"
+#include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
 
 namespace
 {
@@ -232,7 +234,8 @@ namespace
 			TPolygonGroupAttributesRef<FName> SlotNames = Attributes.GetPolygonGroupMaterialSlotNames();
 			UVs.SetNumChannels(1);
 
-			UStaticMesh* Result = NewObject<UStaticMesh>(Outer, Name, RF_Transient);
+			// A unique name: NewObject with a name already used on this outer would reconstruct that (live) mesh in place.
+			UStaticMesh* Result = NewObject<UStaticMesh>(Outer, MakeUniqueObjectName(Outer, UStaticMesh::StaticClass(), Name), RF_Transient);
 			for (const FSection& Sec : Sections)
 			{
 				const FPolygonGroupID Group = Mesh.CreatePolygonGroup();
@@ -399,6 +402,18 @@ namespace MovecadeKart::Fx
 			B.Box(TEXT("Fins"), FVector(-118.0, 0.0, 0.0) + Out * 74.0, FVector(26.0, 2.5, 20.0), FVector::ForwardVector, Thick, Out);
 		}
 		return B.Build(Outer, TEXT("SM_Item_Rocket"));
+	}
+
+	UStaticMesh* SharedRocketMesh()
+	{
+		// Every kart wears the same rocket; the components using it keep it alive, and it is rebuilt after a GC
+		// that found no user (a level change).
+		static TWeakObjectPtr<UStaticMesh> Shared;
+		if (!Shared.IsValid())
+		{
+			Shared = BuildRocketMesh(GetTransientPackage());
+		}
+		return Shared.Get();
 	}
 
 	UStaticMesh* BuildChamferCubeMesh(UObject* Outer)

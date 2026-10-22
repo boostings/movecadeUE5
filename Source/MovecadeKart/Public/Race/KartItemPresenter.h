@@ -76,6 +76,23 @@ private:
 		FVector At = FVector::ZeroVector;
 	};
 
+	/**
+	 * This frame's instances for one pooled instanced mesh. The mesh keeps every instance it ever needed; Commit
+	 * writes the frame's transforms over the first ones in one batch, folds away (zero scale) the ones shown last
+	 * frame but not now, and does nothing at all while nothing is shown.
+	 */
+	struct FInstanceBatch
+	{
+		TArray<FTransform> Transforms;
+		/** One custom float per instance, for the meshes that have one. */
+		TArray<float> Custom;
+		int32 Shown = 0;
+
+		void Add(const FTransform& T) { Transforms.Add(T); }
+		void Add(const FTransform& T, float Value) { Transforms.Add(T); Custom.Add(Value); }
+	};
+	static void Commit(UInstancedStaticMeshComponent* Component, FInstanceBatch& Batch);
+
 	UInstancedStaticMeshComponent* MakeMeshes(const TCHAR* Name, UStaticMesh* Mesh, int32 CustomFloats = 0);
 	UMaterialInstanceDynamic* ItemMaterial(const FLinearColor& Base, const FLinearColor& Emissive, float EmissiveStrength, float Metallic, float Roughness, float ClearCoat = 0.6f);
 	UMaterialInstanceDynamic* GlowMaterial(const FLinearColor& Color, float Intensity, float Power, float Core);
@@ -92,6 +109,16 @@ private:
 	UInstancedStaticMeshComponent* MeshesFor(MovecadeKart::EKartItem Item) const;
 
 	TWeakObjectPtr<AKartRaceManager> Manager;
+	FDelegateHandle CueHandle;
+	/** Meshes and materials are built once per presenter, whatever number of Binds. */
+	bool bMaterialsBuilt = false;
+
+	/** Per-frame instance batches (pooled ISMs): one per item type, the glows and the fireballs. */
+	TArray<FInstanceBatch> ItemBatches;
+	FInstanceBatch GlowBatch;
+	FInstanceBatch BombGlowBatch;
+	FInstanceBatch BlastBatch;
+	FInstanceBatch BoxBatches[4];
 
 	// Item boxes.
 	UPROPERTY()
@@ -122,6 +149,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInstancedStaticMeshComponent> Blasts;
 
+	/** A small pool of explosion flash lights, reused oldest first (start < 0: free). */
 	UPROPERTY()
 	TArray<TObjectPtr<UPointLightComponent>> BlastLights;
 	TArray<double> BlastLightStart;

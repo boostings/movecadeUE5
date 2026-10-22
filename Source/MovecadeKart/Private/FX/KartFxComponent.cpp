@@ -119,7 +119,7 @@ void UKartFxComponent::Build()
 	AuraFlares = Fx->MakeStream(EField::Flare, SlipPivot, TEXT("FxAuraFlares"), FVector(0.0, 0.0, 70.0));
 
 	// Rocket: a modelled shell over the kart, its afterburner and smoke from the tail.
-	Rocket = MakeMesh(Owner, SlipPivot, TEXT("FxRocket"), BuildRocketMesh(this));
+	Rocket = MakeMesh(Owner, SlipPivot, TEXT("FxRocket"), SharedRocketMesh());
 	Rocket->SetRelativeLocation(FVector(0.0, 0.0, 72.0));
 	Rocket->SetCastShadow(true);
 	if (UMaterialInterface* Item = LoadObject<UMaterialInterface>(nullptr, ItemPath))
@@ -208,7 +208,12 @@ void UKartFxComponent::Build()
 void UKartFxComponent::RefreshAnchors()
 {
 	const AActor* Owner = GetOwner();
-	const UStaticMeshComponent* Body = FindPart<UStaticMeshComponent>(Owner, TEXT("Body"));
+	// The Body part is found once (a component search with name compares); its mesh tells when the vehicle changed.
+	if (!BodyPart.IsValid())
+	{
+		BodyPart = FindPart<UStaticMeshComponent>(Owner, TEXT("Body"));
+	}
+	const UStaticMeshComponent* Body = BodyPart.Get();
 	UStaticMesh* BodyMesh = Body ? Body->GetStaticMesh() : nullptr;
 	if (Anchors.bValid && AnchoredBody.Get() == BodyMesh)
 	{
@@ -468,7 +473,9 @@ void UKartFxComponent::UpdateEvents(const FKartState& S, double Time)
 		if (!PadFlashes[i])
 		{
 			UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
-			UStaticMeshComponent* C = MakeMesh(GetOwner(), nullptr, *FString::Printf(TEXT("FxPadFlash%d"), i), Plane);
+			// Attached to the kart's root (it was parentless) but placed in world space.
+			UStaticMeshComponent* C = MakeMesh(GetOwner(), GetOwner()->GetRootComponent(),
+				*MakeUniqueObjectName(GetOwner(), UStaticMeshComponent::StaticClass(), *FString::Printf(TEXT("FxPadFlash%d"), i)).ToString(), Plane);
 			C->SetUsingAbsoluteLocation(true);
 			C->SetUsingAbsoluteRotation(true);
 			C->SetUsingAbsoluteScale(true);
