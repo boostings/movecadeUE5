@@ -5,10 +5,10 @@
 // (RoomHostInbound.cpp), and an honest server's validation (movecade-v2 protocol/) does NOT bind a
 // compromised server, so the host must stand on its own.
 //
-// These tests assert robustness (no crash, bounded/finite outputs) and pin two current vulnerabilities as
-// documented behaviour so a fix flips the marked assertions:
-//   * NET-01  ParseRoomState accepts an unbounded, non-deduplicated player roster.
-//   * NET-02  ParseRoomState does not bound or sanitise attacker-controlled seat strings (name/emoji/...).
+// These tests assert robustness (no crash, bounded/finite outputs) and pin the two malicious-server findings as
+// fixed:
+//   * NET-01  ParseRoomState reads a bounded roster and keeps at most MaxPlayers distinct seats.
+//   * NET-02  ParseRoomState sanitises the seat strings a server sends (name/emoji/...).
 
 #include "Dom/JsonObject.h"
 #include "Misc/AutomationTest.h"
@@ -204,9 +204,8 @@ bool FNetFuzzJsonTest::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetFuzzRosterTest, "MovecadeKart.Net.Fuzz.UnboundedRoster", FuzzFlags)
 bool FNetFuzzRosterTest::RunTest(const FString&)
 {
-	// A compromised room server sends thousands of seats, all on seat 1 with the same id. The host caps each
-	// seat index to [1,4] but never caps the ARRAY length and never deduplicates, so Room.Players grows without
-	// bound. ApplySeatChanges then does O(n*m) FindByPlayerId lookups per state message (RoomHostInbound.cpp:356).
+	// A compromised room server sends thousands of seats, all on seat 1 with the same id. Unbounded, Room.Players
+	// would grow with it and ApplySeatChanges would do O(n*m) FindByPlayerId lookups per state message.
 	const int32 N = 20000;
 	FString Json = TEXT("{\"roomId\":\"r-x\",\"stateVersion\":0,\"players\":[");
 	for (int32 i = 0; i < N; ++i)
@@ -218,13 +217,14 @@ bool FNetFuzzRosterTest::RunTest(const FString&)
 	const TSharedPtr<FJsonObject> Obj = Parse(Json);
 	TestTrue(TEXT("roster JSON parses"), Obj.IsValid());
 	FMcRoomState Out;
-	const bool bOk = Obj.IsValid() && ParseRoomState(*Obj, Out);
-	TestTrue(TEXT("state accepted"), bOk);
+	FRoomStateIssues Issues;
+	const bool bOk = Obj.IsValid() && ParseRoomState(*Obj, Out, &Issues);
+	TestTrue(TEXT("state accepted (truncated, not refused)"), bOk);
 
-	// VULN NET-01 (current behaviour): the roster is NOT clamped to MaxPlayers and duplicates are kept.
-	// When this is fixed (clamp + dedupe in ParseRoomState), change this to: TestTrue(Out.Players.Num() <= MaxPlayers).
-	AddInfo(FString::Printf(TEXT("NET-01: ParseRoomState kept %d seats (MaxPlayers=%d) from a malicious roster"), Out.Players.Num(), MaxPlayers));
-	TestTrue(TEXT("NET-01 reproduces: more seats than MaxPlayers were accepted"), Out.Players.Num() > MaxPlayers);
+	// NET-01 fixed: one seat survives, the duplicates are skipped and nothing past MaxRosterEntries is read.
+	TestEqual(TEXT("NET-01: only the first p1 on seat 1 is kept"), Out.Players.Num(), 1);
+	TestEqual(TEXT("NET-01: the rest of the examined entries are skipped duplicates"), Issues.SkippedEntries, MaxRosterEntries - 1);
+	TestEqual(TEXT("NET-01: entries past MaxRosterEntries are never read"), Issues.UnreadEntries, N - MaxRosterEntries);
 	return true;
 }
 
@@ -234,7 +234,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNetFuzzNameTest, "MovecadeKart.Net.Fuzz.Unboun
 bool FNetFuzzNameTest::RunTest(const FString&)
 {
 	// A compromised room server bypasses the web app's sanitizePlayerName (20 chars, [a-zA-Z0-9\s\-_]). The host
-	// copies name/emoji verbatim and renders them in the UMG lobby and the Slate HUDs.
+	// renders names and emoji in the UMG lobby and the Slate HUDs, so it sanitises them again.
 	FString Evil;
 	for (int32 i = 0; i < 100000; ++i) Evil.AppendChar(TEXT('Z'));
 	Evil += TEXT("\n\n\n\r\t");                       // newline / control floods
@@ -247,10 +247,9 @@ bool FNetFuzzNameTest::RunTest(const FString&)
 	FMcRoomState Out;
 	if (Obj.IsValid() && ParseRoomState(*Obj, Out) && Out.Players.Num() == 1)
 	{
-		AddInfo(FString::Printf(TEXT("NET-02: seat name length after parse = %d (web cap is 20)"), Out.Players[0].Name.Len()));
-		// VULN NET-02 (current behaviour): no length or charset bound. When fixed, expect Name.Len() <= 20 and no
-		// control characters.
-		TestTrue(TEXT("NET-02 reproduces: oversized name accepted unchanged"), Out.Players[0].Name.Len() > 20);
+		// NET-02 fixed: cut to 20 and nothing outside [A-Za-z0-9 _-] (no control, RTL or NUL); a real emoji is kept.
+		TestEqual(TEXT("NET-02: the name is cut to 20 characters"), Out.Players[0].Name, FString::ChrN(MaxPlayerNameLength, TEXT('Z')));
+		TestEqual(TEXT("NET-02: a short emoji survives"), Out.Players[0].Emoji.Len(), 2);
 	}
 	else
 	{

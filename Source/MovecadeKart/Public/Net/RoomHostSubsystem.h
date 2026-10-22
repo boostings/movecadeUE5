@@ -364,6 +364,8 @@ private:
 	void HandleBinary(const void* Data, SIZE_T Size, bool bIsLastFragment);
 	void HandleSensorFrame(const uint8* Data, int32 Size);
 	void ApplyState(const FJsonObject& State, bool bFromWelcome);
+	/** A state frame ParseRoomState had to clean up: a warning the first time on each connection. */
+	void ReportStateIssues(const MovecadeKart::Net::FRoomStateIssues& Issues, int64 StateVersion);
 	void OnStateApplied(const FMcRoomState& Previous);
 	/** Logs joins, leaves and readiness and resets the input of seats that changed hands. True if the lobby must redraw. */
 	bool ApplySeatChanges(const FMcRoomState& Previous);
@@ -413,6 +415,8 @@ private:
 	FString LastError;
 	int64 HighestStateVersion = -1;
 	FMcRoomState Room;
+	/** ReportStateIssues has warned on this connection. */
+	bool bReportedStateIssues = false;
 	uint32 LobbyRevision = 0;
 
 	UPROPERTY()
