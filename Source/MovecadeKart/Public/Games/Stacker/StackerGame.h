@@ -5,7 +5,7 @@
 #include "Games/ArcadeGame.h"
 #include "Games/GameAudio.h"
 #include "Games/Stacker/StackerRules.h"
-#include "KartLook.h"
+#include "Games/Stacker/StackerTypes.h"
 #include "StackerGame.generated.h"
 
 class AStackerRooftop;
@@ -21,39 +21,6 @@ class UStaticMeshComponent;
 
 namespace MovecadeKart::Net { struct FSensorFrame; }
 
-UENUM()
-enum class EStackerStage : uint8
-{
-	/** The intro card and the camera's drop onto the roof; the round clock holds. */
-	Intro,
-	Match,
-	Finished,
-};
-
-UENUM()
-enum class EBuilderKind : uint8
-{
-	/** The left stick, the keys or the mouse tilt the palm; A, Space or a click drops. */
-	Local,
-	/** A phone is the palm: its attitude balances the tower, its DROP button drops. */
-	Phone,
-	Bot,
-};
-
-USTRUCT()
-struct FStackerSeat
-{
-	GENERATED_BODY()
-
-	FString Id;
-	FString Name;
-	FLinearColor Color = FLinearColor::White;
-	EBuilderKind Kind = EBuilderKind::Bot;
-	/** Bots: 0 sloppy .. 1 sharp. */
-	float Skill = 0.6f;
-	FKartLook Look;
-};
-
 /** The camera's projection, taken once per HUD paint (not once per projected point). */
 struct FStackerView
 {
@@ -63,20 +30,6 @@ struct FStackerView
 	bool bValid = false;
 
 	bool Project(const FVector& World, FVector2D& Out01) const;
-};
-
-/** The local builder's coach marks (the first round of a session teaches; later rounds stay quiet). */
-struct FStackerCoach
-{
-	/** 0..1 how much each mark shows this frame. */
-	float Drop = 0.f;
-	float Lean = 0.f;
-	/** The side to lean (-1 left, +1 right) against the wind. */
-	float LeanSide = 1.f;
-	/** The block would land perfectly if dropped now. */
-	bool bAligned = false;
-	/** The local tower (an index into the match's towers), or INDEX_NONE. */
-	int32 Tower = INDEX_NONE;
 };
 
 /**
