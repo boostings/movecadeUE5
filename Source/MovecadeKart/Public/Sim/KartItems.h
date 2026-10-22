@@ -59,6 +59,7 @@ namespace MovecadeKart
 		Bump,          // invincible kart rammed another (Seat = victim, Other = rammer)
 	};
 
+	/** Something the presentation reacts to (FX, audio, HUD, phones). Which fields are set depends on Type. */
 	struct FKartItemEvent
 	{
 		EKartItemEventType Type = EKartItemEventType::Pickup;
@@ -69,20 +70,26 @@ namespace MovecadeKart
 		double Radius = 0.0;
 	};
 
+	/** A thrown or dropped item in the world. */
 	struct FKartItemProjectile
 	{
 		int32 Id = 0;
 		EKartItem Type = EKartItem::None;
+		/** The seat that used it. */
 		int32 Owner = 0;
 		FVector2D Pos = FVector2D::ZeroVector;
+		/** Height above the ground plane (three.js y). */
 		double Y = 0.0;
 		FVector2D Vel = FVector2D::ZeroVector;
+		/** Vertical speed (the bomb's lob). */
 		double VY = 0.0;
+		/** Seconds since launch. */
 		double Age = 0.0;
 		int32 Bounces = 0;
 		bool bAlive = true;
 	};
 
+	/** An item box. Each seat collects it separately. */
 	struct FKartItemBox
 	{
 		FVector2D Pos = FVector2D::ZeroVector;
@@ -124,6 +131,12 @@ namespace MovecadeKart
 		bool bBot = false;
 	};
 
+	/**
+	 * Every kart's items, the item boxes and the projectiles in flight, stepped on the sim's 60 Hz clock after the
+	 * karts move. Owned by AKartRaceManager (and by tests). It points at the track, and through the racers passed
+	 * to Step it changes the karts' sims directly (boosts, spin-outs, explosions). Deterministic for a seed: the
+	 * roulette and the bots' timing draw from one FRandomStream in a fixed order.
+	 */
 	class MOVECADEKART_API FKartItemWorld
 	{
 	public:
@@ -149,29 +162,37 @@ namespace MovecadeKart
 		bool IsInputLocked(int32 Seat, double Now) const;
 		bool IsRocket(int32 Seat, double Now) const;
 
-		const TArray<FKartItemSlot>& Slots() const { return SlotsArr; }
-		const TArray<FKartItemProjectile>& Projectiles() const { return ProjectilesArr; }
-		const TArray<FKartItemBox>& Boxes() const { return BoxesArr; }
+		const TArray<FKartItemSlot>& Slots() const { return ItemSlots; }
+		const TArray<FKartItemProjectile>& Projectiles() const { return LiveProjectiles; }
+		const TArray<FKartItemBox>& Boxes() const { return ItemBoxes; }
 		/** The roulette RNG's position, so tests can prove two races drew the same numbers. */
 		int32 RandomSeed() const { return Random.GetCurrentSeed(); }
 		/** True if any seat can still collect this box (it is hidden when everyone has it). */
 		bool IsBoxVisible(int32 Box, double Now) const;
 
 	private:
+		// The phases of Step, in order.
+		void FinishRoulettes(double Now, TArray<FKartItemEvent>& Events);
+		void CollectBoxes(const TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+		void UseItems(TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+		void StepProjectile(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+		void RamWithInvincibles(TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+
 		void Use(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
-		void StepProjectile(FKartItemProjectile& P, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
+		/** Reflects the projectile off a wall within this step's travel; false if there is none. */
+		bool Bounce(FKartItemProjectile& Projectile, double Travel, double Retention) const;
+		/** Bounce (raising a Bounce event), or else fly straight on. */
+		void BounceOrMove(FKartItemProjectile& Projectile, double Travel, double Retention, TArray<FKartItemEvent>& Events) const;
+		void HitKarts(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
 		void Explode(const FVector2D& Center, double Radius, int32 Owner, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
 		void SpinOut(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events);
-		bool Bounce(FKartItemProjectile& P, double Travel, double Retention);
-		int32 Position(int32 Seat, const TArray<FKartItemRacer>& Racers) const;
-		int32 NearestAhead(int32 Seat, const TArray<FKartItemRacer>& Racers) const;
-		int32 Leader(const TArray<FKartItemRacer>& Racers) const;
 
-		const FTrack* T = nullptr;
-		TArray<FKartItemSlot> SlotsArr;
-		TArray<FKartItemProjectile> ProjectilesArr;
-		TArray<FKartItemBox> BoxesArr;
+		const FTrack* TrackData = nullptr;
+		TArray<FKartItemSlot> ItemSlots;
+		TArray<FKartItemProjectile> LiveProjectiles;
+		TArray<FKartItemBox> ItemBoxes;
 		FRandomStream Random;
+		/** The next projectile's Id, unique within a race so the presentation can track each one. */
 		int32 NextId = 1;
 	};
 }
