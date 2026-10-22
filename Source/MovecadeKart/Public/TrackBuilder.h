@@ -5,6 +5,7 @@
 #include "Sim/KartTrack.h"
 #include "TrackBuilder.generated.h"
 
+class FJsonObject;
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
 class UInstancedStaticMeshComponent;
@@ -22,18 +23,22 @@ class USkyLightComponent;
  * Loads Data/Tracks/<TrackId>.track.json, owns the sim's track data, and builds the track:
  * - the imported meshes in the JSON's meshes[] (Violet's decoded GLB, kerbs; Harbor's ribbons and prop
  *   batches), each part with the material its JSON hint asks for (Content/Tracks/Shared/Materials);
- * - scenery.instances as instanced prefabs (grandstands, lamps, banners, trees), scenery.signs,
+ * - scenery.instances as instanced prefabs (grandstands, lamps, banners, trees), scenery.signs, scenery.lights,
  *   and Harbor's animated actors (scenery.animated, HarborMotion.tsx), moved in Tick;
  * - a graybox of anything not imported (the Harbor ribbons as procedural sections, start line),
- *   the sea, boost pads (emissive chevrons, BoostPads.jsx) and item boxes;
- * - the track's look (JSON `look`): sun, sky light, sky atmosphere, height fog and an unbound post
- *   process volume with the grade (exposure, contrast, saturation, lift/gain, bloom, vignette) and Lumen.
+ *   the sea, boost pads (emissive chevrons, BoostPads.jsx) and preview item boxes;
+ * - the track's look (JSON `look`): sun, sky light, painted sky dome, height fog and an unbound post process
+ *   volume with this track's colour tint.
  * Built in the editor too (OnConstruction). Run Tools/ue/import_track_assets.py after an export.
  *
  * In game worlds BeginPlay also spawns the track's ATrackLife (grass, crowds, wind, fireworks; -KartNoLife: none).
+ * -KartTrack=<id> swaps the track at BeginPlay (any level with a builder, or none: AKartGameMode spawns one), so local
+ * play can pick a track that has no level of its own.
  *
- * -KartTrack=<id> on the command line swaps the track at BeginPlay (any level with a builder, or none:
- * AKartGameMode spawns one), so local play can pick a track that has no level of its own.
+ * Source files: TrackBuilder.cpp (loading, build order, the frame), TrackGraybox.cpp (procedural ribbons, sea, start
+ * line, boost pads, item boxes), TrackLook.cpp (lighting, sky, fog, grade), TrackScenery.cpp (imported meshes,
+ * prefabs, signs, lights, sea, ATrackLife hooks), TrackSceneryMaterials.cpp (JSON hints to material instances) and
+ * TrackMotion.cpp (Harbor's moving scenery).
  */
 UCLASS()
 class MOVECADEKART_API ATrackBuilder : public AActor
@@ -70,7 +75,7 @@ public:
 	int32 NumSceneryComponents() const { return SceneryCount; }
 
 	/** A material for a JSON-style hint ({shader, color, detail, ...}), from the same cache as the scenery's. */
-	UMaterialInterface* MaterialForHint(const TSharedPtr<class FJsonObject>& Hint) { return MaterialFor(Hint); }
+	UMaterialInterface* MaterialForHint(const TSharedPtr<FJsonObject>& Hint) { return MaterialFor(Hint); }
 
 	/**
 	 * Hides a scenery prefab's instanced components (scenery.instances) and returns its instances' world
@@ -82,14 +87,59 @@ public:
 	void EnableFoliageWind();
 
 private:
+	/** How each animated part moves (TrackMotion.cpp); any part not listed stays where it was placed. */
+	enum class EMotion : uint8
+	{
+		Fixed,
+		LighthouseBeams,
+		FerrisFrame,
+		FerrisWheel,
+		FerrisGondola,
+		Ferry,
+		CargoShip,
+		JetSki,
+		JetWake,
+		GullBody,
+		GullWingL,
+		GullWingR,
+		FountainJet,
+		FountainSpray,
+		Buoy,
+		BuoyLamp,
+	};
+
+	struct FMotionPart
+	{
+		TWeakObjectPtr<UStaticMeshComponent> Component;
+		EMotion Kind = EMotion::Fixed;
+		int32 Index = 0;
+		FVector Base = FVector::ZeroVector; // three.js metres
+		double Yaw = 0.0;
+		double Phase = 0.0;
+		TWeakObjectPtr<UMaterialInstanceDynamic> Lamp;
+	};
+
 	bool Load();
 	void Build();
-	/** Lights, sky, fog and post from the JSON look. Also runs at BeginPlay, so a look change needs no level rebuild. */
-	void ApplyLook();
-	void BuildBoostPads();
-	void AddSection(const FString& Name, const FLinearColor& Color, TFunctionRef<void(TArray<FVector>&, TArray<int32>&, TArray<FVector>&)> Emit);
+	void TickSkyCapture(double Time);
+	void TickTrackCamera();
+	void TickPreviewItemBoxes(double Time);
+	void DrawCheckpoints();
 
-	// Imported scenery (TrackScenery.cpp).
+	// Graybox (TrackGraybox.cpp).
+	void AddSection(const FString& Name, const FLinearColor& Color, TFunctionRef<void(TArray<FVector>&, TArray<int32>&, TArray<FVector>&)> Emit);
+	void BuildRibbons();
+	void BuildGrayboxSea();
+	void BuildStartLine();
+	void BuildBoostPads();
+	void BuildItemBoxes();
+	void ApplyGrayboxMaterials();
+
+	/** Lights, sky, fog and post from the JSON look (TrackLook.cpp). Also runs at BeginPlay, so a look change needs
+	 *  no level rebuild. */
+	void ApplyLook();
+
+	// Imported scenery (TrackScenery.cpp, TrackSceneryMaterials.cpp).
 	void ClearScenery();
 	/** Returns true when an imported mesh replaces the procedural ribbons. */
 	bool BuildImportedMeshes();
@@ -98,32 +148,28 @@ private:
 	/** scenery.lights: unshadowed point lights (street lamps, arch uplights) for the night track. */
 	void BuildLights();
 	void BuildSea();
+	UStaticMeshComponent* AddMeshComponent(const FString& Name, UStaticMesh* Mesh, const FTransform& Transform, UMaterialInterface* Material, const FName Tag = NAME_None);
+	UMaterialInterface* MaterialFor(const TSharedPtr<FJsonObject>& Hint, const FString& TintOverride = FString(), int32 Variant = 0);
+	void ApplyDetailSurface(UMaterialInstanceDynamic* Material, const TSharedPtr<FJsonObject>& Hint, const FString& Detail);
+	void ApplyHintParams(UMaterialInstanceDynamic* Material, const TSharedPtr<FJsonObject>& Params);
+	UTexture* TextureNamed(const FString& Name);
+
+	// Moving scenery (TrackMotion.cpp).
 	void BuildMotion();
 	void GatherMotion();
 	void TickMotion(double Time);
-	UStaticMeshComponent* AddMeshComponent(const FString& Name, UStaticMesh* Mesh, const FTransform& Transform, UMaterialInterface* Material, const FName Tag = NAME_None);
-	UMaterialInterface* MaterialFor(const TSharedPtr<class FJsonObject>& Hint, const FString& TintOverride = FString(), int32 Variant = 0);
-	UTexture* TextureNamed(const FString& Name);
+	static EMotion MotionOf(FName Part);
+	FTransform MotionPose(const FMotionPart& Part, double Time) const;
 
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UMaterialInterface>> MaterialCache;
 
-	struct FMotionPart
-	{
-		TWeakObjectPtr<UStaticMeshComponent> Component;
-		FName Part;
-		int32 Index = 0;
-		FVector Base = FVector::ZeroVector; // three.js metres
-		double Yaw = 0.0;
-		double Phase = 0.0;
-		TWeakObjectPtr<UMaterialInstanceDynamic> Lamp;
-	};
 	TArray<FMotionPart> Motion;
 	/** Sky recaptures still to do after BeginPlay (the sky light captures once, not every frame). */
 	int32 SkyRecapturesLeft = 0;
 	int32 SceneryCount = 0;
 
-	/** -KartTrackCam=x,y,z,lookX,lookY,lookZ (three.js metres): a fixed view for look checks in screenshots. */
+	/** -KartTrackCam: a fixed view for look checks in screenshots. */
 	TWeakObjectPtr<AActor> DebugCamera;
 
 	UPROPERTY(VisibleAnywhere, Category = "Track")
@@ -150,7 +196,7 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Lighting")
 	TObjectPtr<UPostProcessComponent> PostProcess;
 
-	/** The web's gradient sky dome (M_TrackSky), 10 km out; the real-time sky light captures it. */
+	/** The web's gradient sky dome (M_TrackSky), 10 km out; the sky light captures it. */
 	UPROPERTY(VisibleAnywhere, Category = "Lighting")
 	TObjectPtr<UStaticMeshComponent> SkySphere;
 
@@ -158,7 +204,7 @@ private:
 	TObjectPtr<UMaterialInterface> BaseMaterial;
 
 	TSharedPtr<MovecadeKart::FTrack> Track;
-	TSharedPtr<class FJsonObject> Json;
+	TSharedPtr<FJsonObject> Json;
 	FString LoadedId;
 	TArray<FVector> ItemBoxBase;
 	int32 SectionCount = 0;
