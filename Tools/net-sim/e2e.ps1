@@ -28,7 +28,7 @@ Remove-Item (Join-Path $root 'Saved\Screenshots\WindowsEditor\RoomHost_*.png') -
 
 $game = Start-Process -PassThru -FilePath $editor -ArgumentList @(
     "`"$root\MyProject.uproject`"", $Map, '-game', '-windowed', '-ResX=1280', '-ResY=720', '-nosound',
-    '-KartRoom', '-RoomLocal', "-KartBots=$Bots", "-KartLaps=$Laps", '-KartSkipIntro', '-RoomNew', '-RoomMap=sunset-harbor', "-RoomGame=$RoomGame", "-RoomAutoStart=$AutoStartDelay", "-RoomShots=$Shots",
+    '-KartRoom', '-RoomLocal', "-KartBots=$Bots", "-KartLaps=$Laps", '-KartSkipIntro', '-RoomNew', '-RoomMap=sunset-harbor', "-RoomGame=$RoomGame", "-RoomAutoStart=$AutoStartDelay", "-RoomShots=$Shots", '-RoomLogJoinUrl',
     "-KartQuitAfter=$QuitAfter", '-ExecCmds=DisableAllScreenMessages', '-log=NetE2E.log')
 $sim = Start-Process -PassThru -NoNewWindow -FilePath 'node' -ArgumentList @(
     "`"$root\Tools\net-sim\phone-sim.mjs`"", '--from-log', "`"$log`"", '--name', 'SimPhone', '--paint', 'cyan',

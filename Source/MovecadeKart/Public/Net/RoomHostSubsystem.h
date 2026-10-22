@@ -42,7 +42,8 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FMcSensorFrameEvent, int32, const MovecadeK
  * -RoomNew (ignore the saved room) -RoomMap=sunset-harbor -RoomGame=bowling. Shipping ignores the server settings in
  * both places and always uses production over wss (F-09; Net::ResolveServerSettings). Test hooks (not in Shipping):
  * -RoomAutoStart[=Seconds], -RoomShots=6,20 (UI screenshots), -RoomSelfTest (plays the race layer's part after
- * each start: phases, haptics, live scores, results, restart).
+ * each start: phases, haptics, live scores, results, restart), -RoomLogJoinUrl (the join URL with its token in the log,
+ * which is otherwise redacted, for the phone simulator).
  * The room opens on OpenRoom(), or at startup with -KartLobby, -KartPhoneSeat=N or -RoomOpen.
  *
  * Everything runs on the game thread (UE fires WebSocket events there); only the saved-room file write is async.
@@ -331,6 +332,8 @@ private:
 		bool bSelfTest = false;
 		/** -RoomShots=t1,t2: UI screenshots (RoomHost_N.png) at these seconds after startup, ascending. */
 		TArray<double> ShotTimes;
+		/** -RoomLogJoinUrl: also log the join URL with its token, for Tools/net-sim/phone-sim.mjs --from-log. */
+		bool bLogJoinUrl = false;
 
 		static FDebugFlags Parse(const TCHAR* CommandLine);
 	};

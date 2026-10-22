@@ -52,6 +52,7 @@ URoomHostSubsystem::FDebugFlags URoomHostSubsystem::FDebugFlags::Parse(const TCH
 #if !UE_BUILD_SHIPPING
 	Flags.bAutoStart = FParse::Param(CommandLine, TEXT("RoomAutoStart")) || FParse::Value(CommandLine, TEXT("RoomAutoStart="), Flags.AutoStartDelay);
 	Flags.bSelfTest = FParse::Param(CommandLine, TEXT("RoomSelfTest"));
+	Flags.bLogJoinUrl = FParse::Param(CommandLine, TEXT("RoomLogJoinUrl"));
 	FString Shots;
 	if (FParse::Value(CommandLine, TEXT("RoomShots="), Shots, /*bShouldStopOnSeparator*/ false))
 	{

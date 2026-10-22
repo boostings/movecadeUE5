@@ -249,6 +249,11 @@ void URoomHostSubsystem::UpdateJoinUrl()
 	JoinUrl = Next;
 	// F-10: the join token admits a phone to the room; logs get shared, so only the QR carries it.
 	UE_LOG(LogRoomHost, Display, TEXT("JoinCode=%s JoinUrl=%s"), *Code, *RedactJoinUrl(JoinUrl));
+	if (Debug.bLogJoinUrl)
+	{
+		// phone-sim.mjs --from-log joins with the last JoinUrl= line.
+		UE_LOG(LogRoomHost, Display, TEXT("-RoomLogJoinUrl: JoinUrl=%s"), *JoinUrl);
+	}
 
 	const MovecadeKart::Qr::FQrMatrix Matrix = MovecadeKart::Qr::EncodeText(JoinUrl);
 	if (!Matrix.IsValid())
