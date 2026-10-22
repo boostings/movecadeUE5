@@ -1,7 +1,10 @@
-# Marks every base material used under /Game/Karts as "used with Nanite" and saves it.
-# The kart meshes are Nanite; the editor sets the usage flag on the fly, but a cooked build can't, so without
-# the saved flag the packaged game draws the default material instead.
-#   .\Tools\ue\run.ps1 fix_material_usage.py
+"""Marks every base material used under /Game/Karts as "used with Nanite" and saves it.
+
+    .\\Tools\\ue\\run.ps1 fix_material_usage.py -NullRhi
+
+The kart meshes are Nanite; the editor sets the usage flag on the fly, but a cooked build can't, so without
+the saved flag the packaged game draws the default material instead.
+"""
 import os
 import unreal
 
