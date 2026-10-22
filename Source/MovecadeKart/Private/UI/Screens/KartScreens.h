@@ -24,6 +24,11 @@ namespace KartScreens
 	/** True until the player has seen the welcome card (UKartPlayerPrefs::bSeenHowItWorks). */
 	bool ShouldShowWelcome();
 
+	// Store (KartStoreScreen.cpp): the cosmetics store. TourStep (-KartUiShots): store, storeparty, storefree, storebuy, storedone.
+	TSharedRef<FKartScreen> MakeStore(AKartFrontEnd* FrontEnd, FName TourStep = NAME_None);
+	/** The main menu card's icon for Store. */
+	void PaintStoreIcon(const FKartPainter& P, const FVector2D& Centre, float Size, double Now);
+
 	/** A yes/no dialog over the current screen. No has focus first; Back is No. Each callback runs after the dialog closes. */
 	TSharedRef<FKartScreen> MakeConfirm(const FText& Title, const FText& Body, const FText& Yes, const FText& No, TFunction<void()> OnYes, TFunction<void()> OnNo = nullptr);
 
