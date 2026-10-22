@@ -44,7 +44,10 @@ namespace
 	constexpr double DriftCmPerSecond = 120.0;
 	/** Far enough under the sea to hide a segment (it shrinks to nothing there). */
 	constexpr double SunkDepthCm = 300.0;
+	constexpr double SunkScale = 0.001;
 	constexpr double SplashScale = 0.9;
+	/** Splashes sit just over the sea's surface (cm). */
+	constexpr double SplashOverWaterCm = 10.0;
 	/** A band rises back out of the sea in a wave, overshooting a touch. */
 	constexpr double RiseSeconds = 0.9;
 	constexpr double RiseDelayShare = 0.6;
@@ -59,15 +62,22 @@ namespace
 	constexpr double WarnWashBase = 0.08;
 	constexpr double WarnWashPulse = 0.32;
 
-	/** The floaters and lanterns on the swell. */
+	/** The floaters on the swell: a slow bob (rad/s, phase per floater, cm) and a gentle rock (rates in rad/s, deg). */
 	constexpr double FloatBobRate = 0.7;
 	constexpr double FloatBobPhase = 1.7;
 	constexpr double FloatBobCm = 18.0;
+	constexpr double FloatPitchRate = 0.5;
+	constexpr double FloatRollRate = 0.6;
 	constexpr double FloatRockDeg = 2.0;
+	/** The lanterns: the swell's phase runs across the sea (rad per cm along X and Y), so neighbours bob together. */
 	constexpr double LanternBobRate = 1.1;
+	constexpr double SwellPhasePerCmX = 0.003;
+	constexpr double SwellPhasePerCmY = 0.002;
 	constexpr double LanternBobCm = 8.0;
+	constexpr double LanternPitchRate = 0.9;
+	constexpr double LanternRollRate = 0.8;
+	constexpr double LanternRollPhase = 0.7;
 	constexpr double LanternRockDeg = 6.0;
-	const FVector LanternScale(0.42, 0.42, 0.55);
 }
 
 ASumoArena::ASumoArena()
@@ -368,12 +378,12 @@ bool ASumoArena::AnimateSegments(FBand& Band, UInstancedStaticMeshComponent& Ism
 					// Every other piece splashes: a full ring of splashes is a wall of particles.
 					if (s % 2 == 0)
 					{
-						Splash(FVector(Pos.X, Pos.Y, WaterZ + 10.0), SplashScale);
+						Splash(FVector(Pos.X, Pos.Y, WaterZ + SplashOverWaterCm), SplashScale);
 					}
 				}
 				if (Pos.Z < WaterZ - SunkDepthCm)
 				{
-					T.SetScale3D(FVector(0.001));
+					T.SetScale3D(FVector(SunkScale));
 				}
 				T.SetLocation(Pos);
 				T.SetRotation(FQuat(F.Axis, FMath::DegreesToRadians(F.Spin * Local)) * Rest.GetRotation());
@@ -425,7 +435,7 @@ void ASumoArena::AnimateProps()
 		{
 			const double Bob = FMath::Sin(Clock * FloatBobRate + i * FloatBobPhase) * FloatBobCm;
 			Floaters[i]->SetRelativeLocationAndRotation(FloaterRest[i] + FVector(0.0, 0.0, Bob),
-				FRotator(FMath::Sin(Clock * 0.5 + i) * FloatRockDeg, 0.0, FMath::Cos(Clock * 0.6 + i) * FloatRockDeg));
+				FRotator(FMath::Sin(Clock * FloatPitchRate + i) * FloatRockDeg, 0.0, FMath::Cos(Clock * FloatRollRate + i) * FloatRockDeg));
 		}
 	}
 	if (!Lanterns || LanternRest.Num() != Lanterns->GetInstanceCount())
@@ -435,9 +445,8 @@ void ASumoArena::AnimateProps()
 	for (int32 i = 0; i < LanternRest.Num(); ++i)
 	{
 		const FVector P = LanternRest[i];
-		// The swell's phase runs across the sea, so neighbouring lanterns bob together.
-		const double Bob = FMath::Sin(Clock * LanternBobRate + P.X * 0.003 + P.Y * 0.002) * LanternBobCm;
-		const FRotator Rock(FMath::Sin(Clock * 0.9 + i) * LanternRockDeg, 0.0, FMath::Cos(Clock * 0.8 + i * 0.7) * LanternRockDeg);
+		const double Bob = FMath::Sin(Clock * LanternBobRate + P.X * SwellPhasePerCmX + P.Y * SwellPhasePerCmY) * LanternBobCm;
+		const FRotator Rock(FMath::Sin(Clock * LanternPitchRate + i) * LanternRockDeg, 0.0, FMath::Cos(Clock * LanternRollRate + i * LanternRollPhase) * LanternRockDeg);
 		Lanterns->UpdateInstanceTransform(i, FTransform(Rock, P + FVector(0.0, 0.0, Bob), LanternScale), false, i == LanternRest.Num() - 1, true);
 	}
 }

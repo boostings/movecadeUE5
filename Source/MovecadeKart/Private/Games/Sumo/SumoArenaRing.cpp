@@ -1,5 +1,5 @@
 // ASumoArena's lighting and grade, the night sky, the ring of falling bands round its clay core, the rock keel under
-// it and the sea.
+// it and the sea. The looks are labelled tables at the top (applied as they are), the shapes named in metres.
 
 #include "Games/Sumo/SumoArena.h"
 
@@ -21,150 +21,339 @@
 using namespace MovecadeKart::Sumo;
 using namespace MovecadeKart::Sumo::ArenaLayout;
 using namespace MovecadeKart::Art;
+namespace Presentation = MovecadeKart::Sumo::Presentation;
 using MovecadeKart::FMeshBuilder;
+using MovecadeKart::Sumo::Presentation::CachedPlain;
+using MovecadeKart::Sumo::Presentation::FPlainLook;
 
 namespace
 {
+	/** A material parameter and its value, applied in a loop. */
+	struct FColorParam
+	{
+		const TCHAR* Name;
+		const TCHAR* Hex;
+	};
+	struct FScalarParam
+	{
+		const TCHAR* Name;
+		float Value;
+	};
+	struct FLinearParam
+	{
+		const TCHAR* Name;
+		FLinearColor Value;
+	};
+
+	/**
+	 * The night: the moon low over the far sea behind the ring (a cool key with soft shadows, its glitter path on the
+	 * water), a magenta neon wash from the front right (the city of lanterns behind the camera), a dim blue sky light,
+	 * violet fog toward the horizon, and a grade with bloom, a vignette and a touch of blue-violet in the blacks.
+	 */
+	namespace NightLook
+	{
+		const TCHAR* const MoonColor = TEXT("#a9c2ff");
+		constexpr float MoonIntensity = 1.1f;
+		constexpr float MoonSourceAngle = 1.2f;
+		const FVector RimDirection(-0.6, 0.75, 0.35);
+		const TCHAR* const RimColor = TEXT("#ff6ac1");
+		constexpr float RimIntensity = 0.3f;
+		constexpr float SkyIntensity = 0.22f;
+		const TCHAR* const SkyColor = TEXT("#8fa4ff");
+		const TCHAR* const LowerHemisphereColor = TEXT("#1a1838");
+		const TCHAR* const FogColor = TEXT("#7a3f86");
+		constexpr float FogInscatter = 0.12f;
+		const TCHAR* const FogMoonColor = TEXT("#9fb5ff");
+		constexpr float FogMoonInscatter = 0.04f;
+		constexpr float FogMoonExponent = 10.f;
+		constexpr float FogStartCm = 3500.f;
+		constexpr float FogDensity = 0.012f;
+		constexpr float FogHeightFalloff = 0.03f;
+		constexpr float FogMaxOpacity = 0.6f;
+		constexpr float FogCutoffCm = 250000.f;
+		constexpr float Bloom = 1.15f;
+		constexpr float Vignette = 0.5f;
+		constexpr float Saturation = 1.08f;
+		constexpr float Contrast = 1.06f;
+		const FVector4 BlackLift(0.004f, 0.0f, 0.012f, 0.f);
+	}
+
+	/** The sky dome (M_TrackSky): a deep gradient, the moon as its sun (a small hard disc, a faint glow), thin clouds. */
+	const FColorParam SkyColors[] = {
+		{ TEXT("SkyTop"), TEXT("#03040f") },
+		{ TEXT("SkyMid"), TEXT("#0c0b26") },
+		{ TEXT("SkyHorizon"), TEXT("#3b2152") },
+		{ TEXT("SkyBelow"), TEXT("#07061a") },
+		{ TEXT("SunColor"), TEXT("#c9d6ff") },
+		{ TEXT("CloudLit"), TEXT("#8c86c9") },
+		{ TEXT("CloudShade"), TEXT("#1d1a3e") },
+	};
+	const FScalarParam SkyScalars[] = {
+		{ TEXT("SunCos"), FMath::Cos(0.045f) },
+		{ TEXT("SunDisc"), 14.0f },
+		{ TEXT("SunGlow"), 0.06f },
+		{ TEXT("GlowPower"), 26.0f },
+		{ TEXT("HorizonGlow"), 0.08f },
+		{ TEXT("Brightness"), 1.0f },
+		{ TEXT("Clouds"), 0.3f },
+		{ TEXT("CloudScale"), 0.3f },
+	};
+	const TCHAR* const SkyPath = TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky");
+	const TCHAR* const CloudsPath = TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds");
+
 	/** The stars: a dome far out inside the sky sphere, denser overhead, a few bright ones. */
-	constexpr int32 StarCount = 420;
-	constexpr double StarDomeCm = 300000.0;
-	constexpr float StarMinCm = 4.f;
-	constexpr float StarMaxCm = 10.f;
-	constexpr float BrightStarChance = 0.08f;
-	constexpr float BrightStarScale = 2.2f;
+	namespace Stars
+	{
+		constexpr int32 Count = 420;
+		const TCHAR* const Color = TEXT("#dfe6ff");
+		constexpr float Glow = 5.f;
+		constexpr double DomeCm = 300000.0;
+		constexpr float LowestSine = 0.05f;
+		constexpr float MinCm = 4.f;
+		constexpr float MaxCm = 10.f;
+		constexpr float BrightChance = 0.08f;
+		constexpr float BrightScale = 2.2f;
+	}
 	/** The moon's halo: two soft additive discs on the sky behind the moon's disc. */
-	constexpr double MoonHaloCm = 290000.0;
-	constexpr double MoonHaloSize = 160.0;
+	namespace MoonHalo
+	{
+		const TCHAR* const Color = TEXT("#8b9cff");
+		constexpr float Glow = 0.6f;
+		constexpr float Opacity = 0.18f;
+		constexpr double DistanceCm = 290000.0;
+		constexpr double Size = 160.0;
+		constexpr double Scales[] = { 1.0, 1.8 };
+	}
 
-	/** The cracks between a band's segments (m) and the underside's slope. */
-	constexpr double SegmentGap = 0.025;
-	constexpr double UndersideSlope = 0.3;
-	/** A segment's arc is cut into steps about this long (m) at its outer edge. */
-	constexpr double SegmentStepM = 0.25;
-	/** A band breaks up as a wave round the ring from a random start (over this share of a second), plus jitter. */
-	constexpr double BreakWaveSeconds = 0.55;
-	constexpr float BreakJitterSeconds = 0.12f;
-	constexpr int32 WarningSteps = 96;
-	/** The core's rope ring (m inside its edge) and the start lines' half spacing (m). */
-	constexpr double RopeInsetM = 0.12;
-	constexpr int32 RopeLinks = 64;
-	constexpr double StartLineY = 0.55;
+	/** One band segment's shape (m): the cracks between segments, the underside's slope, the arc's step length. */
+	namespace Segment
+	{
+		constexpr double Gap = 0.025;
+		constexpr double UndersideSlope = 0.3;
+		constexpr double StepM = 0.25;
+		/** The neon edge: a strip standing proud on the top's outer edge and a line round the outer face. */
+		constexpr double StripInset = 0.07;
+		constexpr double StripOuterInset = 0.01;
+		constexpr double StripRise = 0.012;
+		constexpr double LineProud = 0.006;
+		constexpr double LineTop = -0.03;
+		constexpr double LineBottom = -0.09;
+	}
 
-	/** The keel's crystals and the glints on the band undersides. */
-	constexpr int32 KeelCrystals = 26;
-	constexpr int32 UndersideGlints = 30;
+	/** The bands' looks: lacquered planks in deep indigo, every other band a shade warmer; the clay core paler. */
+	namespace BandLook
+	{
+		const FSurfaceLook PlankLooks[] = {
+			{ Hex(TEXT("#241c44")), TEXT("dark_wooden_planks"), 1.6, 0.45, 0.6, 0.4, 0.5, 0.0, 0.0, false, 0.6 },
+			{ Hex(TEXT("#1d1838")), TEXT("dark_wooden_planks"), 1.6, 0.45, 0.6, 0.4, 0.5, 0.0, 0.0, false, 0.6 },
+		};
+		const FSurfaceLook CoreLook{ Hex(TEXT("#6a2c27")), TEXT("gravelly_sand"), 1.2, 0.45, 0.6, 0.4, 0.85, 0.0, 0.0, false, 0.6 };
+		const FSurfaceLook RockLook{ Hex(TEXT("#3a3150")), TEXT("rock_face"), 1.6, 0.55, 0.8, 0.5, 0.85, 0.0, 0.0, true, 0.5 };
+		/** A band breaks up as a wave round the ring from a random start (over this many seconds), plus jitter. */
+		constexpr double BreakWaveSeconds = 0.55;
+		constexpr float BreakJitterSeconds = 0.12f;
+		constexpr float AxisTilt = 0.3f;
+		constexpr float MinSpinDeg = 90.f;
+		constexpr float MaxSpinDeg = 260.f;
+		constexpr float MinDrift = 0.4f;
+		constexpr float MaxDrift = 1.6f;
+		/** The warning wash: red, laid just inside the band's edges, just above its top (m). */
+		const TCHAR* const WarnColor = TEXT("#ff2a3a");
+		constexpr float WarnGlow = 3.f;
+		constexpr double WarnInset = 0.03;
+		constexpr double WarnRise = 0.02;
+		constexpr int32 WarnSteps = 96;
+	}
+
+	/** The core's markings: the straw-rope circle (a glowing tawara) and the two white start lines (m). */
+	namespace CoreMarks
+	{
+		const FPlainLook Chalk{ TEXT("#f4efe6"), 0.7, 0.0, 0.35 };
+		constexpr double StartLineY = 0.55;
+		constexpr double StartLineRise = 0.012;
+		const FVector StartLineScale(0.07, 0.8, 0.012);
+		const FPlainLook Straw{ TEXT("#d9b56a"), 0.75, 0.0, 0.25 };
+		constexpr double RopeInset = 0.12;
+		constexpr double RopeRise = 0.035;
+		constexpr double RopeThickCm = 6.0;
+		constexpr int32 RopeLinks = 64;
+		constexpr int32 RopeSides = 8;
+	}
+
+	/** The keel under the core: a lathed rock tapering to a point (m: radius, height), crystals glowing out of it. */
+	namespace Keel
+	{
+		const FVector2D Profile[] = { { 0.0, -6.6 }, { 0.35, -6.2 }, { 0.8, -5.5 }, { 1.25, -4.7 }, { 1.65, -3.9 }, { 1.95, -3.1 }, { 2.05, -2.7 } };
+		constexpr double TopRadius = 2.0;
+		/** The keel's top tucks this far (cm) up into the core's underside. */
+		constexpr double TuckCm = 25.0;
+		constexpr int32 Sides = 20;
+		const FSurfaceLook RockLook{ Hex(TEXT("#2f2846")), TEXT("rock_face"), 2.0, 0.55, 0.9, 0.5, 0.9, 0.0, 0.0, true, 0.5 };
+		/** Crystals (two in three cyan, the rest pink) along the keel between these depths, a little inside its skin. */
+		constexpr int32 Crystals = 26;
+		const TCHAR* const CyanColor = TEXT("#5ee9ff");
+		constexpr float CyanGlow = 7.f;
+		const TCHAR* const PinkColor = TEXT("#ff58c8");
+		constexpr float PinkGlow = 6.f;
+		constexpr float CrystalLow = -5.8f;
+		constexpr float CrystalHigh = -2.6f;
+		/** The keel's radius from its tip (TipRadius at TipDepth) to its shoulder (ShoulderRadius, Span higher). */
+		constexpr double TipRadius = 0.3;
+		constexpr double ShoulderRadius = 2.05;
+		constexpr double TipDepth = 6.6;
+		constexpr double Span = 3.9;
+		constexpr double Inset = 0.05;
+		constexpr float CrystalPitchDeg = 40.f;
+		constexpr float CrystalRollDeg = 30.f;
+		/** Crystal sizes (shape scales): width, depth and length ranges. */
+		constexpr float CrystalMinWidth = 0.12f;
+		constexpr float CrystalMaxWidth = 0.3f;
+		constexpr float CrystalMinDepth = 0.08f;
+		constexpr float CrystalMaxDepth = 0.16f;
+		constexpr float CrystalMinLength = 0.35f;
+		constexpr float CrystalMaxLength = 0.8f;
+		/** Glints hanging under the bands near the rim. */
+		constexpr int32 Glints = 30;
+		constexpr float GlintInner = 3.0f;
+		constexpr float GlintOuter = 8.6f;
+		constexpr double GlintDrop = 0.05;
+		constexpr float GlintMinPitchDeg = 150.f;
+		constexpr float GlintMaxPitchDeg = 210.f;
+		constexpr double GlintWidth = 0.08;
+		constexpr float GlintMinLength = 0.2f;
+		constexpr float GlintMaxLength = 0.45f;
+		/** Its own glow on the water below. */
+		const FVector LightAtM(0.0, 0.0, -6.0);
+		const TCHAR* const LightColor = TEXT("#55dfff");
+		constexpr float LightLumens = 400.f;
+		constexpr float LightRadiusCm = 1400.f;
+	}
+
+	/** The sea: near-black and glassy, so the moon, the neon and the lanterns mirror in it; a dark bed far below. */
+	namespace Sea
+	{
+		const TCHAR* const WaterPath = TEXT("/Game/Tracks/Shared/Materials/M_TrackWater.M_TrackWater");
+		const TCHAR* const PlanePath = TEXT("/Engine/BasicShapes/Plane.Plane");
+		const TCHAR* const WaterColor = TEXT("#05060f");
+		const FScalarParam WaterScalars[] = {
+			{ TEXT("Roughness"), 0.06f },
+			{ TEXT("WaveStrength"), 0.42f },
+			{ TEXT("WaveTileA"), 7.0f },
+			{ TEXT("WaveTileB"), 19.0f },
+		};
+		const FLinearParam WaterColors[] = {
+			{ TEXT("Scattering"), FLinearColor(0.004f, 0.006f, 0.022f, 1.f) },
+			{ TEXT("Absorption"), FLinearColor(0.5f, 0.2f, 0.1f, 1.f) },
+		};
+		const FPlainLook Fallback{ TEXT("#070a1c"), 0.08, 0.0 };
+		const FPlainLook Bed{ TEXT("#03040a"), 1.0 };
+		constexpr double BedDepthCm = 3000.0;
+		const FVector Extent(4000.0, 4000.0, 1.0);
+	}
 }
 
 void ASumoArena::BuildLook()
 {
-	// The moon low over the far sea behind the ring: a cool key with soft shadows, its glitter path on the water.
+	using namespace NightLook;
 	Moon->SetWorldRotation((-MoonDirection).Rotation());
-	Moon->SetLightColor(Hex(TEXT("#a9c2ff")));
-	Moon->SetIntensity(1.1f);
+	Moon->SetLightColor(Hex(MoonColor));
+	Moon->SetIntensity(MoonIntensity);
 	Moon->SetCastShadows(true);
 	Moon->SetAtmosphereSunLight(false);
 	Moon->SetForwardShadingPriority(1);
-	Moon->SetLightSourceAngle(1.2f);
-	// A magenta neon wash from the front right: the city of lanterns behind the camera.
-	Rim->SetWorldRotation((-FVector(-0.6, 0.75, 0.35).GetSafeNormal()).Rotation());
-	Rim->SetLightColor(Hex(TEXT("#ff6ac1")));
-	Rim->SetIntensity(0.3f);
+	Moon->SetLightSourceAngle(MoonSourceAngle);
+	Rim->SetWorldRotation((-RimDirection.GetSafeNormal()).Rotation());
+	Rim->SetLightColor(Hex(RimColor));
+	Rim->SetIntensity(RimIntensity);
 	Rim->SetCastShadows(false);
 	Rim->SetAtmosphereSunLight(false);
 	Rim->SetForwardShadingPriority(0);
-	SkyLight->SetIntensity(0.22f);
-	SkyLight->SetLightColor(Hex(TEXT("#8fa4ff")));
+	SkyLight->SetIntensity(SkyIntensity);
+	SkyLight->SetLightColor(Hex(SkyColor));
 	SkyLight->bLowerHemisphereIsBlack = false;
-	SkyLight->SetLowerHemisphereColor(Hex(TEXT("#1a1838")));
-	const FLinearColor Horizon = Hex(TEXT("#7a3f86"));
-	Fog->SetStartDistance(3500.f);
-	Fog->SetFogDensity(0.012f);
-	Fog->SetFogHeightFalloff(0.03f);
-	Fog->SetFogMaxOpacity(0.6f);
-	Fog->SetFogCutoffDistance(250000.f);
-	Fog->SetFogInscatteringColor(Horizon * 0.12f);
-	Fog->SetDirectionalInscatteringColor(Hex(TEXT("#9fb5ff")) * 0.04f);
-	Fog->SetDirectionalInscatteringExponent(10.f);
+	SkyLight->SetLowerHemisphereColor(Hex(LowerHemisphereColor));
+	Fog->SetStartDistance(FogStartCm);
+	Fog->SetFogDensity(FogDensity);
+	Fog->SetFogHeightFalloff(FogHeightFalloff);
+	Fog->SetFogMaxOpacity(FogMaxOpacity);
+	Fog->SetFogCutoffDistance(FogCutoffCm);
+	Fog->SetFogInscatteringColor(Hex(FogColor) * FogInscatter);
+	Fog->SetDirectionalInscatteringColor(Hex(FogMoonColor) * FogMoonInscatter);
+	Fog->SetDirectionalInscatteringExponent(FogMoonExponent);
 	FPostProcessSettings& S = Grade->Settings;
 	S = FPostProcessSettings();
 	S.bOverride_BloomIntensity = true;
-	S.BloomIntensity = 1.15f;
+	S.BloomIntensity = Bloom;
 	S.bOverride_VignetteIntensity = true;
-	S.VignetteIntensity = 0.5f;
+	S.VignetteIntensity = Vignette;
 	S.bOverride_ColorSaturation = true;
-	S.ColorSaturation = FVector4(1.08f, 1.08f, 1.08f, 1.f);
+	S.ColorSaturation = FVector4(Saturation, Saturation, Saturation, 1.f);
 	S.bOverride_ColorContrast = true;
-	S.ColorContrast = FVector4(1.06f, 1.06f, 1.06f, 1.f);
+	S.ColorContrast = FVector4(Contrast, Contrast, Contrast, 1.f);
 	S.bOverride_ColorOffset = true;
-	// A touch of blue-violet lift in the blacks.
-	S.ColorOffset = FVector4(0.004f, 0.0f, 0.012f, 0.f);
+	S.ColorOffset = BlackLift;
 }
 
 void ASumoArena::BuildSky()
 {
-	if (UMaterialInterface* SkyMaster = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Tracks/Shared/Materials/M_TrackSky.M_TrackSky"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+	if (UMaterialInterface* SkyMaster = Presentation::LoadAsset<UMaterialInterface>(SkyPath, TEXT("the sky dome stays unshaded")))
 	{
 		UMaterialInstanceDynamic* Sky = UMaterialInstanceDynamic::Create(SkyMaster, this);
-		Sky->SetVectorParameterValue(TEXT("SkyTop"), Hex(TEXT("#03040f")));
-		Sky->SetVectorParameterValue(TEXT("SkyMid"), Hex(TEXT("#0c0b26")));
-		Sky->SetVectorParameterValue(TEXT("SkyHorizon"), Hex(TEXT("#3b2152")));
-		Sky->SetVectorParameterValue(TEXT("SkyBelow"), Hex(TEXT("#07061a")));
-		// The moon is the sky shader's sun: a small hard disc with a faint glow.
+		for (const FColorParam& Param : SkyColors)
+		{
+			Sky->SetVectorParameterValue(Param.Name, Hex(Param.Hex));
+		}
+		for (const FScalarParam& Param : SkyScalars)
+		{
+			Sky->SetScalarParameterValue(Param.Name, Param.Value);
+		}
+		// The moon is the sky shader's sun.
 		Sky->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(MoonDirection.X, MoonDirection.Y, MoonDirection.Z, 0.0));
-		Sky->SetVectorParameterValue(TEXT("SunColor"), Hex(TEXT("#c9d6ff")));
-		Sky->SetScalarParameterValue(TEXT("SunCos"), FMath::Cos(0.045f));
-		Sky->SetScalarParameterValue(TEXT("SunDisc"), 14.0f);
-		Sky->SetScalarParameterValue(TEXT("SunGlow"), 0.06f);
-		Sky->SetScalarParameterValue(TEXT("GlowPower"), 26.0f);
-		Sky->SetScalarParameterValue(TEXT("HorizonGlow"), 0.08f);
-		Sky->SetScalarParameterValue(TEXT("Brightness"), 1.0f);
-		if (UTexture* Clouds = LoadObject<UTexture>(nullptr, TEXT("/Game/Tracks/Shared/Textures/env_clouds.env_clouds"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+		if (UTexture* Clouds = Presentation::LoadAsset<UTexture>(CloudsPath, TEXT("a cloudless sky")))
 		{
 			Sky->SetTextureParameterValue(TEXT("CloudMap"), Clouds);
 		}
-		Sky->SetScalarParameterValue(TEXT("Clouds"), 0.3f);
-		Sky->SetScalarParameterValue(TEXT("CloudScale"), 0.3f);
-		Sky->SetVectorParameterValue(TEXT("CloudLit"), Hex(TEXT("#8c86c9")));
-		Sky->SetVectorParameterValue(TEXT("CloudShade"), Hex(TEXT("#1d1a3e")));
 		SkyDome->SetMaterial(0, Sky);
 	}
 	SkyLight->RecaptureSky();
 	FRandomStream R(0x57a2);
-	UInstancedStaticMeshComponent* Stars = Groups.Find(Sphere, Materials.GlowOpaque(this, Hex(TEXT("#dfe6ff")) * 5.f), false);
-	for (int32 i = 0; i < StarCount; ++i)
+	UInstancedStaticMeshComponent* StarGroup = Groups.Find(Sphere, Materials.GlowOpaque(this, Hex(Stars::Color) * Stars::Glow), false);
+	for (int32 i = 0; i < Stars::Count; ++i)
 	{
 		const double Az = R.FRandRange(0.0, 2.0 * PI);
-		const double El = FMath::Asin(R.FRandRange(0.05f, 1.f));
+		// Uniform in the sine of the elevation: denser overhead, none at the horizon.
+		const double El = FMath::Asin(R.FRandRange(Stars::LowestSine, 1.f));
 		const FVector Dir(FMath::Cos(El) * FMath::Cos(Az), FMath::Cos(El) * FMath::Sin(Az), FMath::Sin(El));
-		const double Size = R.FRandRange(StarMinCm, StarMaxCm) * (R.FRand() < BrightStarChance ? BrightStarScale : 1.f);
-		Stars->AddInstance(FTransform(FRotator::ZeroRotator, Dir * StarDomeCm, FVector(Size)), false);
+		const double Size = R.FRandRange(Stars::MinCm, Stars::MaxCm) * (R.FRand() < Stars::BrightChance ? Stars::BrightScale : 1.f);
+		StarGroup->AddInstance(FTransform(FRotator::ZeroRotator, Dir * Stars::DomeCm, FVector(Size)), false);
 	}
-	if (UMaterialInstanceDynamic* Soft = MovecadeKart::Sumo::Presentation::MakeAdditive(this, Hex(TEXT("#8b9cff")) * 0.6f, 0.18f))
+	if (UMaterialInstanceDynamic* Soft = Presentation::MakeAdditive(this, Hex(MoonHalo::Color) * MoonHalo::Glow, MoonHalo::Opacity))
 	{
-		for (const double Scale : { 1.0, 1.8 })
+		for (const double Scale : MoonHalo::Scales)
 		{
-			Mesh(Sphere, Soft, FTransform(FRotator::ZeroRotator, MoonDirection * MoonHaloCm, FVector(MoonHaloSize * Scale)), false);
+			Mesh(Sphere, Soft, FTransform(FRotator::ZeroRotator, MoonDirection * MoonHalo::DistanceCm, FVector(MoonHalo::Size * Scale)), false);
 		}
 	}
 }
 
 UStaticMesh* ASumoArena::SectorMesh(double Inner, double Outer, double Span, const TCHAR* Name)
 {
+	using namespace Segment;
 	// One segment of a band (or the whole core), its origin at the segment's middle so it can tumble about it.
 	FMeshBuilder B;
 	const int32 Top = B.Section(TEXT("Top"));
 	const int32 Side = B.Section(TEXT("Side"));
 	const int32 Trim = B.Section(TEXT("Trim"));
 	const bool bCore = Inner < 1e-3;
-	const double R0 = bCore ? 0.0 : Inner + SegmentGap;
-	const double R1 = Outer - SegmentGap;
+	const double R0 = bCore ? 0.0 : Inner + Gap;
+	const double R1 = Outer - Gap;
 	const double Mid = (Inner + Outer) / 2.0;
-	const double Half = Span / 2.0 - (bCore ? 0.0 : SegmentGap / Mid);
-	const int32 Steps = FMath::Max(3, FMath::CeilToInt32(Span * Outer / SegmentStepM));
+	const double Half = Span / 2.0 - (bCore ? 0.0 : Gap / Mid);
+	const int32 Steps = FMath::Max(3, FMath::CeilToInt32(Span * Outer / StepM));
 	const FVector Origin = bCore ? FVector::ZeroVector : Cm(Mid, 0.0, 0.0);
 	auto P = [&Origin](double R, double A, double Z) { return Cm(R * FMath::Cos(A), R * FMath::Sin(A), Z) - Origin; };
 	auto Radial = [](double A) { return FVector(FMath::Cos(A), FMath::Sin(A), 0.0); };
-	// A quad a-b-c-d (two triangles) into a section.
+	// A quad a-b-c-d (two triangles) into a section; a and b take the first normal, c and d the second.
 	auto Quad = [&B](int32 Section, const FVector& Pa, const FVector& Pb, const FVector& Pc, const FVector& Pd, const FVector& Na, const FVector& Nc,
 		const FVector2D& Ua = FVector2D::ZeroVector, const FVector2D& Ub = FVector2D::ZeroVector, const FVector2D& Uc = FVector2D::ZeroVector, const FVector2D& Ud = FVector2D::ZeroVector)
 	{
@@ -192,11 +381,10 @@ UStaticMesh* ASumoArena::SectorMesh(double Inner, double Outer, double Span, con
 		{
 			Quad(Side, P(R0, A0, 0.0), P(R0, A0, -Depth(R0)), P(R0, A1, -Depth(R0)), P(R0, A1, 0.0), -Radial(A0), -Radial(A1));
 		}
-		// The neon edge: a strip standing proud on the top's outer edge and a line round the outer face.
-		const double In = R1 - 0.07, Out = R1 - 0.01;
-		Quad(Trim, P(In, A0, 0.012), P(Out, A0, 0.012), P(Out, A1, 0.012), P(In, A1, 0.012), FVector::UpVector, FVector::UpVector);
-		const double Rf = R1 + 0.006;
-		Quad(Trim, P(Rf, A0, -0.03), P(Rf, A0, -0.09), P(Rf, A1, -0.09), P(Rf, A1, -0.03), Radial(A0), Radial(A1));
+		const double In = R1 - StripInset, Out = R1 - StripOuterInset;
+		Quad(Trim, P(In, A0, StripRise), P(Out, A0, StripRise), P(Out, A1, StripRise), P(In, A1, StripRise), FVector::UpVector, FVector::UpVector);
+		const double Rf = R1 + LineProud;
+		Quad(Trim, P(Rf, A0, LineTop), P(Rf, A0, LineBottom), P(Rf, A1, LineBottom), P(Rf, A1, LineTop), Radial(A0), Radial(A1));
 	}
 	// The ends of a segment (the cracks between them).
 	if (!bCore)
@@ -212,7 +400,7 @@ UStaticMesh* ASumoArena::SectorMesh(double Inner, double Outer, double Span, con
 
 void ASumoArena::BuildRing()
 {
-	UMaterialInterface* Rock = Materials.Surface(this, { Hex(TEXT("#3a3150")), TEXT("rock_face"), 1.6, 0.55, 0.8, 0.5, 0.85, 0.0, 0.0, true, 0.5 });
+	UMaterialInterface* Rock = Materials.Surface(this, BandLook::RockLook);
 	for (int32 b = 0; b < BandCount; ++b)
 	{
 		BuildBand(b, Rock);
@@ -222,6 +410,7 @@ void ASumoArena::BuildRing()
 
 void ASumoArena::BuildBand(int32 Index, UMaterialInterface* Rock)
 {
+	using namespace BandLook;
 	FBand& Band = Bands.AddDefaulted_GetRef();
 	const bool bCore = Index == BandCount - 1;
 	Band.Outer = ArenaRadius - Index * BandWidth;
@@ -230,10 +419,7 @@ void ASumoArena::BuildBand(int32 Index, UMaterialInterface* Rock)
 	Band.TrimColor = Hex(bCore ? CoreTrimColor : TrimColors[Index % 2]) * (Index == 0 ? OuterTrimGlow : TrimGlow);
 	const double Span = 2.0 * PI / Band.Segments;
 	UStaticMesh* Sector = SectorMesh(Band.Inner, Band.Outer, Span, *FString::Printf(TEXT("SumoBand%d"), Index));
-	// Lacquered planks in deep indigo, every other band a shade warmer; the clay core is paler.
-	const FLinearColor Lacquer = bCore ? Hex(TEXT("#6a2c27")) : Hex(Index % 2 ? TEXT("#1d1838") : TEXT("#241c44"));
-	UMaterialInterface* TopMat = Materials.Surface(this, { Lacquer, bCore ? FName(TEXT("gravelly_sand")) : FName(TEXT("dark_wooden_planks")), bCore ? 1.2 : 1.6, 0.45, 0.6, 0.4,
-		bCore ? 0.85 : 0.5, 0.0, 0.0, false, 0.6 });
+	UMaterialInterface* TopMat = Materials.Surface(this, bCore ? CoreLook : PlankLooks[Index % 2]);
 	// The edge is the band's own: it turns red while the band is warned.
 	UMaterialInstanceDynamic* TrimMat = GlowOpaque(this, Band.TrimColor);
 	BandTrims.Add(TrimMat);
@@ -254,24 +440,25 @@ void ASumoArena::BuildBand(int32 Index, UMaterialInterface* Rock)
 		// Each piece tumbles its own way, on its own beat of the wave.
 		FSegmentFall& F = Band.Falls.AddDefaulted_GetRef();
 		F.Delay = BreakWaveSeconds * FMath::Fmod(s + WaveStart, static_cast<double>(Band.Segments)) / Band.Segments + R.FRandRange(0.f, BreakJitterSeconds);
-		F.Axis = FVector(R.FRandRange(-1.f, 1.f), R.FRandRange(-1.f, 1.f), R.FRandRange(-0.3f, 0.3f)).GetSafeNormal();
-		F.Spin = R.FRandRange(90.f, 260.f) * (R.FRand() < 0.5f ? -1.f : 1.f);
-		F.Drift = R.FRandRange(0.4f, 1.6f);
+		F.Axis = FVector(R.FRandRange(-1.f, 1.f), R.FRandRange(-1.f, 1.f), R.FRandRange(-AxisTilt, AxisTilt)).GetSafeNormal();
+		F.Spin = R.FRandRange(MinSpinDeg, MaxSpinDeg) * (R.FRand() < 0.5f ? -1.f : 1.f);
+		F.Drift = R.FRandRange(MinDrift, MaxDrift);
 	}
 	BuildWarningWash(Band, Index);
 }
 
 void ASumoArena::BuildWarningWash(const FBand& Band, int32 Index)
 {
+	using namespace BandLook;
 	// An additive annulus laid on the band, shown while it is warned.
-	UMaterialInstanceDynamic* WarnMat = MovecadeKart::Sumo::Presentation::MakeAdditive(this, Hex(TEXT("#ff2a3a")) * 3.f, 0.f);
+	UMaterialInstanceDynamic* WarnMat = Presentation::MakeAdditive(this, Hex(WarnColor) * WarnGlow, 0.f);
 	if (!WarnMat)
 	{
 		return;
 	}
 	FMeshBuilder W;
 	const int32 Section = W.Section(TEXT("Warn"));
-	MovecadeKart::Sumo::Presentation::AddAnnulus(W, Section, FMath::Max(0.0, Band.Inner + 0.03), Band.Outer - 0.03, 0.02, WarningSteps, 100.0);
+	Presentation::AddAnnulus(W, Section, FMath::Max(0.0, Band.Inner + WarnInset), Band.Outer - WarnInset, WarnRise, WarnSteps, 100.0);
 	UStaticMeshComponent* Wash = Mesh(W.Build(this, *FString::Printf(TEXT("SumoWarn%d"), Index)), WarnMat, FTransform::Identity, false);
 	Wash->SetVisibility(false);
 	BandWarnings.Add(Wash);
@@ -280,92 +467,88 @@ void ASumoArena::BuildWarningWash(const FBand& Band, int32 Index)
 
 void ASumoArena::BuildCoreMarkings()
 {
-	// The core's markings: the straw-rope circle (a glowing tawara) and the two white start lines.
-	UMaterialInterface* Chalk = Materials.Plain(this, Hex(TEXT("#f4efe6")), 0.7, 0.0, 0.35);
+	using namespace CoreMarks;
+	UMaterialInterface* ChalkMat = CachedPlain(Materials, this, Chalk);
 	for (const double Y : { -StartLineY, StartLineY })
 	{
-		CoreDecor.Add(Mesh(Cube, Chalk, FTransform(FRotator(0.0, 90.0, 0.0), Cm(0.0, Y, 0.012), FVector(0.07, 0.8, 0.012)), false));
+		CoreDecor.Add(Mesh(Cube, ChalkMat, FTransform(FRotator(0.0, 90.0, 0.0), Cm(0.0, Y, StartLineRise), StartLineScale), false));
 	}
 	FMeshBuilder E;
 	E.Section(TEXT("Rope"));
-	const double R = CoreRadius - RopeInsetM;
+	const double R = CoreRadius - RopeInset;
 	for (int32 i = 0; i < RopeLinks; ++i)
 	{
 		// The rope ring as a chain of short limbs (a torus).
 		const double A0 = 2.0 * PI * i / RopeLinks, A1 = 2.0 * PI * (i + 1) / RopeLinks;
-		E.Limb(TEXT("Rope"), Cm(R * FMath::Cos(A0), R * FMath::Sin(A0), 0.035), Cm(R * FMath::Cos(A1), R * FMath::Sin(A1), 0.035), 6.0, 6.0, 8, FVector2D::ZeroVector);
+		E.Limb(TEXT("Rope"), Cm(R * FMath::Cos(A0), R * FMath::Sin(A0), RopeRise), Cm(R * FMath::Cos(A1), R * FMath::Sin(A1), RopeRise), RopeThickCm, RopeThickCm, RopeSides,
+			FVector2D::ZeroVector);
 	}
-	UMaterialInterface* Straw = Materials.Plain(this, Hex(TEXT("#d9b56a")), 0.75, 0.0, 0.25);
-	CoreDecor.Add(Mesh(E.Build(this, TEXT("SumoRope")), Straw, FTransform::Identity, true));
+	CoreDecor.Add(Mesh(E.Build(this, TEXT("SumoRope")), CachedPlain(Materials, this, Straw), FTransform::Identity, true));
 }
 
 void ASumoArena::BuildKeel()
 {
-	// Under the core: the rock keel tapering to a point, crystals glowing out of it.
+	using namespace Keel;
 	FMeshBuilder K;
-	TArray<FVector2D> Profile;
-	const double TopZ = -Depth(CoreRadius) * 100.0 + 25.0;
-	const double Points[][2] = { { 0.0, -6.6 }, { 0.35, -6.2 }, { 0.8, -5.5 }, { 1.25, -4.7 }, { 1.65, -3.9 }, { 1.95, -3.1 }, { 2.05, -2.7 } };
-	for (const auto& Point : Points)
+	TArray<FVector2D> Outline;
+	const double TopZ = -Depth(CoreRadius) * 100.0 + TuckCm;
+	for (const FVector2D& Point : Profile)
 	{
-		Profile.Add(FVector2D(Point[0] * 100.0, Point[1] * 100.0));
+		Outline.Add(FVector2D(Point.X * 100.0, Point.Y * 100.0));
 	}
-	Profile.Add(FVector2D(2.0 * 100.0, TopZ));
-	Profile.Add(FVector2D(0.0, TopZ));
-	K.Lathe(TEXT("Rock"), Profile, 20, FVector::ZeroVector, FVector::UpVector, FVector::OneVector, FVector2D::ZeroVector);
-	UMaterialInterface* Rock = Materials.Surface(this, { Hex(TEXT("#2f2846")), TEXT("rock_face"), 2.0, 0.55, 0.9, 0.5, 0.9, 0.0, 0.0, true, 0.5 });
-	Mesh(K.Build(this, TEXT("SumoKeel")), Rock, FTransform::Identity, true);
+	Outline.Add(FVector2D(TopRadius * 100.0, TopZ));
+	Outline.Add(FVector2D(0.0, TopZ));
+	K.Lathe(TEXT("Rock"), Outline, Sides, FVector::ZeroVector, FVector::UpVector, FVector::OneVector, FVector2D::ZeroVector);
+	Mesh(K.Build(this, TEXT("SumoKeel")), Materials.Surface(this, RockLook), FTransform::Identity, true);
 	FRandomStream R(0xc4a1);
-	UInstancedStaticMeshComponent* Crystals = Groups.Find(Sphere, Materials.GlowOpaque(this, Hex(TEXT("#5ee9ff")) * 7.f), false);
-	UInstancedStaticMeshComponent* Pinks = Groups.Find(Cube, Materials.GlowOpaque(this, Hex(TEXT("#ff58c8")) * 6.f), false);
-	for (int32 i = 0; i < KeelCrystals; ++i)
+	UInstancedStaticMeshComponent* Cyan = Groups.Find(Sphere, Materials.GlowOpaque(this, Hex(CyanColor) * CyanGlow), false);
+	UInstancedStaticMeshComponent* Pink = Groups.Find(Cube, Materials.GlowOpaque(this, Hex(PinkColor) * PinkGlow), false);
+	for (int32 i = 0; i < Crystals; ++i)
 	{
-		// Along the keel's surface (its radius at that height, from the profile), a little inside it.
 		const double A = R.FRandRange(0.0, 2.0 * PI);
-		const double Z = R.FRandRange(-5.8f, -2.6f);
-		const double Rad = FMath::Lerp(0.3, 2.05, FMath::Clamp((Z + 6.6) / 3.9, 0.0, 1.0)) - 0.05;
+		const double Z = R.FRandRange(CrystalLow, CrystalHigh);
+		const double Rad = FMath::Lerp(TipRadius, ShoulderRadius, FMath::Clamp((Z + TipDepth) / Span, 0.0, 1.0)) - Inset;
 		const FVector At = Cm(Rad * FMath::Cos(A), Rad * FMath::Sin(A), Z);
-		const FRotator Rot(R.FRandRange(-40.f, 40.f), FMath::RadiansToDegrees(A), R.FRandRange(-30.f, 30.f));
-		const FVector Size(R.FRandRange(0.12f, 0.3f), R.FRandRange(0.08f, 0.16f), R.FRandRange(0.35f, 0.8f));
-		(i % 3 ? Crystals : Pinks)->AddInstance(FTransform(Rot, At, Size), false);
+		const FRotator Rot(R.FRandRange(-CrystalPitchDeg, CrystalPitchDeg), FMath::RadiansToDegrees(A), R.FRandRange(-CrystalRollDeg, CrystalRollDeg));
+		const FVector Size(R.FRandRange(CrystalMinWidth, CrystalMaxWidth), R.FRandRange(CrystalMinDepth, CrystalMaxDepth), R.FRandRange(CrystalMinLength, CrystalMaxLength));
+		(i % 3 ? Cyan : Pink)->AddInstance(FTransform(Rot, At, Size), false);
 	}
-	// Crystal glints on the band undersides near the rim, and the keel's own glow on the water below.
-	for (int32 i = 0; i < UndersideGlints; ++i)
+	for (int32 i = 0; i < Glints; ++i)
 	{
 		const double A = R.FRandRange(0.0, 2.0 * PI);
-		const double Rad = R.FRandRange(3.0f, 8.6f);
-		const FVector At = Cm(Rad * FMath::Cos(A), Rad * FMath::Sin(A), -Depth(Rad) - 0.05);
-		Crystals->AddInstance(FTransform(FRotator(R.FRandRange(150.f, 210.f), 0.0, 0.0), At, FVector(0.08, 0.08, R.FRandRange(0.2f, 0.45f))), false);
+		const double Rad = R.FRandRange(GlintInner, GlintOuter);
+		const FVector At = Cm(Rad * FMath::Cos(A), Rad * FMath::Sin(A), -Depth(Rad) - GlintDrop);
+		Cyan->AddInstance(FTransform(FRotator(R.FRandRange(GlintMinPitchDeg, GlintMaxPitchDeg), 0.0, 0.0), At, FVector(GlintWidth, GlintWidth, R.FRandRange(GlintMinLength, GlintMaxLength))), false);
 	}
-	Light(Cm(0.0, 0.0, -6.0), Hex(TEXT("#55dfff")), 400.f, 1400.f);
+	Light(Cm(LightAtM.X, LightAtM.Y, LightAtM.Z), Hex(LightColor), LightLumens, LightRadiusCm);
 }
 
 void ASumoArena::BuildSea()
 {
-	UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+	using namespace Sea;
+	UStaticMesh* Plane = Presentation::LoadAsset<UStaticMesh>(PlanePath, TEXT("no sea surface"));
 	UMaterialInterface* Water = nullptr;
-	if (UMaterialInterface* WaterMaster = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Tracks/Shared/Materials/M_TrackWater.M_TrackWater"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+	if (UMaterialInterface* WaterMaster = Presentation::LoadAsset<UMaterialInterface>(WaterPath, TEXT("the sea is a plain dark plane")))
 	{
-		// Near-black and glassy, so the moon, the neon and the lanterns mirror in it.
 		UMaterialInstanceDynamic* W = UMaterialInstanceDynamic::Create(WaterMaster, this);
-		W->SetVectorParameterValue(TEXT("Color"), Hex(TEXT("#05060f")));
-		W->SetScalarParameterValue(TEXT("Roughness"), 0.06f);
-		W->SetVectorParameterValue(TEXT("Scattering"), FLinearColor(0.004f, 0.006f, 0.022f, 1.f));
-		W->SetVectorParameterValue(TEXT("Absorption"), FLinearColor(0.5f, 0.2f, 0.1f, 1.f));
-		W->SetScalarParameterValue(TEXT("WaveStrength"), 0.42f);
-		W->SetScalarParameterValue(TEXT("WaveTileA"), 7.0f);
-		W->SetScalarParameterValue(TEXT("WaveTileB"), 19.0f);
+		W->SetVectorParameterValue(TEXT("Color"), Hex(WaterColor));
+		for (const FScalarParam& Param : WaterScalars)
+		{
+			W->SetScalarParameterValue(Param.Name, Param.Value);
+		}
+		for (const FLinearParam& Param : WaterColors)
+		{
+			W->SetVectorParameterValue(Param.Name, Param.Value);
+		}
 		Water = W;
 	}
 	if (!Water)
 	{
-		UE_LOG(LogSumo, Warning, TEXT("SumoArena: M_TrackWater is missing; the sea is a plain dark plane"));
-		Water = Materials.Plain(this, Hex(TEXT("#070a1c")), 0.08, 0.0);
+		Water = CachedPlain(Materials, this, Fallback);
 	}
 	if (Plane)
 	{
-		Mesh(Plane, Water, FTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, WaterZ), FVector(4000.0, 4000.0, 1.0)), false);
+		Mesh(Plane, Water, FTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, WaterZ), Extent), false);
 	}
-	// A dark seabed far below, so the water has depth to tint.
-	Mesh(Cube, Materials.Plain(this, Hex(TEXT("#03040a")), 1.0), FTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, WaterZ - 3000.0), FVector(4000.0, 4000.0, 1.0)), false);
+	Mesh(Cube, CachedPlain(Materials, this, Bed), FTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, WaterZ - BedDepthCm), Extent), false);
 }

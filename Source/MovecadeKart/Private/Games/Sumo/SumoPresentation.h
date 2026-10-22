@@ -2,8 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "Games/Sumo/SumoRules.h"
+#include "UObject/UObjectGlobals.h"
 
 class UMaterialInstanceDynamic;
+struct FKartMaterialCache;
 class UMaterialInterface;
 class UObject;
 
@@ -49,7 +51,34 @@ namespace MovecadeKart::Sumo::Presentation
 	/** The callout over a puck that took it: "HEAVY!", "SHIELD!", "TURBO!". */
 	const TCHAR* PowerCallout(EPower Power);
 
-	/** The shared additive master (halos, bubbles, the warning wash), or null if the content is missing. */
+	/** A plain material look as data: an sRGB hex colour and FKartMaterialCache::Plain's roughness, metallic, emissive. */
+	struct FPlainLook
+	{
+		const TCHAR* Color;
+		double Roughness;
+		double Metallic = 0.0;
+		double Emissive = 0.0;
+	};
+
+	/** The cached material for Look (one instance per look and cache). */
+	UMaterialInstanceDynamic* CachedPlain(FKartMaterialCache& Cache, UObject* Outer, const FPlainLook& Look);
+
+	/** Logs that an asset is missing and what falls back without it (a content problem, not a crash). */
+	void WarnMissing(const TCHAR* Path, const TCHAR* Fallback);
+
+	/** Loads an asset quietly; a miss logs one warning saying what falls back. Callers handle null. */
+	template <class T>
+	T* LoadAsset(const TCHAR* Path, const TCHAR* Fallback)
+	{
+		T* Asset = LoadObject<T>(nullptr, Path, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		if (!Asset)
+		{
+			WarnMissing(Path, Fallback);
+		}
+		return Asset;
+	}
+
+	/** The shared additive master (halos, bubbles, the warning wash), or null if the content is missing (warned once). */
 	UMaterialInterface* AdditiveMaster();
 	/** An additive instance of Color at Opacity, owned by Outer; null without the master. */
 	UMaterialInstanceDynamic* MakeAdditive(UObject* Outer, const FLinearColor& Color, float Opacity);

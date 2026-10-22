@@ -27,15 +27,22 @@ namespace MovecadeKart::Sumo::ArenaLayout
 	/** Toward the moon, low over the far sea behind the ring. */
 	const FVector MoonDirection = FVector(0.82, -0.42, 0.40).GetSafeNormal();
 
+	/** A paper lantern's shape (an engine sphere, a little taller than wide): built and bobbed with it. */
+	const FVector LanternScale(0.42, 0.42, 0.55);
+
 	/** cm from rule metres. */
 	inline FVector Cm(double X, double Y, double Z)
 	{
 		return FVector(X, Y, Z) * 100.0;
 	}
 
+	/** The ring's thickness at its rim (m) and how much deeper it gets per metre toward the middle. */
+	constexpr double RimDepth = 0.32;
+	constexpr double DepthPerMetreIn = 0.3;
+
 	/** How deep the ring's underside is at a radius (m): thin at the rim, a keel toward the middle. */
 	inline double Depth(double Radius)
 	{
-		return 0.32 + (ArenaRadius - Radius) * 0.3;
+		return RimDepth + (ArenaRadius - Radius) * DepthPerMetreIn;
 	}
 }

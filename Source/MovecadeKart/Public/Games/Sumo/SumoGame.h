@@ -138,7 +138,7 @@ private:
 	void PresentPowerPickup(const MovecadeKart::Sumo::FRingEvent& E);
 	void PresentRoundWin(const MovecadeKart::Sumo::FRingEvent& E);
 	void Impact(const FVector& At, const FLinearColor& A, const FLinearColor& B, double Strength, bool bDash);
-	void Callout(const FString& Text, const FLinearColor& Color, const FVector& World, bool bBig, const FString& Sub = FString(), double Duration = 1.4);
+	void Callout(const FString& Text, const FLinearColor& Color, const FVector& World, bool bBig, const FString& Sub, double Duration);
 	void EmitFx(const TArray<MovecadeKart::Fx::FKartFxEmit>& Emits) const;
 
 	// Per frame (SumoGamePucks.cpp).
@@ -210,7 +210,7 @@ private:
 	double HitStop = 0.0;
 	/** Camera shake, 0..1, decaying. */
 	double Shake = 0.0;
-	double RoundOverAt = -10.0;
+	double RoundOverAt = SumoLongAgo;
 	int32 LastCountdown = 0;
 	bool bPaused = false;
 	bool bResultsCommitted = false;

@@ -39,11 +39,6 @@ namespace
 	constexpr double HapticFullStrength = 12.0;
 	constexpr double HapticMin = 0.2;
 
-	FString HexOf(const FLinearColor& Color)
-	{
-		const FColor C = Color.ToFColor(true);
-		return FString::Printf(TEXT("#%02x%02x%02x"), C.R, C.G, C.B);
-	}
 }
 
 FSumoDebugFlags FSumoDebugFlags::Parse(const TCHAR* CommandLine)
@@ -223,7 +218,7 @@ void ASumoGameMode::SendPrompts() const
 	{
 		if (GameSeats[i].Kind == ESumoPilot::Phone)
 		{
-			Room->SendPadPrompt(GameSeats[i].Id, Title, TEXT("Tilt to roll · A: dash"), TEXT("DASH"), FString(), HexOf(Game->ColorOf(i)), TEXT("tilt"));
+			Room->SendPadPrompt(GameSeats[i].Id, Title, TEXT("Tilt to roll · A: dash"), TEXT("DASH"), FString(), MovecadeKart::Net::HexColor(Game->ColorOf(i)), TEXT("tilt"));
 		}
 	}
 }

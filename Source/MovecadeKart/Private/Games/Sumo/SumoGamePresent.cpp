@@ -35,12 +35,34 @@ namespace
 	constexpr double ImpactMinPower = 0.15;
 	/** The squash a hit leaves on both pucks, over this closing speed. */
 	constexpr double SquashFullStrength = 12.0;
+	constexpr double SquashMin = 0.1;
 	/** Hit-stop: the frame holds this long on a dash hit, shorter on a hard bump, not at all on a nudge. */
 	constexpr double DashHitStopSeconds = 0.085;
 	constexpr double BumpHitStopSeconds = 0.05;
 	constexpr double BumpHitStopPower = 0.5;
 	/** A crash sounds over the bump on a dash or a hit this hard. */
 	constexpr double CrashPower = 0.55;
+	/** A hit's camera shake: a base plus its power, a bump shaking less than a dash. */
+	constexpr double HitShakeBase = 0.25;
+	constexpr double HitShakePerPower = 0.75;
+	constexpr double BumpShakeShare = 0.7;
+	/** The cue mix (gain, pitch): pitches get a little random spread so repeats don't sound canned. */
+	namespace Mix
+	{
+		constexpr float DashGain = 0.8f;
+		constexpr float DashPitch = 0.95f;
+		constexpr float DashPitchSpread = 0.15f;
+		constexpr float CrashGain = 0.6f;
+		constexpr float CrashGainPerPower = 0.4f;
+		constexpr float CrashPitch = 0.9f;
+		constexpr float CrashPitchSpread = 0.25f;
+		constexpr float BumpGain = 0.5f;
+		constexpr float BumpGainPerPower = 0.5f;
+		/** Softer bumps pitch up: a tap, not a crunch. */
+		constexpr float BumpPitch = 0.8f;
+		constexpr float BumpPitchPerSoftness = 0.5f;
+		constexpr float BumpPitchSpread = 0.1f;
+	}
 	/** Camera shake floors for a fall and a band breaking away. */
 	constexpr double RingOutShake = 0.5;
 	constexpr double ShrinkShake = 0.4;
@@ -49,9 +71,15 @@ namespace
 	constexpr float FallSpinMax = 520.f;
 	/** Callouts kept at once (the oldest goes first). */
 	constexpr int32 MaxCallouts = 12;
-	/** How long the HAKKE-YOI! and the round's result stay up. */
+	/** How long each callout stays up (s). */
 	constexpr double FightCalloutSeconds = 1.1;
 	constexpr double RoundOverCalloutSeconds = 3.0;
+	constexpr double ShrinkCalloutSeconds = 1.6;
+	constexpr double SmashCalloutSeconds = 0.8;
+	constexpr double BlockedCalloutSeconds = 0.9;
+	constexpr double KnockoutCalloutSeconds = 1.6;
+	constexpr double RingOutCalloutSeconds = 1.4;
+	constexpr double PowerCalloutSeconds = 1.0;
 
 	const FName CueBump(TEXT("sumo.bump"));
 	const FName CueCrash(TEXT("sumo.crash"));
@@ -135,7 +163,7 @@ void ASumoGame::Present(const FRingEvent& E)
 	case EEventKind::ShrinkWarning:
 		Cues.Play(this, CueWarn);
 		// Strength is the radius the band leaves: none left means the core itself goes.
-		Callout(E.Strength > 0.0 ? TEXT("THE RING SHRINKS!") : TEXT("THE CORE IS GOING!"), KartUI::Color::Hot, FVector::ZeroVector, false, FString(), 1.6);
+		Callout(E.Strength > 0.0 ? TEXT("THE RING SHRINKS!") : TEXT("THE CORE IS GOING!"), KartUI::Color::Hot, FVector::ZeroVector, false, FString(), ShrinkCalloutSeconds);
 		break;
 	case EEventKind::Shrink:
 		Cues.Play(this, CueCrumble);
@@ -192,12 +220,12 @@ void ASumoGame::PresentHit(const FRingEvent& E)
 	Pilots[E.A].HitAt = Pilots[E.B].HitAt = Clock;
 	Pilots[E.A].HitDir = -Dir;
 	Pilots[E.B].HitDir = Dir;
-	const double Squash = FMath::Clamp(E.Strength / SquashFullStrength, 0.1, 1.0);
+	const double Squash = FMath::Clamp(E.Strength / SquashFullStrength, SquashMin, 1.0);
 	Pilots[E.A].Squash = FMath::Max(Pilots[E.A].Squash, Squash);
 	Pilots[E.B].Squash = FMath::Max(Pilots[E.B].Squash, Squash);
 	if (E.Kind == EEventKind::DashHit && E.Strength > SmashStrength)
 	{
-		Callout(TEXT("SMASH!"), KartUI::Color::Sun, At + FVector(0.0, 0.0, SmashCalloutZ), false, FString(), 0.8);
+		Callout(TEXT("SMASH!"), KartUI::Color::Sun, At + FVector(0.0, 0.0, SmashCalloutZ), false, FString(), SmashCalloutSeconds);
 	}
 }
 
@@ -211,7 +239,7 @@ void ASumoGame::PresentShieldBlock(const FRingEvent& E)
 	const FLinearColor Attacker = Match.Pucks.IsValidIndex(E.B) ? ColorOf(E.B) : FLinearColor::White;
 	Impact(Cm(E.Pos, EventZ), Shield, Attacker, FMath::Max(ShieldBlockMinStrength, E.Strength), true);
 	Cues.Play(this, CueBlock);
-	Callout(TEXT("BLOCKED!"), Shield, PuckWorld(E.A) + FVector(0.0, 0.0, PuckCalloutZ), false, FString(), 0.9);
+	Callout(TEXT("BLOCKED!"), Shield, PuckWorld(E.A) + FVector(0.0, 0.0, PuckCalloutZ), false, FString(), BlockedCalloutSeconds);
 }
 
 void ASumoGame::PresentDash(const FRingEvent& E)
@@ -221,7 +249,7 @@ void ASumoGame::PresentDash(const FRingEvent& E)
 		return;
 	}
 	Pilots[E.A].DashAt = Clock;
-	Cues.Play(this, CueDash, 0.8f, 0.95f + 0.15f * FMath::FRand());
+	Cues.Play(this, CueDash, Mix::DashGain, Mix::DashPitch + Mix::DashPitchSpread * FMath::FRand());
 	// A dash's Strength is its heading (radians).
 	TArray<Fx::FKartFxEmit> Out;
 	SumoFx::DashBurst(Cm(E.Pos, DashRingZ), Cm(E.Pos, DashPuffZ), E.Strength, ColorOf(E.A), Out);
@@ -243,14 +271,14 @@ void ASumoGame::PresentRingOut(const FRingEvent& E)
 	Line.At = Clock;
 	if (Match.Pucks.IsValidIndex(E.B))
 	{
-		Callout(TEXT("KNOCKOUT!"), ColorOf(E.B), Over, true, FString::Printf(TEXT("%s  >  %s"), *Match.Pucks[E.B].Name, *Victim), 1.6);
+		Callout(TEXT("KNOCKOUT!"), ColorOf(E.B), Over, true, FString::Printf(TEXT("%s  >  %s"), *Match.Pucks[E.B].Name, *Victim), KnockoutCalloutSeconds);
 		Line.Killer = E.B;
 		Pilots[E.B].CheerAt = Clock;
 		Cues.Play(this, CueKnockout);
 	}
 	else
 	{
-		Callout(TEXT("RING OUT!"), ColorOf(E.A), Over, false, Victim, 1.4);
+		Callout(TEXT("RING OUT!"), ColorOf(E.A), Over, false, Victim, RingOutCalloutSeconds);
 	}
 	Shake = FMath::Max(Shake, RingOutShake);
 }
@@ -274,7 +302,7 @@ void ASumoGame::PresentPowerPickup(const FRingEvent& E)
 		return;
 	}
 	Cues.Play(this, CuePower);
-	Callout(PowerCallout(E.Power), PowerColor(E.Power), PuckWorld(E.A) + FVector(0.0, 0.0, PuckCalloutZ), false, FString(), 1.0);
+	Callout(PowerCallout(E.Power), PowerColor(E.Power), PuckWorld(E.A) + FVector(0.0, 0.0, PuckCalloutZ), false, FString(), PowerCalloutSeconds);
 	TArray<Fx::FKartFxEmit> Out;
 	SumoFx::PowerFlash(Cm(E.Pos, PowerFlashZ), PowerColor(E.Power), Out);
 	EmitFx(Out);
@@ -304,13 +332,13 @@ void ASumoGame::Impact(const FVector& At, const FLinearColor& A, const FLinearCo
 	TArray<Fx::FKartFxEmit> Out;
 	SumoFx::HitBurst(At, A, B, Power, bDash, Out);
 	EmitFx(Out);
-	Shake = FMath::Max(Shake, 0.25 + 0.75 * Power * (bDash ? 1.0 : 0.7));
+	Shake = FMath::Max(Shake, HitShakeBase + HitShakePerPower * Power * (bDash ? 1.0 : BumpShakeShare));
 	// Hit-stop: the frame holds for a beat on a real hit (the rules simply wait, so nothing drifts).
 	HitStop = FMath::Max(HitStop, bDash ? DashHitStopSeconds : (Power > BumpHitStopPower ? BumpHitStopSeconds : 0.0));
 	const float Gain = static_cast<float>(Power);
 	if (bDash || Power > CrashPower)
 	{
-		Cues.Play(this, CueCrash, 0.6f + 0.4f * Gain, 0.9f + 0.25f * FMath::FRand());
+		Cues.Play(this, CueCrash, Mix::CrashGain + Mix::CrashGainPerPower * Gain, Mix::CrashPitch + Mix::CrashPitchSpread * FMath::FRand());
 	}
-	Cues.Play(this, CueBump, 0.5f + 0.5f * Gain, 0.8f + 0.5f * (1.f - Gain) + 0.1f * FMath::FRand());
+	Cues.Play(this, CueBump, Mix::BumpGain + Mix::BumpGainPerPower * Gain, Mix::BumpPitch + Mix::BumpPitchPerSoftness * (1.f - Gain) + Mix::BumpPitchSpread * FMath::FRand());
 }

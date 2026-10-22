@@ -361,7 +361,7 @@ void ASumoGame::Rematch()
 		Pilot.PrevVel = FVector2D::ZeroVector;
 		Pilot.bDashQueued = false;
 		Pilot.LocalTilt = FVector2D::ZeroVector;
-		Pilot.CheerAt = Pilot.HitAt = Pilot.DashAt = -10.0;
+		Pilot.CheerAt = Pilot.HitAt = Pilot.DashAt = SumoLongAgo;
 	}
 	SkipStartEvents();
 	if (Arena)

@@ -139,6 +139,9 @@ struct FSumoPowerParts
 	TObjectPtr<UPointLightComponent> Light;
 };
 
+/** "Long ago" for presentation moments (s on ASumoGame's clock): nothing is still playing out from it. */
+constexpr double SumoLongAgo = -10.0;
+
 /** One puck's driver state and its presentation history (no UObjects). */
 struct FSumoPilot
 {
@@ -149,6 +152,7 @@ struct FSumoPilot
 	bool bDashQueued = false;
 	// Phone: the latest tilt and when it came (ASumoGame's clock).
 	FVector2D PhoneTilt = FVector2D::ZeroVector;
+	/** Never heard from: a phone seat starts quiet until its first frame. */
 	double PhoneAt = -100.0;
 	// Presentation: the previous step (to interpolate and lean), the smoothed lean, the hit and dash moments.
 	FVector2D PrevPos = FVector2D::ZeroVector;
@@ -156,12 +160,12 @@ struct FSumoPilot
 	FVector2D AccelSmooth = FVector2D::ZeroVector;
 	double Yaw = 0.0;
 	double Squash = 0.0;
-	double HitAt = -10.0;
+	double HitAt = SumoLongAgo;
 	FVector2D HitDir = FVector2D::ZeroVector;
-	double DashAt = -10.0;
-	double ReadyFlashAt = -10.0;
+	double DashAt = SumoLongAgo;
+	double ReadyFlashAt = SumoLongAgo;
 	bool bWasReady = true;
-	double CheerAt = -10.0;
+	double CheerAt = SumoLongAgo;
 	/** Deg/s of the fall's spin, picked at the ring out. */
 	double FallSpin = 0.0;
 };

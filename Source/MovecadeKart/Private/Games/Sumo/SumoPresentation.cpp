@@ -1,5 +1,6 @@
 #include "Games/Sumo/SumoPresentation.h"
 
+#include "Art/KartMaterialCache.h"
 #include "Art/KartMaterials.h"
 #include "Art/KartMeshBuilder.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -40,9 +41,27 @@ namespace MovecadeKart::Sumo::Presentation
 		}
 	}
 
+	UMaterialInstanceDynamic* CachedPlain(FKartMaterialCache& Cache, UObject* Outer, const FPlainLook& Look)
+	{
+		return Cache.Plain(Outer, Art::Hex(Look.Color), Look.Roughness, Look.Metallic, Look.Emissive);
+	}
+
+	void WarnMissing(const TCHAR* Path, const TCHAR* Fallback)
+	{
+		UE_LOG(LogSumo, Warning, TEXT("Sumo: %s is missing: %s"), Path, Fallback);
+	}
+
 	UMaterialInterface* AdditiveMaster()
 	{
-		return LoadObject<UMaterialInterface>(nullptr, AdditivePath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		UMaterialInterface* Master = LoadObject<UMaterialInterface>(nullptr, AdditivePath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		// Asked for by every halo, bubble and wash: one warning for the session is enough.
+		static bool bWarned = false;
+		if (!Master && !bWarned)
+		{
+			bWarned = true;
+			WarnMissing(AdditivePath, TEXT("no shields, pickup halos, bubbles, moon halo or warning wash"));
+		}
+		return Master;
 	}
 
 	UMaterialInstanceDynamic* MakeAdditive(UObject* Outer, const FLinearColor& Color, float Opacity)

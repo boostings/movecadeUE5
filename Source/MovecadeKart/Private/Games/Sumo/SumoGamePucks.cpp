@@ -56,6 +56,9 @@ namespace
 	constexpr double PaintFlashEmissive = 0.5;
 	constexpr double PaintDashEmissive = 0.35;
 	constexpr double PuckLightLumens = 260.0;
+	/** The light brightens by these multiples of itself in the ready flash and through a dash. */
+	constexpr double LightFlashBoost = 2.0;
+	constexpr double LightDashBoost = 2.0;
 
 	// The shield bubble: a slow spin and a shimmer, blinking in its last moments.
 	constexpr double ShieldEndingMs = 1500.0;
@@ -118,6 +121,8 @@ namespace
 	constexpr double PickupInSeconds = 0.4;
 	constexpr float PickupOvershoot = 2.2f;
 	constexpr double PickupOutSeconds = 0.25;
+	/** Never scale a component to zero (it would lose its bounds): this is invisible enough. */
+	constexpr double MinPickupScale = 0.01;
 	constexpr double PickupBobRate = 2.6;
 	constexpr double PickupBobCm = 12.0;
 	constexpr double IconSpinDegPerSecond = 120.0;
@@ -231,7 +236,7 @@ void ASumoGame::UpdateDashGlow(int32 Slot)
 		FMath::Lerp(C * TrimDimGlow, C * TrimReadyGlow, static_cast<float>(bReady ? 1.0 : TrimReloadShare * Cool)) + FLinearColor::White * static_cast<float>(ReadyFlashWhite * Flash));
 	Pt.Paint->SetScalarParameterValue(TEXT("Emissive"), static_cast<float>(PaintEmissive + PaintFlashEmissive * Flash + (bDashing ? PaintDashEmissive : 0.0)));
 	Pt.Weight->SetVisibility(Puck.Power == EPower::Heavy);
-	Pt.Light->SetIntensity(static_cast<float>(PuckLightLumens * (1.0 + 2.0 * Flash + (bDashing ? 2.0 : 0.0))));
+	Pt.Light->SetIntensity(static_cast<float>(PuckLightLumens * (1.0 + LightFlashBoost * Flash + (bDashing ? LightDashBoost : 0.0))));
 }
 
 void ASumoGame::UpdateShield(int32 Slot) const
@@ -410,7 +415,7 @@ void ASumoGame::UpdatePowerUps()
 		const double Age = Clock - P.BornAt;
 		const double In = KartUI::Ease::OutBack(static_cast<float>(FMath::Clamp(Age / PickupInSeconds, 0.0, 1.0)), PickupOvershoot);
 		const double Out = P.GoneAt >= 0.0 ? FMath::Clamp(1.0 - (Clock - P.GoneAt) / PickupOutSeconds, 0.0, 1.0) : 1.0;
-		const double Scale = FMath::Max(0.01, In * Out);
+		const double Scale = FMath::Max(MinPickupScale, In * Out);
 		const FLinearColor C = PowerColor(P.Kind);
 		P.Root->SetWorldLocation(Cm(P.Pos, FMath::Sin(Clock * PickupBobRate + P.Id) * PickupBobCm));
 		P.Root->SetWorldScale3D(FVector(Scale));

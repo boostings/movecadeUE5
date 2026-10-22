@@ -53,7 +53,11 @@ namespace
 	constexpr double PlayFollowRate = 4.0;
 	constexpr double MaxSmoothingStep = 1.0 / 20.0;
 
-	/** The shake: a jolt sideways and up, a roll, all decaying. */
+	/** The shake: a jolt sideways and up and a roll, at unrelated frequencies (rad/s) so it never looks periodic. */
+	constexpr double ShakeSideRate = 61.0;
+	constexpr double ShakeUpRate = 53.0;
+	constexpr double ShakeUpPhase = 1.1;
+	constexpr double ShakeRollRate = 47.0;
 	constexpr double ShakeDecay = 7.0;
 	constexpr double ShakeSideM = 0.16;
 	constexpr double ShakeUpM = 0.12;
@@ -62,7 +66,7 @@ namespace
 
 double ASumoGame::ViewAspect() const
 {
-	FVector2D Size(16.0, 9.0);
+	FVector2D Size(DefaultAspect, 1.0);
 	if (const UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
 	{
 		Viewport->GetViewportSize(Size);
@@ -152,10 +156,10 @@ void ASumoGame::UpdateCamera(float Dt)
 	CamLook += (Shot.Look - CamLook) * K;
 	CamFov += (Shot.Fov - CamFov) * K;
 	Shake *= FMath::Exp(-ShakeDecay * Dt);
-	const FVector Jolt(0.0, FMath::Sin(Clock * 61.0) * Shake * ShakeSideM, FMath::Sin(Clock * 53.0 + 1.1) * Shake * ShakeUpM);
+	const FVector Jolt(0.0, FMath::Sin(Clock * ShakeSideRate) * Shake * ShakeSideM, FMath::Sin(Clock * ShakeUpRate + ShakeUpPhase) * Shake * ShakeUpM);
 	const FVector From = (CamPos + Jolt) * 100.0;
 	const FVector To = CamLook * 100.0;
-	Camera->SetActorLocationAndRotation(From, (To - From).Rotation() + FRotator(0.0, 0.0, FMath::Sin(Clock * 47.0) * Shake * ShakeRollDeg));
+	Camera->SetActorLocationAndRotation(From, (To - From).Rotation() + FRotator(0.0, 0.0, FMath::Sin(Clock * ShakeRollRate) * Shake * ShakeRollDeg));
 	// CamFov is vertical (it fits the ring's depth); the camera takes a horizontal field for this aspect.
 	const double HorizontalFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(CamFov) / 2.0) * Aspect));
 	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov));
