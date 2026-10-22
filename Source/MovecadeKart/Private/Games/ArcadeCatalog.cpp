@@ -18,6 +18,9 @@ namespace MovecadeKart::Arcade
 				LOCTEXT("SamuraiHow", "Mouse or stick: sweep the katana through the fruit at the top of its arc. Never cut a bomb. Three precise cuts earn Focus: double points."), TEXT("L_Samurai"), KC::Mint, 4, 1, 2.0 },
 			{ TEXT("stacker"), LOCTEXT("Stacker", "Sky Stacker"), LOCTEXT("StackerTag", "Drop each block on the last, trim the overhang, lean the tower against the wind."),
 				LOCTEXT("StackerHow", "A, Space or click drops the sweeping block; the overhang is cut away. Stick, A/D or mouse lean the tower against the wind."), TEXT("L_Stacker"), KC::Sky, 4, 1, 3.0 },
+			{ TEXT("fishing"), LOCTEXT("Fishing", "Fishing Frenzy"), LOCTEXT("FishingTag", "Cast, hook and reel off a golden-hour dock. The far water hides the giants."),
+				LOCTEXT("FishingHow", "Hold Space, A or click and let go to cast: power is distance. Press again when the bobber dips. Reel by spinning the right stick, alternating A/D or scrolling; keep the tension in the green."),
+				TEXT("L_Fishing"), FLinearColor::FromSRGBColor(FColor(0x2e, 0xc4, 0xb6)), 4, 1, 3.0 },
 		};
 		return List;
 	}

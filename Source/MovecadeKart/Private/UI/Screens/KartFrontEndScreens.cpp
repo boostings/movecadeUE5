@@ -527,6 +527,21 @@ namespace
 	/** Each game's card art, drawn from primitives like the main menu's. */
 	void GameIcon(const FKartPainter& P, int32 Game, const FVector2D& C, float S, double Now)
 	{
+		if (ArcadeGames().IsValidIndex(Game) && ArcadeGames()[Game].Id == FName(TEXT("fishing")))
+		{
+			// A bobber dipping on the ripples, its line up out of frame.
+			const double Dip = FMath::Max(0.0, FMath::Sin(Now * 2.4)) * 0.12 * S;
+			for (int32 i = 0; i < 3; ++i)
+			{
+				const double R = (0.45 + 0.22 * i + 0.1 * FMath::Frac(Now * 0.6)) * S;
+				P.Lines({ C + FVector2D(-R, 0.45 * S), C + FVector2D(R, 0.45 * S) }, Color::WithAlpha(Color::White, 0.7f - 0.2f * i), 0.05f * S);
+			}
+			P.Lines({ C + FVector2D(0.0, -0.95 * S), C + FVector2D(0.0, -0.3 * S + Dip) }, Color::White, 0.03f * S);
+			P.Circle(C + FVector2D(0.0, 0.05 * S + Dip), 0.42f * S, Color::White, Color::Navy, 0.05f * S);
+			P.Polygon({ C + FVector2D(-0.42 * S, 0.05 * S + Dip), C + FVector2D(-0.3 * S, -0.27 * S + Dip), C + FVector2D(0.0, -0.37 * S + Dip), C + FVector2D(0.3 * S, -0.27 * S + Dip), C + FVector2D(0.42 * S, 0.05 * S + Dip) }, Color::Hot);
+			P.Box(C + FVector2D(-0.04 * S, -0.62 * S + Dip), FVector2D(0.08 * S, 0.3 * S), Color::Navy, 0.03f * S);
+			return;
+		}
 		switch (Game)
 		{
 		case 0:
@@ -569,13 +584,13 @@ namespace
 	class FArcadeScreen final : public FKartScreen
 	{
 	public:
-		/** Rows: the games, then Players and House players. */
-		static constexpr int32 PlayersRow = 4;
-		static constexpr int32 HouseRow = 5;
+		/** Rows: the games (as many as the catalog lists), then Players and House players. */
+		const int32 PlayersRow = ArcadeGames().Num();
+		const int32 HouseRow = ArcadeGames().Num() + 1;
 
 		explicit FArcadeScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
 		{
-			Focus.Cursor.Count = 6;
+			Focus.Cursor.Count = HouseRow + 1;
 		}
 
 		virtual FName GetId() const override { return TEXT("arcade"); }
