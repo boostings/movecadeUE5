@@ -167,6 +167,24 @@ namespace MovecadeKart::Stacker
 		return true;
 	}
 
+	FDropPreview PreviewDrop(const FTower& Tower, double DropCenter)
+	{
+		const FBlock& Below = Tower.Top();
+		const double Width = Below.Width;
+		FDropPreview Out;
+		Out.Sway = BalanceDisplacement(Tower.Balance.LeanX);
+		Out.Support = Below.Center + Out.Sway;
+		Out.Offset = FMath::Abs(DropCenter - Out.Support);
+		const bool bSteady = IsBalanceSteady(Tower.Balance, BalanceLimit(Tower.Height(), Width));
+		// A steady palm earns the wider perfect window (never wider than half the block).
+		const double Tolerance = FMath::Min(bSteady ? SteadyPerfectTolerance : PerfectTolerance, Width / 2.0);
+		Out.Left = FMath::Max(DropCenter - Width / 2.0, Out.Support - Below.Width / 2.0);
+		Out.Right = FMath::Min(DropCenter + Width / 2.0, Out.Support + Below.Width / 2.0);
+		Out.bPerfect = Out.Offset <= Tolerance;
+		Out.bMiss = !Out.bPerfect && Out.Right - Out.Left < MinWidth - 1e-9;
+		return Out;
+	}
+
 	double SweepTrackHalfWidth(double Height)
 	{
 		return FMath::Max(MinSweepTrackHalfWidth, TrackHalfWidth - FMath::Max(0.0, Height) * SweepTrackNarrowingPerRow);
@@ -349,20 +367,19 @@ namespace MovecadeKart::Stacker
 		const FBlock Below = T.Top();
 		const double DropCenter = RewoundCenter(T, FMath::Max(0.0, RewindMs));
 		const double Width = Below.Width;
-		const double Sway = BalanceDisplacement(T.Balance.LeanX);
-		const double Support = Below.Center + Sway;
-		const double Offset = FMath::Abs(DropCenter - Support);
-		const bool bSteady = IsBalanceSteady(T.Balance, BalanceLimit(T.Height(), Width));
-		const double Tolerance = FMath::Min(bSteady ? SteadyPerfectTolerance : PerfectTolerance, Width / 2.0);
-		const double Left = FMath::Max(DropCenter - Width / 2.0, Support - Below.Width / 2.0);
-		const double Right = FMath::Min(DropCenter + Width / 2.0, Support + Below.Width / 2.0);
+		const FDropPreview Preview = PreviewDrop(T, DropCenter);
+		const double Sway = Preview.Sway;
+		const double Support = Preview.Support;
+		const double Offset = Preview.Offset;
+		const double Left = Preview.Left;
+		const double Right = Preview.Right;
 		const double Overlap = Right - Left;
-		const bool bPerfect = Offset <= Tolerance;
+		const bool bPerfect = Preview.bPerfect;
 		const int32 Row = T.Height() + 1;
 		FDropOutcome Out;
 		Out.Offset = Offset;
 
-		if (!bPerfect && Overlap < MinWidth - 1e-9)
+		if (Preview.bMiss)
 		{
 			const int32 Lost = T.Combo;
 			T.Combo = 0;
