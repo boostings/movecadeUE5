@@ -7,6 +7,8 @@
 #include "Serialization/JsonSerializer.h"
 #include "Store/KartCosmetics.h"
 #include "Store/KartStore.h"
+#include "Store/KartStoreSave.h"
+#include "Store/MockStoreBackend.h"
 #include "Store/KartStoreSubsystem.h"
 
 #if WITH_DEV_AUTOMATION_TESTS

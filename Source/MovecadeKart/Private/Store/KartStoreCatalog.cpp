@@ -234,7 +234,18 @@ namespace MovecadeKart::Store
 
 	const FItem* FindItem(int32 DefId)
 	{
-		return Catalog().FindByPredicate([DefId](const FItem& I) { return I.DefId == DefId; });
+		// The store screen asks for every visible tile every frame: index the catalog once.
+		static const TMap<int32, const FItem*> ByDef = []()
+		{
+			TMap<int32, const FItem*> Index;
+			for (const FItem& I : Catalog())
+			{
+				Index.Add(I.DefId, &I);
+			}
+			return Index;
+		}();
+		const FItem* const* Found = ByDef.Find(DefId);
+		return Found ? *Found : nullptr;
 	}
 
 	const FItem* FindItem(FName Key)

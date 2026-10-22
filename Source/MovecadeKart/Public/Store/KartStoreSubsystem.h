@@ -39,6 +39,8 @@ public:
 
 private:
 	bool Tick(float DeltaSeconds);
+	/** Equips DefIds after the first inventory refresh (-KartStoreEquip). */
+	void WearOnceRestored(const TArray<int32>& DefIds);
 
 	TUniquePtr<MovecadeKart::Store::FKartStore> Store;
 	FTSTicker::FDelegateHandle TickHandle;

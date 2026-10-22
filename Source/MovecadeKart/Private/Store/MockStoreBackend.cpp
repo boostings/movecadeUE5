@@ -1,32 +1,40 @@
-#include "Store/KartStoreBackend.h"
+#include "Store/MockStoreBackend.h"
 
-#include "GameFramework/SaveGame.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
-#include "Store/KartStore.h"
 #include "Store/KartStoreCatalog.h"
+#include "Store/KartStoreSave.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartStoreMock, Log, All);
 
 namespace MovecadeKart::Store
 {
+	namespace
+	{
+		/** A call's work may queue more calls: at most this many run per tick, so a loop can't hang the game. */
+		constexpr int32 MaxCallsPerTick = 64;
+	}
+
 	FMockStoreBackend::FMockStoreBackend(const FString& InSaveSlot) : SaveSlot(InSaveSlot)
 	{
+#if !UE_BUILD_SHIPPING
+		// Development: -KartStoreMock=succeed|cancel|fail picks how every checkout ends.
 		FString Outcome;
 		if (FParse::Value(FCommandLine::Get(), TEXT("KartStoreMock="), Outcome))
 		{
 			NextOutcome = Outcome.Equals(TEXT("cancel"), ESearchCase::IgnoreCase) ? EMockOutcome::Cancel
 				: Outcome.Equals(TEXT("fail"), ESearchCase::IgnoreCase) ? EMockOutcome::Fail : EMockOutcome::Succeed;
 		}
+#endif
 		Load();
 	}
 
 	void FMockStoreBackend::Tick(double DeltaSeconds)
 	{
 		Clock += DeltaSeconds;
-		// Run what's due, oldest first; work may queue more calls.
-		for (int32 Guard = 0; Guard < 64; ++Guard)
+		// Run what's due, oldest first.
+		for (int32 Ran = 0; Ran < MaxCallsPerTick; ++Ran)
 		{
 			const int32 Due = Pending.IndexOfByPredicate([this](const FPendingCall& C) { return C.At <= Clock; });
 			if (Due == INDEX_NONE)
@@ -207,11 +215,4 @@ namespace MovecadeKart::Store
 		Out->OwnedCache = Inventory.Array();
 		UGameplayStatics::SaveGameToSlot(Out, SaveSlot, 0);
 	}
-
-#if !MOVECADE_WITH_STEAM
-	TUniquePtr<IKartStoreBackend> MakeSteamBackend(int32 DevAppId)
-	{
-		return nullptr;
-	}
-#endif
 }

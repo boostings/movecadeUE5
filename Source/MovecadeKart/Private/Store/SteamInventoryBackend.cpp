@@ -1,6 +1,6 @@
 // The Steam Inventory Service backend. Compiled only when the build has Steamworks (MOVECADE_WITH_STEAM=1, set by
 // MovecadeKart.Build.cs when MOVECADE_STEAM=1 is in the environment); see Docs/Store/README.md.
-#include "Store/KartStoreBackend.h"
+#include "Store/SteamInventoryBackend.h"
 
 #if MOVECADE_WITH_STEAM
 
@@ -362,6 +362,16 @@ namespace MovecadeKart::Store
 		}
 		UE_LOG(LogKartSteamStore, Display, TEXT("Steam Inventory ready (app %u)"), SteamUtils() ? SteamUtils()->GetAppID() : 0u);
 		return MakeUnique<FSteamInventoryBackend>(bOwnsApi);
+	}
+}
+
+#else // MOVECADE_WITH_STEAM
+
+namespace MovecadeKart::Store
+{
+	TUniquePtr<IKartStoreBackend> MakeSteamBackend(int32 DevAppId)
+	{
+		return nullptr; // no Steamworks in this build: the subsystem uses the offline store
 	}
 }
 

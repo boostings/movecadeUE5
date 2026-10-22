@@ -56,7 +56,8 @@ void FKartCosmetics::ApplyBowlingBall(UMaterialInstanceDynamic* BallMaterial, bo
 		return;
 	}
 	// The ball is one material shared by every bowler: set every parameter each turn so a skin never sticks to a bot.
-	// The stock finish is whatever the game built the material with, read once before any skin touches it.
+	// The stock finish is whatever the game built the material with, read once before any skin touches it. A
+	// deliberate session cache (game thread only), keyed weakly so dead materials drop out.
 	struct FStock { float Roughness = 0.f, Metallic = 0.f, Emissive = 0.f; };
 	static TMap<TWeakObjectPtr<UMaterialInstanceDynamic>, FStock> Stocks;
 	FStock* Stock = Stocks.Find(BallMaterial);
