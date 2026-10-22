@@ -92,7 +92,9 @@ namespace KartUI::Color
 
 	FLinearColor TextOn(const FLinearColor& Background)
 	{
-		return Background.GetLuminance() > 0.35f ? Navy : White;
+		// Above this luminance navy text reads better than white (the palette's sun, mint and sky all clear it).
+		constexpr float DarkTextLuminance = 0.35f;
+		return Background.GetLuminance() > DarkTextLuminance ? Navy : White;
 	}
 
 	FLinearColor WithAlpha(const FLinearColor& Color, float Alpha)
@@ -110,9 +112,11 @@ namespace KartUI
 			static const FName Regular(TEXT("Regular"));
 			const FFontSet& Set = Fonts();
 			const TSharedPtr<const FCompositeFont>& Composite = Set.Faces[static_cast<int32>(Face)];
+			// Roboto runs larger than the game's faces; the fallback is scaled down to keep layouts close.
+			constexpr float FallbackFontScale = 0.8f;
 			FSlateFontInfo Info = Composite.IsValid()
 				? FSlateFontInfo(Composite, Size, Regular)
-				: FCoreStyle::GetDefaultFontStyle(Face == EFont::Body ? "Bold" : "Black", FMath::RoundToInt32(Size * 0.8f));
+				: FCoreStyle::GetDefaultFontStyle(Face == EFont::Body ? "Bold" : "Black", FMath::RoundToInt32(Size * FallbackFontScale));
 			if (OutlineSize > 0.f)
 			{
 				Info.OutlineSettings.OutlineSize = FMath::RoundToInt32(OutlineSize);
