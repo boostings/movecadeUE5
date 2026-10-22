@@ -87,6 +87,8 @@ namespace MovecadeKart::KartTuning
 	constexpr double WallSpeedDecay = 8.0;
 	/** Swept wall query box, in kart radii: sequential push-outs can move the kart up to a radius per segment. */
 	constexpr double SweepQueryMarginRadii = 4.0;
+	/** Sanity limit on one step's sweep (about 650 m at Harbor's 0.65 m substep). */
+	constexpr double MaxSweepSubsteps = 1000.0;
 	/** Below this the disc centre is on the wall and is pushed along the face normal instead. */
 	constexpr double RadialPushEpsilon = 1e-6;
 

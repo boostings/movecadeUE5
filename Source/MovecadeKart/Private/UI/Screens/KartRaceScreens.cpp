@@ -20,21 +20,96 @@ using namespace KartScreens::Shared;
 namespace
 {
 	/** The pause card in the middle of the screen and its column of buttons. */
-	const FVector2D PauseCardSize(640.0, 640.0);
-	const FVector2D PauseButtonSize(520.0, 86.0);
-	constexpr double PauseButtonsTop = 196.0;
-	constexpr double PauseButtonGap = 18.0;
-	constexpr double PausePopSeconds = 0.32;
+	namespace PauseArt
+	{
+		constexpr float DimSeconds = 0.25f;
+		constexpr float DimAlpha = 0.55f;
+		const FVector2D CardSize(640.0, 640.0);
+		/** The card pops from 80 % (an eased grow without the overshoot under Reduce motion). */
+		constexpr double PopSeconds = 0.32;
+		constexpr float PopOvershoot = 2.f;
+		constexpr double ReducedPopSeconds = 0.2;
+		constexpr float PopFrom = 0.8f;
+		constexpr float PopGrowth = 0.2f;
+		constexpr float FillAlpha = 0.92f;
+		constexpr float Shadow = 12.f;
+		constexpr float Rim = 5.f;
+		constexpr float TitleSize = 84.f;
+		constexpr float TitleOutline = 5.f;
+		constexpr double TitleY = 82.0;
+		constexpr float TrackSize = 24.f;
+		constexpr double TrackY = 156.0;
+		constexpr float TrackAlpha = 0.8f;
+		const FVector2D ButtonSize(520.0, 86.0);
+		constexpr double ButtonsX = 60.0;
+		constexpr double ButtonsTop = 196.0;
+		constexpr double ButtonGap = 18.0;
+	}
 
-	/** The results board: rows down the left, buttons along the bottom. */
-	constexpr double ResultsRowsTop = 160.0;
-	constexpr double ResultsRowWidth = 1080.0;
-	constexpr double ResultsMaxRowHeight = 96.0;
-	/** Room the title and the buttons keep, which the rows share out. */
-	constexpr double ResultsChrome = 360.0;
-	constexpr float ResultsRowStagger = 0.07f;
-	const FVector2D ResultsButtonSize(400.0, 88.0);
-	constexpr double ResultsButtonGap = 22.0;
+	/** The results board: the title, rows down the left, buttons along the bottom. */
+	namespace ResultsArt
+	{
+		constexpr float ShadeAlpha = 0.82f;
+		/** The shade fades out across this much of the screen's width from the left. */
+		constexpr double ShadeWidth = 0.7;
+		constexpr double TitlePopSeconds = 0.5;
+		constexpr float TitlePopOvershoot = 2.f;
+		constexpr float TitleTilt = -8.f;
+		/** The title pops about a point this far into it. */
+		const FVector2D TitlePivot(300.0, 60.0);
+		constexpr float KickerSize = 22.f;
+		constexpr float KickerOutline = 2.f;
+		const FVector2D KickerPos(4.0, -6.0);
+		const FVector2D StarPos(36.0, 68.0);
+		constexpr float StarOuter = 40.f;
+		constexpr float StarInner = 18.f;
+		constexpr double StarSpin = 40.0;
+		constexpr float TitleSize = 78.f;
+		constexpr float TitleOutline = 5.f;
+		constexpr float TitleShadow = 6.f;
+		const FVector2D TitlePos(90.0, 20.0);
+		constexpr double RowsTop = 160.0;
+		constexpr double RowWidth = 1080.0;
+		constexpr double MaxRowHeight = 96.0;
+		/** Room the title and the buttons keep, which the rows share out. */
+		constexpr double Chrome = 360.0;
+		constexpr double RowGap = 10.0;
+		constexpr float RowInAt = 0.25f;
+		constexpr float RowStagger = 0.07f;
+		constexpr float RowInSeconds = 0.35f;
+		constexpr double RowSlide = 300.0;
+		constexpr float BotRowAlpha = 0.9f;
+		constexpr float RowShadow = 5.f;
+		constexpr float LocalRim = 4.f;
+		/** The place badge: inset from the row's ends, its number a little under centre. */
+		constexpr double BadgeInset = 6.0;
+		constexpr float BadgeOutline = 3.f;
+		constexpr float BadgeFont = 1.15f;
+		constexpr double BadgeNumberDrop = 1.0;
+		constexpr double SwatchGap = 22.0;
+		constexpr double SwatchInset = 12.0;
+		constexpr double SwatchWidth = 10.0;
+		constexpr float SwatchRound = 5.f;
+		constexpr double NameX = 24.0;
+		constexpr float MaxNameSize = 32.f;
+		constexpr double NameFraction = 0.4;
+		constexpr double NameBaseline = 8.0;
+		constexpr double SubX = 26.0;
+		constexpr double SubDrop = 4.0;
+		constexpr float SubSize = 18.f;
+		constexpr double TimeRight = 230.0;
+		constexpr float MaxTimeSize = 36.f;
+		constexpr double TimeFraction = 0.5;
+		constexpr double BestRight = 36.0;
+		constexpr double BestLift = 2.0;
+		constexpr float BestLabelSize = 13.f;
+		constexpr float BestSize = 22.f;
+		const FVector2D ButtonSize(400.0, 88.0);
+		constexpr double ButtonGap = 22.0;
+		constexpr double ButtonsLift = 70.0;
+		constexpr float ButtonsInAt = 0.4f;
+		constexpr double ButtonsRise = 80.0;
+	}
 
 	/** Back to the front end (at Entry), with the curtain; a party race closes its room first. */
 	void ReturnToMenu(UWorld* World, EKartMenuEntry Entry)
@@ -110,30 +185,32 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			const float In = KartWidgets::Entrance(Frame, 0.f, 0.25f);
-			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.55f * In));
-			const FVector2D Pos = Frame.Centre() - PauseCardSize * 0.5;
-			const float Pop = FKartAccessibility::ReduceMotion() ? Ease::OutCubic(static_cast<float>(Frame.Age / 0.2))
-				: Ease::OutBack(static_cast<float>(Frame.Age / PausePopSeconds), 2.f);
-			const FKartPainter Card = P.Transformed(Frame.Centre(), 0.8f + 0.2f * Pop);
-			Card.Card(Pos, PauseCardSize, Color::WithAlpha(Color::Night, 0.92f), Metric::RadiusLarge, 12.f, Color::Sun, 5.f);
-			Card.Text(LOCTEXT("Paused", "PAUSED"), Font(EFont::Display, 84.f, 5.f), Pos + FVector2D(PauseCardSize.X * 0.5, 82.0), Color::Sun, FVector2D(0.5, 0.5), 5.f);
+			using namespace PauseArt;
+			const float In = KartWidgets::Entrance(Frame, 0.f, DimSeconds);
+			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, DimAlpha * In));
+			const FVector2D Pos = Frame.Centre() - CardSize * 0.5;
+			const float Pop = FKartAccessibility::ReduceMotion() ? Ease::OutCubic(static_cast<float>(Frame.Age / ReducedPopSeconds))
+				: Ease::OutBack(static_cast<float>(Frame.Age / PopSeconds), PopOvershoot);
+			const FKartPainter Card = P.Transformed(Frame.Centre(), PopFrom + PopGrowth * Pop);
+			Card.Card(Pos, CardSize, Color::WithAlpha(Color::Night, FillAlpha), Metric::RadiusLarge, Shadow, Color::Sun, Rim);
+			Card.Text(LOCTEXT("Paused", "PAUSED"), Font(EFont::Display, TitleSize, TitleOutline), Pos + FVector2D(CardSize.X * 0.5, TitleY), Color::Sun, FVector2D(0.5, 0.5),
+				TitleOutline);
 			if (const AKartRaceManager* R = Race.Get(); R && R->GetTrack())
 			{
 				const FKartTrackInfo* Track = FKartTrackCatalog::Find(R->GetTrack()->Id);
-				Card.Text(Track ? Track->Name : FText::FromString(R->GetTrack()->Name), Font(EFont::Body, 24.f), Pos + FVector2D(PauseCardSize.X * 0.5, 156.0),
-					Color::WithAlpha(Color::White, 0.8f), FVector2D(0.5, 0.5));
+				Card.Text(Track ? Track->Name : FText::FromString(R->GetTrack()->Name), Font(EFont::Body, TrackSize), Pos + FVector2D(CardSize.X * 0.5, TrackY),
+					Color::WithAlpha(Color::White, TrackAlpha), FVector2D(0.5, 0.5));
 			}
 			static const FText Names[] = { LOCTEXT("ResumeButton", "Resume"), LOCTEXT("Restart", "Restart race"), LOCTEXT("Settings", "Settings"), LOCTEXT("QuitMenu", "Quit to menu") };
 			static const FLinearColor Accents[] = { Color::Mint, Color::Sky, Color::Grape, Color::Hot };
 			// Once the card has popped, the buttons paint untransformed so their hit regions register.
-			const FKartPainter& ButtonPainter = Frame.Age > PausePopSeconds ? P : Card;
+			const FKartPainter& ButtonPainter = Frame.Age > PopSeconds ? P : Card;
 			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Focus.Cursor.Count; ++i)
 			{
 				Group.Next();
-				const FVector2D ButtonPos(Pos.X + 60.0, Pos.Y + PauseButtonsTop + i * (PauseButtonSize.Y + PauseButtonGap));
-				KartWidgets::Button(ButtonPainter, ButtonPos, PauseButtonSize, Names[i], Focus.State(i, Frame.Now), Accents[i], i);
+				const FVector2D ButtonPos(Pos.X + ButtonsX, Pos.Y + ButtonsTop + i * (ButtonSize.Y + ButtonGap));
+				KartWidgets::Button(ButtonPainter, ButtonPos, ButtonSize, Names[i], Focus.State(i, Frame.Now), Accents[i], i);
 			}
 		}
 
@@ -253,7 +330,8 @@ namespace
 			{
 				BuildText(*R);
 			}
-			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X * 0.7, Frame.Size.Y), Color::WithAlpha(Color::Night, 0.82f), Color::WithAlpha(Color::Night, 0.f), false);
+			P.Gradient(FVector2D::ZeroVector, FVector2D(Frame.Size.X * ResultsArt::ShadeWidth, Frame.Size.Y), Color::WithAlpha(Color::Night, ResultsArt::ShadeAlpha),
+				Color::WithAlpha(Color::Night, 0.f), false);
 			PaintTitle(P, Frame);
 			PaintRows(P, Frame, *R);
 			PaintButtons(P, Frame, R->GetResults().Num());
@@ -263,60 +341,63 @@ namespace
 		/** The winner (or a photo finish) over a spinning star. */
 		void PaintTitle(const FKartPainter& P, const FKartScreenFrame& Frame) const
 		{
-			const float TitleIn = Ease::OutBack(static_cast<float>(Frame.Age / 0.5), 2.f);
-			const FVector2D TitlePos(Frame.SafeMin.X, Frame.SafeMin.Y);
-			const FKartPainter T = P.Transformed(TitlePos + FVector2D(300.0, 60.0), TitleIn, (1.f - TitleIn) * -8.f * FKartAccessibility::MotionScale());
-			T.Text(LOCTEXT("FinalStandings", "FINAL STANDINGS"), Font(EFont::Label, 22.f, 2.f), TitlePos + FVector2D(4.0, -6.0), Color::Sun);
-			KartWidgets::Star(T, TitlePos + FVector2D(36.0, 68.0), 40.f, 18.f, Color::Sun, static_cast<float>(Frame.Now * 40.0 * FKartAccessibility::MotionScale()));
-			T.Text(TitleText, Font(EFont::Display, 78.f, 5.f), TitlePos + FVector2D(90.0, 20.0), Color::White, FVector2D::ZeroVector, 6.f);
+			using namespace ResultsArt;
+			const float TitleIn = Ease::OutBack(static_cast<float>(Frame.Age / TitlePopSeconds), TitlePopOvershoot);
+			const FVector2D Origin(Frame.SafeMin.X, Frame.SafeMin.Y);
+			const FKartPainter T = P.Transformed(Origin + TitlePivot, TitleIn, (1.f - TitleIn) * TitleTilt * FKartAccessibility::MotionScale());
+			T.Text(LOCTEXT("FinalStandings", "FINAL STANDINGS"), Font(EFont::Label, KickerSize, KickerOutline), Origin + KickerPos, Color::Sun);
+			KartWidgets::Star(T, Origin + StarPos, StarOuter, StarInner, Color::Sun, static_cast<float>(Frame.Now * StarSpin * FKartAccessibility::MotionScale()));
+			T.Text(TitleText, Font(EFont::Display, TitleSize, TitleOutline), Origin + TitlePos, Color::White, FVector2D::ZeroVector, TitleShadow);
 		}
 
 		/** One row per racer, staggered in: place badge, paint, name, character and vehicle, time and best lap. */
 		void PaintRows(const FKartPainter& P, const FKartScreenFrame& Frame, const AKartRaceManager& R) const
 		{
+			using namespace ResultsArt;
 			const TArray<FKartResult>& Results = R.GetResults();
 			const int32 Rows = Results.Num();
-			const double RowH = FMath::Min(ResultsMaxRowHeight, (Frame.SafeSize().Y - ResultsChrome) / FMath::Max(1, Rows));
-			const double Top = Frame.SafeMin.Y + ResultsRowsTop;
+			const double RowH = FMath::Min(MaxRowHeight, (Frame.SafeSize().Y - Chrome) / FMath::Max(1, Rows));
+			const double Top = Frame.SafeMin.Y + RowsTop;
 			const bool bShowBestLap = R.GetTrack() && R.GetTrack()->Laps > 1;
 			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Rows; ++i)
 			{
 				Group.Next();
 				const FKartResult& Result = Results[i];
-				const float In = KartWidgets::Entrance(Frame, 0.25f + i * ResultsRowStagger, 0.35f);
+				const float In = KartWidgets::Entrance(Frame, RowInAt + i * RowStagger, RowInSeconds);
 				if (In <= 0.f)
 				{
 					continue;
 				}
-				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * 300.0, Top + i * RowH);
+				const FVector2D Pos(Frame.SafeMin.X - (1.0 - In) * RowSlide, Top + i * RowH);
 				const FKartPainter Row = P.Faded(In);
 				const FKartRacer* Racer = R.GetRacers().IsValidIndex(Result.Seat) ? &R.GetRacers()[Result.Seat] : nullptr;
 				const bool bLocal = Racer && Racer->Kind != EKartSeatKind::Bot;
-				const FVector2D Size(ResultsRowWidth, RowH - 10.0);
-				Row.Card(Pos, Size, bLocal ? Color::White : Color::WithAlpha(Color::Paper, 0.9f), static_cast<float>(Size.Y * 0.5), 5.f,
-					bLocal ? Color::Sun : FLinearColor::Transparent, 4.f);
+				const FVector2D Size(RowWidth, RowH - RowGap);
+				Row.Card(Pos, Size, bLocal ? Color::White : Color::WithAlpha(Color::Paper, BotRowAlpha), static_cast<float>(Size.Y * 0.5), RowShadow,
+					bLocal ? Color::Sun : FLinearColor::Transparent, LocalRim);
 				// Place badge.
-				const FVector2D Badge(Pos.X + Size.Y * 0.5 + 6.0, Pos.Y + Size.Y * 0.5);
-				const float BadgeR = static_cast<float>(Size.Y * 0.5 - 6.0);
-				Row.Circle(Badge, BadgeR, Color::ForPlace(Result.Rank), Color::Navy, 3.f);
-				Row.Text(RowText[i].Rank, Font(EFont::Display, BadgeR * 1.15f), Badge + FVector2D(0.0, 1.0), Color::Navy, FVector2D(0.5, 0.5));
+				const FVector2D Badge(Pos.X + Size.Y * 0.5 + BadgeInset, Pos.Y + Size.Y * 0.5);
+				const float BadgeR = static_cast<float>(Size.Y * 0.5 - BadgeInset);
+				Row.Circle(Badge, BadgeR, Color::ForPlace(Result.Rank), Color::Navy, BadgeOutline);
+				Row.Text(RowText[i].Rank, Font(EFont::Display, BadgeR * BadgeFont), Badge + FVector2D(0.0, BadgeNumberDrop), Color::Navy, FVector2D(0.5, 0.5));
 				// Paint swatch + name + character / vehicle.
-				const double NameX = Badge.X + BadgeR + 22.0;
-				Row.Box(FVector2D(NameX, Pos.Y + 12.0), FVector2D(10.0, Size.Y - 24.0), Result.Paint, 5.f);
-				Row.Text(Result.Name, Font(EFont::Title, FMath::Min(32.f, static_cast<float>(Size.Y * 0.4))), FVector2D(NameX + 24.0, Pos.Y + Size.Y * 0.5 + 8.0), Color::Navy, FVector2D(0.0, 1.0));
+				const double NameLeft = Badge.X + BadgeR + SwatchGap;
+				Row.Box(FVector2D(NameLeft, Pos.Y + SwatchInset), FVector2D(SwatchWidth, Size.Y - 2.0 * SwatchInset), Result.Paint, SwatchRound);
+				Row.Text(Result.Name, Font(EFont::Title, FMath::Min(MaxNameSize, static_cast<float>(Size.Y * NameFraction))), FVector2D(NameLeft + NameX, Pos.Y + Size.Y * 0.5 + NameBaseline),
+					Color::Navy, FVector2D(0.0, 1.0));
 				if (!RowText[i].Sub.IsEmpty())
 				{
-					Row.Text(RowText[i].Sub, Font(EFont::Body, 18.f), FVector2D(NameX + 26.0, Pos.Y + Size.Y * 0.5 + 4.0), Color::NavyDim);
+					Row.Text(RowText[i].Sub, Font(EFont::Body, SubSize), FVector2D(NameLeft + SubX, Pos.Y + Size.Y * 0.5 + SubDrop), Color::NavyDim);
 				}
 				// Time and best lap on the right.
-				Row.Text(RowText[i].Time, Font(EFont::Display, FMath::Min(36.f, static_cast<float>(Size.Y * 0.5))), FVector2D(Pos.X + Size.X - 230.0, Pos.Y + Size.Y * 0.5),
+				Row.Text(RowText[i].Time, Font(EFont::Display, FMath::Min(MaxTimeSize, static_cast<float>(Size.Y * TimeFraction))), FVector2D(Pos.X + Size.X - TimeRight, Pos.Y + Size.Y * 0.5),
 					Result.bFinished ? Color::Navy : Color::NavyDim, FVector2D(1.0, 0.5));
 				if (Result.BestLapMs > 0.0 && bShowBestLap)
 				{
-					Row.Text(LOCTEXT("Best", "BEST LAP"), Font(EFont::Label, 13.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0), Color::NavyDim, FVector2D(1.0, 1.0));
-					Row.Text(RowText[i].BestLap, Font(EFont::Button, 22.f), FVector2D(Pos.X + Size.X - 36.0, Pos.Y + Size.Y * 0.5 - 2.0),
-						Color::Navy, FVector2D(1.0, 0.0));
+					const FVector2D BestAt(Pos.X + Size.X - BestRight, Pos.Y + Size.Y * 0.5 - BestLift);
+					Row.Text(LOCTEXT("Best", "BEST LAP"), Font(EFont::Label, BestLabelSize), BestAt, Color::NavyDim, FVector2D(1.0, 1.0));
+					Row.Text(RowText[i].BestLap, Font(EFont::Button, BestSize), BestAt, Color::Navy, FVector2D(1.0, 0.0));
 				}
 			}
 		}
@@ -324,17 +405,18 @@ namespace
 		/** The buttons along the bottom, in after the last row. */
 		void PaintButtons(const FKartPainter& P, const FKartScreenFrame& Frame, int32 Rows) const
 		{
+			using namespace ResultsArt;
 			static const FText Names[] = { LOCTEXT("RaceAgain", "Race again"), LOCTEXT("ChangeTrack", "Change track"), LOCTEXT("MainMenu", "Main menu") };
 			static const FText RoomNames[] = { LOCTEXT("BackToLobby", "Back to lobby"), LOCTEXT("LeaveParty", "Leave party") };
 			static const FLinearColor Accents[] = { Color::Hot, Color::Mint, Color::Sky };
-			const float ButtonsIn = KartWidgets::Entrance(Frame, 0.4f + Rows * ResultsRowStagger);
-			const double Y = Frame.SafeMax.Y - ResultsButtonSize.Y - 70.0;
+			const float ButtonsIn = KartWidgets::Entrance(Frame, ButtonsInAt + Rows * RowStagger);
+			const double Y = Frame.SafeMax.Y - ButtonSize.Y - ButtonsLift;
 			const FKartPaintGroup Group(P);
 			for (int32 i = 0; i < Focus.Cursor.Count; ++i)
 			{
 				Group.Next();
-				const FVector2D Pos(Frame.SafeMin.X + i * (ResultsButtonSize.X + ResultsButtonGap), Y + (1.0 - ButtonsIn) * 80.0);
-				KartWidgets::Button(P.Faded(ButtonsIn), Pos, ResultsButtonSize, bRoom ? RoomNames[i] : Names[i], Focus.State(i, Frame.Now), Accents[i], i);
+				const FVector2D Pos(Frame.SafeMin.X + i * (ButtonSize.X + ButtonGap), Y + (1.0 - ButtonsIn) * ButtonsRise);
+				KartWidgets::Button(P.Faded(ButtonsIn), Pos, ButtonSize, bRoom ? RoomNames[i] : Names[i], Focus.State(i, Frame.Now), Accents[i], i);
 			}
 		}
 

@@ -283,19 +283,19 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			const FKartStore* S = UKartStoreSubsystem::Active();
+			const FKartStore* Store = UKartStoreSubsystem::Active();
 			// A dark wash over the orbit so the grid reads; the detail side a touch darker.
 			P.Gradient(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.72f), Color::WithAlpha(Color::Night, 0.86f), false);
 			KartWidgets::Header(P, Frame, LOCTEXT("StoreTitle", "Store"),
 				LOCTEXT("StoreSub", "Cosmetics only. Every kart, ball and blade plays exactly the same."), Color::Hot);
-			PaintStatus(P, Frame, S);
+			PaintStatus(P, Frame, Store);
 			PaintTabs(P, Frame);
 
 			const double Top = Frame.SafeMin.Y + ContentTop;
-			PaintGrid(P, Frame, S, FVector2D(Frame.SafeMin.X + KartWidgets::SlideX(Frame), Top));
+			PaintGrid(P, Frame, Store, FVector2D(Frame.SafeMin.X + KartWidgets::SlideX(Frame), Top));
 			if (Items.IsValidIndex(Focus))
 			{
-				PaintDetail(P, Frame, S, *Items[Focus], FVector2D(Frame.SafeMax.X - DetailW, Top));
+				PaintDetail(P, Frame, Store, *Items[Focus], FVector2D(Frame.SafeMax.X - DetailW, Top));
 			}
 			PaintToast(P, Frame);
 		}
@@ -305,23 +305,23 @@ namespace
 
 		void Bind()
 		{
-			FKartStore* S = UKartStoreSubsystem::Active();
-			if (!S || BoundStore == S)
+			FKartStore* Store = UKartStoreSubsystem::Active();
+			if (!Store || BoundStore == Store)
 			{
 				return;
 			}
 			Unbind();
-			BoundStore = S;
-			UnlockHandle = S->OnUnlocked.AddSP(this, &FStoreScreen::OnUnlocked);
-			RestoreHandle = S->OnRestored.AddSP(this, &FStoreScreen::OnRestored);
+			BoundStore = Store;
+			UnlockHandle = Store->OnUnlocked.AddSP(this, &FStoreScreen::OnUnlocked);
+			RestoreHandle = Store->OnRestored.AddSP(this, &FStoreScreen::OnRestored);
 		}
 
 		void Unbind()
 		{
-			if (FKartStore* S = UKartStoreSubsystem::Active(); S && S == BoundStore)
+			if (FKartStore* Store = UKartStoreSubsystem::Active(); Store && Store == BoundStore)
 			{
-				S->OnUnlocked.Remove(UnlockHandle);
-				S->OnRestored.Remove(RestoreHandle);
+				Store->OnUnlocked.Remove(UnlockHandle);
+				Store->OnRestored.Remove(RestoreHandle);
 			}
 			BoundStore = nullptr;
 		}
@@ -413,17 +413,17 @@ namespace
 		/** The focused item's action: equip, take off, or open the purchase dialog. */
 		void Activate()
 		{
-			FKartStore* S = UKartStoreSubsystem::Active();
-			if (!S || !Items.IsValidIndex(Focus))
+			FKartStore* Store = UKartStoreSubsystem::Active();
+			if (!Store || !Items.IsValidIndex(Focus))
 			{
 				Host->PlaySound(EKartUISound::Error);
 				return;
 			}
 			const FItem& Item = *Items[Focus];
-			switch (S->GetState(Item.DefId))
+			switch (Store->GetState(Item.DefId))
 			{
 			case EItemState::Owned:
-				if (Item.IsEquippable() && S->Equip(Item.DefId))
+				if (Item.IsEquippable() && Store->Equip(Item.DefId))
 				{
 					Host->PlaySound(EKartUISound::Go);
 					Toast(FText::Format(LOCTEXT("EquippedToast", "Equipped: {0}"), Item.Name), Color::Mint);
@@ -431,11 +431,11 @@ namespace
 				}
 				break;
 			case EItemState::Equipped:
-				S->Unequip(Item.Slot);
+				Store->Unequip(Item.Slot);
 				Host->PlaySound(EKartUISound::Back);
 				return;
 			case EItemState::ForSale:
-				if (S->CanPurchase(Item.DefId))
+				if (Store->CanPurchase(Item.DefId))
 				{
 					Host->PlaySound(EKartUISound::Accept);
 					Host->PushScreen(MakeShared<FKartStorePurchaseDialog>(Item.DefId, EDialogPhase::Confirm));
@@ -450,10 +450,10 @@ namespace
 
 		void Restore()
 		{
-			if (FKartStore* S = UKartStoreSubsystem::Active(); S && !S->IsRestoring())
+			if (FKartStore* Store = UKartStoreSubsystem::Active(); Store && !Store->IsRestoring())
 			{
 				bRestoreRequested = true;
-				S->Restore();
+				Store->Restore();
 				Host->PlaySound(EKartUISound::Accept);
 				Toast(LOCTEXT("Restoring", "Checking Steam for your items..."), Color::Sky);
 			}
@@ -461,11 +461,11 @@ namespace
 
 		// -------------------------------------------------------------------------------------------- Painting
 
-		void PaintStatus(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* S)
+		void PaintStatus(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* Store)
 		{
 			using L = FStoreLayout::FStatus;
 			const FKartPainter F = P.Faded(KartWidgets::Entrance(Frame, 0.1f));
-			const FStatus Status = StatusFor(S);
+			const FStatus Status = StatusFor(Store);
 			const FVector2D At(Frame.SafeMax.X, Frame.SafeMin.Y + L::Top);
 			const FSlateFontInfo StatusFont = Font(EFont::Label, L::FontSize);
 			const float W = static_cast<float>(FKartPainter::Measure(Status.Text.ToString(), StatusFont).X) + L::ExtraWidth;
@@ -474,7 +474,7 @@ namespace
 			F.Text(Status.Text, StatusFont, At + FVector2D(-W + L::TextX, L::Height * 0.5), Color::White, FVector2D(0.0, 0.5));
 
 			// Restore purchases: a clickable chip under the status.
-			const FText RestoreLabel = S && S->IsRestoring() ? LOCTEXT("RestoringChip", "Restoring...") : LOCTEXT("RestoreChip", "Restore purchases");
+			const FText RestoreLabel = Store && Store->IsRestoring() ? LOCTEXT("RestoringChip", "Restoring...") : LOCTEXT("RestoreChip", "Restore purchases");
 			const FSlateFontInfo RF = Font(EFont::Button, L::RestoreFontSize);
 			const float GH = L::RestoreGlyphHeight;
 			const float RW = static_cast<float>(FKartPainter::Measure(RestoreLabel.ToString(), RF).X) + KartWidgets::GlyphWidth(EKartMenuAction::Alt, Frame.Device, GH) + L::RestoreExtraWidth;
@@ -513,7 +513,7 @@ namespace
 			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::NextTab, Frame.Device, FVector2D(X + L::NextGlyphGap, Y + H * 0.5), L::GlyphHeight);
 		}
 
-		void PaintGrid(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* S, const FVector2D& Origin)
+		void PaintGrid(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* Store, const FVector2D& Origin)
 		{
 			using L = FStoreLayout::FTile;
 			// Scroll so the focused row is in view.
@@ -540,7 +540,7 @@ namespace
 				const int32 Col = i % Columns;
 				const float In = FMath::Min(KartWidgets::Entrance(Frame, 0.08f + (Row * Columns + Col) * 0.025f), TabIn);
 				const FVector2D Pos = Origin + FVector2D(Col * (TileW + Gap), Row * (TileH + Gap) + (1.0 - In) * L::EntranceDrop);
-				PaintTile(P.Faded(In), Frame, S, *Items[i], Pos, i, i == Focus);
+				PaintTile(P.Faded(In), Frame, Store, *Items[i], Pos, i, i == Focus);
 			}
 			P.PopClip();
 			// Scroll hints when more rows hide above or below.
@@ -556,12 +556,12 @@ namespace
 			}
 		}
 
-		void PaintTile(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* S, const FItem& Item, const FVector2D& Pos, int32 Index, bool bFocused) const
+		void PaintTile(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* Store, const FItem& Item, const FVector2D& Pos, int32 Index, bool bFocused) const
 		{
 			using L = FStoreLayout::FTile;
 			const FVector2D Size(TileW, TileH);
 			P.Hit(Index, Pos, Size);
-			const EItemState State = S ? S->GetState(Item.DefId) : EItemState::ComingSoon;
+			const EItemState State = Store ? Store->GetState(Item.DefId) : EItemState::ComingSoon;
 			const float Pop = bFocused ? 1.f + 0.05f * Ease::OutBack(static_cast<float>((Frame.Now - FocusAt) / 0.3), 3.f) : 1.f;
 			const FKartPainter T = P.Transformed(Pos + Size * 0.5, Pop);
 			const bool bDim = State == EItemState::ComingSoon;
@@ -584,11 +584,11 @@ namespace
 				NameSize -= 1.f;
 			}
 			T.Text(Item.Name, Font(EFont::Button, NameSize), FVector2D(Pos.X + L::NameLeft, Pos.Y + L::NameTop), Color::Navy);
-			PaintTileState(T, Frame, S, Item, State, FVector2D(Pos.X + L::StateLeft, Pos.Y + Size.Y - L::StateFromBottom));
+			PaintTileState(T, Frame, Store, Item, State, FVector2D(Pos.X + L::StateLeft, Pos.Y + Size.Y - L::StateFromBottom));
 		}
 
 		/** The tile's bottom line: a chip for its state, a spinner, or the unlock progress. */
-		static void PaintTileState(const FKartPainter& T, const FKartScreenFrame& Frame, const FKartStore* S, const FItem& Item, EItemState State, const FVector2D& ChipPos)
+		static void PaintTileState(const FKartPainter& T, const FKartScreenFrame& Frame, const FKartStore* Store, const FItem& Item, EItemState State, const FVector2D& ChipPos)
 		{
 			using L = FStoreLayout::FTile;
 			switch (State)
@@ -605,7 +605,7 @@ namespace
 			case EItemState::Locked:
 			{
 				int32 Cur = 0, Target = 1;
-				S->GetProgress(Item.DefId, Cur, Target);
+				Store->GetProgress(Item.DefId, Cur, Target);
 				const double BarW = TileW - L::BarShorter;
 				const FVector2D BarPos = ChipPos + FVector2D(0.0, L::BarTop);
 				T.Box(BarPos, FVector2D(BarW, L::BarHeight), Color::PaperShade, 6.f);
@@ -621,14 +621,14 @@ namespace
 				break;
 			default:
 			{
-				const bool bPriced = S && S->HasPrice(Item.DefId);
-				PaintChip(T, ChipPos, bPriced ? S->GetPriceText(Item.DefId) : LOCTEXT("ChipNoPrice", "NO PRICE"), bPriced ? Color::Sun : Color::PaperShade, L::ChipHeight);
+				const bool bPriced = Store && Store->HasPrice(Item.DefId);
+				PaintChip(T, ChipPos, bPriced ? Store->GetPriceText(Item.DefId) : LOCTEXT("ChipNoPrice", "NO PRICE"), bPriced ? Color::Sun : Color::PaperShade, L::ChipHeight);
 				break;
 			}
 			}
 		}
 
-		void PaintDetail(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* S, const FItem& Item, const FVector2D& Pos) const
+		void PaintDetail(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartStore* Store, const FItem& Item, const FVector2D& Pos) const
 		{
 			using L = FStoreLayout::FDetail;
 			const FVector2D Size(DetailW, VisibleRows * TileH + (VisibleRows - 1) * Gap);
@@ -650,7 +650,7 @@ namespace
 				}
 			}
 			PaintPreview(Card, Item, Art + ArtSize * 0.5, L::PreviewSize, Frame.Now);
-			const EItemState State = S ? S->GetState(Item.DefId) : EItemState::ComingSoon;
+			const EItemState State = Store ? Store->GetState(Item.DefId) : EItemState::ComingSoon;
 
 			// The slot and "cosmetic only" chips, the name, the description, then the state line.
 			double Y = Art.Y + ArtSize.Y + L::ArtInset;
@@ -661,9 +661,9 @@ namespace
 			Y += 60.0;
 			const double TextWidth = Size.X - 2.0 * L::BodyLeft;
 			Y += Card.TextWrapped(Item.Description, Font(EFont::Body, L::BodySize), FVector2D(Pos.X + L::BodyLeft, Y), TextWidth, Color::NavyDim).Y + 12.0;
-			PaintDetailState(Card, S, Item, State, FVector2D(Pos.X + L::BodyLeft, Y), TextWidth);
+			PaintDetailState(Card, Store, Item, State, FVector2D(Pos.X + L::BodyLeft, Y), TextWidth);
 
-			const FPrimary Primary = PrimaryFor(S, Item);
+			const FPrimaryAction Primary = PrimaryFor(Store, Item);
 			FActionButton Button;
 			Button.Centre = FVector2D(Pos.X + Size.X * 0.5, Pos.Y + Size.Y - L::ButtonFromBottom);
 			Button.Size = FVector2D(Size.X - L::ButtonMargin, L::ButtonHeight);
@@ -679,24 +679,24 @@ namespace
 		}
 
 		/** The detail card's state line: a price, the unlock progress, or how to get it. */
-		static void PaintDetailState(const FKartPainter& Card, const FKartStore* S, const FItem& Item, EItemState State, const FVector2D& Line, double Width)
+		static void PaintDetailState(const FKartPainter& Card, const FKartStore* Store, const FItem& Item, EItemState State, const FVector2D& Line, double Width)
 		{
-			if (State == EItemState::Locked && S)
+			if (State == EItemState::Locked && Store)
 			{
 				int32 Cur = 0, Target = 1;
-				S->GetProgress(Item.DefId, Cur, Target);
+				Store->GetProgress(Item.DefId, Cur, Target);
 				const double BarH = 26.0;
 				const FVector2D BarPos = Line + FVector2D(0.0, 6.0);
 				Card.Box(BarPos, FVector2D(Width, BarH), Color::PaperShade, 13.f);
 				Card.Box(BarPos, FVector2D(FMath::Max(BarH, Width * Cur / FMath::Max(Target, 1)), BarH), Color::Mint, 13.f);
 				Card.Text(FText::Format(LOCTEXT("Progress", "{0} of {1}"), Cur, Target), Font(EFont::Label, 18.f), Line + FVector2D(Width * 0.5, 19.0), Color::Navy, FVector2D(0.5, 0.5));
 			}
-			else if (State == EItemState::ForSale && S)
+			else if (State == EItemState::ForSale && Store)
 			{
-				Card.Text(S->GetPriceText(Item.DefId), Font(EFont::Display, 40.f, 2.f), Line + FVector2D(0.0, -4.0), Color::Hot);
-				if (Item.Slot == ESlot::Bundle && S->NumOwnedContents(Item.DefId) > 0)
+				Card.Text(Store->GetPriceText(Item.DefId), Font(EFont::Display, 40.f, 2.f), Line + FVector2D(0.0, -4.0), Color::Hot);
+				if (Item.Slot == ESlot::Bundle && Store->NumOwnedContents(Item.DefId) > 0)
 				{
-					Card.Text(FText::Format(LOCTEXT("BundlePart", "You own {0} of {1}"), S->NumOwnedContents(Item.DefId), Item.Contents.Num()),
+					Card.Text(FText::Format(LOCTEXT("BundlePart", "You own {0} of {1}"), Store->NumOwnedContents(Item.DefId), Item.Contents.Num()),
 						Font(EFont::Label, 18.f), Line + FVector2D(Width, 20.0), Color::NavyDim, FVector2D(1.0, 0.5));
 				}
 			}

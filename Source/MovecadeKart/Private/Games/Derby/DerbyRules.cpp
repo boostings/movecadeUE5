@@ -1,5 +1,43 @@
 #include "Games/Derby/DerbyRules.h"
 
+// The rules' numbers are Docs/Port/10-derby.md's (the schedule, contact and scoring sections); the golden tests pin them.
+namespace
+{
+	constexpr double MetresPerSecondPerMph = 0.44704;
+
+	/** The schedule: fastballs first, changeups from the fourth pitch, curves from the seventh. */
+	constexpr int32 FirstChangeup = 3;
+	constexpr int32 FirstCurve = 6;
+	constexpr double MiddleFastballShare = 0.6;
+	constexpr double LateFastballShare = 0.3;
+	constexpr double LateChangeupShare = 0.6;
+	/** The windup before each release: base plus up to the range (ms). */
+	constexpr double WindupBaseMs = 1300.0;
+	constexpr double WindupRangeMs = 600.0;
+
+	/** Contact: spray from the aim, from the timing and (a slice) from a poor swing, degrees. */
+	constexpr double AimSprayDeg = 28.0;
+	constexpr double TimingSprayDeg = 32.0;
+	constexpr double SliceSprayDeg = 25.0;
+	/** Launch: a little more for a hard swing; off-time contact catches it high or low on the bat. */
+	constexpr double StrengthLaunchDeg = 2.0;
+	constexpr double MistimedLaunchDeg = 40.0;
+	constexpr double MistimedLaunchPower = 0.7;
+	constexpr double MissLaunchDropDeg = 4.0;
+	/** Exit speed: the swing's (base plus strength), scaled by the timing, plus some of the pitch's own speed. */
+	constexpr double BaseExitMph = 58.0;
+	constexpr double StrengthExitMph = 36.0;
+	constexpr double MistimedExitShare = 0.35;
+	constexpr double TimedExitShare = 0.65;
+	constexpr double TimingExitPower = 1.1;
+	constexpr double PitchSpeedCarry = 0.18;
+	/** A ball launched below this is beaten into the ground foul. */
+	constexpr double FoulLaunchDeg = -5.0;
+	/** Scoring: moonshots their distance and half again, balls in play a tenth of it. */
+	constexpr double MoonshotPointsScale = 1.5;
+	constexpr double InPlayPointsDivisor = 10.0;
+}
+
 namespace MovecadeKart::Derby
 {
 	uint32 FDerbyRng::Next()
@@ -39,19 +77,19 @@ namespace MovecadeKart::Derby
 			const double RBreak = Rng.Float();
 			FPitch& P = Out.AddDefaulted_GetRef();
 			P.Index = i;
-			// The first three are fastballs; changeups join from the fourth, curves from the seventh.
-			if (i < 3)
+			if (i < FirstChangeup)
 			{
 				P.Type = EPitchType::Fastball;
 			}
-			else if (i < 6)
+			else if (i < FirstCurve)
 			{
-				P.Type = RType < 0.6 ? EPitchType::Fastball : EPitchType::Changeup;
+				P.Type = RType < MiddleFastballShare ? EPitchType::Fastball : EPitchType::Changeup;
 			}
 			else
 			{
-				P.Type = RType < 0.3 ? EPitchType::Fastball : (RType < 0.6 ? EPitchType::Changeup : EPitchType::Curve);
+				P.Type = RType < LateFastballShare ? EPitchType::Fastball : (RType < LateChangeupShare ? EPitchType::Changeup : EPitchType::Curve);
 			}
+			// Speed (base, range, a fastball's ramp per pitch), the timing windows (ms) and the break, by type: the doc's table.
 			switch (P.Type)
 			{
 			case EPitchType::Fastball:
@@ -73,8 +111,8 @@ namespace MovecadeKart::Derby
 				P.Break = 0.6 + 0.4 * RBreak;
 				break;
 			}
-			P.FlightMs = PitchDistanceM / (P.SpeedMph * 0.44704) * 1000.0 * PitchDragFactor;
-			P.WindupMs = 1300.0 + 600.0 * RWindup;
+			P.FlightMs = PitchDistanceM / (P.SpeedMph * MetresPerSecondPerMph) * 1000.0 * PitchDragFactor;
+			P.WindupMs = WindupBaseMs + WindupRangeMs * RWindup;
 			P.ContactBias = 2.0 * RBias - 1.0;
 		}
 		return Out;
@@ -139,10 +177,10 @@ namespace MovecadeKart::Derby
 		C.Quality = Q;
 		// Early pulls (left field for a right-handed batter), late goes the other way; a poor swing slices foul.
 		const double Side = Swing.TimingMs < 0.0 ? -1.0 : 1.0;
-		C.SprayDeg = Aim * 28.0 + Swing.TimingMs / Pitch.ContactMs * 32.0 + Side * Miss * Miss * 25.0;
+		C.SprayDeg = Aim * AimSprayDeg + Swing.TimingMs / Pitch.ContactMs * TimingSprayDeg + Side * Miss * Miss * SliceSprayDeg;
 		// Off-time contact catches the ball high or low on the bat: a pop-up or a grounder.
-		C.LaunchDeg = IdealLaunchDeg + 2.0 * S + Pitch.ContactBias * FMath::Pow(Miss, 0.7) * 40.0 - Miss * 4.0;
-		C.ExitMph = (58.0 + 36.0 * S) * (0.35 + 0.65 * FMath::Pow(Q, 1.1)) + 0.18 * Pitch.SpeedMph;
+		C.LaunchDeg = IdealLaunchDeg + StrengthLaunchDeg * S + Pitch.ContactBias * FMath::Pow(Miss, MistimedLaunchPower) * MistimedLaunchDeg - Miss * MissLaunchDropDeg;
+		C.ExitMph = (BaseExitMph + StrengthExitMph * S) * (MistimedExitShare + TimedExitShare * FMath::Pow(Q, TimingExitPower)) + PitchSpeedCarry * Pitch.SpeedMph;
 		return C;
 	}
 
@@ -150,7 +188,7 @@ namespace MovecadeKart::Derby
 	{
 		FFlight F;
 		F.FenceM = FenceDistanceM(SprayDeg);
-		const double V = ExitMph * 0.44704;
+		const double V = ExitMph * MetresPerSecondPerMph;
 		const double A = FMath::DegreesToRadians(LaunchDeg);
 		double X = 0.0, Y = ContactHeightM;
 		double Vx = V * FMath::Cos(A), Vy = V * FMath::Sin(A);
@@ -204,9 +242,9 @@ namespace MovecadeKart::Derby
 	{
 		switch (Result)
 		{
-		case EResult::Moonshot: return RoundHalfUp(DistanceFt * 1.5);
+		case EResult::Moonshot: return RoundHalfUp(DistanceFt * MoonshotPointsScale);
 		case EResult::HomeRun: return DistanceFt;
-		case EResult::InPlay: return RoundHalfUp(DistanceFt / 10.0);
+		case EResult::InPlay: return RoundHalfUp(DistanceFt / InPlayPointsDivisor);
 		default: return 0;
 		}
 	}
@@ -230,7 +268,7 @@ namespace MovecadeKart::Derby
 		O.Contact = MakeContact(Pitch, Swing);
 		O.Flight = SimulateFlight(O.Contact.ExitMph, O.Contact.LaunchDeg, O.Contact.SprayDeg);
 		O.DistanceFt = RoundHalfUp(O.Flight.DistanceM / MetresPerFoot);
-		if (FMath::Abs(O.Contact.SprayDeg) > FoulLineDeg || O.Contact.LaunchDeg < -5.0)
+		if (FMath::Abs(O.Contact.SprayDeg) > FoulLineDeg || O.Contact.LaunchDeg < FoulLaunchDeg)
 		{
 			O.Result = EResult::Foul;
 			O.bStrike = StrikesBefore < StrikesPerOut - 1;

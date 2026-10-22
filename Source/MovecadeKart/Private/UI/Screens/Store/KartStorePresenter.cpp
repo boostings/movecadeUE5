@@ -41,9 +41,9 @@ namespace KartStoreUI
 		return Out;
 	}
 
-	FPrimary PrimaryFor(const FKartStore* Store, const FItem& Item)
+	FPrimaryAction PrimaryFor(const FKartStore* Store, const FItem& Item)
 	{
-		FPrimary Out;
+		FPrimaryAction Out;
 		if (!Store)
 		{
 			Out.Label = LOCTEXT("StoreUnavailable", "Store unavailable");
