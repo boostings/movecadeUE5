@@ -206,6 +206,16 @@ namespace MovecadeKart::Rig
 		}
 	};
 
+	/** A small deterministic hash to [0, 1): picks an avatar's variants and rhythms from its seed. */
+	inline float Hash01(uint32 A, uint32 B)
+	{
+		uint32 H = HashCombineFast(A * 2654435761u, B + 0x9e3779b9u);
+		H ^= H >> 15;
+		H *= 0x2c1b3c6du;
+		H ^= H >> 12;
+		return static_cast<float>(H & 0xffffff) / static_cast<float>(0x1000000);
+	}
+
 	/** Easing for poses: 0 at 0, 1 at 1, smooth at both ends. */
 	inline float Smooth01(float X)
 	{

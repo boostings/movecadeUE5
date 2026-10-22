@@ -40,26 +40,10 @@ namespace
 	constexpr double HairMaxLagCm = 40.0;
 	constexpr double HemMaxLagCm = 30.0;
 
-	/** Idle glances: how far the eyes wander (radians), how long a glance holds and the gap to the next (seconds). */
-	constexpr float GlanceMaxYaw = 0.75f;
-	constexpr float GlanceMaxPitch = 0.18f;
-	constexpr float GlanceHoldMin = 0.5f;
-	constexpr float GlanceHoldRange = 0.9f;
-	constexpr float GlanceGapMin = 2.2f;
-	constexpr float GlanceGapRange = 4.f;
-
 	// The pose layers below key their shapes inline (radians of bend, shares of an arm's reach): each number is read
 	// with its neighbours as one hand-tuned pose, so they stay where the pose is built.
 
-	/** A small deterministic hash to [0, 1). */
-	float Hash01(uint32 A, uint32 B)
-	{
-		uint32 H = HashCombineFast(A * 2654435761u, B + 0x9e3779b9u);
-		H ^= H >> 15;
-		H *= 0x2c1b3c6du;
-		H ^= H >> 12;
-		return static_cast<float>(H & 0xffffff) / static_cast<float>(0x1000000);
-	}
+	using MovecadeKart::Rig::Hash01;
 
 	/** One arm's IK goal while the layers (rest, the game's hand, reactions, emotes) blend over each other. */
 	struct FArmGoal
@@ -158,39 +142,10 @@ void FArcadeAvatarProxy::StepReactions(float Secondary)
 
 void FArcadeAvatarProxy::StepGaze()
 {
-	const float T = Input.Time;
-	// Idle glances: now and then the eyes (and head) wander, more when nothing else holds them.
-	if (T >= NextGlance)
-	{
-		const uint32 Beat = static_cast<uint32>(NextGlance * 7.f);
-		const float Yaw = (Hash01(Motion.Seed, Beat) * 2.f - 1.f) * GlanceMaxYaw;
-		const float Pitch = (Hash01(Motion.Seed ^ 0xabcdu, Beat) * 2.f - 1.f) * GlanceMaxPitch;
-		Glance = FVector(FMath::Cos(Yaw), -FMath::Sin(Yaw), Pitch).GetSafeNormal();
-		GlanceUntil = T + GlanceHoldMin + GlanceHoldRange * Hash01(Beat, Motion.Seed);
-		NextGlance = T + GlanceGapMin + GlanceGapRange * Hash01(Beat ^ 0x1234u, Motion.Seed);
-	}
-	if (NextGlance - T > 12.f)
-	{
-		NextGlance = T + 2.f; // the clock went back (a restart): keep glancing
-	}
-
-	// The gaze target, in the avatar frame, eased: heads turn with weight rather than snapping to a new target.
-	const float CheerIn = FMath::Clamp(Input.Cheer, 0.f, 1.f);
-	const float SlumpIn = FMath::Clamp(Input.Slump, 0.f, 1.f);
-	const float Busy = FMath::Clamp(FMath::Max3(Input.HandWeight[0], Input.HandWeight[1], FMath::Max3(CheerIn, SlumpIn, Input.Effort)), 0.f, 1.f);
-	FVector Gaze = FVector::ForwardVector;
-	if (T < GlanceUntil)
-	{
-		Gaze = FMath::Lerp(Gaze, Glance, FMath::Clamp(Input.Idle, 0.f, 1.f) * (1.f - Busy) * (1.f - FMath::Clamp(Input.LookWeight, 0.f, 1.f) * 0.7f)).GetSafeNormal();
-	}
-	if (Input.LookWeight > 0.f && !Input.Look.IsNearlyZero())
-	{
-		Gaze = FMath::Lerp(Gaze, Input.Look.GetSafeNormal(), FMath::Clamp(Input.LookWeight, 0.f, 1.f)).GetSafeNormal();
-	}
-	if (Input.Emote == EArcadeEmote::Point && !Input.PointAt.IsNearlyZero())
-	{
-		Gaze = FMath::Lerp(Gaze, Input.PointAt.GetSafeNormal(), 0.7f * EmoteSpring.Value).GetSafeNormal();
-	}
+	// The gaze target (idle glances, the game's look, a point), eased: heads turn with weight rather than snapping to a
+	// new target. The component's eyes run the same glances (FIdleGlance is deterministic), so they lead the head.
+	Glance.Step(Input.Time, Motion.Seed);
+	const FVector Gaze = MovecadeKart::Avatar::GazeTarget(Input, Glance, EmoteSpring.Value);
 	if (!bGazeInit)
 	{
 		GazeSpring.Snap(Gaze);

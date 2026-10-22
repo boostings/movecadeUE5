@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Avatar/ArcadeAvatar.h"
+#include "Avatar/AvatarFaceLife.h"
 #include "Avatar/AvatarRigPose.h"
 
 /**
@@ -96,8 +97,7 @@ private:
 	MovecadeKart::Rig::TSpring<FVector> GazeSpring;
 	bool bGazeInit = false;
 	/** Idle glances: where, until when. */
-	FVector Glance = FVector::ForwardVector;
-	float GlanceUntil = 0.f, NextGlance = 1.5f;
+	MovecadeKart::Avatar::FIdleGlance Glance;
 	/** Hair and hem lag, in cm, in the avatar frame, on bouncy springs. */
 	MovecadeKart::Rig::TSpring<FVector> HairLag, HemLag;
 	/** Landing squash from Lift. */
