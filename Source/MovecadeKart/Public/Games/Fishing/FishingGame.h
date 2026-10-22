@@ -88,7 +88,6 @@ public:
 	/** The motion pad's big button (pad:press / pad:release): hold to charge a cast, press to hook. */
 	void PadPress(const FString& PlayerId);
 	void PadRelease(const FString& PlayerId);
-	void SetPaused(bool bInPaused) { bPaused = bInPaused; }
 	/** A fresh round with the same anglers (and the next seed). */
 	void Rematch();
 
