@@ -82,7 +82,14 @@ void ADartsGameMode::StartPlay()
 	}
 	Game = World->SpawnActor<ADartsGame>();
 	Game->Setup(Pub, Seats, World->GetFirstPlayerController());
-	Game->OnQuit = [this]() { UGameplayStatics::OpenLevel(this, TEXT("L_SunsetHarbor")); };
+	TWeakObjectPtr<ADartsGameMode> WeakThis = this;
+	Game->OnQuit = [WeakThis]()
+	{
+		if (ADartsGameMode* Self = WeakThis.Get())
+		{
+			UGameplayStatics::OpenLevel(Self, TEXT("L_SunsetHarbor"));
+		}
+	};
 	if (bRoomMatch)
 	{
 		BindRoom();
@@ -190,7 +197,7 @@ void ADartsGameMode::BindRoom()
 			R->PublishMatchCountdown(static_cast<int32>(CountdownMs));
 		}
 	};
-	Game->OnThrow = [this, WeakRoom](const FString& PlayerId, const FThrowOutcome& Outcome)
+	Game->OnThrow = [WeakRoom](const FString& PlayerId, const FThrowOutcome& Outcome)
 	{
 		URoomHostSubsystem* R = WeakRoom.Get();
 		if (!R)
@@ -205,10 +212,14 @@ void ADartsGameMode::BindRoom()
 			*Quote(PlayerId), *Quote(Outcome.Label), L.ScoreDelta, L.bBounty ? TEXT("true") : TEXT("false"), Outcome.RoundBonus, Outcome.bFinished ? TEXT("true") : TEXT("false")));
 		R->SendGameEvent(TEXT("darts:replay-outcome"), FString::Printf(TEXT("{\"playerId\":%s,\"label\":%s,\"score\":%d}"), *Quote(PlayerId), *Quote(Outcome.Label), L.ScoreDelta));
 	};
-	Game->OnFinished = [this]()
+	TWeakObjectPtr<ADartsGameMode> WeakThis = this;
+	Game->OnFinished = [WeakThis]()
 	{
-		PushTurnAndAim();
-		PushScores(true);
+		if (ADartsGameMode* Self = WeakThis.Get())
+		{
+			Self->PushTurnAndAim();
+			Self->PushScores(true);
+		}
 	};
 	// A room rematches (and quits) through its lobby: everyone re-readies there.
 	Game->OnRematch = [WeakRoom]()
@@ -296,9 +307,10 @@ void ADartsGameMode::EndPlay(const EEndPlayReason::Type Reason)
 		Overlay->Detach();
 		Overlay.Reset();
 	}
-	// The world's timers live on the game instance and outlast the level.
+	// The world owns its timer manager, but in practice it outlives level travel: clear ours here.
 	GetWorldTimerManager().ClearTimer(ScoreTimer);
 	GetWorldTimerManager().ClearTimer(AimTimer);
+	GetWorldTimerManager().ClearTimer(TestTimer);
 	if (URoomHostSubsystem* Room = RoomOf(this))
 	{
 		Room->OnGameEvent.Remove(GameEventHandle);
@@ -327,6 +339,36 @@ void ADartsGameMode::SetupTestHooks()
 				}
 			}), FCString::Atof(*Time), false);
 		}
+	}
+	// -DartsLocalAuto: the local thrower plays through its real controls (grip, the meter, release in the sweet
+	// spot), so a run can verify the local path to the results.
+	if (FParse::Param(FCommandLine::Get(), TEXT("DartsLocalAuto")))
+	{
+		GetWorldTimerManager().SetTimer(TestTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			const FDartsSeat* Thrower = Game ? Game->GetThrower() : nullptr;
+			if (!Thrower || Thrower->Kind != EThrowerKind::Local || Game->GetMatch().Phase != EMatchPhase::Playing)
+			{
+				TestGripAt = -1.0;
+				if (Game)
+				{
+					Game->SetTestGrip(false);
+				}
+				return;
+			}
+			const double Now = Game->GetClock();
+			const FLocalThrow& L = Game->GetLocal();
+			if (!L.bGripped)
+			{
+				TestGripAt = TestGripAt < 0.0 ? Now + 1.1 : TestGripAt;
+				Game->SetTestGrip(Now >= TestGripAt);
+			}
+			else if (FMath::Abs(L.Power - SweetSpot) < 0.05 && Now - L.GripAt > 0.4)
+			{
+				Game->SetTestGrip(false);
+				TestGripAt = -1.0;
+			}
+		}), 0.02f, true);
 	}
 	float QuitAfter = 0.f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("KartQuitAfter="), QuitAfter) && QuitAfter > 0.f)

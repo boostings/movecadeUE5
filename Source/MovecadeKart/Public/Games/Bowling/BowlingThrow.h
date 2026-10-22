@@ -73,7 +73,9 @@ namespace MovecadeKart::Bowling
 		FThrowPreview PreviewFor(const FSample& Pose, double Charge) const;
 
 		FThrowTuning Tuning;
+		/** The last AimWindowMs of samples are History[HistoryHead..]; older ones wait to be dropped in bulk. */
 		TArray<FSample> History;
+		int32 HistoryHead = 0;
 		FThrowPreview Current;
 		double Clock = 0.0;
 		double Yaw = 0.0;

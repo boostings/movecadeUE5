@@ -18,6 +18,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/RoomProtocol.h"
 #include "ProceduralMeshComponent.h"
+#include "Store/KartCosmetics.h" // store cosmetics: katana skin
 
 DEFINE_LOG_CATEGORY_STATIC(LogSamurai, Log, All);
 
@@ -146,6 +147,7 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 
 	UStaticMesh* Katana = Art::KatanaMesh(this);
 	const TArray<UMaterialInterface*> KatanaMats = Art::KatanaMaterials(this);
+	const TArray<UMaterialInterface*> LocalKatanaMats = FKartCosmetics::KatanaMaterials(this, true, KatanaMats); // store cosmetics
 	for (int32 i = 0; i < N; ++i)
 	{
 		UArcadeAvatarComponent* A = NewObject<UArcadeAvatarComponent>(this, *FString::Printf(TEXT("Swordsman%d"), i));
@@ -155,9 +157,10 @@ void ASamuraiGame::Setup(ASamuraiDojo* InDojo, const TArray<FSamuraiSeat>& InSea
 		A->SetLook(Seats[i].Look);
 		Avatars.Add(A);
 		UStaticMeshComponent* K = MakeMesh(TEXT("Katana"), Katana);
-		for (int32 Slot = 0; Slot < KatanaMats.Num(); ++Slot)
+		const TArray<UMaterialInterface*>& Mats = Seats[i].Kind == ESwordKind::Local ? LocalKatanaMats : KatanaMats; // store cosmetics
+		for (int32 Slot = 0; Slot < Mats.Num(); ++Slot)
 		{
-			K->SetMaterial(Slot, KatanaMats[Slot]);
+			K->SetMaterial(Slot, Mats[Slot]);
 		}
 		K->SetVisibility(true);
 		Katanas.Add(K);

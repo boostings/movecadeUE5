@@ -5,6 +5,7 @@
 #include "HAL/IConsoleManager.h"
 #include "UI/KartPlayerPrefs.h"
 #include "UI/KartTrackCatalog.h"
+#include "Store/KartCosmetics.h" // store cosmetics
 
 namespace
 {
@@ -108,6 +109,7 @@ FKartRacePlan FKartRacePlan::Resolve(const FKartRaceSetup* MenuSetup, const TCHA
 		Seat.Kind = EKartSeatKind::Local;
 		Seat.Name = Plan.LocalPlayers > 1 ? FString::Printf(TEXT("Player %d"), i + 1) : FString(TEXT("You"));
 		Seat.Look = FKartRoster::MakeLook(Choice, Seat.Name);
+		FKartCosmetics::ApplyToLook(Seat.Look, i); // store cosmetics: Player 1's paint, colourway, headwear
 		Seat.Paint = Seat.Look.Paint;
 		Seat.bHasLook = true;
 		TakenPaints.Add(FKartRoster::Sanitize(Choice).Paint);
