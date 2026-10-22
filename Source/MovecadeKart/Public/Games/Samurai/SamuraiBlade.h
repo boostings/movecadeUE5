@@ -19,6 +19,15 @@ namespace MovecadeKart::Samurai
 	class MOVECADEKART_API FBladeIntent
 	{
 	public:
+		/** The longest frame Feed accepts (a longer one means the stream stalled and resets the gate). */
+		static constexpr double MaxFrameMs = 100.0;
+
+		/**
+		 * A game frame's length for Feed: DtSeconds in ms, capped at MaxFrameMs. The game caps frames at 0.1f s, and
+		 * that float is a hair over 0.1 in double: uncapped, every frame at or below 10 fps would reset the gate.
+		 */
+		static double FrameMs(double DtSeconds) { return FMath::Min(DtSeconds * 1000.0, MaxFrameMs); }
+
 		bool Feed(double RateDegPerSec, double AccelMs2, double DtMs);
 		void Reset();
 		bool IsActive() const { return bActive; }

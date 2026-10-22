@@ -103,7 +103,8 @@ FVector ASamuraiGame::AimLocal(FLane& Lane, double DtSeconds, bool& bOutIntent)
 	const FVector Direction = BladeDirectionToward(Lane.LaneX, Lane.TipGoal);
 	// The tip's angular speed is the swing: the same gate as a phone's gyro (M9).
 	const double Degrees = FMath::RadiansToDegrees(AngleBetween(Lane.Blade.Direction, Direction));
-	bOutIntent = Lane.Intent.Feed(Degrees / FMath::Max(DtSeconds, MinStepSeconds), 0.0, DtSeconds * 1000.0);
+	// FrameMs: a capped (0.1f s) frame at low fps must still count, not read as a stalled stream.
+	bOutIntent = Lane.Intent.Feed(Degrees / FMath::Max(DtSeconds, MinStepSeconds), 0.0, FBladeIntent::FrameMs(DtSeconds));
 	return Direction;
 }
 

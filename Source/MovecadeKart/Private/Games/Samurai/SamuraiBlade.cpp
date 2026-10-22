@@ -12,8 +12,6 @@ namespace MovecadeKart::Samurai
 		constexpr double ContactAssist = 0.02;
 
 		// bladeIntent.ts: rates in deg/s, acceleration in m/s^2, times in s, travel in degrees.
-		/** Frames longer than this (or not positive) reset the gate: the stream stalled. */
-		constexpr double MaxFrameSeconds = 0.1;
 		/** Below both, the blade is resting; resting this long ends the sweep. */
 		constexpr double QuietRate = 45.0;
 		constexpr double QuietAccel = 0.8;
@@ -96,7 +94,7 @@ namespace MovecadeKart::Samurai
 	bool FBladeIntent::Feed(double Rate, double Accel, double DtMs)
 	{
 		const double Dt = DtMs / 1000.0;
-		if (!(Dt > 0.0 && Dt <= MaxFrameSeconds) || !FMath::IsFinite(Rate + Accel))
+		if (!(Dt > 0.0 && Dt <= FBladeIntent::MaxFrameMs / 1000.0) || !FMath::IsFinite(Rate + Accel))
 		{
 			Reset();
 			return false;
