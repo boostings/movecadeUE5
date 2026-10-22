@@ -1,182 +1,21 @@
 #include "Sim/KartItems.h"
 
+#include "Sim/KartItemRacers.h"
+#include "Sim/KartItemTuning.h"
 #include "Sim/KartSimMath.h"
 #include "Sim/KartSimTuning.h"
 
+// The item world's lifecycle and its per-step phases except projectiles: the roulette, box pickups and the
+// odds, item use, and invincible karts ramming others. Projectiles are in KartItemProjectiles.cpp, hits in
+// KartItemHits.cpp.
+
 namespace MovecadeKart
 {
+	using namespace ItemTuning;
+	using namespace ItemRacers;
+
 	namespace
 	{
-		constexpr double ItemDt = FKartSim::StepSeconds;
-
-		struct FTimedBoost
-		{
-			double Multiplier;
-			double Seconds;
-		};
-
-		// ---- Using an item (useItemAction.ts:35-185) ----
-		constexpr FTimedBoost NitroBoost = { 2.0, 2.0 };
-		constexpr FTimedBoost TripleNitroBoost = { 2.0, 5.0 };
-		/** The Prism's boost; it is invincible for as long. */
-		constexpr FTimedBoost PrismBoost = { 1.5, 8.0 };
-		/** The Rocket's boost; it is invincible and on autopilot for as long. */
-		constexpr FTimedBoost RocketBoost = { 2.5, 6.0 };
-		/** Lightning shrinks and slows every other kart for this long. */
-		constexpr FTimedBoost LightningSlow = { 0.5, 5.0 };
-		constexpr double LightningSpeedKeep = 0.3;
-		constexpr double InkSeconds = 4.0;
-		/** Thrown items spawn this far ahead of the kart; bananas drop as far behind. */
-		constexpr double ThrowOffset = 2.0;
-		constexpr double DropOffset = -2.0;
-		constexpr double ShotSpeed = 80.0;
-		constexpr double SeekerSpeed = 90.0;
-		constexpr double SkySeekerSpeed = 100.0;
-		constexpr double SkySeekerLaunchHeight = 0.5;
-		constexpr double BombThrowSpeed = 30.0;
-		constexpr double BombLaunchHeight = 1.0;
-		constexpr double BombLaunchUpSpeed = 15.0;
-
-		// ---- Projectiles in flight (ItemPhysics.ts, MultiplayerItems.tsx) ----
-		constexpr double ShotRetention = 0.75;
-		constexpr int32 ShotMaxBounces = 5;
-		/** calculateHomingDirection's per-step blend toward the target. */
-		constexpr double SeekerHomingRate = 0.08;
-		constexpr double SeekerRetention = 0.8;
-		constexpr int32 SeekerMaxBounces = 8;
-		constexpr double SkySeekerHomingRate = 0.12;
-		constexpr double SkySeekerRetention = 0.9;
-		constexpr int32 SkySeekerMaxBounces = 10;
-		/** The Sky Seeker cruises at this height until it is within SkySeekerDiveDistance, then dives. */
-		constexpr double SkySeekerCruiseHeight = 4.0;
-		constexpr double SkySeekerDiveDistance = 20.0;
-		/** While diving its target height is distance / SkySeekerDiveSlope, never below the launch height. */
-		constexpr double SkySeekerDiveSlope = 5.0;
-		constexpr double SkySeekerClimbRate = 0.05;
-		constexpr double SkySeekerExplosionRadius = 10.0;
-		/** calculateBombArc: gravity, and the height at which a bomb lands. */
-		constexpr double BombGravity = -20.0;
-		constexpr double BombGroundHeight = 0.5;
-		constexpr double BombRetention = 0.5;
-		/** A landed bomb explodes once it has flown this long. */
-		constexpr double BombArmSeconds = 0.5;
-		constexpr double BombExplosionRadius = 8.0;
-		/** Walls stand this tall; projectiles probe them this far above their own height. */
-		constexpr double BarrierHeight = 1.3;
-		constexpr double WallProbeLift = 0.3;
-		/** calculateShellBounce: the probe reaches this far past the step's travel, at least BounceMinProbe. */
-		constexpr double BounceProbeLead = 0.3;
-		constexpr double BounceMinProbe = 0.8;
-		constexpr double BouncePushOut = 0.3;
-
-		// ---- Hits (00-PLAN.md "better powerups") ----
-		constexpr double SpinSpeedKeep = 0.1;
-		constexpr FTimedBoost SpinSlow = { 0.3, 1.5 };
-		constexpr double SpinSeconds = 1.0;
-		constexpr double SpinLockSeconds = 0.8;
-		constexpr double SpinProtectSeconds = 1.8;
-		constexpr FTimedBoost ExplodedSlow = { 0.2, 2.5 };
-		constexpr double ExplodeLockSeconds = 1.2;
-		constexpr double ExplodeProtectSeconds = 2.2;
-		constexpr double ExplodeFlashSeconds = 0.5;
-
-		// ---- Odds brackets (store.ts getPositionBasedItem:2003-2091), by race position 0 (first) .. 1 (last) ----
-		constexpr double FrontBracketMaxRatio = 0.2;
-		constexpr double MidBracketMaxRatio = 0.55;
-		/** A mid-pack kart this far behind the leader draws from the back pool instead. */
-		constexpr double MidBracketMaxTrailing = 0.55;
-		/** A lone kart rolls as if mid-pack. */
-		constexpr double SoloPositionRatio = 0.5;
-
-		// ---- Boxes and bots ----
-		/** Score gap to the leader at which a kart counts as fully trailing for the odds. */
-		constexpr double TrailingScoreRange = 120.0;
-		/** A bot uses its item after 1.2 to 3.7 s (kartPilot.ts:222-231). */
-		constexpr double BotUseMinDelay = 1.2;
-		constexpr double BotUseDelayRange = 2.5;
-
-		// ---- Race order (store.ts) ----
-		constexpr double ScorePerLap = 100.0;
-		constexpr double FinishedScoreBonus = 100000.0;
-
-		/** Race score for item odds: laps * 100 + progress %. */
-		double RaceScore(const FKartItemRacer& Racer)
-		{
-			return Racer.Laps * ScorePerLap + Racer.Progress;
-		}
-
-		/** RaceScore with finishers always ahead, for ranking. */
-		double RankScore(const FKartItemRacer& Racer)
-		{
-			return (Racer.bFinished ? FinishedScoreBonus : 0.0) + Racer.Laps * ScorePerLap + Racer.Progress;
-		}
-
-		/** store.ts ordering: more laps, or the same laps and more progress. */
-		bool IsAheadOf(const FKartItemRacer& Racer, const FKartItemRacer& Other)
-		{
-			return Racer.Laps > Other.Laps || (Racer.Laps == Other.Laps && Racer.Progress > Other.Progress);
-		}
-
-		const FVector2D& PositionOf(const FKartItemRacer& Racer)
-		{
-			return Racer.Sim->State().Pos;
-		}
-
-		/** 1-based race position by RankScore; ties share the better place. */
-		int32 RacePosition(int32 Seat, const TArray<FKartItemRacer>& Racers)
-		{
-			int32 Ahead = 0;
-			for (int32 Other = 0; Other < Racers.Num(); ++Other)
-			{
-				Ahead += (Other != Seat && RankScore(Racers[Other]) > RankScore(Racers[Seat])) ? 1 : 0;
-			}
-			return Ahead + 1;
-		}
-
-		/** store.ts getNearestPlayerAhead:1943-1980. INDEX_NONE when nobody is ahead. */
-		int32 NearestAhead(int32 Seat, const TArray<FKartItemRacer>& Racers)
-		{
-			int32 Best = INDEX_NONE;
-			double BestDistance = TNumericLimits<double>::Max();
-			const FKartItemRacer& Me = Racers[Seat];
-			for (int32 Other = 0; Other < Racers.Num(); ++Other)
-			{
-				if (Other == Seat || !IsAheadOf(Racers[Other], Me))
-				{
-					continue;
-				}
-				const double Distance = FVector2D::Distance(PositionOf(Racers[Other]), PositionOf(Me));
-				if (Distance < BestDistance)
-				{
-					BestDistance = Distance;
-					Best = Other;
-				}
-			}
-			return Best;
-		}
-
-		/** store.ts getFirstPlacePlayer:1923-1941 (laps, then progress; the lowest seat wins ties). */
-		int32 Leader(const TArray<FKartItemRacer>& Racers)
-		{
-			int32 Best = 0;
-			for (int32 Seat = 1; Seat < Racers.Num(); ++Seat)
-			{
-				if (IsAheadOf(Racers[Seat], Racers[Best]))
-				{
-					Best = Seat;
-				}
-			}
-			return Best;
-		}
-
-		/** A hit cancels the kart's turbo and drift. */
-		void CancelDrift(FKartState& Kart)
-		{
-			Kart.Turbo = 0.0;
-			Kart.DriftDirection = 0.0;
-			Kart.DriftPower = 0.0;
-		}
-
 		/** One entry of an odds pool: the entry count is the weight. */
 		struct FPoolEntry
 		{
@@ -242,7 +81,7 @@ namespace MovecadeKart
 		{
 			FKartItemBox& Box = ItemBoxes.AddDefaulted_GetRef();
 			Box.Pos = FVector2D(Position.X, Position.Z);
-			Box.Y = Position.Y;
+			Box.Height = Position.Y;
 		}
 		ItemSlots.SetNum(KartCount);
 		Reset(Seed);
@@ -311,6 +150,10 @@ namespace MovecadeKart
 	void FKartItemWorld::Step(TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
 	{
 		check(Racers.Num() == ItemSlots.Num());
+		for (const FKartItemRacer& Racer : Racers)
+		{
+			check(Racer.Sim);
+		}
 		FinishRoulettes(Now, Events);
 		CollectBoxes(Racers, Now, Events);
 		UseItems(Racers, Now, Events);
@@ -433,18 +276,6 @@ namespace MovecadeKart
 		Events.Add({ EKartItemEventType::Used, Seat, -1, Item });
 
 		FKartSim& Sim = *Racers[Seat].Sim;
-		const FKartState& Kart = Sim.State();
-		const FVector2D Forward = SimMath::Forward(Kart.Yaw);
-		auto Spawn = [&](double Offset, double Speed) -> FKartItemProjectile&
-		{
-			FKartItemProjectile& Projectile = LiveProjectiles.AddDefaulted_GetRef();
-			Projectile.Id = NextId++;
-			Projectile.Type = Item;
-			Projectile.Owner = Seat;
-			Projectile.Pos = Kart.Pos + Forward * Offset;
-			Projectile.Vel = Forward * Speed;
-			return Projectile;
-		};
 
 		// useItemAction.ts:35-185
 		switch (Item)
@@ -468,60 +299,28 @@ namespace MovecadeKart
 			Events.Add({ EKartItemEventType::RocketStart, Seat, -1, Item });
 			break;
 		case EKartItem::Lightning:
-			for (int32 Other = 0; Other < Racers.Num(); ++Other)
-			{
-				if (Other == Seat || IsInvincible(Other, Now))
-				{
-					continue;
-				}
-				FKartSim& Victim = *Racers[Other].Sim;
-				ItemSlots[Other].ShrinkUntil = Now + LightningSlow.Seconds;
-				Victim.ApplyBoost(LightningSlow.Multiplier, LightningSlow.Seconds, TEXT("LIGHTNING"));
-				Victim.MutableState().Speed = FMath::Max(0.0, Victim.State().Speed * LightningSpeedKeep);
-				Events.Add({ EKartItemEventType::Lightning, Other, Seat, Item });
-			}
+			StrikeOthersWithLightning(Seat, Racers, Now, Events);
 			break;
 		case EKartItem::Ink:
-			for (int32 Other = 0; Other < Racers.Num(); ++Other)
-			{
-				if (Other != Seat && !IsInvincible(Other, Now))
-				{
-					ItemSlots[Other].InkUntil = Now + InkSeconds;
-					Events.Add({ EKartItemEventType::Inked, Other, Seat, Item });
-				}
-			}
+			InkOthers(Seat, Racers.Num(), Now, Events);
 			break;
 		case EKartItem::Shot:
-			Events.Add({ EKartItemEventType::Launch, Seat, -1, Item, Spawn(ThrowOffset, ShotSpeed).Pos });
+			Events.Add({ EKartItemEventType::Launch, Seat, -1, Item, SpawnProjectile(Item, Seat, Sim.State(), ThrowOffset, ShotSpeed).Pos });
 			break;
 		case EKartItem::Seeker:
-			Events.Add({ EKartItemEventType::Launch, Seat, -1, Item, Spawn(ThrowOffset, SeekerSpeed).Pos });
+			Events.Add({ EKartItemEventType::Launch, Seat, -1, Item, SpawnProjectile(Item, Seat, Sim.State(), ThrowOffset, SeekerSpeed).Pos });
 			break;
 		case EKartItem::SkySeeker:
-		{
-			FKartItemProjectile& Projectile = Spawn(ThrowOffset, SkySeekerSpeed);
-			Projectile.Y = SkySeekerLaunchHeight;
-			const int32 Target = Leader(Racers);
-			if (Target != Seat)
-			{
-				// Aimed straight at first place on launch (useItemAction.ts:148-162).
-				const FVector2D ToTarget = PositionOf(Racers[Target]) - Projectile.Pos;
-				if (ToTarget.SizeSquared() > 0.0)
-				{
-					Projectile.Vel = ToTarget.GetSafeNormal() * SkySeekerSpeed;
-				}
-			}
-			Events.Add({ EKartItemEventType::Launch, Seat, -1, Item, Projectile.Pos });
+			LaunchSkySeeker(Seat, Racers, Events);
 			break;
-		}
 		case EKartItem::Banana:
-			Events.Add({ EKartItemEventType::Drop, Seat, -1, Item, Spawn(DropOffset, 0.0).Pos });
+			Events.Add({ EKartItemEventType::Drop, Seat, -1, Item, SpawnProjectile(Item, Seat, Sim.State(), DropOffset, 0.0).Pos });
 			break;
 		case EKartItem::Bomb:
 		{
-			FKartItemProjectile& Projectile = Spawn(ThrowOffset, BombThrowSpeed);
-			Projectile.Y = BombLaunchHeight;
-			Projectile.VY = BombLaunchUpSpeed;
+			FKartItemProjectile& Projectile = SpawnProjectile(Item, Seat, Sim.State(), ThrowOffset, BombThrowSpeed);
+			Projectile.Height = BombLaunchHeight;
+			Projectile.VerticalSpeed = BombLaunchUpSpeed;
 			Events.Add({ EKartItemEventType::Launch, Seat, -1, Item, Projectile.Pos });
 			break;
 		}
@@ -530,199 +329,60 @@ namespace MovecadeKart
 		}
 	}
 
-	bool FKartItemWorld::Bounce(FKartItemProjectile& Projectile, double Travel, double Retention) const
+	FKartItemProjectile& FKartItemWorld::SpawnProjectile(EKartItem Item, int32 Owner, const FKartState& Kart, double Offset, double Speed)
 	{
-		// ItemPhysics.ts calculateShellBounce: probe ahead, reflect horizontally, keep `Retention` of the speed,
-		// push out 0.3 m along the wall normal (turned to face the projectile).
-		const double Speed = Projectile.Vel.Size();
-		if (Speed <= 0.0)
-		{
-			return false;
-		}
-		const FVector2D Dir = Projectile.Vel / Speed;
-		double Distance = 0.0;
-		FVector2D Normal;
-		if (!TrackData->Walls.Raycast(Projectile.Pos, Dir, FMath::Max(BounceMinProbe, Travel + BounceProbeLead), Distance, Normal))
-		{
-			return false;
-		}
-		if (FVector2D::DotProduct(Normal, Dir) > 0.0)
-		{
-			Normal = -Normal;
-		}
-		Projectile.Vel = (Projectile.Vel - Normal * (2.0 * FVector2D::DotProduct(Projectile.Vel, Normal))) * Retention;
-		Projectile.Pos = Projectile.Pos + Dir * Distance + Normal * BouncePushOut;
-		++Projectile.Bounces;
-		return true;
+		const FVector2D Forward = SimMath::Forward(Kart.Yaw);
+		FKartItemProjectile& Projectile = LiveProjectiles.AddDefaulted_GetRef();
+		Projectile.Id = NextId++;
+		Projectile.Type = Item;
+		Projectile.Owner = Owner;
+		Projectile.Pos = Kart.Pos + Forward * Offset;
+		Projectile.Vel = Forward * Speed;
+		return Projectile;
 	}
 
-	void FKartItemWorld::BounceOrMove(FKartItemProjectile& Projectile, double Travel, double Retention, TArray<FKartItemEvent>& Events) const
+	void FKartItemWorld::LaunchSkySeeker(int32 Seat, const TArray<FKartItemRacer>& Racers, TArray<FKartItemEvent>& Events)
 	{
-		if (Bounce(Projectile, Travel, Retention))
+		FKartItemProjectile& Projectile = SpawnProjectile(EKartItem::SkySeeker, Seat, Racers[Seat].Sim->State(), ThrowOffset, SkySeekerSpeed);
+		Projectile.Height = SkySeekerLaunchHeight;
+		const int32 Target = Leader(Racers);
+		if (Target != Seat)
 		{
-			Events.Add({ EKartItemEventType::Bounce, -1, Projectile.Owner, Projectile.Type, Projectile.Pos });
+			// Aimed straight at first place on launch (useItemAction.ts:148-162).
+			const FVector2D ToTarget = PositionOf(Racers[Target]) - Projectile.Pos;
+			if (ToTarget.SizeSquared() > 0.0)
+			{
+				Projectile.Vel = ToTarget.GetSafeNormal() * SkySeekerSpeed;
+			}
 		}
-		else
-		{
-			Projectile.Pos += Projectile.Vel * ItemDt;
-		}
+		Events.Add({ EKartItemEventType::Launch, Seat, -1, EKartItem::SkySeeker, Projectile.Pos });
 	}
 
-	void FKartItemWorld::StepProjectile(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
+	void FKartItemWorld::StrikeOthersWithLightning(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
 	{
-		Projectile.Age += ItemDt;
-		const double Lifetime = Projectile.Type == EKartItem::Banana ? BananaLifetime : ThrownLifetime;
-		if (Projectile.Age > Lifetime)
+		for (int32 Other = 0; Other < Racers.Num(); ++Other)
 		{
-			if (Projectile.Type == EKartItem::Bomb)
-			{
-				Explode(Projectile.Pos, BombExplosionRadius, Projectile.Owner, Racers, Now, Events);
-			}
-			Projectile.bAlive = false;
-			return;
-		}
-
-		auto Home = [&Projectile](const FVector2D& Target, double Rate, double Speed)
-		{
-			// calculateHomingDirection: v += (dir * speed - v) * rate per 60 Hz step, renormalised.
-			const FVector2D Dir = (Target - Projectile.Pos).GetSafeNormal();
-			if (!Dir.IsZero())
-			{
-				Projectile.Vel += (Dir * Speed - Projectile.Vel) * Rate;
-				Projectile.Vel = Projectile.Vel.GetSafeNormal() * Speed;
-			}
-		};
-
-		const double Travel = Projectile.Vel.Size() * ItemDt;
-		switch (Projectile.Type)
-		{
-		case EKartItem::Shot:
-			BounceOrMove(Projectile, Travel, ShotRetention, Events);
-			Projectile.bAlive = Projectile.Bounces < ShotMaxBounces;
-			break;
-		case EKartItem::Seeker:
-		{
-			const int32 Target = NearestAhead(Projectile.Owner, Racers);
-			if (Target != INDEX_NONE)
-			{
-				Home(PositionOf(Racers[Target]), SeekerHomingRate, SeekerSpeed);
-			}
-			BounceOrMove(Projectile, Travel, SeekerRetention, Events);
-			Projectile.bAlive = Projectile.Bounces < SeekerMaxBounces;
-			break;
-		}
-		case EKartItem::SkySeeker:
-		{
-			const int32 Target = Leader(Racers);
-			if (Target != Projectile.Owner)
-			{
-				const FVector2D TargetPos = PositionOf(Racers[Target]);
-				Home(TargetPos, SkySeekerHomingRate, SkySeekerSpeed);
-				const double Distance = FVector2D::Distance(Projectile.Pos, TargetPos);
-				const double TargetHeight = Distance > SkySeekerDiveDistance ? SkySeekerCruiseHeight : FMath::Max(SkySeekerLaunchHeight, Distance / SkySeekerDiveSlope);
-				Projectile.Y += (TargetHeight - Projectile.Y) * SkySeekerClimbRate;
-			}
-			// At cruise height it flies over the barriers.
-			if (Projectile.Y + WallProbeLift <= BarrierHeight)
-			{
-				BounceOrMove(Projectile, Travel, SkySeekerRetention, Events);
-			}
-			else
-			{
-				Projectile.Pos += Projectile.Vel * ItemDt;
-			}
-			Projectile.bAlive = Projectile.Bounces < SkySeekerMaxBounces;
-			break;
-		}
-		case EKartItem::Bomb:
-		{
-			Projectile.Y += Projectile.VY * ItemDt + 0.5 * BombGravity * ItemDt * ItemDt;
-			Projectile.VY += BombGravity * ItemDt;
-			BounceOrMove(Projectile, Travel, BombRetention, Events);
-			if (Projectile.Y <= BombGroundHeight)
-			{
-				Projectile.Y = BombGroundHeight;
-				if (Projectile.Age > BombArmSeconds)
-				{
-					Explode(Projectile.Pos, BombExplosionRadius, Projectile.Owner, Racers, Now, Events);
-					Projectile.bAlive = false;
-					return;
-				}
-			}
-			break;
-		}
-		default:
-			break;
-		}
-		if (!Projectile.bAlive)
-		{
-			return;
-		}
-		HitKarts(Projectile, Racers, Now, Events);
-	}
-
-	void FKartItemWorld::HitKarts(FKartItemProjectile& Projectile, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
-	{
-		// 1.5 m horizontal; the owner is safe for the first 0.5 s (MultiplayerItems.tsx:578-605). The first kart
-		// in seat order takes the hit.
-		for (int32 Seat = 0; Seat < Racers.Num(); ++Seat)
-		{
-			if ((Seat == Projectile.Owner && Projectile.Age < OwnerGraceSeconds) || FVector2D::Distance(PositionOf(Racers[Seat]), Projectile.Pos) >= HitRadius)
+			if (Other == Seat || IsInvincible(Other, Now))
 			{
 				continue;
 			}
-			if (Projectile.Type == EKartItem::Bomb || Projectile.Type == EKartItem::SkySeeker)
-			{
-				Explode(Projectile.Pos, Projectile.Type == EKartItem::Bomb ? BombExplosionRadius : SkySeekerExplosionRadius, Projectile.Owner, Racers, Now, Events);
-			}
-			else
-			{
-				Events.Add({ EKartItemEventType::Hit, Seat, Projectile.Owner, Projectile.Type, Projectile.Pos });
-				// An invincible kart eats the projectile.
-				if (!IsInvincible(Seat, Now) && Now >= ItemSlots[Seat].ProtectedUntil)
-				{
-					SpinOut(Seat, Racers, Now, Events);
-				}
-			}
-			Projectile.bAlive = false;
-			return;
+			FKartSim& Victim = *Racers[Other].Sim;
+			ItemSlots[Other].ShrinkUntil = Now + LightningSlow.Seconds;
+			Victim.ApplyBoost(LightningSlow.Multiplier, LightningSlow.Seconds, TEXT("LIGHTNING"));
+			Victim.MutableState().Speed = FMath::Max(0.0, Victim.State().Speed * LightningSpeedKeep);
+			Events.Add({ EKartItemEventType::Lightning, Other, Seat, EKartItem::Lightning });
 		}
 	}
 
-	void FKartItemWorld::SpinOut(int32 Seat, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
+	void FKartItemWorld::InkOthers(int32 Seat, int32 KartCount, double Now, TArray<FKartItemEvent>& Events)
 	{
-		FKartItemSlot& Slot = ItemSlots[Seat];
-		FKartSim& Sim = *Racers[Seat].Sim;
-		FKartState& Kart = Sim.MutableState();
-		Kart.Speed *= SpinSpeedKeep;
-		CancelDrift(Kart);
-		Sim.ApplyBoost(SpinSlow.Multiplier, SpinSlow.Seconds, TEXT("SPUN_OUT"));
-		Slot.SpinStart = Now;
-		Slot.SpinUntil = Now + SpinSeconds;
-		Slot.LockUntil = Now + SpinLockSeconds;
-		Slot.ProtectedUntil = Now + SpinProtectSeconds;
-		Events.Add({ EKartItemEventType::SpinOut, Seat });
-	}
-
-	void FKartItemWorld::Explode(const FVector2D& Center, double Radius, int32 Owner, TArray<FKartItemRacer>& Racers, double Now, TArray<FKartItemEvent>& Events)
-	{
-		Events.Add({ EKartItemEventType::Explosion, -1, Owner, EKartItem::Bomb, Center, Radius });
-		for (int32 Seat = 0; Seat < Racers.Num(); ++Seat)
+		for (int32 Other = 0; Other < KartCount; ++Other)
 		{
-			FKartItemSlot& Slot = ItemSlots[Seat];
-			if (FVector2D::Distance(PositionOf(Racers[Seat]), Center) >= Radius || IsInvincible(Seat, Now) || Now < Slot.ProtectedUntil)
+			if (Other != Seat && !IsInvincible(Other, Now))
 			{
-				continue;
+				ItemSlots[Other].InkUntil = Now + InkSeconds;
+				Events.Add({ EKartItemEventType::Inked, Other, Seat, EKartItem::Ink });
 			}
-			FKartSim& Sim = *Racers[Seat].Sim;
-			FKartState& Kart = Sim.MutableState();
-			Kart.Speed = 0.0;
-			CancelDrift(Kart);
-			Sim.ApplyBoost(ExplodedSlow.Multiplier, ExplodedSlow.Seconds, TEXT("EXPLODED"));
-			Slot.ExplodeStart = Now;
-			Slot.LockUntil = Now + ExplodeLockSeconds;
-			Slot.ProtectedUntil = Now + ExplodeProtectSeconds;
-			Slot.FlashUntil = Now + ExplodeFlashSeconds;
 		}
 	}
 }

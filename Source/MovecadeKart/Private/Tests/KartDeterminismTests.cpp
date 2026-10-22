@@ -62,7 +62,7 @@ namespace
 			Pod(W.Projectiles().Num());
 			for (const FKartItemProjectile& P : W.Projectiles())
 			{
-				Pod(P.Id); Pod(P.Type); Pod(P.Owner); Vec(P.Pos); Pod(P.Y); Vec(P.Vel); Pod(P.VY); Pod(P.Age);
+				Pod(P.Id); Pod(P.Type); Pod(P.Owner); Vec(P.Pos); Pod(P.Height); Vec(P.Vel); Pod(P.VerticalSpeed); Pod(P.Age);
 				Pod(P.Bounces); Pod(P.bAlive);
 			}
 			for (const FKartItemBox& B : W.Boxes())
