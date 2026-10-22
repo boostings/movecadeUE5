@@ -182,8 +182,7 @@ void ADerbyGameMode::Prompt(const FString& BatterId)
 		const bool bUp = Seat.Id == BatterId;
 		const FString Title = bUp ? TEXT("Swing your phone like a bat") : FString::Printf(TEXT("%s is batting"), Up ? *Up->Name : TEXT("Someone"));
 		const FString Subtitle = bUp ? TEXT("Hold it by the bottom, screen to you. Swing as the ball reaches you.") : TEXT("Get loose: you're up soon");
-		Room->SendGameEvent(TEXT("pad:prompt"), FString::Printf(TEXT("{\"playerId\":%s,\"title\":%s,\"subtitle\":%s,\"a\":%s,\"b\":\"\",\"accent\":\"%s\",\"mode\":\"swing\"}"),
-			*MovecadeKart::Net::QuoteJson(Seat.Id), *MovecadeKart::Net::QuoteJson(Title), *MovecadeKart::Net::QuoteJson(Subtitle), bUp ? TEXT("\"READY\"") : TEXT("\"\""), *Hex(Seat.Color)));
+		Room->SendPadPrompt(Seat.Id, Title, Subtitle, bUp ? TEXT("READY") : TEXT(""), TEXT(""), Hex(Seat.Color), TEXT("swing"));
 	}
 }
 
@@ -214,16 +213,12 @@ void ADerbyGameMode::BindRoom()
 	GameEventHandle = Room->OnGameEvent.AddLambda([WeakGame](const FString& From, const FString& Event, const TSharedPtr<FJsonObject>& Data)
 	{
 		ADerbyGame* G = WeakGame.Get();
-		if (!G || Event != TEXT("pad:press"))
+		TCHAR Button = 0;
+		if (!G || Event != MovecadeKart::Net::PadPressEvent || !Data.IsValid() || !MovecadeKart::Net::ReadPadButton(*Data, Button))
 		{
 			return;
 		}
-		FString Button = TEXT("a");
-		if (Data.IsValid())
-		{
-			Data->TryGetStringField(TEXT("button"), Button);
-		}
-		if (Button == TEXT("a"))
+		if (Button == TEXT('a'))
 		{
 			G->PressButton(From);
 		}

@@ -68,10 +68,6 @@ private:
 	UFUNCTION()
 	void HandleGame2Clicked();
 	UFUNCTION()
-	void HandleGame3Clicked();
-	UFUNCTION()
-	void HandleGame4Clicked();
-	UFUNCTION()
 	void HandleStartRequested(const FString& MapId);
 	UFUNCTION()
 	void HandleReturnedToLobby();
@@ -94,6 +90,15 @@ private:
 	TArray<TObjectPtr<UButton>> TrackButtons;
 	UPROPERTY()
 	TArray<TObjectPtr<UButton>> GameButtons;
+	/** The game carousel's card: the accent bar, name, tagline and position. */
+	UPROPERTY()
+	TObjectPtr<UBorder> GameAccent;
+	UPROPERTY()
+	TObjectPtr<UTextBlock> GameName;
+	UPROPERTY()
+	TObjectPtr<UTextBlock> GameTagline;
+	UPROPERTY()
+	TObjectPtr<UTextBlock> GameCount;
 	/** The track picker, collapsed for games without tracks. */
 	UPROPERTY()
 	TObjectPtr<UVerticalBox> TrackSection;
@@ -121,5 +126,7 @@ private:
 	bool bContinueParty = false;
 	double ContinueSince = 0.0;
 	void UpdatePartyContinue();
+	/** The carousel: the game before (-1) or after (+1) the room's. */
+	void StepGame(int32 Step);
 	bool bBound = false;
 };
