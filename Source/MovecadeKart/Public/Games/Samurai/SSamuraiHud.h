@@ -17,7 +17,8 @@ namespace MovecadeKart::Samurai { struct FPlayer; }
  * final standings.
  *
  * ASamuraiGame adds it to the viewport in Setup and removes it in EndPlay; it only reads the game. Every number it
- * paints is formatted when it changes, not per frame, and the camera projection is taken once per paint.
+ * paints is formatted when it changes, not per frame, and the camera projection is taken once per paint. The round's
+ * panels paint in SSamuraiHud.cpp, the full-screen cards in SSamuraiHudCards.cpp, with SSamuraiHudStyle.h's layout.
  */
 class SSamuraiHud : public SLeafWidget
 {
