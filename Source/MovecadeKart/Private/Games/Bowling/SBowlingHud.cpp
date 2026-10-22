@@ -24,7 +24,7 @@ namespace
 	constexpr float MinNameSize = 15.f;
 	constexpr float NameRoom = 166.f;
 
-	// Labels that never change are made once (an FText made once still follows a culture change).
+	// Fixed labels are ARCADE_LABELs (made once); labels with values are formatted only when the value changes.
 
 	/** The keycaps' labels. */
 	struct FKeyLabels
@@ -113,14 +113,14 @@ namespace
 	{
 		switch (Beat)
 		{
-		case EBowlingBeat::Turkey: return NSLOCTEXT("Bowling", "Turkey", "TURKEY!");
-		case EBowlingBeat::Strike: return NSLOCTEXT("Bowling", "Strike", "STRIKE!");
-		case EBowlingBeat::Spare: return NSLOCTEXT("Bowling", "Spare", "SPARE!");
-		case EBowlingBeat::SplitConvert: return NSLOCTEXT("Bowling", "SplitConvert", "SPLIT CONVERTED!");
-		case EBowlingBeat::Split: return NSLOCTEXT("Bowling", "Split", "SPLIT");
-		case EBowlingBeat::Gutter: return NSLOCTEXT("Bowling", "Gutter", "GUTTER");
+		case EBowlingBeat::Turkey: return ARCADE_LABEL("Bowling", "Turkey", "TURKEY!");
+		case EBowlingBeat::Strike: return ARCADE_LABEL("Bowling", "Strike", "STRIKE!");
+		case EBowlingBeat::Spare: return ARCADE_LABEL("Bowling", "Spare", "SPARE!");
+		case EBowlingBeat::SplitConvert: return ARCADE_LABEL("Bowling", "SplitConvert", "SPLIT CONVERTED!");
+		case EBowlingBeat::Split: return ARCADE_LABEL("Bowling", "Split", "SPLIT");
+		case EBowlingBeat::Gutter: return ARCADE_LABEL("Bowling", "Gutter", "GUTTER");
 		default:
-			return Felled == 0 ? NSLOCTEXT("Bowling", "Miss", "MISS") : FText::Format(NSLOCTEXT("Bowling", "Pins", "{0} {0}|plural(one=PIN,other=PINS)"), Felled);
+			return Felled == 0 ? ARCADE_LABEL("Bowling", "Miss", "MISS") : FText::Format(ARCADE_LABEL("Bowling", "Pins", "{0} {0}|plural(one=PIN,other=PINS)"), Felled);
 		}
 	}
 
@@ -129,16 +129,16 @@ namespace
 	{
 		if (Beat == EBowlingBeat::Turkey || (Beat == EBowlingBeat::Strike && Streak >= 2))
 		{
-			return Streak >= 3 ? FText::Format(NSLOCTEXT("Bowling", "InARow", "{0} STRIKES IN A ROW"), Streak)
-				: NSLOCTEXT("Bowling", "Double", "DOUBLE! ONE MORE FOR A TURKEY");
+			return Streak >= 3 ? FText::Format(ARCADE_LABEL("Bowling", "InARow", "{0} STRIKES IN A ROW"), Streak)
+				: ARCADE_LABEL("Bowling", "Double", "DOUBLE! ONE MORE FOR A TURKEY");
 		}
 		if (Beat == EBowlingBeat::Strike)
 		{
-			return NSLOCTEXT("Bowling", "AllTen", "ALL TEN DOWN");
+			return ARCADE_LABEL("Bowling", "AllTen", "ALL TEN DOWN");
 		}
 		if (Beat == EBowlingBeat::SplitConvert)
 		{
-			return NSLOCTEXT("Bowling", "Converted", "WHAT A PICK-UP");
+			return ARCADE_LABEL("Bowling", "Converted", "WHAT A PICK-UP");
 		}
 		return FText::GetEmpty();
 	}
@@ -175,13 +175,13 @@ namespace
 
 	const FString& LineText(EBowlingLine Line)
 	{
-		static const FText Pocket = NSLOCTEXT("Bowling", "LinePocket", "IN THE POCKET");
-		static const FText OnTarget = NSLOCTEXT("Bowling", "LineOnTarget", "ON TARGET");
-		static const FText Brooklyn = NSLOCTEXT("Bowling", "LineBrooklyn", "BROOKLYN SIDE");
-		static const FText HeadOn = NSLOCTEXT("Bowling", "LineHeadOn", "HEAD ON");
-		static const FText Wide = NSLOCTEXT("Bowling", "LineWide", "WIDE");
-		static const FText Gutter = NSLOCTEXT("Bowling", "LineGutter", "GUTTER LINE");
-		static const FText Light = NSLOCTEXT("Bowling", "LineLight", "OFF THE POCKET");
+		const FText& Pocket = ARCADE_LABEL("Bowling", "LinePocket", "IN THE POCKET");
+		const FText& OnTarget = ARCADE_LABEL("Bowling", "LineOnTarget", "ON TARGET");
+		const FText& Brooklyn = ARCADE_LABEL("Bowling", "LineBrooklyn", "BROOKLYN SIDE");
+		const FText& HeadOn = ARCADE_LABEL("Bowling", "LineHeadOn", "HEAD ON");
+		const FText& Wide = ARCADE_LABEL("Bowling", "LineWide", "WIDE");
+		const FText& Gutter = ARCADE_LABEL("Bowling", "LineGutter", "GUTTER LINE");
+		const FText& Light = ARCADE_LABEL("Bowling", "LineLight", "OFF THE POCKET");
 		switch (Line)
 		{
 		case EBowlingLine::Pocket: return Pocket.ToString();
@@ -319,7 +319,7 @@ void SBowlingHud::RebuildRow(FRowCache& R, const FBowlerSeat& Seat, const FCard*
 	}
 	R.Score = FString::FromInt(Card ? Card->Score : 0);
 	R.Frame = Card ? FrameNumberFor(*Card) : -1;
-	R.Tally = FText::Format(NSLOCTEXT("Bowling", "Tally", "{0} {0}|plural(one=STRIKE,other=STRIKES)  ·  {1} {1}|plural(one=SPARE,other=SPARES)"),
+	R.Tally = FText::Format(ARCADE_LABEL("Bowling", "Tally", "{0} {0}|plural(one=STRIKE,other=STRIKES)  ·  {1} {1}|plural(one=SPARE,other=SPARES)"),
 		R.Strikes, R.Spares).ToString();
 }
 
@@ -399,7 +399,7 @@ void SBowlingHud::PaintSheet(const FKartPainter& P, const ABowlingGame& G, float
 		// A strike streak burns on the row.
 		if (Seat.Streak >= 2)
 		{
-			const FString& Streak = C.StreakText.Get(Seat.Streak, [](int32 Value) { return FText::Format(NSLOCTEXT("Bowling", "StreakChip", "{0}X"), Value).ToString(); });
+			const FString& Streak = C.StreakText.Get(Seat.Streak, [](int32 Value) { return FText::Format(ARCADE_LABEL("Bowling", "StreakChip", "{0}X"), Value).ToString(); });
 			Chip(P, Streak, Pos + FVector2D(L.Width + 40.f * S, L.RowH / 2.f), 18.f, Seat.Streak >= 3 ? KC::Sun : KC::Hot, S, KC::Night);
 		}
 	}
@@ -438,14 +438,14 @@ void SBowlingHud::PaintControls(const FKartPainter& P, const ABowlingGame& G, fl
 	const FVector2D Pos(P.Size().X * (1.f - KartUI::Metric::SafeFraction) - Size.X, P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Size.Y + (1.f - In) * 30.f * S);
 	const FString& Up = UpText.Get(G.GetBowlerSeat(), [Bowler](int32)
 	{
-		return FText::Format(NSLOCTEXT("Bowling", "Up", "{0} is up"), FText::FromString(Bowler->Name)).ToString();
+		return FText::Format(ARCADE_LABEL("Bowling", "Up", "{0} is up"), FText::FromString(Bowler->Name)).ToString();
 	});
 	EBowlingLine Line;
 	if (Bowler->Kind != EBowlerKind::Local)
 	{
 		// Phones and bots: who is up and what they're doing, with the phone's live line.
-		static const FText PhoneHint = NSLOCTEXT("Bowling", "PhoneHint", "Swing your phone and let go to bowl");
-		static const FText BotHint = NSLOCTEXT("Bowling", "BotHint", "Lining up...");
+		const FText& PhoneHint = ARCADE_LABEL("Bowling", "PhoneHint", "Swing your phone and let go to bowl");
+		const FText& BotHint = ARCADE_LABEL("Bowling", "BotHint", "Lining up...");
 		const FVector2D Small(Size.X, 96.f * S);
 		const FVector2D At = Pos + FVector2D(0.f, Size.Y - Small.Y);
 		F.Card(At, Small, KC::WithAlpha(KC::Night, 0.88f), 22.f * S, 6.f * S, Bowler->Color, 3.f * S);
@@ -477,9 +477,9 @@ void SBowlingHud::PaintControls(const FKartPainter& P, const ABowlingGame& G, fl
 		PaintKeys(F, G, FVector2D(Pos.X + 30.f * S, RowY), S);
 		return;
 	}
-	static const FText Flick = NSLOCTEXT("Bowling", "Flick", "Flick up and let go to bowl");
-	static const FText ReleaseNow = NSLOCTEXT("Bowling", "ReleaseNow", "LET GO NOW!");
-	static const FText ReleaseGreen = NSLOCTEXT("Bowling", "ReleaseGreen", "Let go in the green for a fast ball");
+	const FText& Flick = ARCADE_LABEL("Bowling", "Flick", "Flick up and let go to bowl");
+	const FText& ReleaseNow = ARCADE_LABEL("Bowling", "ReleaseNow", "LET GO NOW!");
+	const FText& ReleaseGreen = ARCADE_LABEL("Bowling", "ReleaseGreen", "Let go in the green for a fast ball");
 	const FText& Hint = L.bMouseFlick ? Flick : (Power >= SweetPower ? ReleaseNow : ReleaseGreen);
 	F.Text(Hint, KartUI::Font(EFont::Title, 24.f * S), FVector2D(Pos.X + Size.X / 2.f, RowY), Power >= SweetPower ? KC::Mint : KC::White, FVector2D(0.5, 0.5));
 }
@@ -501,11 +501,11 @@ void SBowlingHud::PaintMeter(const FKartPainter& F, const FVector2D& BarPos, con
 
 void SBowlingHud::PaintKeys(const FKartPainter& F, const ABowlingGame& G, const FVector2D& Pos, float S) const
 {
-	static const FText Line = NSLOCTEXT("Bowling", "KeyLine", "line");
-	static const FText HookNone = NSLOCTEXT("Bowling", "KeyHookNone", "hook");
-	static const FText HookLeft = NSLOCTEXT("Bowling", "KeyHookLeft", "hook left");
-	static const FText HookRight = NSLOCTEXT("Bowling", "KeyHookRight", "hook right");
-	static const FText Grip = NSLOCTEXT("Bowling", "KeyGrip", "hold to swing");
+	const FText& Line = ARCADE_LABEL("Bowling", "KeyLine", "line");
+	const FText& HookNone = ARCADE_LABEL("Bowling", "KeyHookNone", "hook");
+	const FText& HookLeft = ARCADE_LABEL("Bowling", "KeyHookLeft", "hook left");
+	const FText& HookRight = ARCADE_LABEL("Bowling", "KeyHookRight", "hook right");
+	const FText& Grip = ARCADE_LABEL("Bowling", "KeyGrip", "hold to swing");
 	const double Curve = G.GetLocal().Curve;
 	float X = Pos.X;
 	auto Pair = [&](const FString& A, const FString* B, const FText& What)
@@ -540,12 +540,12 @@ void SBowlingHud::PaintCoach(const FKartPainter& P, const ABowlingGame& G, float
 	{
 		return;
 	}
-	static const FText Title = NSLOCTEXT("Bowling", "CoachTitle", "HOW TO BOWL");
-	static const FText LineStep = NSLOCTEXT("Bowling", "CoachLine", "Slide your line. Mint dots = the pocket.");
-	static const FText HookStep = NSLOCTEXT("Bowling", "CoachHook", "Add hook: the ball curves into the pins.");
-	static const FText SwingStep = NSLOCTEXT("Bowling", "CoachSwing", "Hold to swing, let go in the green.");
-	static const FText PadHelp = NSLOCTEXT("Bowling", "CoachPad", "Pad: sticks to aim and hook, hold RT");
-	static const FText MouseHelp = NSLOCTEXT("Bowling", "CoachMouse", "Mouse: move to aim, click and flick up");
+	const FText& Title = ARCADE_LABEL("Bowling", "CoachTitle", "HOW TO BOWL");
+	const FText& LineStep = ARCADE_LABEL("Bowling", "CoachLine", "Slide your line. Mint dots = the pocket.");
+	const FText& HookStep = ARCADE_LABEL("Bowling", "CoachHook", "Add hook: the ball curves into the pins.");
+	const FText& SwingStep = ARCADE_LABEL("Bowling", "CoachSwing", "Hold to swing, let go in the green.");
+	const FText& PadHelp = ARCADE_LABEL("Bowling", "CoachPad", "Pad: sticks to aim and hook, hold RT");
+	const FText& MouseHelp = ARCADE_LABEL("Bowling", "CoachMouse", "Mouse: move to aim, click and flick up");
 	const FVector2D Size(500.f * S, 350.f * S);
 	const FVector2D Pos(P.Size().X * KartUI::Metric::SafeFraction, P.Size().Y * 0.37f);
 	const FKartPainter F = P.Transformed(Pos + FVector2D(0.f, Size.Y / 2.f), FMath::Max(0.01f, In)).Faded(Keep);
@@ -606,14 +606,14 @@ void SBowlingHud::PaintSwing(const FKartPainter& P, const ABowlingGame& G, float
 	const float Out = FMath::Clamp(static_cast<float>((SwingReadSeconds - Age) / 0.35), 0.f, 1.f);
 	const FString& SpeedRead = SwingSpeedText.Get(Sw.At, [&Sw](double)
 	{
-		const FText Word = Sw.Power >= SweetPower ? NSLOCTEXT("Bowling", "SpeedGreat", "GREAT SPEED")
-			: (Sw.Power >= 0.3 ? NSLOCTEXT("Bowling", "SpeedGood", "GOOD SPEED") : NSLOCTEXT("Bowling", "SpeedSoft", "SOFT"));
-		return FText::Format(NSLOCTEXT("Bowling", "SpeedRead", "{0}  {1} m/s"), Word, FText::AsNumber(FMath::RoundToDouble(Sw.Speed * 10.0) / 10.0)).ToString();
+		const FText Word = Sw.Power >= SweetPower ? ARCADE_LABEL("Bowling", "SpeedGreat", "GREAT SPEED")
+			: (Sw.Power >= 0.3 ? ARCADE_LABEL("Bowling", "SpeedGood", "GOOD SPEED") : ARCADE_LABEL("Bowling", "SpeedSoft", "SOFT"));
+		return FText::Format(ARCADE_LABEL("Bowling", "SpeedRead", "{0}  {1} m/s"), Word, FText::AsNumber(FMath::RoundToDouble(Sw.Speed * 10.0) / 10.0)).ToString();
 	});
 	const FString& HookRead = SwingHookText.Get(Sw.At, [&Sw](double)
 	{
-		return (FMath::Abs(Sw.Curve) < 0.06 ? NSLOCTEXT("Bowling", "HookStraight", "STRAIGHT")
-			: FText::Format(NSLOCTEXT("Bowling", "HookAmount", "{0} HOOK"), FText::FromString(FMath::Abs(Sw.Curve) > 0.25 ? TEXT("BIG") : TEXT("SOFT")))).ToString();
+		return (FMath::Abs(Sw.Curve) < 0.06 ? ARCADE_LABEL("Bowling", "HookStraight", "STRAIGHT")
+			: FText::Format(ARCADE_LABEL("Bowling", "HookAmount", "{0} HOOK"), FText::FromString(FMath::Abs(Sw.Curve) > 0.25 ? TEXT("BIG") : TEXT("SOFT")))).ToString();
 	});
 	const FLinearColor SpeedColor = Sw.Power >= SweetPower ? KC::Mint : (Sw.Power >= 0.3 ? KC::Sky : KC::Sun);
 	const struct { const FString& Text; FLinearColor Color; } Items[] = {
@@ -696,8 +696,8 @@ void SBowlingHud::PaintBeat(const FKartPainter& P, const ABowlingGame& G, float 
 
 void SBowlingHud::PaintIntro(const FKartPainter& P, const ABowlingGame& G, float S) const
 {
-	static const FText Title = NSLOCTEXT("Bowling", "Title", "BOWLING");
-	static const FText Tagline = NSLOCTEXT("Bowling", "Tagline", "MOVECADE LANES  ·  TEN FRAMES  ·  CHASE THE TURKEY");
+	const FText& Title = ARCADE_LABEL("Bowling", "Title", "BOWLING");
+	const FText& Tagline = ARCADE_LABEL("Bowling", "Tagline", "MOVECADE LANES  ·  TEN FRAMES  ·  CHASE THE TURKEY");
 	const double Age = G.GetPhaseAge();
 	const float A = FMath::Clamp(static_cast<float>(Age / 0.3), 0.f, 1.f) * FMath::Clamp(static_cast<float>((2.4 - Age) / 0.35), 0.f, 1.f);
 	const FKartPainter F = P.Faded(A);
@@ -739,7 +739,7 @@ void SBowlingHud::PaintIntro(const FKartPainter& P, const ABowlingGame& G, float
 	{
 		const FString& First = FirstText.Get(static_cast<int32>(GetTypeHash(Seats[0].Name)), [&Seats](int32)
 		{
-			return FText::Format(NSLOCTEXT("Bowling", "First", "{0} bowls first"), FText::FromString(Seats[0].Name)).ToString();
+			return FText::Format(ARCADE_LABEL("Bowling", "First", "{0} bowls first"), FText::FromString(Seats[0].Name)).ToString();
 		});
 		F.Text(First, KartUI::Font(EFont::Body, 22.f * S), Centre + FVector2D(0.f, 176.f * S), KC::WithAlpha(KC::White, 0.85f), FVector2D(0.5, 0.5), 2.f * S);
 	}
@@ -747,7 +747,7 @@ void SBowlingHud::PaintIntro(const FKartPainter& P, const ABowlingGame& G, float
 
 void SBowlingHud::PaintStandings(const FKartPainter& P, const ABowlingGame& G, float S) const
 {
-	static const FText Final = NSLOCTEXT("Bowling", "Final", "FINAL SCORES");
+	const FText& Final = ARCADE_LABEL("Bowling", "Final", "FINAL SCORES");
 	const TArray<FBowlerSeat>& Seats = G.GetSeats();
 	// Highest first, ties in turn order (the seats are the turn order); the row caches hold each card's score.
 	const TArray<int32>& Order = FinalRanks.Update(Seats.Num(), [&](int32 Seat)
