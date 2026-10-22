@@ -49,6 +49,7 @@ private:
 	void PaintPractice(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintPracticeSwipe(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
 	void PaintStandings(const FKartPainter& P, const ASamuraiGame& Game, float S) const;
+	const FLinearColor& CalloutColor(const FString& Hex) const;
 
 	/** One lane panel's numbers. */
 	struct FLaneTexts
@@ -72,6 +73,8 @@ private:
 	mutable TArray<FLaneTexts> LaneTexts;
 	mutable FArcadeStandingsOrder Ranks;
 	mutable TArray<FStandingTexts> StandingTexts;
+	/** Effect colours by their hex, parsed once. */
+	mutable TMap<FString, FLinearColor> CalloutColors;
 	/** This paint's projection. */
 	mutable FArcadeHudView View;
 	/** Polygon and polyline points, reused. */

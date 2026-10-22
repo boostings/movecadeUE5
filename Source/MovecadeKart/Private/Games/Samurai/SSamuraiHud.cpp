@@ -386,9 +386,19 @@ void SSamuraiHud::PaintCallouts(const FKartPainter& P, const ASamuraiGame& G, fl
 		const FVector2D At = InsideSafe(At01 * P.Size() - FVector2D(0.f, static_cast<float>(Age * Callout::RiseCmPerSecond) * S), E.Label, Font, Scale * Callout::Overshoot, P.Size());
 		const float In = KartUI::Ease::OutBack(Clamp01(Age / Callout::PopSeconds), Callout::PopBack);
 		const float Out = Clamp01((Life - Age) / Callout::FadeSeconds);
-		const FLinearColor Color = E.Kind == EEffectKind::Bomb ? KC::Hot : (E.Kind == EEffectKind::Miss ? KC::WithAlpha(KC::White, 0.85f) : MovecadeKart::Art::Hex(E.Color));
+		const FLinearColor Color = E.Kind == EEffectKind::Bomb ? KC::Hot : (E.Kind == EEffectKind::Miss ? KC::WithAlpha(KC::White, 0.85f) : CalloutColor(E.Color));
 		P.Transformed(At, PopScale(In) * Scale, bBig ? Callout::BigTilt : 0.f).Faded(Out).Text(E.Label, Font, At, Color, FVector2D(0.5, 0.5), 6.f * S);
 	}
+}
+
+const FLinearColor& SSamuraiHud::CalloutColor(const FString& Hex) const
+{
+	// The rules colour effects by hex (a handful of distinct values): parse each once.
+	if (const FLinearColor* Found = CalloutColors.Find(Hex))
+	{
+		return *Found;
+	}
+	return CalloutColors.Add(Hex, MovecadeKart::Art::Hex(Hex));
 }
 
 void SSamuraiHud::PaintNotes(const FKartPainter& P, const ASamuraiGame& G, float S) const
