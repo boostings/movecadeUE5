@@ -20,7 +20,7 @@ bool FKartLookVariedTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("four distinct faces"), Faces.Num(), 4);
 	TestTrue(TEXT("seat 0 rides the stock kart"), FKartLook::MakeVaried(0).Vehicle == EKartVehicle::Kart);
-	TestTrue(TEXT("negative seats wrap"), FKartLook::MakeVaried(-1).Face == FKartLook::MakeVaried(7).Face);
+	TestTrue(TEXT("negative seats wrap"), FKartLook::MakeVaried(-1).Face == FKartLook::MakeVaried(11).Face && FKartLook::MakeVaried(-12).Face == FKartLook::MakeVaried(0).Face);
 	return true;
 }
 

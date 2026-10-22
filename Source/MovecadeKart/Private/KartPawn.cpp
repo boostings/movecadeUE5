@@ -648,10 +648,9 @@ void AKartPawn::UpdateDriverMood(float DeltaSeconds, FKartDriverPoseInput& In)
 		const double Range = bWaiting ? 1400.0 : 900.0;
 		return To.SizeSquared() < Range * Range && (bWaiting || FMath::Abs(FVector::DotProduct(To.GetSafeNormal(), Ahead)) < 0.7);
 	};
-	if ((!Rival && Now >= Mood.NextLookSearch) || (Rival && Now > Mood.LookUntil && !Interesting(Rival)))
+	// The world scan runs at most every 0.25 s while nobody is in range, rather than every frame for every kart.
+	if (Now > Mood.LookUntil && (!Rival || !Interesting(Rival)))
 	{
-		// With nobody in range, look again a few times a second rather than iterating every kart every frame.
-		Mood.NextLookSearch = Now + 0.25;
 		Rival = nullptr;
 		double Best = TNumericLimits<double>::Max();
 		for (TActorIterator<AKartPawn> It(GetWorld()); It; ++It)
@@ -663,7 +662,7 @@ void AKartPawn::UpdateDriverMood(float DeltaSeconds, FKartDriverPoseInput& In)
 			}
 		}
 		Mood.LookTarget = Rival;
-		Mood.LookUntil = Now + 1.2;
+		Mood.LookUntil = Now + (Rival ? 1.2 : 0.25);
 	}
 	const bool bLooking = Rival && Mood.Spin < 0.5 && Cheer < 0.5;
 	if (Rival)

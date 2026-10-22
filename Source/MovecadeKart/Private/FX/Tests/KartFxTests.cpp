@@ -166,17 +166,5 @@ bool FKartFxMeshNamesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartFxHexTest, "MovecadeKart.Fx.Hex",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FKartFxHexTest::RunTest(const FString& Parameters)
-{
-	// The in-place parser agrees with FColor::FromHex on every form the recipes use (and falls back on the rest).
-	for (const TCHAR* Value : { TEXT("ffe2a0"), TEXT("#5FF0FF"), TEXT("00000000"), TEXT("b45cffcc"), TEXT("fff"), TEXT("zz12ab") })
-	{
-		TestTrue(FString::Printf(TEXT("Hex(%s)"), Value), Hex(Value).Equals(FLinearColor::FromSRGBColor(FColor::FromHex(Value)), 1e-6f));
-	}
-	return true;
-}
 
 #endif

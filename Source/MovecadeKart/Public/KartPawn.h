@@ -210,8 +210,6 @@ private:
 		TWeakObjectPtr<AKartPawn> LookTarget;
 		double LookUntil = 0.0;
 		float Face[MovecadeKart::DriverFace::MorphCount] = {};
-		/** No rival in range: the next search for one (karts are searched a few times a second, not every frame). */
-		double NextLookSearch = 0.0;
 	} Mood;
 
 	/** What was last written to the paint and the face morphs, so unchanged values aren't pushed every frame. */

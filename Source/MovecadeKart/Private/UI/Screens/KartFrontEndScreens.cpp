@@ -536,6 +536,40 @@ namespace
 	/** Each game's card art, drawn from primitives like the main menu's. */
 	void GameIcon(const FKartPainter& P, int32 Game, const FVector2D& C, float S, double Now)
 	{
+		if (ArcadeGames().IsValidIndex(Game) && ArcadeGames()[Game].Id == FName(TEXT("derby")))
+		{
+			// A bat swinging through a ball that streaks away.
+			const double Swing = FMath::Sin(Now * 2.4) * 0.25;
+			const FVector2D Ball = C + FVector2D(0.42 * S, -0.38 * S);
+			for (int32 i = 1; i <= 3; ++i)
+			{
+				P.Circle(Ball - FVector2D(0.16 * S * i, -0.13 * S * i), (0.15f - i * 0.03f) * S, Color::WithAlpha(Color::Sun, 0.8f - i * 0.2f));
+			}
+			P.Circle(Ball, 0.2f * S, Color::White, Color::Navy, 0.04f * S);
+			P.Lines({ Ball + FVector2D(-0.1 * S, -0.08 * S), Ball + FVector2D(0.02 * S, 0.12 * S) }, Color::Hot, 0.03f * S);
+			const FVector2D Knob = C + FVector2D(-0.55 * S, 0.62 * S);
+			const double A = -0.95 + Swing;
+			const FVector2D Dir(FMath::Cos(A), FMath::Sin(A));
+			const FVector2D Side(-Dir.Y, Dir.X);
+			P.Polygon({ Knob + Side * 0.04 * S, Knob + Dir * 1.15 * S + Side * 0.12 * S, Knob + Dir * 1.22 * S, Knob + Dir * 1.15 * S - Side * 0.12 * S, Knob - Side * 0.04 * S }, Color::Gold);
+			P.Circle(Knob, 0.07f * S, Color::Navy);
+			return;
+		}
+		if (ArcadeGames().IsValidIndex(Game) && ArcadeGames()[Game].Id == FName(TEXT("fishing")))
+		{
+			// A bobber dipping on the ripples, its line up out of frame.
+			const double Dip = FMath::Max(0.0, FMath::Sin(Now * 2.4)) * 0.12 * S;
+			for (int32 i = 0; i < 3; ++i)
+			{
+				const double R = (0.45 + 0.22 * i + 0.1 * FMath::Frac(Now * 0.6)) * S;
+				P.Lines({ C + FVector2D(-R, 0.45 * S), C + FVector2D(R, 0.45 * S) }, Color::WithAlpha(Color::White, 0.7f - 0.2f * i), 0.05f * S);
+			}
+			P.Lines({ C + FVector2D(0.0, -0.95 * S), C + FVector2D(0.0, -0.3 * S + Dip) }, Color::White, 0.03f * S);
+			P.Circle(C + FVector2D(0.0, 0.05 * S + Dip), 0.42f * S, Color::White, Color::Navy, 0.05f * S);
+			P.Polygon({ C + FVector2D(-0.42 * S, 0.05 * S + Dip), C + FVector2D(-0.3 * S, -0.27 * S + Dip), C + FVector2D(0.0, -0.37 * S + Dip), C + FVector2D(0.3 * S, -0.27 * S + Dip), C + FVector2D(0.42 * S, 0.05 * S + Dip) }, Color::Hot);
+			P.Box(C + FVector2D(-0.04 * S, -0.62 * S + Dip), FVector2D(0.08 * S, 0.3 * S), Color::Navy, 0.03f * S);
+			return;
+		}
 		switch (Game)
 		{
 		case 0:
@@ -561,6 +595,23 @@ namespace
 			P.Polygon({ C + FVector2D(-0.9 * S, 0.6 * S), C + FVector2D(0.8 * S, -0.7 * S), C + FVector2D(0.9 * S, -0.62 * S), C + FVector2D(-0.82 * S, 0.68 * S) }, Color::White);
 			break;
 		}
+		case 4: // Two bumper pucks colliding on a ring, sparks between them.
+		{
+			const double Bump = FMath::Abs(FMath::Sin(Now * 2.4)) * 0.12 * S;
+			P.Circle(C + FVector2D(0.0, 0.18 * S), 0.92f * S, Color::WithAlpha(Color::Navy, 0.85f), Color::Sky, 0.05f * S);
+			P.Circle(C + FVector2D(0.0, 0.18 * S), 0.5f * S, FLinearColor::Transparent, Color::WithAlpha(Color::Sky, 0.5f), 0.03f * S);
+			P.Circle(C + FVector2D(-0.36 * S - Bump, 0.05 * S), 0.33f * S, Color::Hot, Color::Navy, 0.05f * S);
+			P.Circle(C + FVector2D(0.36 * S + Bump, 0.05 * S), 0.33f * S, Color::Sky, Color::Navy, 0.05f * S);
+			P.Circle(C + FVector2D(-0.36 * S - Bump, -0.05 * S), 0.12f * S, Color::White);
+			P.Circle(C + FVector2D(0.36 * S + Bump, -0.05 * S), 0.12f * S, Color::White);
+			for (int32 i = 0; i < 4; ++i)
+			{
+				const double A = -0.9 + i * 0.6;
+				const FVector2D D(FMath::Sin(A), -FMath::Cos(A));
+				P.Lines({ C + D * (0.12 * S + Bump), C + D * (0.34 * S + Bump * 2.0) }, Color::Sun, 0.05f * S);
+			}
+			break;
+		}
 		default: // A swaying tower of blocks.
 		{
 			const FLinearColor Fills[] = { Color::Navy, Color::Sky, Color::Sun, Color::Hot, Color::Mint };
@@ -579,12 +630,12 @@ namespace
 	{
 	public:
 		/** Rows: the games, then Players and House players. */
-		static constexpr int32 PlayersRow = 4;
-		static constexpr int32 HouseRow = 5;
+		const int32 PlayersRow = ArcadeGames().Num();
+		const int32 HouseRow = PlayersRow + 1;
 
 		explicit FArcadeScreen(AKartFrontEnd* InFrontEnd) : FrontEnd(InFrontEnd)
 		{
-			Focus.Cursor.Count = 6;
+			Focus.Cursor.Count = HouseRow + 1;
 		}
 
 		virtual FName GetId() const override { return TEXT("arcade"); }
@@ -1251,6 +1302,10 @@ namespace
 		virtual void OnShown() override
 		{
 			Focus.FocusAt = NowSeconds();
+			if (UKartSessionSettings* S = Session(Host))
+			{
+				S->MutableSetup().Sanitize(Grid());
+			}
 			if (AKartFrontEnd* FE = FrontEnd.Get())
 			{
 				FE->SetShot(EKartFrontEndShot::Orbit);
@@ -1312,22 +1367,23 @@ namespace
 
 		virtual void Paint(const FKartPainter& P, const FKartScreenFrame& Frame) override
 		{
-			UKartSessionSettings* S = Session(Host);
+			const UKartSessionSettings* S = Session(Host);
 			if (!S)
 			{
 				return;
 			}
-			FKartRaceSetup& Setup = S->MutableSetup();
-			Setup.Sanitize(Grid());
+			// Read-only: the setup is sanitized when this screen is shown and on every change, never while painting.
+			const FKartRaceSetup& Setup = S->GetSetup();
 			LeftPanel(P, Frame, 1040.f, 0.72f);
 			KartWidgets::Header(P, Frame, LOCTEXT("RulesTitle", "Race rules"), LOCTEXT("RulesSub", "Set up the grid."), Color::Sky);
 			KartWidgets::Steps(P, Frame, SetupSteps(), 1);
 
 			const FText Skill[] = { LOCTEXT("Easy", "Easy"), LOCTEXT("Normal", "Normal"), LOCTEXT("Hard", "Hard") };
+			const FText& SkillName = Skill[FMath::Clamp(Setup.BotSkill, 0, 2)];
 			const FText Labels[] = { LOCTEXT("Opponents", "Opponents"), LOCTEXT("BotSkill", "Bot skill"), LOCTEXT("Laps", "Laps"), LOCTEXT("Screens", "Screens") };
 			const FText Values[] = {
 				Setup.Bots == 0 ? LOCTEXT("NoBots", "None") : FText::Format(LOCTEXT("BotsN", "{0} {0}|plural(one=bot,other=bots)"), Setup.Bots),
-				Skill[FMath::Clamp(Setup.BotSkill, 0, 2)],
+				SkillName,
 				FText::AsNumber(Setup.Laps),
 				Setup.bViewEveryKart ? LOCTEXT("EveryKart", "Every kart (TV)") : LOCTEXT("PerPlayer", "One per player"),
 			};
@@ -1350,7 +1406,7 @@ namespace
 			const FKartPainter Card = P.Faded(KartWidgets::Entrance(Frame, 0.2f));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 4.f);
 			Card.Text(FText::Format(LOCTEXT("RacersCount", "{0} racers"), Racers), Font(EFont::Display, 56.f), CardPos + FVector2D(36.0, 26.0), Color::Navy);
-			Card.Text(FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, Skill[Setup.BotSkill]),
+			Card.Text(FText::Format(LOCTEXT("Summary", "{0} {0}|plural(one=lap,other=laps)  ·  {1} bots"), Setup.Laps, SkillName),
 				Font(EFont::Body, 26.f), CardPos + FVector2D(38.0, 104.0), Color::NavyDim);
 			for (int32 i = 0; i < 8; ++i)
 			{
@@ -1387,6 +1443,7 @@ namespace
 				return;
 			}
 			FKartRaceSetup& Setup = S->MutableSetup();
+			Setup.Sanitize(Grid());
 			const FKartRaceSetup Before = Setup;
 			switch (Row)
 			{

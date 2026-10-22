@@ -120,10 +120,6 @@ private:
 		double Rate = 1.0;
 		double Lowpass = -1.0;
 		double TargetGain = 0.0;
-		/** The values last pushed to the UAudioComponent (pushed only on change). */
-		float SentVolume = -1.f;
-		float SentPitch = -1.f;
-		double SentLowpass = -1.0;
 	};
 
 	void ApplyEngine(UKartAudioSubsystem& Mixer, double Dt);
@@ -149,10 +145,6 @@ private:
 	/** Stopped loop components kept per layer and replayed on its next start, instead of a new component each time. */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UAudioComponent>> ParkedLoops;
-
-	/** The engine layers' last pushed volume and pitch (pushed only on change). */
-	float SentLayerVolume[MovecadeKart::Audio::NumOnLayers + MovecadeKart::Audio::NumOffLayers] = {};
-	float SentLayerPitch[MovecadeKart::Audio::NumOnLayers + MovecadeKart::Audio::NumOffLayers] = {};
 
 	MovecadeKart::Audio::FKartSoundObserver Observer;
 	MovecadeKart::Audio::FKartAudioStatus Status;

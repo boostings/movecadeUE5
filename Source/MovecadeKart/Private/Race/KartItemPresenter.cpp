@@ -848,6 +848,7 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 			Out.Add(Ring);
 			Poof(BoxPositions[i], Hex(TEXT("5ff0ff")), 1.3, Out);
 		}
+		const bool bWasVisible = BoxWasVisible[i];
 		BoxWasVisible[i] = bVisible;
 		// Pop back in with a springy overshoot.
 		const double Scale = bVisible ? FMath::Max(0.0, Pop((Time - BoxShownAt[i]) / 0.5)) : 0.0;
@@ -864,7 +865,9 @@ void AKartItemPresenter::UpdateBoxes(double Time, double Now)
 		{
 			BoxBatches[3].Add(FTransform(Spin, P, FVector(BoxSize / 100.0 * Scale)));
 		}
-		if (BoxTwinkles.IsValidIndex(i) && BoxTwinkles[i])
+		// The twinkle's options never change, so the stream only needs telling when the box appears or goes (or when
+		// it isn't running yet), not every frame.
+		if (BoxTwinkles.IsValidIndex(i) && BoxTwinkles[i] && (bVisible != bWasVisible || (bVisible && !BoxTwinkles[i]->IsActive())))
 		{
 			static const FKartFxEmit Twinkle = []
 			{
@@ -1387,6 +1390,10 @@ void AKartItemPresenter::Tick(float DeltaSeconds)
 	// Kart item visuals.
 	for (const FKartRacer& Racer : Race->GetRacers())
 	{
+		if (!Items.Slots().IsValidIndex(Racer.Seat))
+		{
+			continue;
+		}
 		const FKartItemSlot& Slot = Items.Slots()[Racer.Seat];
 		FKartItemVisual Visual;
 		if (Now < Slot.SpinUntil)

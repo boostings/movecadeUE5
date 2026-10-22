@@ -374,8 +374,8 @@ void SBowlingHud::PaintCoach(const FKartPainter& P, const ABowlingGame& G, float
 	{
 		return;
 	}
-	const FVector2D Size(500.f * S, 300.f * S);
-	const FVector2D Pos(P.Size().X * KartUI::Metric::SafeFraction, P.Size().Y * 0.40f);
+	const FVector2D Size(500.f * S, 350.f * S);
+	const FVector2D Pos(P.Size().X * KartUI::Metric::SafeFraction, P.Size().Y * 0.37f);
 	const FKartPainter F = P.Transformed(Pos + FVector2D(0.f, Size.Y / 2.f), FMath::Max(0.01f, In)).Faded(Keep);
 	F.Card(Pos, Size, KC::WithAlpha(KC::Navy, 0.93f), 24.f * S, 8.f * S, KC::Sun, 3.f * S);
 	F.Text(NSLOCTEXT("Bowling", "CoachTitle", "HOW TO BOWL"), KartUI::Font(EFont::Display, 30.f * S, 2.f * S), Pos + FVector2D(28.f * S, 34.f * S), KC::Sun, FVector2D(0.0, 0.5), 2.f * S);
@@ -411,8 +411,12 @@ void SBowlingHud::PaintCoach(const FKartPainter& P, const ABowlingGame& G, float
 			F.Lines({ Tick + FVector2D(-6.f, 0.f) * S, Tick + FVector2D(-1.f, 5.f) * S, Tick + FVector2D(7.f, -5.f) * S }, KC::Night, 3.f * S);
 		}
 	}
-	F.Text(NSLOCTEXT("Bowling", "CoachPad", "Pad: sticks, hold RT  ·  Mouse: move, click, flick up"),
-		KartUI::Font(EFont::Body, 15.f * S), Pos + FVector2D(Size.X / 2.f, Size.Y - 20.f * S), KC::WithAlpha(KC::White, 0.6f), FVector2D(0.5, 0.5));
+	// The other inputs, in a footer of their own below a rule, one line each, well inside the card.
+	F.Box(FVector2D(Pos.X + 24.f * S, Pos.Y + Size.Y - 66.f * S), FVector2D(Size.X - 48.f * S, 2.f * S), KC::WithAlpha(KC::White, 0.15f));
+	F.Text(NSLOCTEXT("Bowling", "CoachPad", "Pad: sticks to aim and hook, hold RT"), KartUI::Font(EFont::Body, 16.f * S),
+		Pos + FVector2D(Size.X / 2.f, Size.Y - 46.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(0.5, 0.5));
+	F.Text(NSLOCTEXT("Bowling", "CoachMouse", "Mouse: move to aim, click and flick up"), KartUI::Font(EFont::Body, 16.f * S),
+		Pos + FVector2D(Size.X / 2.f, Size.Y - 22.f * S), KC::WithAlpha(KC::White, 0.7f), FVector2D(0.5, 0.5));
 }
 
 void SBowlingHud::PaintSwing(const FKartPainter& P, const ABowlingGame& G, float S) const
@@ -503,11 +507,14 @@ void SBowlingHud::PaintBeat(const FKartPainter& P, const ABowlingGame& G, float 
 	}
 	if (Beat == EBowlingBeat::Turkey)
 	{
-		// Stars orbit the word (under the line below it, so they never cover it).
-		for (int32 i = 0; i < 5; ++i)
+		// Stars bob either side of the word, clear of its letters and of the line under it.
+		const float HalfW = static_cast<float>(FKartPainter::Measure(BeatText(Beat, 0).ToString(), KartUI::Font(EFont::Display, Size * S, 7.f * S)).X) / 2.f;
+		for (int32 i = 0; i < 4; ++i)
 		{
-			const float A = static_cast<float>(Age) * 2.2f + 2.f * UE_PI * i / 5.f;
-			KartWidgets::Star(Pop, Centre + FVector2D(FMath::Cos(A) * 520.f, FMath::Sin(A) * 140.f) * S, 26.f * S, 11.f * S, KC::Sun, A * 60.f);
+			const float Side = i < 2 ? -1.f : 1.f;
+			const float Phase = static_cast<float>(Age) * 3.f + i * 1.7f;
+			const FVector2D At(Side * (HalfW + (60.f + 24.f * (i % 2) + 10.f * FMath::Sin(Phase)) * S), ((i % 2 ? 46.f : -52.f) + 14.f * FMath::Cos(Phase)) * S);
+			KartWidgets::Star(Pop, Centre + At, 26.f * S, 11.f * S, KC::Sun, Phase * 40.f);
 		}
 	}
 	if (!Sub.IsEmpty())

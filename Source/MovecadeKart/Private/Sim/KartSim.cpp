@@ -703,7 +703,9 @@ namespace MovecadeKart
 		FVector2D P = Start;
 		bool bCollided = false;
 
-		if (T->bAnalyticWalls)
+		// Almost every step starts inside the walls, which IsNearCentre settles in a few segments; only a start
+		// outside them needs the full nearest-point scan.
+		if (T->bAnalyticWalls && !T->IsNearCentre(Start, T->WallOffset + Radius, CentreHint))
 		{
 			FVector2D Nearest;
 			double Offset = 0.0;
@@ -796,7 +798,7 @@ namespace MovecadeKart
 		bool bSkipped = false;
 		if (Next)
 		{
-			const int32 CheckpointWaypoint = T->NearestWaypoint(Next->Position);
+			const int32 CheckpointWaypoint = Next->Waypoint != INDEX_NONE ? Next->Waypoint : T->NearestWaypoint(Next->Position);
 			const int32 Past = (NearestIndex - CheckpointWaypoint + W) % W;
 			bSkipped = Past >= T->RecoverySkipWaypoints && Past < W / 2.0;
 		}
@@ -874,7 +876,7 @@ namespace MovecadeKart
 			const FBoostPad& Pad = T->BoostPads[i];
 			const double Dx = S.Pos.X - Pad.Position.X;
 			const double Dz = S.Pos.Y - Pad.Position.Y;
-			const double C = FMath::Cos(Pad.Yaw), Sn = FMath::Sin(Pad.Yaw);
+			const double C = Pad.CosYaw, Sn = Pad.SinYaw;
 			const double Across = Dx * C - Dz * Sn;
 			const double Along = Dx * Sn + Dz * C;
 			if (FMath::Abs(Across) <= Pad.Width / 2.0 + T->BoostPadding && FMath::Abs(Along) <= Pad.Length / 2.0 + T->BoostPadding)

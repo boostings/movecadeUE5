@@ -77,13 +77,15 @@ void FKartPainter::Circle(const FVector2D& Centre, float Radius, const FLinearCo
 	Box(Centre - FVector2D(Radius), FVector2D(Radius * 2.f), Fill, Radius, Outline, OutlineWidth);
 }
 
-void FKartPainter::Polygon(const TArray<FVector2D>& Points, const FLinearColor& Fill) const
+void FKartPainter::Polygon(TConstArrayView<FVector2D> Points, const FLinearColor& Fill) const
 {
-	if (Points.Num() < 3 || Fill.A * Opacity <= 0.001f || !FSlateApplication::IsInitialized())
+	const int32 Count = Points.Num();
+	if (Count < 3 || Fill.A * Opacity <= 0.001f || !FSlateApplication::IsInitialized())
 	{
 		return;
 	}
-	const FSlateBrush* White = FCoreStyle::Get().GetBrush("GenericWhiteBox");
+	static const FName WhiteBoxName(TEXT("GenericWhiteBox"));
+	const FSlateBrush* White = FCoreStyle::Get().GetBrush(WhiteBoxName);
 	const FSlateResourceHandle Handle = FSlateApplication::Get().GetRenderer()->GetResourceHandle(*White);
 	const FSlateRenderTransform& Transform = Geo.GetAccumulatedRenderTransform();
 	const FColor Color = Fade(Fill).ToFColor(true);
@@ -92,33 +94,35 @@ void FKartPainter::Polygon(const TArray<FVector2D>& Points, const FLinearColor& 
 	{
 		Centroid += P;
 	}
-	Centroid /= Points.Num();
+	Centroid /= Count;
 
+	// MakeCustomVerts copies both arrays into the element, so they only need to be sized once here.
 	TArray<FSlateVertex> Verts;
 	TArray<SlateIndex> Indices;
-	Verts.Reserve(Points.Num() + 1);
+	Verts.Reserve(Count + 1);
+	Indices.Reserve(Count * 3);
 	Verts.Add(FSlateVertex::Make(Transform, FVector2f(Centroid), FVector2f(0.5f, 0.5f), Color));
 	for (const FVector2D& P : Points)
 	{
 		Verts.Add(FSlateVertex::Make(Transform, FVector2f(P), FVector2f(0.5f, 0.5f), Color));
 	}
-	for (int32 i = 0; i < Points.Num(); ++i)
+	for (int32 i = 0; i < Count; ++i)
 	{
 		Indices.Add(0);
 		Indices.Add(static_cast<SlateIndex>(1 + i));
-		Indices.Add(static_cast<SlateIndex>(1 + (i + 1) % Points.Num()));
+		Indices.Add(static_cast<SlateIndex>(1 + (i + 1) % Count));
 	}
 	FSlateDrawElement::MakeCustomVerts(*Out, NextLayer(), Handle, Verts, Indices, nullptr, 0, 0);
 }
 
-void FKartPainter::Lines(const TArray<FVector2D>& Points, const FLinearColor& Color, float Thickness, bool bClosed) const
+void FKartPainter::Lines(TConstArrayView<FVector2D> Points, const FLinearColor& Color, float Thickness, bool bClosed) const
 {
 	if (Points.Num() < 2)
 	{
 		return;
 	}
 	TArray<FVector2f> Pts;
-	Pts.Reserve(Points.Num() + 1);
+	Pts.Reserve(Points.Num() + (bClosed ? 1 : 0));
 	for (const FVector2D& P : Points)
 	{
 		Pts.Add(FVector2f(P));

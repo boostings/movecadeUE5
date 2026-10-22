@@ -189,15 +189,21 @@ void UKartRenderQualitySubsystem::ApplyBudget()
 	Budget = KartRender::BudgetFor(User, NumViews, GuardSteps);
 
 	// Swap the trimmed levels in through Scalability's temporary mode, so SaveSettings and the settings screen
-	// still see the player's levels. Re-entering refreshes the override.
-	if (Scalability::IsTemporaryQualityLevelActive())
-	{
-		Scalability::ToggleTemporaryQualityLevels(false);
-	}
+	// still see the player's levels. Once in that mode a new budget is applied directly: leaving and re-entering
+	// would first force the player's levels live (every sg.* CVar and a settings broadcast) only to replace them.
+	// The engine reads the stored override solely as a ">= 0 means overridden" mask, which every budget satisfies.
+	const bool bTemporary = Scalability::IsTemporaryQualityLevelActive();
 	if (Budget.Levels != User)
 	{
-		Scalability::ToggleTemporaryQualityLevels(true, Budget.Levels);
+		if (!bTemporary)
+		{
+			Scalability::ToggleTemporaryQualityLevels(true, Budget.Levels);
+		}
 		Scalability::SetQualityLevels(Budget.Levels, /*bForce*/ true);
+	}
+	else if (bTemporary)
+	{
+		Scalability::ToggleTemporaryQualityLevels(false);
 	}
 
 	SetFromCode(TEXT("r.DynamicRes.MaxScreenPercentage"), Budget.MaxScreenPercentage);

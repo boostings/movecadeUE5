@@ -112,7 +112,8 @@ namespace MovecadeKart::Audio
 		const FKartAudioStatus& Status, const FTrack* Track)
 	{
 		FKartAudioCommands Out;
-		const FSnapshot Old = Previous;
+		// Old aliases Previous: Snapshot() overwrites it only immediately before each return, so no copy is needed.
+		const FSnapshot& Old = Previous;
 		const bool bHadPrevious = bHasPrevious;
 		bool bBarrier = false;
 
@@ -121,7 +122,10 @@ namespace MovecadeKart::Audio
 			Previous.Speed = S.Speed;
 			Previous.DriftPower = S.DriftPower;
 			Previous.bBoosting = IsBoosting(S);
-			Previous.ActiveBoost = S.ActiveBoost;
+			if (!Previous.ActiveBoost.Equals(S.ActiveBoost, ESearchCase::CaseSensitive))
+			{
+				Previous.ActiveBoost = S.ActiveBoost;
+			}
 			Previous.bWrongWay = S.bWrongWay;
 			Previous.bFinished = S.bFinished;
 			Previous.Laps = S.LapsCompleted;

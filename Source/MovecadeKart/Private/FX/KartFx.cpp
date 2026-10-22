@@ -1,32 +1,35 @@
 #include "FX/KartFx.h"
 
+#include "Misc/Parse.h"
+
 namespace MovecadeKart::Fx
 {
-	FLinearColor Hex(const TCHAR* Value)
+	FColor HexToColor(FStringView Value)
 	{
-		// Recipes call this every frame: parse "rrggbb" / "rrggbbaa" in place (FColor::FromHex builds an FString).
-		const TCHAR* S = Value && *Value == TEXT('#') ? Value + 1 : Value;
-		const int32 Len = S ? FCString::Strlen(S) : 0;
-		if (Len == 6 || Len == 8)
+		if (Value.StartsWith(TEXT('#')))
 		{
-			uint8 Bytes[4] = { 0, 0, 0, 255 };
-			bool bOk = true;
-			for (int32 i = 0; i < Len && bOk; ++i)
-			{
-				const TCHAR C = S[i];
-				int32 Nibble = -1;
-				if (C >= TEXT('0') && C <= TEXT('9')) { Nibble = C - TEXT('0'); }
-				else if (C >= TEXT('a') && C <= TEXT('f')) { Nibble = C - TEXT('a') + 10; }
-				else if (C >= TEXT('A') && C <= TEXT('F')) { Nibble = C - TEXT('A') + 10; }
-				bOk = Nibble >= 0;
-				Bytes[i / 2] = static_cast<uint8>((i % 2 == 0) ? (Nibble << 4) : (Bytes[i / 2] | Nibble));
-			}
-			if (bOk)
-			{
-				return FLinearColor::FromSRGBColor(FColor(Bytes[0], Bytes[1], Bytes[2], Bytes[3]));
-			}
+			Value.RightChopInline(1);
 		}
-		return FLinearColor::FromSRGBColor(FColor::FromHex(Value));
+		const auto Byte = [Value](int32 At) { return static_cast<uint8>((FParse::HexDigit(Value[At]) << 4) + FParse::HexDigit(Value[At + 1])); };
+		switch (Value.Len())
+		{
+		case 3:
+		{
+			const auto Doubled = [](int32 Digit) { return static_cast<uint8>((Digit << 4) + Digit); };
+			return FColor(Doubled(FParse::HexDigit(Value[0])), Doubled(FParse::HexDigit(Value[1])), Doubled(FParse::HexDigit(Value[2])), 255);
+		}
+		case 6:
+			return FColor(Byte(0), Byte(2), Byte(4), 255);
+		case 8:
+			return FColor(Byte(0), Byte(2), Byte(4), Byte(6));
+		default:
+			return FColor(ForceInitToZero);
+		}
+	}
+
+	FLinearColor Hex(FStringView Value)
+	{
+		return FLinearColor::FromSRGBColor(HexToColor(Value));
 	}
 
 	const FImpactProfile& ImpactProfile(EImpact Kind)

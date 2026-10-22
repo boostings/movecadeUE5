@@ -296,27 +296,29 @@ namespace MovecadeKart::Samurai::Art
 	TArray<UMaterialInterface*> TargetMaterials(UObject* Outer, EVariant Variant)
 	{
 		using namespace MovecadeKart::Art;
-		// Slot order follows each builder's first use of a slot name, whole or half alike.
+		// Slot order follows each builder's first use of a slot name, whole or half alike. Skins are glossy with a
+		// touch of emissive in their own hue (light scattering through the skin at sunset); cut flesh is wet (low
+		// roughness) and glows a little brighter, so a fresh cut reads juicy against the shade.
 		switch (Variant)
 		{
 		case EVariant::Apple:
-			return { Plain(Outer, Hex(TEXT("#e8344f")), 0.32), Plain(Outer, Hex(TEXT("#f4dfb5")), 0.6), Plain(Outer, Hex(TEXT("#3a2414")), 0.5),
-				Plain(Outer, Hex(TEXT("#5b3a1e")), 0.7), Plain(Outer, Hex(TEXT("#3fa34d")), 0.55) };
+			return { Plain(Outer, Hex(TEXT("#e8263f")), 0.22, 0.0, 0.1), Plain(Outer, Hex(TEXT("#fbe7bd")), 0.18, 0.0, 0.32), Plain(Outer, Hex(TEXT("#3a2414")), 0.35),
+				Plain(Outer, Hex(TEXT("#5b3a1e")), 0.7), Plain(Outer, Hex(TEXT("#3fa34d")), 0.45, 0.0, 0.08) };
 		case EVariant::Melon:
-			return { Plain(Outer, Hex(TEXT("#3fbf6a")), 0.42), Plain(Outer, Hex(TEXT("#1f7a3e")), 0.45), Plain(Outer, Hex(TEXT("#e9f2d0")), 0.6),
-				Plain(Outer, Hex(TEXT("#dc403d")), 0.5), Plain(Outer, Hex(TEXT("#141414")), 0.4) };
+			return { Plain(Outer, Hex(TEXT("#3fbf6a")), 0.3, 0.0, 0.06), Plain(Outer, Hex(TEXT("#17682f")), 0.34), Plain(Outer, Hex(TEXT("#eef6d6")), 0.3, 0.0, 0.2),
+				Plain(Outer, Hex(TEXT("#ff3b47")), 0.16, 0.0, 0.42), Plain(Outer, Hex(TEXT("#141414")), 0.3) };
 		case EVariant::Lantern:
-			return { Plain(Outer, Hex(TEXT("#fbbf24")), 0.7, 0.0, 0.55), Plain(Outer, Hex(TEXT("#ffdd88")), 0.7, 0.0, 0.9), Plain(Outer, Hex(TEXT("#2a1a10")), 0.5),
-				Plain(Outer, Hex(TEXT("#1a1a1a")), 0.4, 0.3) };
+			return { Plain(Outer, Hex(TEXT("#ffc12e")), 0.6, 0.0, 0.9), Plain(Outer, Hex(TEXT("#ffe39a")), 0.6, 0.0, 1.6), Plain(Outer, Hex(TEXT("#2a1a10")), 0.5),
+				Plain(Outer, Hex(TEXT("#1a1a1a")), 0.3, 0.6) };
 		case EVariant::Bamboo:
-			return { Surface(Outer, { Hex(TEXT("#34d399")), TEXT("dark_wooden_planks"), 0.3, 0.2, 0.3, 0.2, 0.4, 0.0, 0.0, true, 1.0 }), Plain(Outer, Hex(TEXT("#e6edc0")), 0.7),
-				Plain(Outer, Hex(TEXT("#2f9e5c")), 0.6) };
+			return { Surface(Outer, { Hex(TEXT("#34d399")), TEXT("dark_wooden_planks"), 0.3, 0.2, 0.3, 0.2, 0.3, 0.0, 0.08, true, 1.0 }), Plain(Outer, Hex(TEXT("#f2f6cf")), 0.35, 0.0, 0.3),
+				Plain(Outer, Hex(TEXT("#2f9e5c")), 0.5, 0.0, 0.06) };
 		case EVariant::Bomb:
-			return { Plain(Outer, Hex(TEXT("#1f2937")), 0.38, 0.5), Plain(Outer, Hex(TEXT("#0b0d10")), 0.8), Plain(Outer, Hex(TEXT("#8a6a3a")), 0.4, 0.8),
-				Plain(Outer, Hex(TEXT("#5a4630")), 0.8), Glow(Outer, Hex(TEXT("#ff8c42")) * 6.f) };
+			return { Plain(Outer, Hex(TEXT("#232c3b")), 0.26, 0.6), Plain(Outer, Hex(TEXT("#0b0d10")), 0.8), Plain(Outer, Hex(TEXT("#b08a4a")), 0.3, 0.9),
+				Plain(Outer, Hex(TEXT("#5a4630")), 0.8), Glow(Outer, Hex(TEXT("#ff8c42")) * 9.f) };
 		case EVariant::Scroll:
-			return { Plain(Outer, Hex(TEXT("#fde68a")), 0.75, 0.0, 0.12), Plain(Outer, Hex(TEXT("#1d1b1a")), 0.6), Plain(Outer, Hex(TEXT("#c0392b")), 0.5),
-				Plain(Outer, Hex(TEXT("#6b2f1a")), 0.45) };
+			return { Plain(Outer, Hex(TEXT("#fde68a")), 0.7, 0.0, 0.3), Plain(Outer, Hex(TEXT("#1d1b1a")), 0.6), Plain(Outer, Hex(TEXT("#d03a2a")), 0.45, 0.0, 0.2),
+				Plain(Outer, Hex(TEXT("#6b2f1a")), 0.35) };
 		}
 		return {};
 	}
@@ -389,13 +391,15 @@ namespace MovecadeKart::Samurai::Art
 	TArray<UMaterialInterface*> KatanaMaterials(UObject* Outer)
 	{
 		using namespace MovecadeKart::Art;
+		// Polished tamahagane: a mirror flat, the hamon's bright edge catching the sunset (a whisper of emissive so
+		// the edge reads even in the fill's shade), gilt habaki, black lacquered tsuba, dark wrap, bone ito.
 		return {
-			Plain(Outer, Hex(TEXT("#b9c3cc")), 0.16, 1.0),
-			Plain(Outer, Hex(TEXT("#eef3f7")), 0.08, 1.0),
-			Plain(Outer, Hex(TEXT("#c9a45c")), 0.3, 1.0),
-			Plain(Outer, Hex(TEXT("#1b1b1f")), 0.45, 0.6),
+			Plain(Outer, Hex(TEXT("#c7d0d9")), 0.1, 1.0),
+			Plain(Outer, Hex(TEXT("#f4f8fb")), 0.04, 1.0, 0.18),
+			Plain(Outer, Hex(TEXT("#d9b066")), 0.22, 1.0),
+			Plain(Outer, Hex(TEXT("#1b1b1f")), 0.32, 0.7),
 			Plain(Outer, Hex(TEXT("#2a1610")), 0.85),
-			Plain(Outer, Hex(TEXT("#e8e0cf")), 0.8),
+			Plain(Outer, Hex(TEXT("#e8e0cf")), 0.75),
 		};
 	}
 
