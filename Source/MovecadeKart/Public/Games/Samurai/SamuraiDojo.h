@@ -2,18 +2,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Art/KartMaterialCache.h"
 #include "FX/KartFx.h"
+#include "Games/ArcadeVenueKit.h"
 #include "SamuraiDojo.generated.h"
 
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
-class UInstancedStaticMeshComponent;
 class UMaterialInterface;
 class UPostProcessComponent;
 class USkyLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
-namespace MovecadeKart::Art { struct FSurfaceLook; }
 
 /**
  * Samurai Slice's dojo (movecade-v2 samurai/{DojoEnvironment,SamuraiSky,samuraiStage}.tsx, Docs/Port/08-samurai.md
@@ -22,8 +22,9 @@ namespace MovecadeKart::Art { struct FSurfaceLook; }
  * overhead, bamboo at the sides, stone lanterns, stepping stones and raked gravel, pines and layered ridges fading
  * into the haze, under the painted sunset sky with a low warm sun and a rose rim light; petals drift through.
  *
- * Web world units map 1:1 to metres (UE cm via MovecadeKart::Coords). The lanes sit around x 0, 3.6 m apart; the
- * swordsmen stand at z 1.15 facing -z; the targets fly at z .55.
+ * Placed in L_Samurai (or spawned by ASamuraiGameMode); ASamuraiGame sets its lane count and drives its mood. Web
+ * world units map 1:1 to metres (UE cm via MovecadeKart::Coords). The lanes sit around x 0, 3.6 m apart; the
+ * swordsmen stand at z 1.15 facing -z; the targets fly at z .55. The props' meshes are in SamuraiDojoMeshes.cpp.
  */
 UCLASS()
 class MOVECADEKART_API ASamuraiDojo : public AActor
@@ -54,35 +55,44 @@ public:
 
 private:
 	void Build();
+	void BuildMeshes();
 	void Clear();
 	void BuildLook();
+	void BuildSky(const FLinearColor& Top, const FLinearColor& Mid, const FLinearColor& Horizon);
+	void BuildFog(const FLinearColor& Mid, const FLinearColor& Horizon);
 	void ApplyGrade();
-	MovecadeKart::Fx::FKartFxEmit Petal(const FVector& Web, int32 Count, double Speed);
 	void BuildGround();
 	void BuildStage();
 	void BuildTorii();
 	void BuildWall();
 	void BuildGarden();
+	void BuildStoneLantern(const FVector& Base);
+	void BuildBamboo(double Side);
 	void BuildDistance();
 	void BuildLanterns();
+	void DriftPetals(float DeltaSeconds);
+	MovecadeKart::Fx::FKartFxEmit Petal(const FVector& Web, int32 Count, double Speed);
 
+	/** An instanced box: centre C and size S in web metres (x across, y up, z toward the camera), turned YawRad. */
 	void Box(UMaterialInterface* Material, const FVector& C, const FVector& S, double YawRad = 0.0, bool bShadows = true);
+	/** An instanced upright cylinder standing on Base. */
 	void Post(UMaterialInterface* Material, const FVector& Base, double Radius, double Height, bool bShadows = true);
-	UInstancedStaticMeshComponent* Group(UStaticMesh* Mesh, UMaterialInterface* Material, bool bShadows);
+	/** A one-off static mesh part at a UE transform. */
 	UStaticMeshComponent* Part(UStaticMesh* Mesh, const FTransform& World, bool bShadows = true);
-	/** Materials, made once per distinct look and kept across rebuilds (SetLanes rebuilds the geometry only). */
-	UMaterialInterface* PlainC(const FLinearColor& Color, double Roughness = 0.6, double Metallic = 0.0, double Emissive = 0.0);
-	UMaterialInterface* SurfaceC(const MovecadeKart::Art::FSurfaceLook& Look);
-	UMaterialInterface* GlowC(const FLinearColor& Color);
+	/** Creates, tags and registers one of the dojo's own components (removed again by Clear). */
+	template <class TComponent>
+	TComponent* AddDojoComponent(const TCHAR* Name, USceneComponent* Parent, EComponentMobility::Type Mobility);
 
 	UPROPERTY(EditAnywhere, Category = "Dojo")
 	int32 Lanes = 1;
 
+	/** Instanced boxes and posts, one component per (mesh, material, shadow). */
 	UPROPERTY(Transient)
-	TMap<FString, TObjectPtr<UInstancedStaticMeshComponent>> Groups;
+	FArcadeInstanceGroups Groups;
 
+	/** Materials, made once per distinct look and kept across rebuilds (SetLanes rebuilds the geometry only). */
 	UPROPERTY(Transient)
-	TMap<FString, TObjectPtr<UMaterialInterface>> Materials;
+	FKartMaterialCache Materials;
 
 	/** The swaying paper lanterns, by their hanging point. */
 	UPROPERTY(Transient)
@@ -139,6 +149,9 @@ private:
 	float MoodFlash = 0.f;
 	float MoodFringe = 0.f;
 	FLinearColor MoodFlashColor = FLinearColor::White;
+	/** Fractional petals owed by the drift (it emits whole ones). */
 	double PetalCarry = 0.0;
 	FRandomStream PetalRng;
+	/** The drift's emits, reused every frame. */
+	TArray<MovecadeKart::Fx::FKartFxEmit> PetalScratch;
 };

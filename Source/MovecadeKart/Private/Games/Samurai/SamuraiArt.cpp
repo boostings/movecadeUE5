@@ -314,8 +314,10 @@ namespace MovecadeKart::Samurai::Art
 			return { Surface(Outer, { Hex(TEXT("#34d399")), TEXT("dark_wooden_planks"), 0.3, 0.2, 0.3, 0.2, 0.3, 0.0, 0.08, true, 1.0 }), Plain(Outer, Hex(TEXT("#f2f6cf")), 0.35, 0.0, 0.3),
 				Plain(Outer, Hex(TEXT("#2f9e5c")), 0.5, 0.0, 0.06) };
 		case EVariant::Bomb:
+			// The fuse's ember is solid and never fades (a cut bomb blows, it doesn't split): opaque unlit, so it
+			// skips the translucency pass. The telegraph ring in front of the bomb stays translucent over it.
 			return { Plain(Outer, Hex(TEXT("#232c3b")), 0.26, 0.6), Plain(Outer, Hex(TEXT("#0b0d10")), 0.8), Plain(Outer, Hex(TEXT("#b08a4a")), 0.3, 0.9),
-				Plain(Outer, Hex(TEXT("#5a4630")), 0.8), Glow(Outer, Hex(TEXT("#ff8c42")) * 9.f) };
+				Plain(Outer, Hex(TEXT("#5a4630")), 0.8), GlowOpaque(Outer, Hex(TEXT("#ff8c42")) * 9.f) };
 		case EVariant::Scroll:
 			return { Plain(Outer, Hex(TEXT("#fde68a")), 0.7, 0.0, 0.3), Plain(Outer, Hex(TEXT("#1d1b1a")), 0.6), Plain(Outer, Hex(TEXT("#d03a2a")), 0.45, 0.0, 0.2),
 				Plain(Outer, Hex(TEXT("#6b2f1a")), 0.35) };
