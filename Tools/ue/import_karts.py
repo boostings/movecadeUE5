@@ -658,8 +658,8 @@ def make_avatar_masters():
     tint = common(g, (0.63, 0.25, 0.14), 0.55, use_vertex_color=True, detail=0.7, ao_strength=0.35)
     v, n = view(g)
     rim, boost = rim_colour(g)
-    g.out(g.custom(SKIN_GLOW, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.22), "Power": g.scalar("RimPower", 2.6),
-                               "Lift": g.scalar("Lift", 0.025), "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="SkinGlow"), "EmissiveColor")
+    g.out(g.custom(SKIN_GLOW, {"N": n, "V": v, "Tint": (tint, "RGB"), "Rim": g.scalar("Rim", 0.12), "Power": g.scalar("RimPower", 3.0),
+                               "Lift": g.scalar("Lift", 0.008), "RimColor": (rim, "RGB"), "RimBoost": boost}, desc="SkinGlow"), "EmissiveColor")
     g.out(g.scalar("Specular", 0.36), "Specular")
     profile = skin_profile()
     if profile is not None:
@@ -679,12 +679,12 @@ def make_avatar_masters():
     # velvet edge in emissive so the folds read under flat light, and an optional tiled weave.
     g = Graph(AVATAR_MATS, "M_AvatarCloth", unreal.MaterialShadingModel.MSM_CLOTH)
     tint = common(g, (0.8, 0.8, 0.8), 0.82, ao_strength=0.6, detail_normal=True)
-    fuzz = g.mul(g.add(tint, g.scalar("FuzzLift", 0.35)), g.scalar("FuzzScale", 0.6))
+    fuzz = g.mul(g.add(tint, g.scalar("FuzzLift", 0.35)), g.scalar("FuzzScale", 0.5))
     g.out(fuzz, "SubsurfaceColor")
-    g.out(g.scalar("Cloth", 0.7), "ClearCoat")
+    g.out(g.scalar("Cloth", 0.55), "ClearCoat")
     v, n = view(g)
     rim, boost = rim_colour(g)
-    g.out(g.custom(CLOTH_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.16), "RimColor": (rim, "RGB"),
+    g.out(g.custom(CLOTH_SHEEN, {"N": n, "V": v, "Tint": (tint, "RGB"), "Sheen": g.scalar("Sheen", 0.07), "RimColor": (rim, "RGB"),
                                  "RimBoost": boost}, desc="ClothSheen"), "EmissiveColor")
     g.save()
 
@@ -715,7 +715,7 @@ def skin_profile():
         settings = profile.get_editor_property("settings")
         for prop, value in (("surface_albedo", unreal.LinearColor(0.91, 0.34, 0.27, 1.0)),
                             ("mean_free_path_color", unreal.LinearColor(1.0, 0.36, 0.18, 1.0)),
-                            ("mean_free_path_distance", 1.1),
+                            ("mean_free_path_distance", 0.7),
                             ("world_unit_scale", 0.12),
                             ("subsurface_color", unreal.LinearColor(0.95, 0.32, 0.22, 1.0)),
                             ("falloff_color", unreal.LinearColor(1.0, 0.37, 0.3, 1.0)),
@@ -745,7 +745,7 @@ def tune_driver_instances():
                 mi = ASSETS.load_asset(cloth)
                 if weave is not None:
                     MEL.set_material_instance_texture_parameter_value(mi, "DetailNormalTex", weave)
-                    MEL.set_material_instance_scalar_parameter_value(mi, "DetailNormalStrength", 0.35)
+                    MEL.set_material_instance_scalar_parameter_value(mi, "DetailNormalStrength", 0.22)
                     MEL.set_material_instance_scalar_parameter_value(mi, "DetailScale", 28.0)
                 MEL.set_material_instance_scalar_parameter_value(mi, "Roughness", 0.8)
                 ASSETS.save_loaded_asset(mi)
@@ -1108,7 +1108,7 @@ def main():
         make_avatar_masters()
     if STAGE == "avatarmaterials":
         # Only the avatar masters and the shared eye and mouth instances (drivers keep their own instances).
-        make_writable(AVATAR_MATS)
+        make_writable(AVATAR_MATS, "/Game/Avatars/Drivers")
         make_avatar_masters()
         # Update the shared instances in place: the driver meshes reference them, so they must not be recreated.
         for name, scalars in (("EyeWhite", {"Glow": 0.06}), ("Iris", {"Roughness": 0.06, "Catchlight": 6.0, "Glow": 0.25}),
