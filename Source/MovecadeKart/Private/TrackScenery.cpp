@@ -239,7 +239,7 @@ void ATrackBuilder::BuildPrefabInstances()
 			continue;
 		}
 		const FString Tint = Str(I, TEXT("tint"));
-		const int32 Variant = static_cast<int32>(Num(I, TEXT("variant")));
+		const int32 Variant = VariantOf(I);
 		FPrefabGroup& Group = Groups.FindOrAdd(FPrefabGroupKey::Make(Prefab, Tint, Variant));
 		if (!Group.Component)
 		{

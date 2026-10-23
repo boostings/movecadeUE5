@@ -264,7 +264,7 @@ void URoomHostSubsystem::UpdateJoinUrl()
 	int32 Pixels = 0;
 	TArray64<uint8> Image;
 	MovecadeKart::Qr::RasterizeBgra(Matrix, RoomHost::QrQuietModules, RoomHost::QrPixelsPerModule, Image, Pixels);
-	QrTexture = UTexture2D::CreateTransient(Pixels, Pixels, PF_B8G8R8A8, TEXT("RoomJoinQr"), Image);
+	QrTexture = UTexture2D::CreateTransient(Pixels, Pixels, PF_B8G8R8A8, MakeUniqueObjectName(GetTransientPackage(), UTexture2D::StaticClass(), TEXT("RoomJoinQr")), Image);
 	if (QrTexture)
 	{
 		QrTexture->Filter = TF_Nearest;

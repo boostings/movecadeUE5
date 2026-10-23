@@ -35,7 +35,8 @@ namespace MovecadeKart::Audio
 		{
 			return 0.0;
 		}
-		const int32 Index = Gear < 0 ? 0 : Gear - 1;
+		// Reverse uses first gear's ratio; a gear past the box (a caller bug) the top one, rather than reading past it.
+		const int32 Index = Gear < 1 ? 0 : FMath::Min(Gear, NumGears) - 1;
 		return FMath::Abs(SpeedMph) * (LimiterRpm / GearTopMph[Index]);
 	}
 
@@ -194,11 +195,12 @@ namespace MovecadeKart::Audio
 		{
 			OutWeights[i] = 0.0;
 		}
-		if (Num == 0)
+		if (Num <= 0)
 		{
 			return;
 		}
-		if (Rpm <= Anchors[0])
+		// Negated so NaN lands here too: past both tests below, the anchor search would walk off the array.
+		if (!(Rpm > Anchors[0]))
 		{
 			OutWeights[0] = 1.0;
 			return;
@@ -209,8 +211,9 @@ namespace MovecadeKart::Audio
 			OutWeights[Last] = 1.0;
 			return;
 		}
-		int32 Upper = 0;
-		while (Anchors[Upper] < Rpm)
+		// Anchors[0] < Rpm < Anchors[Last], so Upper stops in 1..Last (the bound only matters for unsorted anchors).
+		int32 Upper = 1;
+		while (Upper < Last && Anchors[Upper] < Rpm)
 		{
 			++Upper;
 		}

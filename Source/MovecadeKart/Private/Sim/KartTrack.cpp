@@ -2,12 +2,32 @@
 
 // The track's runtime queries: the wall grid, the dirt grid and the centreline. Loading is in KartTrackJson.cpp.
 
+DEFINE_LOG_CATEGORY_STATIC(LogKartWalls, Log, All);
+
 namespace MovecadeKart
 {
 	namespace
 	{
 		/** A ray this close to parallel with a segment never hits it. */
 		constexpr double ParallelEpsilon = 1e-12;
+
+		/** The wall grid's bounds. A real wall segment spans a few cells (Harbor's longest is 5 m, Violet's 3 m, at
+		 *  8 m cells) and a track a few hundred thousand entries; past these the file is corrupt or hostile, and the
+		 *  segment is left out of the grid rather than stalling the load or exhausting memory. */
+		constexpr int32 MaxCellsPerSegment = 512;
+		constexpr int32 MaxGridEntries = 1 << 20;
+		/** A query box covering more cells than this (a 2 km square at 8 m cells) finds no walls, with a warning.
+		 *  The sim's sweep box is 8 kart radii wide and its longest probe ray 999 m. */
+		constexpr int64 MaxCellsPerQuery = 1 << 16;
+		/** Beyond this the cell walk would overflow int32 (or take forever). The loader rejects past 1e5 m. */
+		constexpr double MaxCoordinate = 1e9;
+		/** Slack (in cells) on each column's row span, so a segment exactly on a cell edge is in both cells. */
+		constexpr double CellEdgeSlack = 1e-6;
+
+		bool IsInRange(const FVector2D& P)
+		{
+			return FMath::Abs(P.X) < MaxCoordinate && FMath::Abs(P.Y) < MaxCoordinate; // false for NaN
+		}
 
 		/** Where a ray (unit Dir) crosses a segment, as the distance along the ray; false if it misses within Far. */
 		FORCEINLINE bool RayHitsSegment(const FVector2D& Origin, const FVector2D& Dir, double Far, const FWallSegment& Segment, double& OutRayT)
@@ -32,39 +52,99 @@ namespace MovecadeKart
 		return FIntPoint(FMath::FloorToInt32(P.X / CellSize), FMath::FloorToInt32(P.Y / CellSize));
 	}
 
+	bool FWallSet::CrossedCells(const FWallSegment& Segment, FCellList& Out) const
+	{
+		Out.Reset();
+		const FVector2D A = Segment.Start;
+		const FVector2D B = Segment.Start + Segment.Delta;
+		if (!IsInRange(A) || !IsInRange(B))
+		{
+			return false;
+		}
+		// The bounding box's cells, as the grid used to take whole; each column keeps only the rows the segment
+		// spans inside it. That is a superset of the cells the segment touches (the slack only adds edge cells), so
+		// every query still sees every segment that reaches its box.
+		const FIntPoint C0 = CellOf(FVector2D(FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y)));
+		const FIntPoint C1 = CellOf(FVector2D(FMath::Max(A.X, B.X), FMath::Max(A.Y, B.Y)));
+		const FVector2D CellA(A.X / CellSize, A.Y / CellSize); // as CellOf divides
+		const FVector2D CellB(B.X / CellSize, B.Y / CellSize);
+		const double SpanX = CellB.X - CellA.X;
+		for (int32 X = C0.X; X <= C1.X; ++X)
+		{
+			double Lo = FMath::Min(CellA.Y, CellB.Y);
+			double Hi = FMath::Max(CellA.Y, CellB.Y);
+			if (C0.X != C1.X && SpanX != 0.0)
+			{
+				const double T0 = FMath::Clamp((X - CellEdgeSlack - CellA.X) / SpanX, 0.0, 1.0);
+				const double T1 = FMath::Clamp((X + 1 + CellEdgeSlack - CellA.X) / SpanX, 0.0, 1.0);
+				const double Y0 = CellA.Y + (CellB.Y - CellA.Y) * T0;
+				const double Y1 = CellA.Y + (CellB.Y - CellA.Y) * T1;
+				Lo = FMath::Min(Y0, Y1);
+				Hi = FMath::Max(Y0, Y1);
+			}
+			const int32 Row0 = FMath::Max(C0.Y, FMath::FloorToInt32(Lo - CellEdgeSlack));
+			const int32 Row1 = FMath::Min(C1.Y, FMath::FloorToInt32(Hi + CellEdgeSlack));
+			for (int32 Y = Row0; Y <= Row1; ++Y)
+			{
+				if (Out.Num() >= MaxCellsPerSegment)
+				{
+					Out.Reset();
+					return false;
+				}
+				Out.Add(FIntPoint(X, Y));
+			}
+		}
+		return true;
+	}
+
 	void FWallSet::Reset(TArray<FWallSegment>&& InSegments, double InCellSize)
 	{
 		WallSegments = MoveTemp(InSegments);
-		CellSize = InCellSize;
+		CellSize = FMath::IsFinite(InCellSize) && InCellSize > 0.0 ? InCellSize : DefaultCellSize;
 		Grid.Reset();
+		FCellList Cells;
+		int32 Entries = 0;
+		int32 Skipped = 0;
+		bool bFull = false;
 		for (int32 i = 0; i < WallSegments.Num(); ++i)
 		{
-			const FWallSegment& Segment = WallSegments[i];
-			const FVector2D B = Segment.Start + Segment.Delta;
-			const FIntPoint C0 = CellOf(FVector2D(FMath::Min(Segment.Start.X, B.X), FMath::Min(Segment.Start.Y, B.Y)));
-			const FIntPoint C1 = CellOf(FVector2D(FMath::Max(Segment.Start.X, B.X), FMath::Max(Segment.Start.Y, B.Y)));
-			for (int32 X = C0.X; X <= C1.X; ++X)
+			// Once the budget is spent every later segment is left out, so what is filed doesn't depend on sizes.
+			bFull = bFull || (CrossedCells(WallSegments[i], Cells) && Entries + Cells.Num() > MaxGridEntries);
+			if (bFull || Cells.IsEmpty())
 			{
-				for (int32 Y = C0.Y; Y <= C1.Y; ++Y)
-				{
-					Grid.FindOrAdd(FIntPoint(X, Y)).Add(i);
-				}
+				++Skipped;
+				continue;
 			}
+			Entries += Cells.Num();
+			for (const FIntPoint& Cell : Cells)
+			{
+				Grid.FindOrAdd(Cell).Add(i);
+			}
+		}
+		if (Skipped > 0)
+		{
+			UE_LOG(LogKartWalls, Warning, TEXT("Left %d of %d wall segments out of the grid (out of range, longer than %d cells, or past %d entries)"),
+				Skipped, WallSegments.Num(), MaxCellsPerSegment, MaxGridEntries);
 		}
 	}
 
 	bool FWallSet::CellRange(const FVector2D& Min, const FVector2D& Max, FIntPoint& OutC0, FIntPoint& OutC1) const
 	{
 		// NaN or a position a million km away would overflow the int32 cell walk (or take forever): no walls.
-		constexpr double MaxCoordinate = 1e9;
-		if (!ensureMsgf(FMath::Abs(Min.X) < MaxCoordinate && FMath::Abs(Min.Y) < MaxCoordinate
-			&& FMath::Abs(Max.X) < MaxCoordinate && FMath::Abs(Max.Y) < MaxCoordinate,
-			TEXT("Wall query out of range: (%f, %f)-(%f, %f)"), Min.X, Min.Y, Max.X, Max.Y))
+		if (!ensureMsgf(IsInRange(Min) && IsInRange(Max), TEXT("Wall query out of range: (%f, %f)-(%f, %f)"), Min.X, Min.Y, Max.X, Max.Y))
 		{
 			return false;
 		}
 		OutC0 = CellOf(Min);
 		OutC1 = CellOf(Max);
+		const int64 Cells = static_cast<int64>(OutC1.X - OutC0.X + 1) * (OutC1.Y - OutC0.Y + 1);
+		if (Cells > MaxCellsPerQuery)
+		{
+			static bool bWarned = false; // once per run: a caller asking this every step would flood the log
+			UE_CLOG(!bWarned, LogKartWalls, Warning, TEXT("Wall query spans %lld cells (limit %lld); no walls returned"), Cells, MaxCellsPerQuery);
+			bWarned = true;
+			return false;
+		}
 		return true;
 	}
 
@@ -153,13 +233,15 @@ namespace MovecadeKart
 		{
 			return false;
 		}
-		const int32 Col = FMath::FloorToInt32((P.X - Min.X) / CellSize);
-		const int32 Row = FMath::FloorToInt32((P.Y - Min.Y) / CellSize);
-		if (Col < 0 || Row < 0 || Col >= Cols || Row >= Rows)
+		// Range-checked as doubles: a point far off the grid (or NaN) would overflow the int32 conversion.
+		const double Col = FMath::FloorToDouble((P.X - Min.X) / CellSize);
+		const double Row = FMath::FloorToDouble((P.Y - Min.Y) / CellSize);
+		if (!(Col >= 0.0 && Row >= 0.0 && Col < Cols && Row < Rows))
 		{
 			return false;
 		}
-		return Cells[Row * Cols + Col];
+		const int64 Index = static_cast<int64>(Row) * Cols + static_cast<int64>(Col);
+		return Index < Cells.Num() && Cells[static_cast<int32>(Index)];
 	}
 
 	// ---- FTrack ---------------------------------------------------------------------------------

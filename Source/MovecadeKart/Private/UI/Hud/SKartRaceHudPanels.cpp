@@ -239,7 +239,7 @@ void SKartRaceHud::PaintMinimap(const FKartPainter& P, const AKartRaceManager& R
 	}
 	// RaceUI.tsx minimap: x = (x - minX) / scaleX, y = (z - minZ) / scaleZ.
 	const FVector2D Extent = Track->MinimapBounds.GetSize();
-	const double Fit = Height / FMath::Max(Extent.X, Extent.Y);
+	const double Fit = Height / Track->MinimapSpan(); // never zero, even for a degenerate box
 	const FVector2D Area = Extent * Fit;
 	const FVector2D Offset = Pos + (FVector2D(Height, Height) - Area) * 0.5 + FVector2D(Height * Nudge, 0.0);
 	auto ToMap = [&](const FVector2D& W)

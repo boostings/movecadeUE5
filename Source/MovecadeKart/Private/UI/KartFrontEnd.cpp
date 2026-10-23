@@ -280,7 +280,7 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 	{
 		// The attract shot: a low drone circling the circuit, looking across it, a little faster than the menus' orbit.
 		const FVector2D Centre = T.MinimapBounds.GetCenter();
-		const double Extent = FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y);
+		const double Extent = T.MinimapSpan();
 		const double Angle = FlyoverStartAngle + Time * FlyoverTurnRate;
 		const FVector2D Dir(FMath::Cos(Angle), FMath::Sin(Angle));
 		const FVector Eye = Coords::ToUE(Centre + Dir * Extent * FlyoverRadius, Extent * FlyoverHeight + FlyoverBob * FMath::Sin(Time * FlyoverBobRate));
@@ -310,7 +310,7 @@ FTransform AKartFrontEnd::ShotTransform(EKartFrontEndShot InShot, double Time) c
 	}
 	// Orbit: high above the whole circuit, turning slowly.
 	const FVector2D Centre = T.MinimapBounds.bIsValid ? T.MinimapBounds.GetCenter() : FVector2D::ZeroVector;
-	const double Extent = T.MinimapBounds.bIsValid ? FMath::Max(T.MinimapBounds.GetSize().X, T.MinimapBounds.GetSize().Y) : NoTrackExtent;
+	const double Extent = T.MinimapBounds.bIsValid ? T.MinimapSpan() : NoTrackExtent;
 	const double Angle = Time * OrbitTurnRate;
 	const FVector2D EyeXZ = Centre + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Extent * OrbitRadius;
 	const FVector Eye = Coords::ToUE(EyeXZ, Extent * OrbitHeight);

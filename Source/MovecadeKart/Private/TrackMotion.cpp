@@ -139,7 +139,7 @@ void ATrackBuilder::BuildMotion()
 		}
 		else if (Type == TEXT("buoy"))
 		{
-			Spawn(FString::Printf(TEXT("buoy_%d"), static_cast<int32>(Num(A, TEXT("variant")))), 0, E);
+			Spawn(FString::Printf(TEXT("buoy_%d"), VariantOf(A)), 0, E);
 			Spawn(TEXT("buoy_lamp"), 0, E);
 		}
 	}

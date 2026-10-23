@@ -449,12 +449,20 @@ namespace MovecadeKart::Sumo
 		}
 		FPuck& P = Match.Pucks[Index];
 		const bool bDash = P.Input.bDash || Input.bDash;
-		P.Input.Tilt = ClampDisc(Input.Tilt);
+		// ClampDisc keeps NaN (its length test is false) and turns an infinite or overflowing tilt into NaN: either
+		// would spread through the velocity to every puck it touches. Such a tilt reads as none.
+		const FVector2D Tilt = ClampDisc(Input.Tilt);
+		P.Input.Tilt = FMath::IsFinite(Tilt.X) && FMath::IsFinite(Tilt.Y) ? Tilt : FVector2D::ZeroVector;
 		P.Input.bDash = bDash;
 	}
 
 	void ResolveContact(FMatch& M, int32 Ai, int32 Bi)
 	{
+		// Public, so the indices are checked (a puck against itself would divide its own push by zero).
+		if (!M.Pucks.IsValidIndex(Ai) || !M.Pucks.IsValidIndex(Bi) || Ai == Bi)
+		{
+			return;
+		}
 		FPuck& A = M.Pucks[Ai];
 		FPuck& B = M.Pucks[Bi];
 		if (!A.bStanding || !B.bStanding)
@@ -464,7 +472,8 @@ namespace MovecadeKart::Sumo
 		const FVector2D D = B.Pos - A.Pos;
 		const double Dist = D.Size();
 		const double MinDist = PuckRadius * 2.0;
-		if (Dist >= MinDist)
+		// Negated so a NaN distance (a NaN position) is no contact, rather than a NaN push into the other puck.
+		if (!(Dist < MinDist))
 		{
 			return;
 		}

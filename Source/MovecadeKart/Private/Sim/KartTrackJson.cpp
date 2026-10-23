@@ -4,6 +4,7 @@
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/JsonReader.h"
+#include "Sim/KartJsonFields.h"
 #include "Serialization/JsonSerializer.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartTrack, Log, All);
@@ -17,15 +18,45 @@ namespace MovecadeKart
 	{
 		/** How much closer than the wall offset a Harbor wall point may come to the centreline before it counts as folded. */
 		constexpr double FoldedWallTolerance = 0.25;
-		/** No real dirt raster comes near this (Violet's is 1885 x 1744); larger means a corrupt file. */
-		constexpr double MaxDirtGridCells = 1 << 26;
+		/** No real dirt raster comes near these (Violet's is 1885 x 1744 cells of 0.25 m, 471 x 436 m); past them the
+		 *  file is corrupt. */
+		constexpr int64 MaxDirtGridCells = 1 << 26;
+		constexpr double MaxDirtCellM = 10.0;
+		constexpr double MaxDirtGridSideM = 2000.0;
+		/** Integer fields' ranges: far past any real track, and small enough that nothing downstream overflows. */
+		constexpr int32 MaxLaps = 99;
+		constexpr int32 MaxRecoverySkipWaypoints = 1 << 16;
+		/** No track coordinate comes near this (both are within 350 m of the origin): wall points beyond it are
+		 *  dropped, as the wall grid's cell walk must stay bounded. */
+		constexpr double MaxTrackCoordinate = 1e5;
+		/** The kart disc and sweep step the sim can run: the sweep query box is 8 radii wide, and a substep below
+		 *  the floor would multiply the sweep's per-step work without changing the result. */
+		constexpr double MaxKartRadius = 10.0;
+		constexpr double MinSweepSubstep = 0.01;
+		/** A spawn heading past this many radians (every real one is within a turn) is corrupt. */
+		constexpr double MaxSpawnYaw = 100.0;
+
+		bool IsTrackPoint(const FVector2D& P)
+		{
+			return FMath::Abs(P.X) <= MaxTrackCoordinate && FMath::Abs(P.Y) <= MaxTrackCoordinate; // false for NaN
+		}
 
 		// Field readers that tolerate a null object or a missing or mistyped field, returning the default.
 
+		/** O[Key], or Default when it is missing, not a number, or not finite (a JSON 1e999 parses as infinity). */
 		double NumberField(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, double Default = 0.0)
 		{
 			double V = Default;
-			return O.IsValid() && O->TryGetNumberField(Key, V) ? V : Default;
+			if (!O.IsValid() || !O->TryGetNumberField(Key, V))
+			{
+				return Default;
+			}
+			if (!FMath::IsFinite(V))
+			{
+				UE_LOG(LogKartTrack, Warning, TEXT("\"%s\" is not a finite number; using %g"), Key, Default);
+				return Default;
+			}
+			return V;
 		}
 
 		/** The object's { x, z } as a point on the three.js ground plane. */
@@ -55,7 +86,7 @@ namespace MovecadeKart
 
 		using FNumbers = TArray<double, TInlineAllocator<8>>;
 
-		/** The numbers in an array entry; false unless it is an array of at least Min numbers. */
+		/** The numbers in an array entry; false unless it is an array of at least Min finite numbers. */
 		bool NumbersOf(const TSharedPtr<FJsonValue>& V, int32 Min, FNumbers& Out)
 		{
 			Out.Reset();
@@ -65,7 +96,7 @@ namespace MovecadeKart
 			}
 			for (const TSharedPtr<FJsonValue>& E : V->AsArray())
 			{
-				if (!E.IsValid() || E->Type != EJson::Number)
+				if (!E.IsValid() || E->Type != EJson::Number || !FMath::IsFinite(E->AsNumber()))
 				{
 					return false;
 				}
@@ -123,7 +154,8 @@ namespace MovecadeKart
 					Json->TryGetBoolField(TEXT("isFinish"), Checkpoint.bFinish);
 				}
 			}
-			Out.StartCheckpoint = static_cast<int32>(NumberField(Root, TEXT("startCheckpointIndex"), Out.StartCheckpoint));
+			// Below zero reads as INDEX_NONE, which Validate rejects.
+			Out.StartCheckpoint = Json::IntField(Root, TEXT("startCheckpointIndex"), Out.StartCheckpoint, INDEX_NONE, MAX_int32);
 
 			// Respawn poses: the waypoint before the checkpoint's nearest waypoint, facing the next one.
 			const int32 WaypointCount = Out.Waypoints.Num();
@@ -148,7 +180,14 @@ namespace MovecadeKart
 			{
 				if (const TSharedPtr<FJsonObject> S = AsObject(V))
 				{
-					Out.Grid.Add({ GroundPoint(S), NumberField(S, TEXT("yaw")) });
+					const FSpawnSlot Slot{ GroundPoint(S), NumberField(S, TEXT("yaw")) };
+					// The karts start and the bots steer from this pose: it must be on the map, with a sane heading.
+					if (!IsTrackPoint(Slot.Position) || !(FMath::Abs(Slot.Yaw) <= MaxSpawnYaw))
+					{
+						UE_LOG(LogKartTrack, Warning, TEXT("Skipping spawn slot at (%g, %g) yaw %g"), Slot.Position.X, Slot.Position.Y, Slot.Yaw);
+						continue;
+					}
+					Out.Grid.Add(Slot);
 				}
 			}
 			for (const TSharedPtr<FJsonValue>& V : ArrayField(Root, TEXT("boostPads")))
@@ -183,6 +222,11 @@ namespace MovecadeKart
 			}
 		}
 
+		void WarnOutOfRange(int32 Dropped)
+		{
+			UE_CLOG(Dropped > 0, LogKartTrack, Warning, TEXT("Dropped %d wall segments with a point beyond %.0f m"), Dropped, MaxTrackCoordinate);
+		}
+
 		/** Mesh walls (Violet): explicit [ax, az, bx, bz, nx, nz] segments with the face normal the web's raycast
 		 *  reports, for the sweep ("sweep"), the probe rays ("probe") or both (no role). */
 		void AddMeshWall(const TSharedPtr<FJsonObject>& Wall, const TArray<TSharedPtr<FJsonValue>>& Entries,
@@ -190,15 +234,22 @@ namespace MovecadeKart
 		{
 			const FString Role = StringField(Wall, TEXT("role"));
 			FNumbers Numbers;
+			int32 OutOfRange = 0;
 			for (const TSharedPtr<FJsonValue>& Entry : Entries)
 			{
 				if (!NumbersOf(Entry, 6, Numbers))
 				{
 					continue;
 				}
+				const FVector2D End(Numbers[2], Numbers[3]);
 				FWallSegment Segment;
 				Segment.Start = FVector2D(Numbers[0], Numbers[1]);
-				Segment.Delta = FVector2D(Numbers[2], Numbers[3]) - Segment.Start;
+				if (!IsTrackPoint(Segment.Start) || !IsTrackPoint(End))
+				{
+					++OutOfRange;
+					continue;
+				}
+				Segment.Delta = End - Segment.Start;
 				Segment.LengthSq = Segment.Delta.SizeSquared();
 				Segment.FaceNormal = FVector2D(Numbers[4], Numbers[5]);
 				if (Segment.LengthSq <= 0.0)
@@ -214,6 +265,7 @@ namespace MovecadeKart
 					OutProbe.Add(Segment);
 				}
 			}
+			WarnOutOfRange(OutOfRange);
 		}
 
 		/** B14: where a bend is tighter than the wall offset, the inner offset curve folds back on itself and leaves
@@ -248,11 +300,18 @@ namespace MovecadeKart
 				}
 			}
 			const int32 Count = bClosed ? Line.Num() : Line.Num() - 1;
+			int32 OutOfRange = 0;
 			for (int32 i = 0; i < Count; ++i)
 			{
+				const FVector2D& End = Line[(i + 1) % Line.Num()];
+				if (!IsTrackPoint(Line[i]) || !IsTrackPoint(End))
+				{
+					++OutOfRange;
+					continue;
+				}
 				FWallSegment Segment;
 				Segment.Start = Line[i];
-				Segment.Delta = Line[(i + 1) % Line.Num()] - Segment.Start;
+				Segment.Delta = End - Segment.Start;
 				Segment.LengthSq = Segment.Delta.SizeSquared();
 				if (Segment.LengthSq <= 0.0 || IsFoldedBack(Track, Segment.Start, Segment.Start + Segment.Delta))
 				{
@@ -262,6 +321,7 @@ namespace MovecadeKart
 				Segment.FaceNormal = Right * Side;
 				OutSweep.Add(Segment);
 			}
+			WarnOutOfRange(OutOfRange);
 		}
 
 		/** The wall sets, in the web build's order: the left wall's segments before the right wall's. */
@@ -302,24 +362,31 @@ namespace MovecadeKart
 			}
 		}
 
-		/** The dirt raster: run-length rows of [row, firstCol, lastCol]. A grid too large to be real is ignored. */
+		/** The dirt raster: run-length rows of [row, firstCol, lastCol]. A grid that can't be real (too many cells,
+		 *  a cell size outside (0, 10] m, off the map, or larger than MaxDirtGridSideM) is ignored. */
 		void ParseDirtGrid(const TSharedPtr<FJsonObject>& Dirt, FDirtGrid& Grid)
 		{
-			const double Cols = NumberField(Dirt, TEXT("cols"));
-			const double Rows = NumberField(Dirt, TEXT("rows"));
-			if (!(Cols * Rows <= MaxDirtGridCells))
-			{
-				UE_LOG(LogKartTrack, Warning, TEXT("Ignoring a %.0f x %.0f dirt grid (limit %.0f cells)"), Cols, Rows, MaxDirtGridCells);
-				return;
-			}
-			Grid.CellSize = NumberField(Dirt, TEXT("cellM"));
-			Grid.Min = FVector2D(NumberField(Dirt, TEXT("minX")), NumberField(Dirt, TEXT("minZ")));
-			Grid.Cols = static_cast<int32>(Cols);
-			Grid.Rows = static_cast<int32>(Rows);
-			if (!Grid.IsValid())
+			const int32 Cols = Json::IntField(Dirt, TEXT("cols"), 0, 0, MAX_int32);
+			const int32 Rows = Json::IntField(Dirt, TEXT("rows"), 0, 0, MAX_int32);
+			if (Cols == 0 || Rows == 0)
 			{
 				return;
 			}
+			const double CellSize = NumberField(Dirt, TEXT("cellM"));
+			const FVector2D Min(NumberField(Dirt, TEXT("minX")), NumberField(Dirt, TEXT("minZ")));
+			// The lawn scatters over the whole raster in half-metre steps, so its extent bounds that work too.
+			const bool bCellSize = CellSize > 0.0 && CellSize <= MaxDirtCellM;
+			if (static_cast<int64>(Cols) * Rows > MaxDirtGridCells || !bCellSize || !IsTrackPoint(Min)
+				|| Cols * CellSize > MaxDirtGridSideM || Rows * CellSize > MaxDirtGridSideM)
+			{
+				UE_LOG(LogKartTrack, Warning, TEXT("Ignoring a %d x %d dirt grid of %g m cells at (%g, %g) (limits: %lld cells, %g m cells, %g m a side)"),
+					Cols, Rows, CellSize, Min.X, Min.Y, MaxDirtGridCells, MaxDirtCellM, MaxDirtGridSideM);
+				return;
+			}
+			Grid.CellSize = CellSize;
+			Grid.Min = Min;
+			Grid.Cols = Cols;
+			Grid.Rows = Rows;
 			Grid.Cells.Init(false, Grid.Cols * Grid.Rows);
 			FNumbers Run;
 			for (const TSharedPtr<FJsonValue>& Entry : ArrayField(Dirt, TEXT("runs")))
@@ -328,9 +395,9 @@ namespace MovecadeKart
 				{
 					continue;
 				}
-				const int32 Row = static_cast<int32>(Run[0]);
-				const int32 First = FMath::Max(0, static_cast<int32>(Run[1]));
-				const int32 Last = FMath::Min(Grid.Cols - 1, static_cast<int32>(Run[2]));
+				const int32 Row = Json::ToInt32(Run[0], INDEX_NONE, INDEX_NONE, Grid.Rows);
+				const int32 First = Json::ToInt32(Run[1], 0, 0, Grid.Cols);
+				const int32 Last = Json::ToInt32(Run[2], INDEX_NONE, INDEX_NONE, Grid.Cols - 1);
 				if (Row < 0 || Row >= Grid.Rows)
 				{
 					continue;
@@ -361,7 +428,7 @@ namespace MovecadeKart
 			if (const TSharedPtr<FJsonObject> Recovery = ObjectField(Root, TEXT("recovery")))
 			{
 				Out.RecoveryDistance = NumberField(Recovery, TEXT("maxDistanceM"), Out.RecoveryDistance);
-				Out.RecoverySkipWaypoints = static_cast<int32>(NumberField(Recovery, TEXT("skipWaypoints"), Out.RecoverySkipWaypoints));
+				Out.RecoverySkipWaypoints = Json::IntField(Recovery, TEXT("skipWaypoints"), Out.RecoverySkipWaypoints, 0, MaxRecoverySkipWaypoints);
 			}
 			for (const TSharedPtr<FJsonValue>& V : ArrayField(Root, TEXT("itemBoxes")))
 			{
@@ -388,8 +455,18 @@ namespace MovecadeKart
 			}
 			if (const TSharedPtr<FJsonObject> Bounds = ObjectField(ObjectField(Root, TEXT("minimap")), TEXT("bounds")))
 			{
-				Out.MinimapBounds = FBox2D(FVector2D(NumberField(Bounds, TEXT("minX")), NumberField(Bounds, TEXT("minZ"))),
-					FVector2D(NumberField(Bounds, TEXT("maxX")), NumberField(Bounds, TEXT("maxZ"))));
+				const FVector2D Min(NumberField(Bounds, TEXT("minX")), NumberField(Bounds, TEXT("minZ")));
+				const FVector2D Max(NumberField(Bounds, TEXT("maxX")), NumberField(Bounds, TEXT("maxZ")));
+				// The HUD and the attract camera divide by the box's size: an inverted, empty or off-map box is left
+				// invalid (no minimap) rather than drawn as NaN.
+				if (IsTrackPoint(Min) && IsTrackPoint(Max) && Max.X >= Min.X && Max.Y >= Min.Y && Max != Min)
+				{
+					Out.MinimapBounds = FBox2D(Min, Max);
+				}
+				else
+				{
+					UE_LOG(LogKartTrack, Warning, TEXT("Ignoring minimap bounds (%g, %g)-(%g, %g)"), Min.X, Min.Y, Max.X, Max.Y);
+				}
 			}
 			const TSharedPtr<FJsonObject> Look = ObjectField(Root, TEXT("look"));
 			if (Look && ArrayField(Look, TEXT("sunDirection")).Num() == 3)
@@ -421,10 +498,13 @@ namespace MovecadeKart
 			{
 				OutError = TEXT("Track needs at least one lap");
 			}
-			else if (!(Track.SweepSubstep > 0.0) || !(Track.KartRadius > 0.0))
+			else if (!(FMath::IsFinite(Track.SweepSubstep) && Track.SweepSubstep >= MinSweepSubstep)
+				|| !(Track.KartRadius > 0.0 && Track.KartRadius <= MaxKartRadius))
 			{
-				// The wall sweep divides by the substep; a zero or NaN here never terminates.
-				OutError = FString::Printf(TEXT("sweepSubstep (%f) and kartRadius (%f) must be positive"), Track.SweepSubstep, Track.KartRadius);
+				// The wall sweep divides by the substep (a zero or NaN never terminates), and its query box and the
+				// cells it walks grow with the radius.
+				OutError = FString::Printf(TEXT("substepM (%f) must be at least %g and kartRadiusM (%f) in (0, %g]"),
+					Track.SweepSubstep, MinSweepSubstep, Track.KartRadius, MaxKartRadius);
 			}
 			return OutError.IsEmpty();
 		}
@@ -474,7 +554,8 @@ namespace MovecadeKart
 		Out = FTrack();
 		Out.Id = StringField(Header, TEXT("id"));
 		Out.Name = StringField(Header, TEXT("name"));
-		Out.Laps = static_cast<int32>(NumberField(Header, TEXT("laps"), Out.Laps));
+		// Zero (or anything below, clamped to zero) is rejected by Validate.
+		Out.Laps = Json::IntField(Header, TEXT("laps"), Out.Laps, 0, MaxLaps);
 		Out.GroundY = NumberField(Header, TEXT("groundY"));
 		Out.SuggestedRebaseY = NumberField(Header, TEXT("suggestedRebaseY"));
 		Out.bAnalyticWalls = StringField(Header, TEXT("trackType")) == TEXT("analytic-spline");

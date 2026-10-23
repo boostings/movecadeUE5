@@ -367,10 +367,12 @@ namespace MovecadeKart::Samurai
 		{
 			return {};
 		}
+		// A swing's power is 0..1 (the blade clamps it). Past that, the score below overflows the int32 cast.
+		const double Power = FMath::IsFinite(Swing.Power) ? FMath::Clamp(Swing.Power, 0.0, 1.0) : 0.0;
 		{
 			FEffect& Slash = PushEffect(Match, *Player, EEffectKind::Slash);
 			Slash.Direction = Swing.Direction;
-			Slash.Intensity = Swing.Power;
+			Slash.Intensity = Power;
 		}
 		// Back to front, as the web splices: Cut[0] is the last one in the list.
 		TArray<FTarget> Cut;
@@ -439,7 +441,7 @@ namespace MovecadeKart::Samurai
 				Directional += JsRound(T.Score * DirectionalShare);
 			}
 		}
-		const double PowerBonus = JsRound(Swing.Power * PowerBonusPerTarget) * Cut.Num();
+		const double PowerBonus = JsRound(Power * PowerBonusPerTarget) * Cut.Num();
 		const double MultiBonus = Cut.Num() > 1 ? (Cut.Num() - 1) * MultiCutBonus : 0.0;
 		const double Multiplier = 1.0 + FMath::Min(MaxComboSteps, Player->Combo) * ComboStep;
 		const bool bFocused = Player->FocusRemainingMs > 0.0;
@@ -473,7 +475,7 @@ namespace MovecadeKart::Samurai
 			: FString::Printf(TEXT("+%d"), Delta);
 		FEffect& E = PushEffect(Match, *Player, bFocusStarted || Cut.Num() >= ComboEffectCuts || Player->Combo >= ComboEffectCombo ? EEffectKind::Combo : EEffectKind::Hit);
 		E.Direction = Swing.Direction;
-		E.Intensity = Swing.Power;
+		E.Intensity = Power;
 		E.Color = Def(Cut[0].Variant).Color;
 		E.ScoreDelta = Delta;
 		E.Label = Label;

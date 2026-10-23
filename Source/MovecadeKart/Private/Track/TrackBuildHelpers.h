@@ -5,6 +5,7 @@
 #include "FX/KartFx.h"
 #include "KartCoords.h"
 #include "Misc/Paths.h"
+#include "Sim/KartJsonFields.h"
 
 /**
  * Shared by ATrackBuilder's source files: tolerant readers for the track JSON (a missing field reads as its default),
@@ -20,6 +21,13 @@ namespace MovecadeKart::TrackBuild
 	{
 		double V = Default;
 		return O.IsValid() && O->TryGetNumberField(Key, V) ? V : Default;
+	}
+
+	/** A prefab instance's "variant" (the exporter writes 0..3), clamped: it names components and assets. */
+	inline int32 VariantOf(const TSharedPtr<FJsonObject>& O)
+	{
+		constexpr int32 MaxVariant = 255;
+		return Json::IntField(O, TEXT("variant"), 0, 0, MaxVariant);
 	}
 
 	inline FString Str(const TSharedPtr<FJsonObject>& O, const TCHAR* Key)

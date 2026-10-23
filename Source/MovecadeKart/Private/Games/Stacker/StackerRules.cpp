@@ -271,8 +271,14 @@ namespace MovecadeKart::Stacker
 		{
 			return { 0.0, Direction };
 		}
+		// A heading of 0 never reaches a wall, so the bounce loop below spun forever: anything but -1 heads right. A
+		// non-finite input stays put (NaN would also slip past the loop's progress, infinity past the wrap cap).
+		if (!FMath::IsFinite(Center) || !FMath::IsFinite(Limit) || !FMath::IsFinite(Speed) || !FMath::IsFinite(DtMs))
+		{
+			return { FMath::IsFinite(Center) && FMath::IsFinite(Limit) ? FMath::Clamp(Center, -Limit, Limit) : 0.0, Direction < 0 ? -1 : 1 };
+		}
 		double Position = FMath::Clamp(Center, -Limit, Limit);
-		int32 Heading = Direction;
+		int32 Heading = Direction < 0 ? -1 : 1;
 		double Remaining = Speed * DtMs / 1000.0;
 		if (Remaining < 0.0)
 		{

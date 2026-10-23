@@ -12,6 +12,8 @@ namespace
 	constexpr double CoastMinSpeed = 28.0;
 	/** kartPilot.ts send-on-change: a steering change smaller than this holds the last input. */
 	constexpr double SteeringResend = 0.04;
+	/** TurnDemandTo unwinds a heading error beyond this (radians, ~1600 turns) with Fmod first. */
+	constexpr double FarAngle = 1e4;
 }
 
 namespace MovecadeKart
@@ -79,6 +81,17 @@ namespace MovecadeKart
 	double FKartBotDriver::TurnDemandTo(const FVector2D& Position, double Yaw, const FVector2D& Target, double Gain)
 	{
 		double Error = FMath::Atan2(-(Target.X - Position.X), -(Target.Y - Position.Y)) - Yaw;
+		if (!FMath::IsFinite(Error))
+		{
+			return 0.0;
+		}
+		// A yaw thousands of turns out (a corrupt pose) would spin the loops below for ages: reduce it first. Only
+		// then, since Fmod and repeated subtraction can differ in the last bit; FMath::UnwindRadians can't be used
+		// either, as it compares and steps with the float pi.
+		if (FMath::Abs(Error) > FarAngle)
+		{
+			Error = FMath::Fmod(Error, UE_DOUBLE_TWO_PI);
+		}
 		while (Error > UE_DOUBLE_PI) Error -= UE_DOUBLE_TWO_PI;
 		while (Error < -UE_DOUBLE_PI) Error += UE_DOUBLE_TWO_PI;
 		const double Limit = 1.0 + DriftTurn;

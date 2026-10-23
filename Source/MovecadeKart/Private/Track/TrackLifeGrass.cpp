@@ -3,18 +3,14 @@
 #include "Track/TrackLife.h"
 
 #include "Components/InstancedStaticMeshComponent.h"
-#include "Dom/JsonObject.h"
 #include "Engine/Canvas.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "KartCoords.h"
 #include "KartDebugFlags.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "Misc/Base64.h"
-#include "Misc/FileHelper.h"
-#include "Serialization/JsonReader.h"
-#include "Serialization/JsonSerializer.h"
 #include "Sim/KartTrack.h"
+#include "Track/TrackLawnHeights.h"
 #include "Track/TrackLifeMeshes.h"
 #include "Track/TrackLifeShared.h"
 
@@ -61,66 +57,6 @@ namespace
 	constexpr int32 ScatterSeed = 0x9a55;
 
 	const TCHAR* const PetalColors[] = { TEXT("fdfbf5"), TEXT("fdfbf5"), TEXT("ffe066"), TEXT("ff9ad5"), TEXT("c9a7ff"), TEXT("ffffff") };
-
-	/** Data/Tracks/<id>.lawn.json (Tools/ue/bake_lawn_heights.py): the lawn's top surface, UE cm over three.js x, z. */
-	struct FLawnHeights
-	{
-		double Cell = 0.0;
-		FVector2D Min = FVector2D::ZeroVector;
-		int32 Cols = 0;
-		int32 Rows = 0;
-		TArray<int16> Heights;
-		static constexpr int16 NoData = -32768;
-
-		bool Load(const FString& TrackId)
-		{
-			FString Text;
-			TSharedPtr<FJsonObject> Json;
-			if (!FFileHelper::LoadFileToString(Text, *FPaths::Combine(FPaths::ProjectDir(), TEXT("Data/Tracks"), TrackId + TEXT(".lawn.json")))
-				|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Json) || !Json.IsValid())
-			{
-				return false;
-			}
-			Cell = Json->GetNumberField(TEXT("cellM"));
-			Min = FVector2D(Json->GetNumberField(TEXT("minX")), Json->GetNumberField(TEXT("minZ")));
-			Cols = static_cast<int32>(Json->GetNumberField(TEXT("cols")));
-			Rows = static_cast<int32>(Json->GetNumberField(TEXT("rows")));
-			TArray<uint8> Bytes;
-			if (Cell <= 0.0 || !FBase64::Decode(Json->GetStringField(TEXT("heightsCm")), Bytes) || Bytes.Num() != Cols * Rows * 2)
-			{
-				return false;
-			}
-			Heights.SetNumUninitialized(Cols * Rows);
-			FMemory::Memcpy(Heights.GetData(), Bytes.GetData(), Bytes.Num()); // little-endian int16, like every target
-			return true;
-		}
-
-		/** Bilinear height under a three.js (x, z) point, over the cells that have lawn; false off the lawn. */
-		bool Sample(const FVector2D& P, double& OutCm) const
-		{
-			const FVector2D G = (P - Min) / Cell - FVector2D(0.5);
-			const int32 X0 = FMath::FloorToInt32(G.X), Y0 = FMath::FloorToInt32(G.Y);
-			const double FX = G.X - X0, FY = G.Y - Y0;
-			double Sum = 0.0, Weight = 0.0;
-			for (int32 k = 0; k < 4; ++k)
-			{
-				const int32 X = X0 + (k & 1), Y = Y0 + (k >> 1);
-				if (X < 0 || Y < 0 || X >= Cols || Y >= Rows || Heights[Y * Cols + X] == NoData)
-				{
-					continue;
-				}
-				const double W = ((k & 1) ? FX : 1.0 - FX) * ((k >> 1) ? FY : 1.0 - FY) + 1e-4;
-				Sum += Heights[Y * Cols + X] * W;
-				Weight += W;
-			}
-			if (Weight <= 0.0)
-			{
-				return false;
-			}
-			OutCm = Sum / Weight;
-			return true;
-		}
-	};
 
 	/** Where every tuft, fill tuft and flower goes, per mesh variant, and the flowers' spots for the butterflies. */
 	struct FLawnScatter
