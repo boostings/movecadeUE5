@@ -24,6 +24,10 @@ namespace
 		Tracks.Add({ TEXT("violet-loop"), LOCTEXT("VioletName", "Violet Loop"),
 			LOCTEXT("VioletTagline", "The original figure-eight circuit, fast and flowing."),
 			TEXT("/Game/Maps/L_VioletLoop"), Hex(TEXT("a67cf0")) });
+		// Ours, not the web's: the room server's maps.ts doesn't know it yet, so Party Mode can't select it.
+		Tracks.Add({ TEXT("neon-city"), LOCTEXT("NeonName", "Neon City"),
+			LOCTEXT("NeonTagline", "A night street circuit through a neon downtown. Local play for now."),
+			TEXT("/Game/Maps/L_NeonCity"), Hex(TEXT("ff3fd2")) });
 		return Tracks;
 	}
 

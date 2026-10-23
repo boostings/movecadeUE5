@@ -60,7 +60,7 @@ bool FKartNeonCityLoadTest::RunTest(const FString&)
 	{
 		FVector2D Nearest;
 		double Offset = 0.0;
-		Closest = FMath::Min(Closest, Track.NearestCentre(S.A, Nearest, Offset));
+		Closest = FMath::Min(Closest, Track.NearestCentre(S.Start, Nearest, Offset));
 	}
 	TestTrue(FString::Printf(TEXT("walls stay %.2f m from the centreline"), Closest), Closest > Track.WallOffset - 0.05);
 
