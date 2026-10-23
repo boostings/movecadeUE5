@@ -31,6 +31,7 @@ import { exportHarborScenery, exportVioletScenery, type MaterialHint } from './s
 import { exportMovecadeProps } from './props';
 import { exportVioletGarden, type VioletFootprints } from './violetGarden';
 import { HARBOR_LOOK, HARBOR_SEA_MATERIAL, HARBOR_SEA_Y } from './harborCoast';
+import { exportNeonCity } from './neonCity';
 
 type TrackId = cat.KartTrackId;
 type XZ = [number, number];
@@ -602,6 +603,8 @@ export async function exportTracks(opts: { outDir: string; commit: string; movec
   for (const data of [
     await exportHarbor(opts.commit, opts.assetsDir, opts.movecadeRoot),
     await exportViolet(opts.commit, opts.violetMesh, opts.assetsDir, opts.movecadeRoot),
+    // The original third track: same schema and code paths as Harbor (src/neonCity.ts).
+    await exportNeonCity(opts.commit, opts.assetsDir, opts.movecadeRoot),
   ]) {
     const file = path.join(opts.outDir, `${data.track.id}.track.json`);
     writeFileSync(file, stringify(data) + '\n');

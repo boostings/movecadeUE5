@@ -105,7 +105,7 @@ Status as of 2026-10-19 (night). ✅ done · 🔄 in progress · ⏳ not started
 5. ✅ **Items.** (VFX upgrade 🔄 FX agent) Data-driven items with all the current powerups, item boxes, hit effects, VFX and SFX.
 6. ✅ **Phone host.** Local PartyKit only; real deployment needs the Origin decision (open risks). WebSocket room client, lobby with join code and QR, tilt frames → steering, host → phone feedback, score submission.
 7. ✅ **Audio.** (UAudioComponent layers, not MetaSounds; same maths, golden-tested.) MetaSound engine layering and every cue from spec 04.
-8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ✅ (Violet rebuilt original as the Violet Gardens, Harbor's coast upgraded, per-track sky/sun/fog; Neon City parked on `tracks-neon-city-wip`). Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
+8. 🔄 **Upgrade pass.** Real hits and new powerup rules ✅, walls ✅; kart + avatar art 🔄; maps ✅ (Violet rebuilt original as the Violet Gardens, Harbor's coast upgraded, per-track sky/sun/fog; new local-only track Neon City). Materials (Fab/Megascans), lighting (Lumen), driver avatars, improved and new powerups, new maps.
 9. 🔄 **Ship.** Win64 packaging in progress. Win64 packaging, performance, QA against the web version.
 
 Phases 3, 5 and 6 can run in parallel (one agent each) once phase 2 has a drivable kart.
