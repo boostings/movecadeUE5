@@ -118,4 +118,58 @@ namespace KartRender
 		L.ResolutionQuality = Budget.MaxScreenPercentage;
 		return Budget;
 	}
+
+	FRenderBudget MobileBudgetFor(const Scalability::FQualityLevels& User, int32 GuardSteps)
+	{
+		FRenderBudget Budget;
+		Budget.Levels = User;
+		Budget.MaxScreenPercentage = User.ResolutionQuality >= 25.f ? FMath::Min(User.ResolutionQuality, 100.f) : 100.f;
+		Scalability::FQualityLevels& L = Budget.Levels;
+
+		auto Lower = [](int32& Group) { Group = FMath::Max(0, Group - 1); };
+		const int32 Steps = FMath::Clamp(GuardSteps, 0, MaxGuardSteps);
+		if (Steps >= 1)
+		{
+			// The mobile frame's biggest movable costs: the CSM depth passes, bloom/DoF, and particle overdraw.
+			Lower(L.ShadowQuality);
+			Lower(L.PostProcessQuality);
+			Lower(L.EffectsQuality);
+		}
+		if (Steps >= 2)
+		{
+			Lower(L.ViewDistanceQuality);
+			Lower(L.FoliageQuality);
+			Budget.MaxScreenPercentage = FMath::Min(Budget.MaxScreenPercentage, MobileGuardScreenPercentage);
+		}
+		// No dynamic resolution on the mobile path (see DefaultDeviceProfiles.ini): floor = ceiling.
+		Budget.MinScreenPercentage = Budget.MaxScreenPercentage;
+		L.ResolutionQuality = Budget.MaxScreenPercentage;
+		return Budget;
+	}
+
+	FThermalResponse ThermalResponseFor(EThermalState State, bool bLowPowerMode)
+	{
+		FThermalResponse Response;
+		switch (State)
+		{
+		case EThermalState::Bad:
+			Response.MinGuardSteps = 1;
+			break;
+		case EThermalState::Serious:
+			Response.MaxFps = ThermalFallbackFps;
+			Response.MinGuardSteps = 1;
+			break;
+		case EThermalState::Critical:
+			Response.MaxFps = ThermalFallbackFps;
+			Response.MinGuardSteps = MaxGuardSteps;
+			break;
+		default:
+			break;
+		}
+		if (bLowPowerMode)
+		{
+			Response.MaxFps = ThermalFallbackFps;
+		}
+		return Response;
+	}
 }
