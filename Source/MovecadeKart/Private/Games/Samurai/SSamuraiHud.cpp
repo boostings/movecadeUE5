@@ -301,7 +301,7 @@ void SSamuraiHud::PaintControls(const FKartPainter& P, const ASamuraiGame& G, fl
 		return;
 	}
 	const float A = FMath::Clamp(static_cast<float>((Controls::ShowMs - G.GetMatch().ElapsedMs) / Controls::FadeMs), 0.f, 1.f);
-	const FVector2D Centre(P.Size().X / 2.f, Safe.bPortrait ? Safe.SafeMax.Y - Controls::CardSize.Y / 2.f * S : P.Size().Y * Controls::Y01);
+	const FVector2D Centre(P.Size().X / 2.f, Safe.bPortrait ? Safe.BottomClearOfTouch(P.Size().X / 2.f, Controls::CardSize.X / 2.f * S) - Controls::CardSize.Y / 2.f * S : P.Size().Y * Controls::Y01);
 	const FKartPainter F = P.Faded(A);
 	F.Card(Centre - Controls::CardSize / 2.f * S, Controls::CardSize * S, KC::WithAlpha(KC::Night, Controls::CardAlpha), Controls::Card.Radius * S, Controls::Card.Shadow * S,
 		KC::Sun, Controls::Card.OutlineWidth * S);

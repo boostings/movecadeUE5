@@ -314,9 +314,9 @@ namespace MovecadeKart::Darts::HudLayout
 		constexpr float RoundSize = 46.f;
 		/** The 3-2-1 and "THROW!" sit over the board's middle. */
 		constexpr float CountdownY = 0.46f;
-		constexpr float VisitCentreY = 0.73f;
-		/** The coach marks stack, centred, below the board. */
-		constexpr float CoachTopY = 0.64f;
+		constexpr float VisitCentreY = 0.665f;
+		/** The coach marks stack, centred, over the board's lower half (the controls card and the big button are below). */
+		constexpr float CoachTopY = 0.55f;
 		/** The intro's title is shrunk to fit the width. */
 		constexpr float IntroTitleScale = 0.62f;
 		constexpr float IntroCentreY = 0.5f;

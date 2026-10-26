@@ -5,6 +5,7 @@
 #include "Math/Box2D.h"
 
 struct FGeometry;
+namespace MovecadeKart::Input { struct FDeviceLayout; }
 
 /**
  * Screen shape and safe area for the HUDs and menus: which way the screen is held, whether it is a phone, and the
@@ -29,6 +30,8 @@ namespace KartSafeArea
 		bool bPhone = false;
 		/** The unsafe border (notch, home bar, rounded corners), in viewport pixels. */
 		FMargin InsetsPx;
+		/** The on-device controls showing over the game (UDeviceControlsSubsystem's scheme), or null. */
+		const MovecadeKart::Input::FDeviceLayout* Controls = nullptr;
 
 		/** For a viewport of ViewportPx pixels. */
 		static FKartDisplay Get(const FVector2D& ViewportPx);
@@ -46,19 +49,27 @@ namespace KartSafeArea
 		float Scale = 1.f;
 		bool bPortrait = false;
 		bool bPhone = false;
-		/** The on-screen touch controls' corners (landscape phones), in local units: nothing important goes there.
-		 *  Empty (zero size at the bottom corners) elsewhere. */
+		/**
+		 * Where the on-device controls sit (UDeviceControlsSubsystem's touch overlay), in local units: nothing
+		 * important goes there. TouchLeft / TouchRight bound the thumb buttons in each bottom corner, TouchCentre a
+		 * portrait game's one big button, Chips the pause and settings chips. Invalid (bIsValid false) when absent.
+		 */
 		FBox2D TouchLeft = FBox2D(ForceInit);
 		FBox2D TouchRight = FBox2D(ForceInit);
+		FBox2D TouchCentre = FBox2D(ForceInit);
+		FBox2D Chips = FBox2D(ForceInit);
 
 		FVector2D SafeSize() const { return SafeMax - SafeMin; }
 		FVector2D SafeCentre() const { return (SafeMin + SafeMax) * 0.5; }
 		/** The safe area's top / bottom edge at the screen's centre line: where centred banners and prompts go. */
 		double Top() const { return SafeMin.Y; }
 		double Bottom() const { return SafeMax.Y; }
-		/** The bottom edge for something centred spanning HalfWidth either side of the centre: lifted above the
-		 *  touch zones when it would overlap them. */
+		/** The bottom edge for something centred spanning HalfWidth either side of CentreX: lifted above the touch
+		 *  buttons it would overlap. */
 		double BottomClearOfTouch(double CentreX, double HalfWidth) const;
+		/** The bottom edge for something at the left (or right) edge: above that corner's thumb buttons. */
+		double BottomLeft() const { return TouchLeft.bIsValid ? FMath::Min(SafeMax.Y, TouchLeft.Min.Y) : SafeMax.Y; }
+		double BottomRight() const { return TouchRight.bIsValid ? FMath::Min(SafeMax.Y, TouchRight.Min.Y) : SafeMax.Y; }
 		bool HasTouchZones() const { return TouchLeft.bIsValid || TouchRight.bIsValid; }
 		/**
 		 * Where the per-player panels go on a landscape phone, whose bottom corners belong to the touch controls: along
@@ -72,6 +83,8 @@ namespace KartSafeArea
 			float Gap = 0.f;
 			int32 Count = 0;
 			bool bStacked = false;
+			/** The block's outer edges: the safe area's, moved in past the pause and settings chips when they sit at
+			 *  that edge. */
 			FVector2D SafeMin = FVector2D::ZeroVector;
 			FVector2D SafeMax = FVector2D::ZeroVector;
 
@@ -107,7 +120,4 @@ namespace KartSafeArea
 	constexpr float PortraitDesignWidth = 1080.f;
 	/** The design height in landscape. */
 	constexpr float LandscapeDesignHeight = 1080.f;
-	/** The touch zones reserved for the on-screen buttons at the bottom corners of a landscape phone, in design units. */
-	constexpr float TouchZoneWidth = 420.f;
-	constexpr float TouchZoneHeight = 360.f;
 }

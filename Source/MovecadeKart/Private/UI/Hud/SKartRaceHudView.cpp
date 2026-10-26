@@ -45,10 +45,11 @@ namespace
 		/** The view's own minimap: fixed height in one view (above the speed), a share of the view in two. */
 		constexpr float SoloMapHeight = 300.f;
 		constexpr double SoloMapLift = 190.0;
-		/** A phone: the speed and the place sit this far above the touch controls, the minimap is smaller. */
-		constexpr double TouchClearance = 12.0;
-		constexpr float PhoneMapHeight = 200.f;
-		constexpr double PhoneMapLift = 150.0;
+		/** A phone: the minimap is smaller. */
+		constexpr float PhoneMapHeight = 190.f;
+		/** With touch controls: the map's gap from the chips, and how high chips count as "at the top". */
+		constexpr double TouchMapGap = 24.0;
+		constexpr double ChipsTopShare = 0.35;
 		/** A phone's place digits: smaller, so they clear the standings rail above them. */
 		constexpr float PhonePlaceScale = 0.78f;
 		constexpr double SplitMapHeight = 0.4;
@@ -268,7 +269,9 @@ void SKartRaceHud::PaintView(const FKartPainter& P, const AKartRaceManager& Race
 	// The corners: item slot top-left, lap top-right, place bottom-right, speed bottom-left.
 	PaintItemSlot(P, Race, Racer, FVector2D(L.Min.X - Slide * CornerSlide * L.Scale, L.Min.Y), L.Scale, Now);
 	PaintLap(P, Anim, Race.GetTrack()->Laps, FVector2D(L.Max.X + Slide * CornerSlide * L.Scale, L.Min.Y), L.Scale, Now);
-	if (NumViews == 1)
+	// With touch controls the right side holds the lap, the clock and the place above the thumb buttons: no rail.
+	const bool bTouch = NumViews == 1 && Safe.HasTouchZones();
+	if (NumViews == 1 && !bTouch)
 	{
 		PaintStandings(P, Race, FVector2D(L.Max.X, L.Min.Y + StandingsDrop), 1.f);
 	}
@@ -279,9 +282,15 @@ void SKartRaceHud::PaintView(const FKartPainter& P, const AKartRaceManager& Race
 	if (NumViews <= 2)
 	{
 		const float H = NumViews == 1 ? L.MapHeight : static_cast<float>(View.Size.Y * SplitMapHeight);
-		const double Lift = Safe.HasTouchZones() ? PhoneMapLift * L.Scale : SoloMapLift;
-		const FVector2D MapPos = NumViews == 1 ? FVector2D(L.Min.X, L.BottomLeft - Lift - H)
+		FVector2D MapPos = NumViews == 1 ? FVector2D(L.Min.X, L.BottomLeft - SoloMapLift - H)
 			: FVector2D(L.Max.X - H * SplitMapWidth, View.Pos.Y + View.Size.Y * 0.5 - H * 0.5);
+		if (bTouch)
+		{
+			// The left side is the item and the speed above the thumb buttons: the map goes to the top, beside the
+			// pause and settings chips when they sit at the top centre.
+			const bool bChipsOnTop = Safe.Chips.bIsValid && Safe.Chips.Max.Y < View.Size.Y * ChipsTopShare;
+			MapPos = bChipsOnTop ? FVector2D(Safe.Chips.Min.X - TouchMapGap * L.Scale - H, L.Min.Y) : FVector2D(View.Pos.X + View.Size.X * 0.5 - H * 0.5, L.Min.Y);
+		}
 		PaintMinimap(P, Race, MapPos, H, View.Seat);
 	}
 	PaintStatus(P, Race, Racer, Anim, View, L.Scale, Now);
@@ -306,8 +315,9 @@ SKartRaceHud::FViewLayout SKartRaceHud::LayoutView(const FKartPainter& P, const 
 		L.Scale = static_cast<float>(View.Size.Y / Metric::CanvasH) * KartSafeArea::PhoneHudBoost;
 		L.MapHeight = PhoneMapHeight * L.Scale;
 	}
-	L.BottomLeft = Safe.TouchLeft.bIsValid && NumViews == 1 ? Safe.TouchLeft.Min.Y - TouchClearance * L.Scale : L.Max.Y;
-	L.BottomRight = Safe.TouchRight.bIsValid && NumViews == 1 ? Safe.TouchRight.Min.Y - TouchClearance * L.Scale : L.Max.Y;
+	// Above the thumb buttons in each bottom corner (the zones keep their own clearance).
+	L.BottomLeft = NumViews == 1 ? FMath::Min(L.Max.Y, Safe.BottomLeft()) : L.Max.Y;
+	L.BottomRight = NumViews == 1 ? FMath::Min(L.Max.Y, Safe.BottomRight()) : L.Max.Y;
 	if (NumViews >= 4)
 	{
 		// Keep the corner each view shares with the centre minimap clear: push the inner side's elements out.
