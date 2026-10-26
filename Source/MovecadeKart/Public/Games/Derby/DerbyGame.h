@@ -44,6 +44,8 @@ public:
 	void Setup(ADerbyBallpark* InPark, const TArray<FDerbySeat>& InSeats, APlayerController* InViewer, uint32 InSeed);
 	/** A phone's sensor frame: only the batter up's swings count. */
 	void FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSensorFrame& Frame);
+	/** The seat played with this device's own motion (on-device controls): its frames have no network trip to take off. */
+	void SetDeviceSeat(const FString& PlayerId) { DeviceSeatId = PlayerId; }
 	/** The phone's big button: READY while the pitcher waits, a button swing while the ball is on its way. */
 	void PressButton(const FString& PlayerId);
 	/** The same seats again, a new schedule. */
@@ -252,6 +254,7 @@ private:
 	/** Bots and fireworks: deterministic per run, separate from the rules' pitch RNG. */
 	FRandomStream BotRng;
 	TMap<FString, MovecadeKart::Derby::FSwingDetector> Detectors;
+	FString DeviceSeatId;
 	double PhoneCharge = 0.0;
 
 	// Presentation.

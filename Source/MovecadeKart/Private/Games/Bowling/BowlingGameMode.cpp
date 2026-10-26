@@ -1,5 +1,6 @@
 #include "Games/Bowling/BowlingGameMode.h"
 
+#include "Games/Bowling/BowlingDeviceControls.h"
 #include "Art/KartMaterials.h"
 #include "Dom/JsonObject.h"
 #include "EngineUtils.h"
@@ -116,7 +117,8 @@ void ABowlingGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		const bool bLocal = i < InLaunch.Locals;
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EBowlerKind::Local : EBowlerKind::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? EBowlerKind::Phone : EBowlerKind::Local) : EBowlerKind::Bot;
 		Seat.Skill = bLocal ? LocalAutoSkill : HouseSkillBase + HouseSkillStep * (i % HouseSkillLevels);
 		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
 		Seat.Look = FKartLook::MakeVaried(i);
@@ -211,4 +213,9 @@ bool ABowlingGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFin
 		Entry.Score = Card ? Card->Score : 0;
 	}
 	return true;
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> ABowlingGameMode::MakeDeviceControls()
+{
+	return MakeShared<FBowlingDeviceControls>();
 }

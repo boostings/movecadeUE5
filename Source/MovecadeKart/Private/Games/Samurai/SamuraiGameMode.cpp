@@ -1,5 +1,6 @@
 #include "Games/Samurai/SamuraiGameMode.h"
 
+#include "Games/Samurai/SamuraiDeviceControls.h"
 #include "Art/KartMaterials.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
@@ -89,7 +90,8 @@ void ASamuraiGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		const bool bLocal = i < InLaunch.Locals;
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? ESwordKind::Local : ESwordKind::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? ESwordKind::Phone : ESwordKind::Local) : ESwordKind::Bot;
 		Seat.Skill = bLocal ? LocalAutoSkill : HouseSkillBase + HouseSkillStep * (i % HouseSkillLevels);
 		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
 		Seat.Look = FKartLook::MakeVaried(i + SeatLookOffset);
@@ -171,4 +173,9 @@ bool ASamuraiGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFin
 		Entry.Score = Player.Score;
 	}
 	return true;
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> ASamuraiGameMode::MakeDeviceControls()
+{
+	return MakeShared<FSamuraiDeviceControls>();
 }

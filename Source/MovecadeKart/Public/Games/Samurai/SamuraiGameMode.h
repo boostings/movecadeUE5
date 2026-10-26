@@ -37,6 +37,7 @@ protected:
 	virtual void BindRoomCallbacks(URoomHostSubsystem& Room) override;
 	virtual void HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame) override;
 	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const override;
+	virtual TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> MakeDeviceControls() override;
 
 private:
 	/** The phone's toast for a cut, bomb or miss (the room relays it as play:feedback). */

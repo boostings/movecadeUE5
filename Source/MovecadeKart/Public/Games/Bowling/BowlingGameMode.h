@@ -37,6 +37,7 @@ protected:
 	virtual void HandleSensorFrame(const FMcSeat& Seat, const MovecadeKart::Net::FSensorFrame& Frame) override;
 	virtual void HandleGameEvent(const FString& FromPlayerId, const FString& Event, const TSharedPtr<FJsonObject>& Data) override;
 	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const override;
+	virtual TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> MakeDeviceControls() override;
 
 private:
 	/** The phone's toast and haptic for a committed roll, and the replay outcome for every phone. */
