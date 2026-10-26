@@ -13,8 +13,9 @@ class USkyLightComponent;
  * The PC look is Lumen GI and reflections over each venue's directional lights and sky light. The mobile renderer
  * has neither Lumen nor more than one directional light per lighting channel (the first one registered wins, which
  * in a venue with a rim or fill light can be the dim one), so on phones:
- *   - the brightest directional light is the key and keeps the cascaded shadows; the others are switched off and
- *     a share of their light is folded into the sky light, which is the only ambient term left;
+ *   - the key directional light (the brightest shadow-casting one: venues' rims are often brighter than their key
+ *     but never cast shadows) keeps the slot and the cascaded shadows; the others are switched off and a share of
+ *     their light is folded into the sky light, which is the only ambient term left;
  *   - sky lights are captured once instead of every frame (two venues capture in real time);
  *   - movable local lights don't cast shadows (point-light shadows are desktop-only; spot shadows cost a pass each);
  *   - every sky light's intensity is raised by the GI make-up factor, standing in for the bounce Lumen adds.
@@ -27,15 +28,16 @@ namespace KartMobileLighting
 		/** Illuminance (lux) times the light colour's luminance. */
 		float Brightness = 0.f;
 		bool bVisible = true;
+		bool bCastsShadows = false;
 	};
 
-	/** The key light: the brightest visible one, or INDEX_NONE when there is none. */
+	/** The key light: the brightest visible shadow caster, else the brightest visible one; INDEX_NONE if none. */
 	MOVECADEKART_API int32 PickKeyLight(TConstArrayView<FDirectionalInfo> Lights);
 
 	/** Share of a dropped directional light's brightness (relative to the key) folded into the sky light. */
 	constexpr float FoldShare = 0.5f;
-	/** The fold never more than doubles the sky light. */
-	constexpr float MaxFoldScale = 2.f;
+	/** The fold adds at most half the sky light again (night venues have rims as bright as their key). */
+	constexpr float MaxFoldScale = 1.5f;
 	/** Stand-in for Lumen's bounce light on the sky light (measured against the PC look in the mobile audit). */
 	constexpr float GiMakeUpScale = 1.35f;
 

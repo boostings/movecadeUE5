@@ -158,6 +158,10 @@ bool FKartMobileLightingTest::RunTest(const FString& Parameters)
 	// A dim rim registered first must not win the single mobile directional slot.
 	const FDirectionalInfo RimFirst[] = { { 1.f, true }, { 6.f, true } };
 	TestEqual(TEXT("the brightest is the key"), KartMobileLighting::PickKeyLight(RimFirst), 1);
+
+	// A bright rim (no shadows) loses to the shadow-casting key (Sumo's moon and rim).
+	const FDirectionalInfo BrightRim[] = { { 2.f, true, true }, { 5.f, true, false } };
+	TestEqual(TEXT("the shadow caster is the key"), KartMobileLighting::PickKeyLight(BrightRim), 0);
 	TestEqual(TEXT("half the rim folds into the sky"), KartMobileLighting::SkyScaleFor(RimFirst, 1), 1.f + KartMobileLighting::FoldShare / 6.f);
 
 	const FDirectionalInfo HiddenBright[] = { { 9.f, false }, { 2.f, true } };

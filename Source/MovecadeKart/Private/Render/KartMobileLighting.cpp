@@ -21,9 +21,10 @@ namespace
 		TEXT("no local light shadows). 0 = leave the PC lighting as built, for comparisons."));
 
 	TAutoConsoleVariable<float> CVarIndoorAmbient(
-		TEXT("kart.MobileLighting.IndoorAmbient"), 1.f,
+		TEXT("kart.MobileLighting.IndoorAmbient"), 70.f,
 		TEXT("Mobile renderer only: intensity of the uniform sky light added to venues without one (indoor venues), standing in ")
-		TEXT("for Lumen's bounce light. 0 = none."));
+		TEXT("for Lumen's bounce light. 0 = none. 70 matches the PC brightness of the pub's walls and the alley's side lanes ")
+		TEXT("(the venues' lamps are authored in lumens, so the ambient needs the same scale)."));
 
 	/** Venues that rebuild for the player count do it within the first second of play. */
 	constexpr float SecondPassSeconds = 1.5f;
@@ -39,7 +40,14 @@ namespace KartMobileLighting
 		int32 Key = INDEX_NONE;
 		for (int32 i = 0; i < Lights.Num(); ++i)
 		{
-			if (Lights[i].bVisible && (Key == INDEX_NONE || Lights[i].Brightness > Lights[Key].Brightness))
+			if (!Lights[i].bVisible)
+			{
+				continue;
+			}
+			// A shadow caster always beats a non-caster; then the brighter one wins.
+			const bool bBetter = Key == INDEX_NONE || Lights[i].bCastsShadows > Lights[Key].bCastsShadows
+				|| (Lights[i].bCastsShadows == Lights[Key].bCastsShadows && Lights[i].Brightness > Lights[Key].Brightness);
+			if (bBetter)
 			{
 				Key = i;
 			}
@@ -147,7 +155,7 @@ int32 UKartMobileLighting::Apply()
 	for (const UDirectionalLightComponent* Light : Directionals)
 	{
 		bNewDirectionals |= !Handled.Contains(Light);
-		Infos.Add({ Light->Intensity * Light->GetLightColor().GetLuminance(), Light->IsVisible() && Light->bAffectsWorld });
+		Infos.Add({ Light->Intensity * Light->GetLightColor().GetLuminance(), Light->IsVisible() && Light->bAffectsWorld, Light->CastShadows != 0 });
 	}
 	if (bNewDirectionals)
 	{
