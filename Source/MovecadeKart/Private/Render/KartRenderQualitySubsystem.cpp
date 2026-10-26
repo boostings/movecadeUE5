@@ -8,10 +8,34 @@
 #include "GameFramework/GameUserSettings.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/App.h"
+#include "Misc/CoreDelegates.h"
 #include "Render/KartGameUserSettings.h"
 #include "RenderTimer.h"
+#include "RHIStats.h"
+#include "UObject/UObjectGlobals.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartRender, Log, All);
+
+namespace
+{
+	TAutoConsoleVariable<int32> CVarMobileFrameCap(
+		TEXT("kart.Render.MobileFrameCap"), 60,
+		TEXT("Mobile renderer only: the frame rate held on phones. 60 (default), 30 (battery saver: cooler, longer play), ")
+		TEXT("or 0 for the display's refresh rate (120 Hz panels). The thermal policy may lower it to 30 while the phone is hot."));
+
+	TAutoConsoleVariable<int32> CVarThermalPolicy(
+		TEXT("kart.Render.ThermalPolicy"), 1,
+		TEXT("Mobile renderer only: react to the OS thermal and low-power notifications (KartRender::ThermalResponseFor). 0 = ignore."));
+
+	TAutoConsoleVariable<float> CVarProfileAfter(
+		TEXT("kart.Render.ProfileAfter"), 0.f,
+		TEXT("Debug: this many seconds after startup, log a 120-frame average of the stat tree (stat dumpave), once. 0 = off. ")
+		TEXT("Used by Tools/ue/mobile_audit.ps1 -Profile to find render-thread costs."));
+
+	TAutoConsoleVariable<int32> CVarForceThermal(
+		TEXT("kart.Render.ForceThermalState"), -1,
+		TEXT("Debug: act as if the OS reported this thermal state (0 unknown, 1 good, 2 bad, 3 serious, 4 critical). -1 = the OS's."));
+}
 
 namespace
 {
@@ -138,10 +162,27 @@ void UKartRenderQualitySubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	{
 		SettingsHandle = Settings->OnGraphicsApplied.AddUObject(this, &UKartRenderQualitySubsystem::HandleGraphicsApplied);
 	}
+	bMobileRenderer = GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1;
+	if (bMobileRenderer)
+	{
+		// The OS posts these from its own threads (iOS thermal notifications, Android's thermal API); Tick applies them.
+		TemperatureHandle = FCoreDelegates::OnTemperatureChange.AddWeakLambda(this, [this](FCoreDelegates::ETemperatureSeverity Severity)
+		{
+			PendingThermalState.store(static_cast<uint8>(Severity));
+		});
+		LowPowerHandle = FCoreDelegates::OnLowPowerMode.AddWeakLambda(this, [this](bool bLowPower)
+		{
+			bPendingLowPower.store(bLowPower);
+		});
+	}
+	PreLoadMapHandle = FCoreUObjectDelegates::PreLoadMap.AddUObject(this, &UKartRenderQualitySubsystem::HandlePreLoadMap);
+	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UKartRenderQualitySubsystem::HandlePostLoadMap);
+
 	// Hold the target frame rate with the engine's dynamic resolution heuristic (r.DynamicRes.OperationMode=1 lets the
-	// player's dynamic resolution setting turn it off).
-	BudgetMs = TargetFrameMs();
+	// player's dynamic resolution setting turn it off). The mobile device profiles turn dynamic resolution off.
+	BudgetMs = ComputeBudgetMs();
 	SetFromCode(TEXT("r.DynamicRes.FrameTimeBudget"), BudgetMs);
+	ApplyMobileFrameCap();
 
 	NumViews = CountViews();
 	ApplyBudget();
@@ -151,6 +192,10 @@ void UKartRenderQualitySubsystem::Initialize(FSubsystemCollectionBase& Collectio
 void UKartRenderQualitySubsystem::Deinitialize()
 {
 	FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
+	FCoreDelegates::OnTemperatureChange.Remove(TemperatureHandle);
+	FCoreDelegates::OnLowPowerMode.Remove(LowPowerHandle);
+	FCoreUObjectDelegates::PreLoadMap.Remove(PreLoadMapHandle);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
 	if (UKartGameUserSettings* Settings = UKartGameUserSettings::Get())
 	{
 		Settings->OnGraphicsApplied.Remove(SettingsHandle);
@@ -186,7 +231,8 @@ int32 UKartRenderQualitySubsystem::CountViews() const
 void UKartRenderQualitySubsystem::ApplyBudget()
 {
 	const Scalability::FQualityLevels User = GetUserLevels();
-	Budget = KartRender::BudgetFor(User, NumViews, GuardSteps);
+	Budget = bMobileRenderer ? KartRender::MobileBudgetFor(User, FMath::Max(GuardSteps, Thermal.MinGuardSteps))
+		: KartRender::BudgetFor(User, NumViews, GuardSteps);
 
 	// Swap the trimmed levels in through Scalability's temporary mode, so SaveSettings and the settings screen
 	// still see the player's levels. Once in that mode a new budget is applied directly: leaving and re-entering
@@ -222,14 +268,112 @@ void UKartRenderQualitySubsystem::HandleGraphicsApplied(const UKartGameUserSetti
 	OverBudgetSeconds = HeadroomSeconds = 0.f;
 	GuardCooldown = GuardCooldownSeconds;
 	// The frame cap or vsync may have changed: hold the new frame time.
-	BudgetMs = TargetFrameMs();
+	BudgetMs = ComputeBudgetMs();
 	SetFromCode(TEXT("r.DynamicRes.FrameTimeBudget"), BudgetMs);
+	ApplyMobileFrameCap();
 	ApplyBudget();
+}
+
+float UKartRenderQualitySubsystem::ComputeBudgetMs() const
+{
+	if (!bMobileRenderer)
+	{
+		return TargetFrameMs();
+	}
+	const float Refresh = static_cast<float>(FPlatformMisc::GetMaxRefreshRate());
+	float Fps = static_cast<float>(CVarMobileFrameCap.GetValueOnGameThread());
+	if (Fps <= 0.f)
+	{
+		Fps = Refresh > 0.f ? Refresh : 60.f;
+	}
+	if (Thermal.MaxFps > 0.f)
+	{
+		Fps = FMath::Min(Fps, Thermal.MaxFps);
+	}
+	return 1000.f / FMath::Clamp(Fps, 20.f, 144.f);
+}
+
+void UKartRenderQualitySubsystem::ApplyMobileFrameCap()
+{
+	if (!bMobileRenderer)
+	{
+		return;
+	}
+	const float Fps = 1000.f / BudgetMs;
+	// The frame pacer presents on every Nth vblank: 2 on a 60 Hz panel is an evenly paced 30 (t.MaxFPS alone would
+	// alternate 16 and 33 ms frames). t.MaxFPS also caps the game thread, so a hot phone does less work too.
+	const float Refresh = static_cast<float>(FPlatformMisc::GetMaxRefreshRate());
+	if (Refresh > 0.f)
+	{
+		SetFromCode(TEXT("rhi.SyncInterval"), static_cast<float>(FMath::Max(1, FMath::RoundToInt32(Refresh / Fps))));
+	}
+	SetFromCode(TEXT("t.MaxFPS"), Fps);
+	UE_LOG(LogKartRender, Log, TEXT("Mobile frame cap %.0f fps (refresh %.0f Hz, thermal cap %.0f, guard floor %d)"),
+		Fps, Refresh, Thermal.MaxFps, Thermal.MinGuardSteps);
+}
+
+void UKartRenderQualitySubsystem::UpdateThermal()
+{
+	const int32 Forced = CVarForceThermal.GetValueOnGameThread();
+	const uint8 State = Forced >= 0 ? static_cast<uint8>(Forced) : PendingThermalState.load();
+	const bool bLowPower = bPendingLowPower.load();
+	if (State == AppliedThermalState && bLowPower == bAppliedLowPower)
+	{
+		return;
+	}
+	AppliedThermalState = State;
+	bAppliedLowPower = bLowPower;
+
+	const KartRender::FThermalResponse Response = CVarThermalPolicy.GetValueOnGameThread() != 0
+		? KartRender::ThermalResponseFor(static_cast<KartRender::EThermalState>(FMath::Min<uint8>(State, 4)), bLowPower)
+		: KartRender::FThermalResponse();
+	if (Response == Thermal)
+	{
+		return;
+	}
+	UE_LOG(LogKartRender, Log, TEXT("Thermal state %d%s: cap %.0f fps, guard floor %d"), State, bLowPower ? TEXT(" (low power)") : TEXT(""),
+		Response.MaxFps, Response.MinGuardSteps);
+	Thermal = Response;
+	GuardCooldown = GuardCooldownSeconds;
+	BudgetMs = ComputeBudgetMs();
+	SetFromCode(TEXT("r.DynamicRes.FrameTimeBudget"), BudgetMs);
+	ApplyMobileFrameCap();
+	ApplyBudget();
+}
+
+void UKartRenderQualitySubsystem::HandlePreLoadMap(const FString& MapName)
+{
+	LoadingMap = MapName;
+	MapLoadStartSeconds = FPlatformTime::Seconds();
+}
+
+void UKartRenderQualitySubsystem::HandlePostLoadMap(UWorld* World)
+{
+	const FPlatformMemoryStats Memory = FPlatformMemory::GetStats();
+	UE_LOG(LogKartRender, Log, TEXT("Map %s loaded in %.2f s | process %.0f MB, peak %.0f MB"),
+		World ? *World->GetMapName() : *LoadingMap, MapLoadStartSeconds > 0.0 ? FPlatformTime::Seconds() - MapLoadStartSeconds : 0.0,
+		Memory.UsedPhysical / (1024.0 * 1024.0), Memory.PeakUsedPhysical / (1024.0 * 1024.0));
+	MapLoadStartSeconds = 0.0;
 }
 
 bool UKartRenderQualitySubsystem::Tick(float DeltaSeconds)
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_KartRenderQuality_Tick);
+
+	if (bMobileRenderer)
+	{
+		UpdateThermal();
+	}
+#if !UE_BUILD_SHIPPING
+	if (const float ProfileAfter = CVarProfileAfter.GetValueOnGameThread(); ProfileAfter > 0.f && !bProfileDumped && FPlatformTime::Seconds() - GStartTime > ProfileAfter)
+	{
+		bProfileDumped = true;
+		// Stat commands need the world (they run through the game viewport's stat handling).
+		UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+		GEngine->Exec(World, TEXT("stat dumpave -num=120 -ms=0.2"));
+		UE_LOG(LogKartRender, Log, TEXT("Profile: stat dumpave over the next 120 frames"));
+	}
+#endif
 
 	const int32 Views = CountViews();
 	if (Views != NumViews)
@@ -257,6 +401,9 @@ bool UKartRenderQualitySubsystem::Tick(float DeltaSeconds)
 		GameMs.Add(FPlatformTime::ToMilliseconds(GGameThreadTime));
 		RenderMs.Add(FPlatformTime::ToMilliseconds(GRenderThreadTime));
 		ResolutionSum += CurrentScreenPercentage();
+		// Last frame's totals over every pass (shadow depths included), as `stat RHI` shows them.
+		DrawCallSum += GNumDrawCallsRHI[0];
+		PrimitiveSum += GNumPrimitivesDrawnRHI[0];
 		WindowSeconds += DeltaSeconds;
 		if (WindowSeconds >= CVarLogInterval.GetValueOnGameThread())
 		{
@@ -309,6 +456,18 @@ void UKartRenderQualitySubsystem::LogPerfWindow()
 	UE_LOG(LogKartRender, Log, TEXT("Perf %.0fs | %d view(s) | %.1f fps | frame avg %.2f p95 %.2f ms | GPU avg %.2f p95 %.2f ms | game %.2f | render %.2f | TSR input %.0f %% | guard %d"),
 		WindowSeconds, NumViews, AvgFrame > 0.f ? 1000.f / AvgFrame : 0.f, AvgFrame, Percentile(FrameMs, 0.95f), Average(GpuMs),
 		Percentile(GpuMs, 0.95f), Average(GameMs), Average(RenderMs), FrameMs.IsEmpty() ? 0.f : ResolutionSum / FrameMs.Num(), GuardSteps);
+
+	// Content budget: draws and triangles per frame, and memory (process, and textures as the RHI tracks them).
+	const double Frames = FMath::Max(1, FrameMs.Num());
+	const FPlatformMemoryStats Memory = FPlatformMemory::GetStats();
+	FTextureMemoryStats Textures;
+	RHIGetTextureMemoryStats(Textures);
+	constexpr double MB = 1024.0 * 1024.0;
+	UE_LOG(LogKartRender, Log, TEXT("Content | draws %.0f | prims %.0fk | process %.0f MB, peak %.0f MB | textures %.0f MB (streaming %.0f, pool %.0f) | %s"),
+		DrawCallSum / Frames, PrimitiveSum / Frames / 1000.0, Memory.UsedPhysical / MB, Memory.PeakUsedPhysical / MB,
+		(Textures.StreamingMemorySize + Textures.NonStreamingMemorySize) / MB, Textures.StreamingMemorySize / MB,
+		Textures.TexturePoolSize / MB, bMobileRenderer ? TEXT("mobile") : TEXT("desktop"));
+	DrawCallSum = PrimitiveSum = 0.0;
 	FrameMs.Reset();
 	GpuMs.Reset();
 	GameMs.Reset();

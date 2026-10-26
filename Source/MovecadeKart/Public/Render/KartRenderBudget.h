@@ -44,4 +44,44 @@ namespace KartRender
 	 * this budget.)
 	 */
 	MOVECADEKART_API FRenderBudget BudgetFor(const Scalability::FQualityLevels& User, int32 NumViews, int32 GuardSteps);
+
+	/**
+	 * The mobile renderer's budget (phones, and ES3.1 preview on PC). The player's levels there come from the device
+	 * profile (Config/DefaultDeviceProfiles.ini); there is no Lumen to protect, so guard steps go down to Low:
+	 * step 1 trims shadows, post-processing and effects, step 2 also view distance and foliage and lowers the
+	 * resolution ceiling to MobileGuardScreenPercentage.
+	 */
+	MOVECADEKART_API FRenderBudget MobileBudgetFor(const Scalability::FQualityLevels& User, int32 GuardSteps);
+
+	/** The resolution ceiling (percent) at the last mobile guard step. */
+	constexpr float MobileGuardScreenPercentage = 85.f;
+
+	/** Device thermal state, as iOS and Android report it (mirrors FCoreDelegates::ETemperatureSeverity). */
+	enum class EThermalState : uint8
+	{
+		Unknown,
+		Good,
+		Bad,
+		Serious,
+		Critical,
+	};
+
+	/** What the renderer does about heat: a frame cap (0 = keep the player's) and a minimum guard step. */
+	struct FThermalResponse
+	{
+		float MaxFps = 0.f;
+		int32 MinGuardSteps = 0;
+
+		bool operator==(const FThermalResponse& Other) const { return MaxFps == Other.MaxFps && MinGuardSteps == Other.MinGuardSteps; }
+	};
+
+	/** The frame rate the thermal policy falls back to: half of a 60 Hz panel, evenly paced. */
+	constexpr float ThermalFallbackFps = 30.f;
+
+	/**
+	 * Thermal policy for phones: Good/Unknown change nothing; Bad trims one guard step (cheaper frames, same 60 fps);
+	 * Serious also caps at 30 fps; Critical caps at 30 fps with every guard step. Low-power mode caps at 30 fps.
+	 * A steady 30 beats a throttled 40-60 that stutters.
+	 */
+	MOVECADEKART_API FThermalResponse ThermalResponseFor(EThermalState State, bool bLowPowerMode);
 }
