@@ -39,6 +39,8 @@ namespace
 		constexpr float DimAlpha = 0.28f;
 		constexpr double MapInset = 18.0;
 		constexpr double MapHeight = 330.0;
+		/** A phone's bigger tagline takes this much from the map; the name and tagline move up with it. */
+		constexpr double PhoneMapTrim = 100.0;
 		constexpr float MapShade = 0.4f;
 		/** The outline sits inside the panel with this much room around it. */
 		const FVector2D OutlinePad(40.0, 30.0);
@@ -223,7 +225,8 @@ namespace
 			Card.Card(Pos, CardSize, Color::Paper, Metric::RadiusLarge, Shadow, bFocused ? Color::White : FLinearColor::Transparent, FocusedRim);
 			// The outline panel: the track drawn from its centreline, with a dot running a lap.
 			const FVector2D MapPos = Pos + FVector2D(MapInset, MapInset);
-			const FVector2D MapSize(CardSize.X - 2.0 * MapInset, MapHeight);
+			const double Trim = Frame.bPhone ? PhoneMapTrim : 0.0;
+			const FVector2D MapSize(CardSize.X - 2.0 * MapInset, MapHeight - Trim);
 			Card.Gradient(MapPos, MapSize, Track.Accent, FMath::Lerp(Track.Accent, Color::Night, MapShade), true, Metric::Radius);
 			const TSharedPtr<const FKartTrackPreview> Preview = FKartTrackCatalog::GetPreview(Track.Id);
 			if (Preview.IsValid())
@@ -235,8 +238,8 @@ namespace
 			{
 				Card.Text(LOCTEXT("Loading", "..."), Font(EFont::Display, LoadingSize), MapPos + MapSize * 0.5, Color::White, FVector2D(0.5, 0.5));
 			}
-			Card.Text(Track.Name, Font(EFont::Display, NameSize), Pos + NamePos, Color::Navy);
-			Card.TextWrapped(Track.Tagline, Font(EFont::Body, TaglineSize), Pos + TaglinePos, CardSize.X - 2.0 * TaglinePos.X, Color::NavyDim);
+			Card.Text(Track.Name, Font(EFont::Display, NameSize), Pos + NamePos - FVector2D(0.0, Trim), Color::Navy);
+			Card.TextWrapped(Track.Tagline, Font(EFont::Body, TaglineSize), Pos + TaglinePos - FVector2D(0.0, Trim), CardSize.X - 2.0 * TaglinePos.X, Color::NavyDim);
 			// Stat chips: the lap length and the race's lap count.
 			double ChipX = Pos.X + ChipsX;
 			const FSlateFontInfo ChipFont = Font(EFont::Label, ChipFontSize);

@@ -54,6 +54,8 @@ namespace
 void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 {
 	SetVisibility(EVisibility::HitTestInvisible);
+	// The fonts are fixed here: on a phone they get the menus' bigger reading sizes (KartSafeArea::FPhoneMenuTextScope).
+	const KartSafeArea::FPhoneMenuTextScope PhoneText(KartSafeArea::FKartDisplay::Get(FVector2D(KartUI::Metric::CanvasW, KartUI::Metric::CanvasH)).bPhone);
 	// Rounded panels with the menus' light outline; colours are tints, so one white brush serves every accent.
 	PanelBrush = FSlateRoundedBoxBrush(FLinearColor::White, PanelRadius, KartUI::Color::WithAlpha(KartUI::Color::Sky, 0.9f), PanelOutline);
 	DotBrush = FSlateRoundedBoxBrush(FLinearColor::White, DotSize / 2.f);
