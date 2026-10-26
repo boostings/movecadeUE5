@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Games/ArcadeHud.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class ASamuraiGame;
@@ -78,6 +79,8 @@ private:
 	mutable TMap<FString, FLinearColor> CalloutColors;
 	/** This paint's projection. */
 	mutable FArcadeHudView View;
+	/** This paint's safe area and scale (portrait moves the lane panels to the top). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 	/** Polygon and polyline points, reused. */
 	mutable TArray<FVector2D> Scratch;
 };

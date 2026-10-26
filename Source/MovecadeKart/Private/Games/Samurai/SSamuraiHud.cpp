@@ -22,14 +22,16 @@ int32 SSamuraiHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 		return Layer;
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const float S = Safe.Scale;
 	View = FArcadeHudView::Capture(G->GetViewer());
 	switch (G->GetStage())
 	{
 	case ESamuraiStage::Intro:
+		// The intro card and the practice coach are wide: shrunk to fit a narrow screen.
 		PaintNotes(P, *G, S);
-		PaintIntro(P, *G, S);
-		PaintPractice(P, *G, S);
+		PaintIntro(P, *G, Safe.FitWidth(Portrait::IntroWidth));
+		PaintPractice(P, *G, Safe.FitWidth(Practice::CardSize.X));
 		break;
 	case ESamuraiStage::Finished:
 		PaintStandings(P, *G, S);
@@ -40,8 +42,8 @@ int32 SSamuraiHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 		PaintLanes(P, *G, S);
 		PaintCallouts(P, *G, S);
 		PaintNotes(P, *G, S);
-		PaintBanner(P, *G, S);
-		PaintControls(P, *G, S);
+		PaintBanner(P, *G, Safe.FitWidth(Banner::BandWidth));
+		PaintControls(P, *G, Safe.FitWidth(Controls::CardSize.X));
 		PaintCountdown(P, *G, S);
 		break;
 	}
@@ -51,7 +53,7 @@ int32 SSamuraiHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 void SSamuraiHud::PaintClock(const FKartPainter& P, const ASamuraiGame& G, float S) const
 {
 	const FMatch& M = G.GetMatch();
-	const FVector2D Top(P.Size().X / 2.f, P.Size().Y * KartUI::Metric::SafeFraction);
+	const FVector2D Top(P.Size().X / 2.f, Safe.SafeMin.Y);
 	const int32 Seconds = FMath::CeilToInt32(M.TimeRemainingMs / 1000.0);
 	const bool bLate = Seconds <= Clock::LateSeconds && M.Phase == EMatchPhase::Playing;
 	const float Pulse = bLate ? 1.f + Clock::LatePulse * FMath::Abs(FMath::Sin(static_cast<float>(G.GetClock()) * Clock::LatePulseRate)) : 1.f;
@@ -68,7 +70,13 @@ void SSamuraiHud::PaintLanes(const FKartPainter& P, const ASamuraiGame& G, float
 {
 	const FMatch& M = G.GetMatch();
 	const int32 Count = M.Players.Num();
-	const float Width = FMath::Min(Lane::MaxWidth * S, (P.Size().X * Lane::ScreenShare) / FMath::Max(1, Count) - Lane::Gap * S);
+	float Width = FMath::Min(Lane::MaxWidth * S, (P.Size().X * Lane::ScreenShare) / FMath::Max(1, Count) - Lane::Gap * S);
+	if (Safe.bPortrait)
+	{
+		// Two columns under the clock.
+		const int32 Columns = FMath::Min(Count, Portrait::LaneColumns);
+		Width = FMath::Min(Lane::MaxWidth * S, (static_cast<float>(Safe.SafeSize().X) - (Columns - 1) * Lane::Gap * S) / FMath::Max(1, Columns));
+	}
 	LaneTexts.SetNum(Count);
 	for (const FPlayer& Player : M.Players)
 	{
@@ -91,7 +99,17 @@ void SSamuraiHud::PaintLanePanel(const FKartPainter& P, const ASamuraiGame& G, c
 	{
 		At01.X = FMath::Clamp(At01.X, Lane::MinX01, Lane::MaxX01);
 	}
-	const FVector2D Pos(At01.X * P.Size().X - Width / 2.f, P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Height);
+	FVector2D Pos(At01.X * P.Size().X - Width / 2.f, Safe.SafeMax.Y - Height);
+	if (Safe.bPortrait)
+	{
+		// Scores on top: a grid under the clock, in lane order (each panel carries its swordsman's colour).
+		const int32 Columns = FMath::Min(Count, Portrait::LaneColumns);
+		const int32 Row = LaneIndex / Portrait::LaneColumns, Column = LaneIndex % Portrait::LaneColumns;
+		const int32 InRow = FMath::Min(Columns, Count - Row * Portrait::LaneColumns);
+		const float RowWidth = InRow * Width + (InRow - 1) * Lane::Gap * S;
+		Pos = FVector2D(P.Size().X / 2.f - RowWidth / 2.f + Column * (Width + Lane::Gap * S),
+			Safe.SafeMin.Y + (Clock::CardSize.Y + Portrait::LanesBelowClock + Row * (Lane::Height + Lane::Gap)) * S);
+	}
 	const bool bFocus = Player.FocusRemainingMs > 0.0;
 	if (bFocus)
 	{
@@ -219,7 +237,7 @@ void SSamuraiHud::PaintBanner(const FKartPainter& P, const ASamuraiGame& G, floa
 	{
 		return;
 	}
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * Banner::Y01);
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::BannerY01 : Banner::Y01));
 	const float In = Popped(Banner::Pop, Age);
 	const float Out = Clamp01((Banner::Life - Age) / Banner::FadeSeconds);
 	const FKartPainter F = P.Faded(Out);
@@ -283,7 +301,7 @@ void SSamuraiHud::PaintControls(const FKartPainter& P, const ASamuraiGame& G, fl
 		return;
 	}
 	const float A = FMath::Clamp(static_cast<float>((Controls::ShowMs - G.GetMatch().ElapsedMs) / Controls::FadeMs), 0.f, 1.f);
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * Controls::Y01);
+	const FVector2D Centre(P.Size().X / 2.f, Safe.bPortrait ? Safe.SafeMax.Y - Controls::CardSize.Y / 2.f * S : P.Size().Y * Controls::Y01);
 	const FKartPainter F = P.Faded(A);
 	F.Card(Centre - Controls::CardSize / 2.f * S, Controls::CardSize * S, KC::WithAlpha(KC::Night, Controls::CardAlpha), Controls::Card.Radius * S, Controls::Card.Shadow * S,
 		KC::Sun, Controls::Card.OutlineWidth * S);

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Games/ArcadeHud.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class ABowlingGame;
@@ -55,7 +56,8 @@ private:
 		FString Name;
 		FString FittedName;
 		float FittedSize = 0.f;
-		float FittedScale = -1.f;
+		/** The name column's room the name was fitted to. */
+		float FittedRoom = -1.f;
 	};
 
 	/** The last beat's banner words, formatted once per beat. */
@@ -72,7 +74,7 @@ private:
 	/** The row for a seat, refreshed when its card or name (or the scale) changed. */
 	const FRowCache& Row(const ABowlingGame& Game, int32 SeatIndex, float S) const;
 	static void RebuildRow(FRowCache& Row, const FBowlerSeat& Seat, const MovecadeKart::Bowling::FCard* Card);
-	static void FitName(FRowCache& Row, const FString& Name, float S);
+	static void FitName(FRowCache& Row, const FString& Name, float Room, float S);
 	const FBeatCache& Beat(const ABowlingGame& Game, float S) const;
 
 	void PaintSheet(const FKartPainter& P, const ABowlingGame& Game, float S) const;
@@ -89,6 +91,8 @@ private:
 	void PaintStandings(const FKartPainter& P, const ABowlingGame& Game, float S) const;
 
 	TWeakObjectPtr<ABowlingGame> Game;
+	/** This paint's safe area and scale (portrait narrows the sheet and centres the panels). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 	mutable TArray<FRowCache> Rows;
 	/** Seat indices by score for the results (ties in turn order), re-ranked only when a score changes. */
 	mutable FArcadeStandingsOrder FinalRanks;

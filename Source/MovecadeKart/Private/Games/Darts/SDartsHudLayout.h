@@ -301,6 +301,29 @@ namespace MovecadeKart::Darts::HudLayout
 		constexpr float RulesAlpha = 0.92f;
 	}
 
+	/**
+	 * A phone held upright: the scoreboard across the top, the round and the bounty in a row under it, the board in
+	 * the middle (the camera frames it there), the visit card, the coach marks and the controls at the bottom. Y
+	 * fractions are of the screen's height.
+	 */
+	namespace Portrait
+	{
+		/** Between the scoreboard and the round row. */
+		constexpr float RoundRowGap = 14.f;
+		/** The round's line is smaller than the landscape header (it shares its row with the chip). */
+		constexpr float RoundSize = 46.f;
+		/** The 3-2-1 and "THROW!" sit over the board's middle. */
+		constexpr float CountdownY = 0.46f;
+		constexpr float VisitCentreY = 0.73f;
+		/** The coach marks stack, centred, below the board. */
+		constexpr float CoachTopY = 0.64f;
+		/** The intro's title is shrunk to fit the width. */
+		constexpr float IntroTitleScale = 0.62f;
+		constexpr float IntroCentreY = 0.5f;
+		constexpr float StandingsTitleY = 0.24f;
+		constexpr float StandingsTopY = 0.31f;
+	}
+
 	namespace Standings
 	{
 		constexpr double FadeInSeconds = 0.5;

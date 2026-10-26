@@ -7,7 +7,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
-#include "Engine/GameViewportClient.h"
+#include "Games/ArcadeFraming.h"
 #include "Games/Derby/DerbyStage.h"
 
 using namespace MovecadeKart::Derby;
@@ -85,7 +85,6 @@ namespace
 	constexpr double ShakeSideRate = 63.0;
 	constexpr double ShakeUpRate = 51.0;
 	constexpr double ShakeUpPhase = 1.3;
-	constexpr double DefaultAspect = 16.0 / 9.0;
 }
 
 void ADerbyGame::FlightShot(double Age, FVector& Pos, FVector& Look, double& Fov, double& Response) const
@@ -115,13 +114,6 @@ void ADerbyGame::FlightShot(double Age, FVector& Pos, FVector& Look, double& Fov
 
 void ADerbyGame::UpdateCamera(float Dt)
 {
-	double Aspect = DefaultAspect;
-	if (const UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
-	{
-		FVector2D Size;
-		Viewport->GetViewportSize(Size);
-		Aspect = Size.Y > 0.0 ? Size.X / Size.Y : Aspect;
-	}
 	FVector Pos = PlatePos, Look = PlateLook;
 	double Fov = PlateFov, Response = DefaultResponse;
 	const double Age = GetPhaseAge();
@@ -180,7 +172,6 @@ void ADerbyGame::UpdateCamera(float Dt)
 	const FVector From = ToCm(CamPos + Jolt);
 	const FVector To = ToCm(CamLook);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());
-	// The shots are framed by their vertical field of view; the camera component wants the horizontal one.
-	const double HorizontalFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(CamFov) / 2.0) * Aspect));
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov));
+	// The shots are framed by their vertical field of view.
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), CamFov);
 }

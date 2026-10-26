@@ -6,7 +6,7 @@
 #include "BowlingGameTuning.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
-#include "Engine/GameViewportClient.h"
+#include "Games/ArcadeFraming.h"
 #include "Games/Bowling/BowlingAlley.h"
 
 using namespace MovecadeKart::Bowling;
@@ -44,7 +44,6 @@ namespace
 	constexpr double JoltRateX = 71.0;
 	constexpr double JoltRateY = 53.0;
 	constexpr double JoltRateZ = 61.0;
-	constexpr double DefaultAspect = 16.0 / 9.0;
 
 	/** A fixed framing (web units): the camera and its look-at, each sliding across with where the ball meets the rack. */
 	struct FShotKey
@@ -84,6 +83,13 @@ namespace
 	constexpr double FinishedSwayRate = 0.15;
 	const FShotKey FinishedKey{ FVector(0.0, 3.1, 4.6), 0.0, FVector(0.0, 1.0, -6.0), 0.0, 46.0, 1.2 };
 
+	/** A phone held upright (ForAspect): the lane's half width the lens fits at the look point (web units), the
+	 *  narrowest lens, how far (share of the frame's half height) the look point drops, and the wide shots' share. */
+	constexpr double PortraitLaneHalfWidth = 1.5;
+	constexpr double PortraitMinFov = 20.0;
+	constexpr double PortraitLookDropShare = 0.3;
+	constexpr double PortraitWideKeepShare = 0.55;
+
 	FBowlingCameraShot Frame(const FShotKey& Key, double EndX)
 	{
 		return { Key.Pos + FVector(EndX * Key.PosPerEndX, 0.0, 0.0), Key.Look + FVector(EndX * Key.LookPerEndX, 0.0, 0.0), Key.Fov, Key.Response };
@@ -117,12 +123,27 @@ namespace
 		Shot.Pos.X = FinishedSway * FMath::Sin(Clock * FinishedSwayRate);
 		return Shot;
 	}
+}
 
-	/** three.js gives a vertical field of view; UE's is horizontal, so convert at the viewport's aspect. */
-	double HorizontalFov(double VerticalFov, double Aspect)
+FBowlingCameraShot ABowlingGame::ForAspect(FBowlingCameraShot Want, double Aspect) const
+{
+	// Held upright, the lane runs up the screen: the lane shots narrow the lens until the lane (and a little of the
+	// next one) spans the width at the shot's look point, and drop the look point so the rack rides high with the
+	// bowler and the near lane below; the celebration and the results keep the middle of their 16:9 frame.
+	if (!ArcadeFraming::IsPortrait(Aspect))
 	{
-		return 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(VerticalFov) / 2.0) * Aspect));
+		return Want;
 	}
+	const bool bWide = Phase == EBowlingPhase::Finished || (Phase == EBowlingPhase::Reset && IsCelebration(LastBeat) && Clock - LastBeatAt < CelebrationSeconds);
+	if (bWide)
+	{
+		Want.Fov = ArcadeFraming::KeepWidth(Want.Fov, Aspect, PortraitWideKeepShare);
+		return Want;
+	}
+	const double Distance = FVector::Dist(Want.Pos, Want.Look);
+	Want.Fov = FMath::Max(PortraitMinFov, ArcadeFraming::VerticalFovForWidth(PortraitLaneHalfWidth, Distance, Aspect));
+	Want.Look.Y -= Distance * FMath::Tan(FMath::DegreesToRadians(Want.Fov / 2.0)) * PortraitLookDropShare;
+	return Want;
 }
 
 FBowlingCameraShot ABowlingGame::PickCameraShot() const
@@ -178,7 +199,7 @@ void ABowlingGame::UpdateCamera(float Dt)
 	{
 		return;
 	}
-	const FBowlingCameraShot Want = PickCameraShot();
+	const FBowlingCameraShot Want = ForAspect(PickCameraShot(), ArcadeFraming::ViewportAspect(GetWorld()));
 	if (!bCamPlaced)
 	{
 		CamPos = Want.Pos;
@@ -194,12 +215,5 @@ void ABowlingGame::UpdateCamera(float Dt)
 	const FVector From = LaneToWorld(CamPos.X + Jolt.X, CamPos.Y + Jolt.Y, CamPos.Z + Jolt.Z);
 	const FVector To = LaneToWorld(CamLook.X, CamLook.Y, CamLook.Z);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());
-	double Aspect = DefaultAspect;
-	if (const UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
-	{
-		FVector2D Size;
-		Viewport->GetViewportSize(Size);
-		Aspect = Size.Y > 0.0 ? Size.X / Size.Y : Aspect;
-	}
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov(CamFov, Aspect)));
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), CamFov);
 }
