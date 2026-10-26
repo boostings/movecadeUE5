@@ -6,6 +6,7 @@
 #include "FX/KartFx.h"
 #include "FX/KartFxSubsystem.h"
 #include "Games/Stacker/StackerRooftop.h"
+#include "Platform/Mobile/MobileHaptics.h"
 #include "StackerScene.h"
 
 using namespace MovecadeKart::Stacker;
@@ -184,6 +185,8 @@ void AStackerGame::PresentEffect(const FEffect& E)
 	if (Lane.Kind == EBuilderKind::Local && (E.Kind == EEffectKind::Land || E.Kind == EEffectKind::Perfect))
 	{
 		++CoachLandings;
+		MovecadeKart::Mobile::FHaptics::PlayForLocalPlayer(this, E.Kind == EEffectKind::Perfect ? MovecadeKart::Mobile::EHaptic::Big : MovecadeKart::Mobile::EHaptic::Landing,
+			static_cast<float>(E.Intensity));
 	}
 	const float P = static_cast<float>(E.Intensity);
 	const FLinearColor Color = AStackerRooftop::LaneColor(Tower.LaneIndex);
