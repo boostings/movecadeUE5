@@ -4,11 +4,14 @@ had. The PC look cannot change: the switch's Default pin carries the original ex
 
     .\\Tools\\ue\\run.ps1 mobile_material_variants.py -NullRhi
 
-Why each variant exists (the mobile renderer has no Lumen reflections and no depth-based water absorption):
-  M_TrackWater  The single layer water falls back to a translucent pass on mobile (MOBILE_SINGLELAYERWATER_FALLBACK):
-                no scattering through depth, and its 0.04-roughness specular reflects only the sky light's bright
-                horizon, so the sea reads as flat white. Phones get the sea colour the PC water shows at mid depth
-                as base colour, a broader highlight and less specular, and fog per pixel (see FLAGS).
+Why each entry exists (the mobile renderer has no Lumen reflections and no depth-based water absorption):
+  M_TrackWater  The single layer water falls back to a translucent pass on mobile (MOBILE_SINGLELAYERWATER_FALLBACK),
+                fogged per vertex across quads hundreds of metres wide and without depth scattering: the sea washed
+                out to white. Per-pixel fog (FLAGS), a surface colour taken from each venue's own Scattering
+                parameter, a damped grazing reflection (specular 0.2) and a softer one (roughness 0.25) bring it
+                back. Tried and rejected: a constant teal (Sumo's night sea lit bright blue under the moon) and
+                roughness 0.45 (Fishing's low sun spread into a glare column over the lake).
+A value of None removes this script's mobile constant from that property (ES3.1 then reads the Default pin).
 Idempotent: a property already routed through a switch made by this script only gets its mobile value updated.
 Run it again after any script that rebuilds these materials (import_track_assets.py rebuilds M_TrackWater).
 """
@@ -23,11 +26,15 @@ eal = unreal.EditorAssetLibrary
 MP = unreal.MaterialProperty
 TAG = "KartMobileVariant"
 
-# material -> { property: mobile value (float or RGB tuple) }
+# material -> { property: mobile value (float, RGB tuple, or None = the desktop input) }
 VARIANTS = {
     "/Game/Tracks/Shared/Materials/M_TrackWater": {
-        MP.MP_BASE_COLOR: (0.02, 0.09, 0.12),
-        MP.MP_ROUGHNESS: 0.45,
+        # Half the venue's scattering colour as the surface colour: Harbor's turquoise, Sumo's near-black night sea,
+        # the lake's green (the same parameter the venues already set; the default matches the master's).
+        MP.MP_BASE_COLOR: ("param", "Scattering", (0.02, 0.12, 0.11), 0.5),
+        # Blurs the sky light's bright horizon in the reflection; above ~0.3 the low sun spreads into a glare column.
+        MP.MP_ROUGHNESS: 0.25,
+        # F0 under 0.02 lets the mobile env BRDF damp the grazing sky reflection that whitened the sea.
         MP.MP_SPECULAR: 0.2,
     },
 }
@@ -55,6 +62,20 @@ def writable(material):
 
 
 def constant(material, value, x, y):
+    """The mobile value's expression: a constant, an RGB constant, or ("param", name, default RGB, scale): the material's
+    own vector parameter (a same-named node shares the instances' value) times a scale."""
+    if isinstance(value, tuple) and value and value[0] == "param":
+        _, name, default, scale = value
+        param = mel.create_material_expression(material, unreal.MaterialExpressionVectorParameter, x - 300, y)
+        param.set_editor_property("parameter_name", name)
+        param.set_editor_property("default_value", unreal.LinearColor(default[0], default[1], default[2], 1.0))
+        param.set_editor_property("desc", TAG)
+        factor = constant(material, float(scale), x - 300, y + 120)
+        node = mel.create_material_expression(material, unreal.MaterialExpressionMultiply, x, y)
+        mel.connect_material_expressions(param, "", node, "A")
+        mel.connect_material_expressions(factor, "", node, "B")
+        node.set_editor_property("desc", TAG)
+        return node
     if isinstance(value, tuple):
         node = mel.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, x, y)
         node.set_editor_property("constant", unreal.LinearColor(value[0], value[1], value[2], 1.0))
@@ -69,18 +90,30 @@ def is_ours(node):
     return isinstance(node, unreal.MaterialExpressionFeatureLevelSwitch) and node.get_editor_property("desc") == TAG
 
 
+def delete_mobile_value(material, node):
+    """Deletes a mobile value expression made by constant() and its tagged inputs, never the desktop graph."""
+    if node is None or is_ours(node) or node.get_editor_property("desc") != TAG:
+        return
+    for child in mel.get_inputs_for_material_expression(material, node):
+        delete_mobile_value(material, child)
+    mel.delete_material_expression(material, node)
+
+
 def route(material, prop, value, index):
     current = mel.get_material_property_input_node(material, prop)
     y = 1600 + index * 200
     if current is not None and is_ours(current):
         # Already switched: replace the mobile value only (the old mobile constant is deleted, the desktop input kept).
         for node in mel.get_inputs_for_material_expression(material, current):
-            if node is not None and not is_ours(node) and node.get_editor_property("desc") == TAG:
-                mel.delete_material_expression(material, node)
+            delete_mobile_value(material, node)
+        if value is None:
+            return "desktop input"
         mobile = constant(material, value, -600, y)
         if not mel.connect_material_expressions(mobile, "", current, "ES3_1"):
             raise RuntimeError(f"{material.get_name()}: reconnecting the ES3_1 pin failed for {prop}")
         return "updated"
+    if value is None:
+        return "untouched"
     if current is None:
         raise RuntimeError(f"{material.get_name()}: {prop} has no input to keep for the desktop")
     out_name = mel.get_material_property_input_node_output_name(material, prop)
