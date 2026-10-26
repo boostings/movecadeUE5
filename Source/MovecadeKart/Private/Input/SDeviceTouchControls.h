@@ -9,7 +9,7 @@ class UDeviceControlsSubsystem;
 
 /**
  * The on-screen half of the device controls, over the game: the scheme's buttons (A, B, gas, brake, drift, item),
- * the touch surface for its swipe fallback, and the chips along the top (pause, calibrate, sensitivity - / +).
+ * the touch surface for its swipe fallback, and the pause and settings chips at the right edge (settings opens calibrate and sensitivity - / +).
  * Multi-touch: each finger keeps the control it landed on until it lifts. The mouse works the same way on the desktop.
  *
  * Every target is at least 44 pt: sizes are fractions of the screen's short side, and the smallest is 44 / 320 of it
@@ -33,7 +33,7 @@ public:
 	/** The smallest target, as a share of the screen's short side: 44 pt on a 320 pt screen. */
 	static constexpr float MinTargetShare = 44.f / 320.f;
 
-	enum class ETarget : uint8 { None, Button, Surface, Pause, Calibrate, SensitivityDown, SensitivityUp };
+	enum class ETarget : uint8 { None, Button, Surface, Pause, Settings, Calibrate, SensitivityDown, SensitivityUp };
 
 	struct FHit
 	{
@@ -66,7 +66,7 @@ private:
 		FVector2D Size = FVector2D::ZeroVector;
 	};
 
-	void Chips(const FVector2D& Size, TArray<FChip, TInlineAllocator<4>>& Out) const;
+	void Chips(const FVector2D& Size, TArray<FChip, TInlineAllocator<6>>& Out) const;
 	/** The safe area of a widget of Size: where every control goes. */
 	void SafeRect(const FVector2D& Size, FVector2D& OutOrigin, FVector2D& OutSize) const;
 	FReply Down(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
@@ -83,5 +83,9 @@ private:
 	/** The screen's safe area (UMovecadeOrientationSubsystem), refreshed each tick. */
 	MovecadeKart::Mobile::FMovecadeSafeArea SafeArea;
 	FString SensitivityLabel;
+	/** The settings chip opened the calibrate / sensitivity row. */
+	bool bSettingsOpen = false;
+	/** Seconds the controls have been up (frame time), for the hint. */
+	double HintAge = 0.0;
 	double ShownSensitivity = -1.0;
 };

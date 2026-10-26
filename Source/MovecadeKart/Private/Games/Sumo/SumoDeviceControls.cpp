@@ -27,6 +27,7 @@ FSumoDeviceControls::FSumoDeviceControls()
 	Layout.SendHz = SumoSendHz;
 	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Dash", "DASH"), EButtonAnchor::BottomRight, true } };
 	Layout.bSurface = true;
+	Layout.Chips = EChipPlacement::LeftEdge;
 	Layout.Hint = LOCTEXT("Hint", "Hold flat and tilt to roll · or drag a finger");
 }
 

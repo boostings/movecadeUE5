@@ -59,6 +59,15 @@ namespace MovecadeKart::Input
 		bool bLarge = false;
 	};
 
+	/** Where the pause and settings chips go: clear of the game's HUD. */
+	enum class EChipPlacement : uint8
+	{
+		/** A column at the right edge in portrait, a pair at the top centre in landscape. */
+		Auto,
+		/** A column at the left edge (a landscape HUD with its title at the top centre). */
+		LeftEdge,
+	};
+
 	/** What the touch overlay shows for a scheme, and how often frames go out. */
 	struct FDeviceLayout
 	{
@@ -66,6 +75,7 @@ namespace MovecadeKart::Input
 		/** The phone controller's sendHz for this game (kart 30, samurai 100, the rest 60). */
 		double SendHz = 60.0;
 		TArray<FDeviceButtonSpec> Buttons;
+		EChipPlacement Chips = EChipPlacement::Auto;
 		/** A touch surface over the rest of the screen: the scheme's swipe fallback reads it. */
 		bool bSurface = false;
 		/** One line under the calibrate chip ("Tilt to steer", "Hold, swing, let go"). */

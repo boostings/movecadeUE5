@@ -35,6 +35,8 @@ FFishingDeviceControls::FFishingDeviceControls()
 	Layout.SendHz = FishingSendHz;
 	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Cast", "CAST"), EButtonAnchor::BottomRight, true } };
 	Layout.bSurface = true;
+	// A landscape HUD with its clock at the top centre.
+	Layout.Chips = EChipPlacement::LeftEdge;
 	Layout.Hint = LOCTEXT("Hint", "Flick to cast, jerk up to hook, roll the wrist to reel · or circle a finger");
 }
 

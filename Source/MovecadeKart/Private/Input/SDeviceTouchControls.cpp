@@ -16,9 +16,11 @@ namespace
 
 	// Sizes, as shares of the screen's short side (all at or above SDeviceTouchControls::MinTargetShare).
 	constexpr float MarginShare = 0.05f;
-	constexpr float LargeButtonShare = 0.30f;
-	constexpr float ButtonShare = 0.22f;
+	constexpr float LargeButtonShare = 0.25f;
+	constexpr float ButtonShare = 0.19f;
 	constexpr float ChipShare = 0.14f;
+	/** The pause / settings column starts this far down the safe area. */
+	constexpr float ChipColumnTop = 0.3f;
 	constexpr float CalibrateChipWidth = 2.6f;
 	constexpr float SensitivityLabelWidth = 1.7f;
 	constexpr float ChipGap = 0.25f;
@@ -28,11 +30,18 @@ namespace
 	/** Fingers are wide: a button answers a little outside its circle. */
 	constexpr float HitSlop = 1.15f;
 
-	constexpr float IdleAlpha = 0.42f;
+	constexpr float IdleAlpha = 0.3f;
 	constexpr float PressedAlpha = 0.78f;
-	constexpr float LabelShare = 0.2f;
-	constexpr float ChipLabelShare = 0.38f;
-	constexpr float HintShare = 0.055f;
+	/** Font sizes (Slate points, ~1.33 px each) as shares of the button's diameter or the chip's height. */
+	constexpr float LabelShare = 0.15f;
+	constexpr float ChipLabelShare = 0.26f;
+	constexpr float HintShare = 0.03f;
+	/** The hint shows for this long after the controls appear, then fades over HintFadeSeconds. */
+	constexpr double HintSeconds = 6.0;
+	constexpr double HintFadeSeconds = 1.0;
+	/** Where the hint sits, down the screen. */
+	constexpr float HintHeight = 0.62f;
+	constexpr float MaxHintStep = 0.1f;
 
 	FLinearColor ButtonColor(EDeviceButton Button)
 	{
@@ -66,6 +75,8 @@ void SDeviceTouchControls::Tick(const FGeometry& AllottedGeometry, const double 
 {
 	// A menu opening under a held finger lets that finger go: nothing stays pressed behind the menu.
 	const bool bBlocked = IsBlocked();
+	// Frame time, capped: a load hitch doesn't eat the hint before anyone has seen it.
+	HintAge += FMath::Min(InDeltaTime, MaxHintStep);
 	SetVisibility(bBlocked ? EVisibility::HitTestInvisible : EVisibility::Visible);
 	if (bBlocked && Held.Num() > 0)
 	{
@@ -118,29 +129,47 @@ void SDeviceTouchControls::ButtonCircle(int32 Index, const FVector2D& FullSize, 
 	OutCentre += Origin;
 }
 
-void SDeviceTouchControls::Chips(const FVector2D& FullSize, TArray<FChip, TInlineAllocator<4>>& Out) const
+void SDeviceTouchControls::Chips(const FVector2D& FullSize, TArray<FChip, TInlineAllocator<6>>& Out) const
 {
 	FVector2D Origin, Size;
 	SafeRect(FullSize, Origin, Size);
 	const float Short = static_cast<float>(FMath::Min(Size.X, Size.Y));
 	const float H = Short * ChipShare;
-	const float Gap = H * ChipGap;
-	const float Total = H + Gap + H * CalibrateChipWidth + Gap + H + H * SensitivityLabelWidth + H;
-	float X = static_cast<float>(Origin.X + (Size.X - Total) * 0.5);
-	const float Y = static_cast<float>(Origin.Y) + Short * MarginShare * 0.6f;
-	Out.Add({ ETarget::Pause, FVector2D(X, Y), FVector2D(H, H) });
-	X += H + Gap;
-	Out.Add({ ETarget::Calibrate, FVector2D(X, Y), FVector2D(H * CalibrateChipWidth, H) });
-	X += H * CalibrateChipWidth + Gap;
-	Out.Add({ ETarget::SensitivityDown, FVector2D(X, Y), FVector2D(H, H) });
-	X += H + H * SensitivityLabelWidth;
-	Out.Add({ ETarget::SensitivityUp, FVector2D(X, Y), FVector2D(H, H) });
+	const float Margin = Short * MarginShare;
+	// Pause and settings stay clear of the HUD's corners and of the thumbs' buttons: in portrait a column at the
+	// right edge a little above the middle, in landscape (thumbs in both bottom corners) a pair at the top centre.
+	if (Layout.Chips == EChipPlacement::Auto && Size.X > Size.Y)
+	{
+		const float X = static_cast<float>(Origin.X + Size.X * 0.5) - H * (1.f + ChipGap * 0.5f);
+		const float Y = static_cast<float>(Origin.Y) + Margin * 0.5f;
+		Out.Add({ ETarget::Pause, FVector2D(X, Y), FVector2D(H, H) });
+		Out.Add({ ETarget::Settings, FVector2D(X + H * (1.f + ChipGap), Y), FVector2D(H, H) });
+	}
+	else
+	{
+		const float X = Layout.Chips == EChipPlacement::LeftEdge ? static_cast<float>(Origin.X) + Margin : static_cast<float>(Origin.X + Size.X) - Margin - H;
+		const float Y = static_cast<float>(Origin.Y + Size.Y * ChipColumnTop);
+		Out.Add({ ETarget::Pause, FVector2D(X, Y), FVector2D(H, H) });
+		Out.Add({ ETarget::Settings, FVector2D(X, Y + H * (1.f + ChipGap)), FVector2D(H, H) });
+	}
+	if (!bSettingsOpen)
+	{
+		return;
+	}
+	// The settings row, mid-screen: calibrate, then the sensitivity - value +.
+	const float Total = H * CalibrateChipWidth + H * ChipGap + H + H * SensitivityLabelWidth + H;
+	float RowX = static_cast<float>(Origin.X + (Size.X - Total) * 0.5);
+	const float RowY = static_cast<float>(Origin.Y + Size.Y * 0.5) - H * 0.5f;
+	Out.Add({ ETarget::Calibrate, FVector2D(RowX, RowY), FVector2D(H * CalibrateChipWidth, H) });
+	RowX += H * CalibrateChipWidth + H * ChipGap;
+	Out.Add({ ETarget::SensitivityDown, FVector2D(RowX, RowY), FVector2D(H, H) });
+	RowX += H + H * SensitivityLabelWidth;
+	Out.Add({ ETarget::SensitivityUp, FVector2D(RowX, RowY), FVector2D(H, H) });
 }
-
 SDeviceTouchControls::FHit SDeviceTouchControls::HitAt(const FVector2D& Local, const FVector2D& Size) const
 {
 	FHit Hit;
-	TArray<FChip, TInlineAllocator<4>> ChipList;
+	TArray<FChip, TInlineAllocator<6>> ChipList;
 	Chips(Size, ChipList);
 	for (const FChip& Chip : ChipList)
 	{
@@ -232,10 +261,14 @@ FReply SDeviceTouchControls::Up(int32 Pointer, const FVector2D& Local, const FVe
 			OpenPause();
 		}
 		break;
+	case ETarget::Settings:
+		bSettingsOpen = bStillOver ? !bSettingsOpen : bSettingsOpen;
+		break;
 	case ETarget::Calibrate:
 		if (bStillOver)
 		{
 			Subsystem->Calibrate();
+			bSettingsOpen = false;
 		}
 		break;
 	case ETarget::SensitivityDown:
@@ -306,8 +339,9 @@ int32 SDeviceTouchControls::OnPaint(const FPaintArgs& Args, const FGeometry& All
 	const float Short = static_cast<float>(FMath::Min(Size.X, Size.Y));
 	static const FText PauseLabel = LOCTEXT("Pause", "II");
 	static const FText CalibrateLabel = LOCTEXT("Calibrate", "CALIBRATE");
+	static const FText SettingsLabel = LOCTEXT("Settings", "...");
 
-	TArray<FChip, TInlineAllocator<4>> ChipList;
+	TArray<FChip, TInlineAllocator<6>> ChipList;
 	Chips(Size, ChipList);
 	const FSlateFontInfo ChipFont = KartUI::Font(KartUI::EFont::Label, Short * ChipShare * ChipLabelShare);
 	for (const FChip& Chip : ChipList)
@@ -317,6 +351,7 @@ int32 SDeviceTouchControls::OnPaint(const FPaintArgs& Args, const FGeometry& All
 		switch (Chip.Target)
 		{
 		case ETarget::Pause: P.Text(PauseLabel, ChipFont, Mid, KartUI::Color::White, FVector2D(0.5, 0.5)); break;
+		case ETarget::Settings: P.Text(SettingsLabel, ChipFont, Mid, KartUI::Color::White, FVector2D(0.5, 0.5)); break;
 		case ETarget::Calibrate: P.Text(CalibrateLabel, ChipFont, Mid, KartUI::Color::White, FVector2D(0.5, 0.5)); break;
 		case ETarget::SensitivityDown: P.Text(FString(TEXT("-")), ChipFont, Mid, KartUI::Color::White, FVector2D(0.5, 0.5)); break;
 		case ETarget::SensitivityUp:
@@ -327,10 +362,12 @@ int32 SDeviceTouchControls::OnPaint(const FPaintArgs& Args, const FGeometry& All
 		default: break;
 		}
 	}
-	if (!Layout.Hint.IsEmpty() && ChipList.Num() > 0)
+	// What to do, for the first few seconds (and never over the settings row).
+	const float HintAlpha = 1.f - FMath::Clamp(static_cast<float>((HintAge - HintSeconds) / HintFadeSeconds), 0.f, 1.f);
+	if (!Layout.Hint.IsEmpty() && HintAlpha > 0.f && !bSettingsOpen)
 	{
-		const FVector2D Below(Size.X * 0.5, ChipList[0].Pos.Y + ChipList[0].Size.Y + Short * 0.02f);
-		P.Text(Layout.Hint, KartUI::Font(KartUI::EFont::Body, Short * HintShare), Below, KartUI::Color::White, FVector2D(0.5, 0.0), 2.f);
+		P.Faded(HintAlpha).Text(Layout.Hint, KartUI::Font(KartUI::EFont::Body, Short * HintShare), FVector2D(Size.X * 0.5, Size.Y * HintHeight), KartUI::Color::White,
+			FVector2D(0.5, 0.5), 2.f);
 	}
 	for (int32 i = 0; i < Layout.Buttons.Num(); ++i)
 	{

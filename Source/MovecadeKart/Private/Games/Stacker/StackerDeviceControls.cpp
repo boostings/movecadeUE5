@@ -26,8 +26,10 @@ FStackerDeviceControls::FStackerDeviceControls()
 {
 	Layout.FrameKind = EDeviceFrameKind::Attitude;
 	Layout.SendHz = StackerSendHz;
-	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Drop", "DROP"), EButtonAnchor::BottomCentre, true } };
+	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Drop", "DROP"), EButtonAnchor::BottomRight, true } };
 	Layout.bSurface = true;
+	// A landscape HUD with its clock at the top centre.
+	Layout.Chips = EChipPlacement::LeftEdge;
 	Layout.Hint = LOCTEXT("Hint", "Balance on your palm · tap to drop");
 }
 
