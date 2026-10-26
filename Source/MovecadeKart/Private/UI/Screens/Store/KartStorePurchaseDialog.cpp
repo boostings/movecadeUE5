@@ -40,7 +40,8 @@ namespace
 
 	FLinearColor PhaseAccent(EDialogPhase Phase)
 	{
-		return Phase == EDialogPhase::Success ? Color::Mint : Phase == EDialogPhase::Failed ? Color::Hot : Phase == EDialogPhase::Cancelled ? Color::NavyDim : Color::Sun;
+		return Phase == EDialogPhase::Success ? Color::Mint : Phase == EDialogPhase::Failed ? Color::Hot
+			: Phase == EDialogPhase::Cancelled ? Color::NavyDim : Phase == EDialogPhase::Pending ? Color::Sky : Color::Sun;
 	}
 }
 
@@ -141,7 +142,7 @@ void FKartStorePurchaseDialog::Paint(const FKartPainter& P, const FKartScreenFra
 	double Y = Pos.Y + DialogTop;
 	PaintChip(D, FVector2D(TX, Y), SlotName(Item->Slot), Accent, SlotChipHeight);
 	Y += SlotChipAdvance;
-	D.Text(DialogTitle(Phase, *Item), Font(EFont::Display, TitleSize), FVector2D(TX, Y), Color::Navy);
+	D.Text(DialogTitle(Phase, *Item, StorefrontOf(Store)), Font(EFont::Display, TitleSize), FVector2D(TX, Y), Color::Navy);
 	Y += TitleAdvance;
 	if (Phase == EDialogPhase::Confirm)
 	{
@@ -274,6 +275,6 @@ void FKartStorePurchaseDialog::OnFinished(int32 Def, EPurchaseResult Result, con
 	SetPhase(PhaseAfter(Result));
 	if (Host)
 	{
-		Host->PlaySound(Phase == EDialogPhase::Success ? EKartUISound::Go : EKartUISound::Error);
+		Host->PlaySound(Phase == EDialogPhase::Success ? EKartUISound::Go : Phase == EDialogPhase::Pending ? EKartUISound::Tick : EKartUISound::Error);
 	}
 }

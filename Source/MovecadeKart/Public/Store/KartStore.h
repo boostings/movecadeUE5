@@ -13,6 +13,8 @@ namespace MovecadeKart::Store
 		ForSale,
 		/** A purchase or a grant is in flight. */
 		Pending,
+		/** Mobile: bought, but waiting for Ask to Buy or a slow payment. Not owned; arrives by itself if it goes through. */
+		AwaitingApproval,
 		/** Earned item still being earned (see GetProgress). */
 		Locked,
 		/** Drop item not dropped yet. */
@@ -30,7 +32,7 @@ namespace MovecadeKart::Store
 	 *
 	 * Trust: the save's owned list is only a cache (anyone can edit it). Paid items are worn only once the backend
 	 * has confirmed them this session (an inventory refresh, a checkout); until then they show as owned but
-	 * unconfirmed, and the equip choice is kept for when Steam answers. Free items can be worn from the cache.
+	 * unconfirmed, and the equip choice is kept for when the store answers. Free items can be worn from the cache.
 	 */
 	class MOVECADEKART_API FKartStore
 	{
@@ -39,7 +41,7 @@ namespace MovecadeKart::Store
 		FKartStore(TUniquePtr<IKartStoreBackend> InBackend, const FString& InSaveSlot);
 		~FKartStore();
 
-		/** Loads the save, then refreshes the inventory and prices. */
+		/** Loads the save, then refreshes the inventory (quietly: never a sign-in sheet) and prices. */
 		void Start();
 		void Tick(double DeltaSeconds);
 
@@ -70,6 +72,7 @@ namespace MovecadeKart::Store
 		int32 GetPurchasingDef() const { return PurchasingDef; }
 		bool IsRestoring() const { return bRestoring; }
 		bool IsOnline() const { return Backend->IsOnline(); }
+		EStorefront GetStorefront() const { return Backend->GetStorefront(); }
 		/** True once the first inventory refresh came back. */
 		bool HasInventory() const { return bHasInventory; }
 		IKartStoreBackend& GetBackend() const { return *Backend; }
@@ -78,7 +81,11 @@ namespace MovecadeKart::Store
 		// Actions ----------------------------------------------------------------------------------------------
 		/** Starts checkout; the end arrives through OnPurchaseFinished. False (and an immediate event) if it can't start. */
 		bool Purchase(int32 DefId);
-		/** Asks the backend for the whole inventory again (refunds leave, purchases on another PC arrive). */
+		/**
+		 * The player's Restore purchases: asks the backend for the whole inventory again (refunds leave, purchases on
+		 * another device arrive; on iOS it syncs with the App Store first). Purchases waiting for approval that still
+		 * haven't arrived go back on sale, so a declined Ask to Buy can be asked again.
+		 */
 		void Restore();
 		bool Equip(int32 DefId);
 		void Unequip(ESlot Slot);
@@ -98,9 +105,13 @@ namespace MovecadeKart::Store
 		/** A free item arrived (earned or dropped). */
 		TMulticastDelegate<void(int32 DefId)> OnUnlocked;
 		TMulticastDelegate<void(bool bOk)> OnRestored;
+		/** A purchase that ended Pending went through after all (approved, or the payment cleared). */
+		TMulticastDelegate<void(int32 DefId)> OnApproved;
 
 	private:
 		void Load();
+		/** The inventory refresh behind Start (quiet) and Restore (bUserAsked: the backend may sync first). */
+		void Refresh(bool bUserAsked);
 		/** The backend's whole inventory: owned and confirmed become exactly this. */
 		void ApplyInventory(const TSet<int32>& Inventory, bool bAnnounceNewFree);
 		/** Items the backend just granted (checkout, unlock, drop): owned and confirmed from now on. */
@@ -120,6 +131,8 @@ namespace MovecadeKart::Store
 		TMap<int32, FPrice> Prices;
 		/** Earned grants in flight. */
 		TSet<int32> Granting;
+		/** Purchases that ended Pending this session and haven't arrived (never saved: the store redelivers them). */
+		TSet<int32> AwaitingApproval;
 		int32 PurchasingDef = 0;
 		bool bRestoring = false;
 		bool bHasInventory = false;
