@@ -31,6 +31,8 @@ protected:
 
 private:
 	UInputAction* MakeAction(const TCHAR* Name, bool bAxis);
+	/** On-device controls (AKartGameMode::GetDeviceSeat): merged into LocalInput for the first local player. */
+	void AddDeviceInput();
 
 	UPROPERTY()
 	TObjectPtr<UInputMappingContext> Context;
@@ -61,4 +63,7 @@ private:
 
 	MovecadeKart::FKartInput LocalInput;
 	bool bLookingBack = false;
+	/** The device's ITEM press reads as held until then (real seconds). */
+	static constexpr double DeviceItemHoldSeconds = 0.1;
+	double DeviceItemHeldUntil = -1.0;
 };

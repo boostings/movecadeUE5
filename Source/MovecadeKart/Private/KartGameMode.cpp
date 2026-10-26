@@ -3,6 +3,9 @@
 #include "EngineUtils.h"
 #include "Games/ArcadeCatalog.h"
 #include "Games/ArcadeTestHooks.h"
+#include "Input/DeviceControlsSubsystem.h"
+#include "Input/KartDeviceControls.h"
+#include "Race/SKartRaceOverlay.h"
 #include "Kismet/GameplayStatics.h"
 #include "KartHUD.h"
 #include "KartMovementComponent.h"
@@ -137,6 +140,11 @@ void AKartGameMode::EndPlay(const EEndPlayReason::Type Reason)
 		Timers.ClearTimer(Handle);
 	}
 	TestHookTimers.Reset();
+	if (UDeviceControlsSubsystem* Device = UDeviceControlsSubsystem::Get(this); Device && DeviceSeat.IsValid())
+	{
+		Device->Deactivate();
+	}
+	DeviceSeat.Reset();
 	StopListeningToRoom();
 	Super::EndPlay(Reason);
 }
@@ -182,6 +190,25 @@ void AKartGameMode::SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track)
 	RaceManager->bLegacyWalls = Plan.bLegacyWalls;
 	RaceManager->Setup(Track, Plan.Seats, MakeViewers(Plan.Seats.Num(), Plan.LocalPlayers, Plan.bSoloView));
 	bRaceBuilt = true;
+	if (Plan.LocalPlayers > 0 && !Plan.bAutoDrive && UDeviceControlsSubsystem::IsEnabled())
+	{
+		ActivateDeviceControls();
+	}
+}
+
+void AKartGameMode::ActivateDeviceControls()
+{
+	UDeviceControlsSubsystem* Device = UDeviceControlsSubsystem::Get(this);
+	if (!Device)
+	{
+		return;
+	}
+	// The first local seat is the device; its kart-input and frames land in DeviceSeat, which its controller reads.
+	DeviceSeat = MakeShared<MovecadeKart::Input::FKartDeviceSeat>();
+	DeviceSeat->SetSensitivity(Device->GetSensitivity());
+	Device->Activate(MakeShared<MovecadeKart::Input::FKartDeviceControls>(), DeviceSeat.ToSharedRef(),
+		[]() { const TSharedPtr<SKartRaceOverlay> Race = SKartRaceOverlay::GetActive(); return Race.IsValid() && Race->AreMenusOpen(); },
+		[]() { if (const TSharedPtr<SKartRaceOverlay> Race = SKartRaceOverlay::GetActive()) { Race->OpenPauseMenu(); } });
 }
 
 // ───────────────────────────── Party Mode ─────────────────────────────

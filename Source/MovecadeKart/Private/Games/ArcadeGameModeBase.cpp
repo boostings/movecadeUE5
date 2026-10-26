@@ -10,6 +10,8 @@
 #include "Games/ArcadeSession.h"
 #include "Games/ArcadeTestHooks.h"
 #include "Games/SArcadeOverlay.h"
+#include "Input/DeviceControls.h"
+#include "Input/DeviceControlsSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
 #include "Net/RoomHostSubsystem.h"
@@ -39,8 +41,41 @@ FArcadeLaunchOptions FArcadeLaunchOptions::Parse(const MovecadeKart::Arcade::FGa
 	}
 #endif
 	MovecadeKart::Arcade::ClampSeats(Game, Options.Locals, Options.Bots);
+	Options.bDeviceSeat = UDeviceControlsSubsystem::IsEnabled() && Options.Locals > 0 && !Options.bAutoPlay;
 	return Options;
 }
+
+/** The device seat's phone traffic, into the mode's room handlers as if a phone in seat 1 sent it. */
+class FArcadeDeviceSink : public MovecadeKart::Input::IDeviceInputSink
+{
+public:
+	explicit FArcadeDeviceSink(AArcadeGameModeBase& InMode) : Mode(&InMode)
+	{
+		Seat.PlayerId = AArcadeGameModeBase::DeviceSeatId();
+		Seat.Seat = 1;
+		Seat.bConnected = true;
+	}
+
+	virtual void SendFrame(const MovecadeKart::Net::FSensorFrame& Frame) override
+	{
+		if (AArcadeGameModeBase* M = Mode.Get(); M && M->GameActor)
+		{
+			M->HandleSensorFrame(Seat, Frame);
+		}
+	}
+
+	virtual void SendEvent(const FString& Event, const TSharedPtr<FJsonObject>& Data) override
+	{
+		if (AArcadeGameModeBase* M = Mode.Get(); M && M->GameActor)
+		{
+			M->HandleGameEvent(Seat.PlayerId, Event, Data);
+		}
+	}
+
+private:
+	TWeakObjectPtr<AArcadeGameModeBase> Mode;
+	FMcSeat Seat;
+};
 
 AArcadeGameModeBase::AArcadeGameModeBase()
 {
@@ -90,11 +125,33 @@ void AArcadeGameModeBase::StartPlay()
 		}
 	}
 	Overlay = SArcadeOverlay::AttachTo(GameActor, ArcadeGame, bRoomMatch);
+	if (!bRoomMatch && Launch.bDeviceSeat)
+	{
+		ActivateDeviceControls();
+	}
 	FArcadeTestHooks::Parse(FCommandLine::Get()).Schedule(*this, TestHookTimers);
+}
+
+void AArcadeGameModeBase::ActivateDeviceControls()
+{
+	UDeviceControlsSubsystem* Device = UDeviceControlsSubsystem::Get(this);
+	const TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> Scheme = MakeDeviceControls();
+	if (!Device || !Scheme.IsValid())
+	{
+		return;
+	}
+	const TWeakPtr<SArcadeOverlay> WeakOverlay = Overlay;
+	Device->Activate(Scheme.ToSharedRef(), MakeShared<FArcadeDeviceSink>(*this),
+		[WeakOverlay]() { const TSharedPtr<SArcadeOverlay> O = WeakOverlay.Pin(); return O.IsValid() && O->AreMenusOpen(); },
+		[WeakOverlay]() { if (const TSharedPtr<SArcadeOverlay> O = WeakOverlay.Pin()) { O->OpenPause(); } });
 }
 
 void AArcadeGameModeBase::EndPlay(const EEndPlayReason::Type Reason)
 {
+	if (UDeviceControlsSubsystem* Device = UDeviceControlsSubsystem::Get(this))
+	{
+		Device->Deactivate();
+	}
 	if (Overlay.IsValid())
 	{
 		Overlay->Detach();

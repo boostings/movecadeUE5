@@ -208,6 +208,127 @@ int32 SKartScreenStack::HitAt(const FVector2D& Local) const
 	return INDEX_NONE;
 }
 
+int32 SKartScreenStack::TouchHitAmong(TConstArrayView<FKartHitRegion> Regions, const FVector2D& Local, double MinTarget)
+{
+	// Arrows are registered after their row, so search from the top.
+	for (int32 i = Regions.Num() - 1; i >= 0; --i)
+	{
+		if (Regions[i].Contains(Local))
+		{
+			return Regions[i].Id;
+		}
+	}
+	int32 Best = INDEX_NONE;
+	double BestDistance = TNumericLimits<double>::Max();
+	for (int32 i = Regions.Num() - 1; i >= 0; --i)
+	{
+		const FKartHitRegion& R = Regions[i];
+		const FVector2D Grow(FMath::Max(0.0, MinTarget - R.Size.X) * 0.5, FMath::Max(0.0, MinTarget - R.Size.Y) * 0.5);
+		const FVector2D Min = R.Pos - Grow;
+		const FVector2D Max = R.Pos + R.Size + Grow;
+		if (Local.X < Min.X || Local.Y < Min.Y || Local.X > Max.X || Local.Y > Max.Y)
+		{
+			continue;
+		}
+		const FVector2D Nearest(FMath::Clamp(Local.X, R.Pos.X, R.Pos.X + R.Size.X), FMath::Clamp(Local.Y, R.Pos.Y, R.Pos.Y + R.Size.Y));
+		const double Distance = FVector2D::DistSquared(Local, Nearest);
+		if (Distance < BestDistance)
+		{
+			BestDistance = Distance;
+			Best = R.Id;
+		}
+	}
+	return Best;
+}
+
+int32 SKartScreenStack::TouchHitAt(const FVector2D& Local) const
+{
+	return TouchHitAmong(Hits, Local, FMath::Min(LastSize.X, LastSize.Y) * MinTouchTargetShare);
+}
+
+void SKartScreenStack::SendTouchAction(EKartMenuAction Action)
+{
+	FKartMenuEvent Event;
+	Event.Action = Action;
+	Event.Device = EKartInputDevice::Mouse;
+	HandleMenuEvent(Event);
+}
+
+FReply SKartScreenStack::OnTouchStarted(const FGeometry& MyGeometry, const FPointerEvent& TouchEvent)
+{
+	if (!Top().IsValid() || TouchPointer != INDEX_NONE)
+	{
+		return FReply::Unhandled();
+	}
+	TouchPointer = TouchEvent.GetPointerIndex();
+	TouchStart = ToCanvas(MyGeometry, TouchEvent.GetScreenSpacePosition());
+	TouchSteps = 0;
+	bTouchDragging = false;
+	PressedId = TouchHitAt(TouchStart);
+	// The finger's target shows as hovered, as the mouse's does.
+	if (PressedId != INDEX_NONE && PressedId != HoverId)
+	{
+		HoverId = PressedId;
+		Top()->OnHover(PressedId);
+	}
+	return FReply::Handled();
+}
+
+FReply SKartScreenStack::OnTouchMoved(const FGeometry& MyGeometry, const FPointerEvent& TouchEvent)
+{
+	if (TouchEvent.GetPointerIndex() != TouchPointer || !Top().IsValid())
+	{
+		return FReply::Unhandled();
+	}
+	// A drag of a third of a target or more is a scroll, not a tap: every further target's height steps the focus.
+	const FVector2D Now = ToCanvas(MyGeometry, TouchEvent.GetScreenSpacePosition());
+	const double Step = FMath::Max(1.0, FMath::Min(LastSize.X, LastSize.Y) * MinTouchTargetShare);
+	const double Dy = Now.Y - TouchStart.Y;
+	if (!bTouchDragging && FMath::Abs(Dy) > Step / 3.0)
+	{
+		bTouchDragging = true;
+		PressedId = INDEX_NONE;
+	}
+	if (bTouchDragging)
+	{
+		// The finger moving up pulls the list up: the focus goes down it.
+		const int32 Steps = static_cast<int32>(-Dy / Step);
+		while (TouchSteps < Steps)
+		{
+			++TouchSteps;
+			SendTouchAction(EKartMenuAction::Down);
+		}
+		while (TouchSteps > Steps)
+		{
+			--TouchSteps;
+			SendTouchAction(EKartMenuAction::Up);
+		}
+	}
+	return FReply::Handled();
+}
+
+FReply SKartScreenStack::OnTouchEnded(const FGeometry& MyGeometry, const FPointerEvent& TouchEvent)
+{
+	if (TouchEvent.GetPointerIndex() != TouchPointer)
+	{
+		return FReply::Unhandled();
+	}
+	TouchPointer = INDEX_NONE;
+	const TSharedPtr<FKartScreen> Screen = Top();
+	if (Screen.IsValid() && !bTouchDragging)
+	{
+		const int32 Id = TouchHitAt(ToCanvas(MyGeometry, TouchEvent.GetScreenSpacePosition()));
+		if (Id != INDEX_NONE && Id == PressedId && FSlateApplication::Get().GetCurrentTime() - ShownAt > TransitionSeconds * InputLockFraction)
+		{
+			Screen->OnClick(Id);
+			bHintsDirty = true;
+		}
+	}
+	PressedId = INDEX_NONE;
+	bTouchDragging = false;
+	return FReply::Handled();
+}
+
 FReply SKartScreenStack::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
 	const TSharedPtr<FKartScreen> Screen = Top();

@@ -12,6 +12,7 @@ class SArcadeOverlay;
 class URoomHostSubsystem;
 namespace MovecadeKart::Arcade { struct FGameInfo; }
 namespace MovecadeKart::Net { struct FSensorFrame; }
+namespace MovecadeKart::Input { class IDeviceControlScheme; }
 
 /** A local launch's seats, resolved once in StartPlay (see AArcadeGameModeBase). */
 struct MOVECADEKART_API FArcadeLaunchOptions
@@ -22,6 +23,11 @@ struct MOVECADEKART_API FArcadeLaunchOptions
 	int32 Bots = 1;
 	/** -<Prefix>Auto: the local seats play themselves (soak tests, screenshots). Never set in Shipping. */
 	bool bAutoPlay = false;
+	/**
+	 * The first local seat ("seat-0") is this device, played with its own motion and touch through the phone path
+	 * (Input/DeviceControls.h): BuildLocalSeats makes it a phone seat. On iOS / Android, or -DeviceControls.
+	 */
+	bool bDeviceSeat = false;
 
 	/**
 	 * The travel URL's ?Players=&Bots= (the Arcade picker, play again, next game), then the command line's
@@ -110,6 +116,14 @@ protected:
 	virtual bool CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal) const PURE_VIRTUAL(AArcadeGameModeBase::CollectScores, return false;);
 	/** The room paused or resumed the match. The default pauses the game through IArcadeGame. */
 	virtual void HandleRoomPaused(bool bPaused, const FString& Reason, const FString& PlayerId);
+	/**
+	 * Local play with a device seat (FArcadeLaunchOptions::bDeviceSeat): the game's on-device controls. Their phone
+	 * traffic reaches HandleSensorFrame / HandleGameEvent as from DeviceSeatId, exactly as a room phone's would.
+	 * Null (the default) leaves the device seat to the keys and pads.
+	 */
+	virtual TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> MakeDeviceControls() { return nullptr; }
+	/** The device's seat id: every game names its first local seat this. */
+	static const TCHAR* DeviceSeatId() { return TEXT("seat-0"); }
 
 	// ---- Helpers for the game's callbacks.
 
@@ -139,7 +153,11 @@ protected:
 	TFunction<void()> MakeQuitCallback();
 
 private:
+	friend class FArcadeDeviceSink;
+
 	void RegisterArcadeGame(AActor* Actor, IArcadeGame* Game);
+	/** Starts the device seat's controls (local play with bDeviceSeat and a scheme). */
+	void ActivateDeviceControls();
 	/** Room players this game seats, or empty when the room is not playing this game. */
 	TArray<FMcSeat> GatherRoomPlayers() const;
 	void BindRoom(URoomHostSubsystem& Room);
