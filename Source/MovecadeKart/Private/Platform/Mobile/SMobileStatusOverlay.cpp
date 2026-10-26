@@ -2,7 +2,9 @@
 
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
+#include "UI/KartSafeArea.h"
 #include "UI/KartUIStyle.h"
+#include "UI/KartWidgets.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Notifications/SProgressBar.h"
@@ -23,7 +25,9 @@ namespace
 	constexpr float DotSize = 14.f;
 	constexpr float BannerTitleSize = 24.f;
 	constexpr float BannerDetailSize = 18.f;
+	/** The least room under the warm-up card; it also stays this far (menu canvas units) above the hint bar. */
 	constexpr float WarmupBottomMargin = 56.f;
+	constexpr float WarmupHintGap = 18.f;
 	constexpr float WarmupWidth = 620.f;
 	constexpr float WarmupPad = 32.f;
 	constexpr float WarmupTitleSize = 30.f;
@@ -62,7 +66,7 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 	ChildSlot
 	[
 		SNew(SOverlay)
-		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, BannerTopMargin, 0.f, 0.f)
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(TAttribute<FMargin>::CreateSP(this, &SMobileStatusOverlay::BannerPadding))
 		[
 			SAssignNew(BannerPanel, SBorder)
 			.Visibility(EVisibility::Collapsed)
@@ -85,18 +89,20 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 					[
 						SAssignNew(BannerTitle, STextBlock)
 						.Font(KartUI::Font(KartUI::EFont::Title, BannerTitleSize))
+						.WrapTextAt(TAttribute<float>::CreateSP(this, &SMobileStatusOverlay::BannerTextWidth))
 						.ColorAndOpacity(KartUI::Color::White)
 					]
 					+ SVerticalBox::Slot().AutoHeight()
 					[
 						SAssignNew(BannerDetail, STextBlock)
 						.Font(KartUI::Font(KartUI::EFont::Body, BannerDetailSize))
+						.WrapTextAt(TAttribute<float>::CreateSP(this, &SMobileStatusOverlay::BannerTextWidth))
 						.ColorAndOpacity(KartUI::Color::Paper)
 					]
 				]
 			]
 		]
-		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, WarmupBottomMargin)
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(TAttribute<FMargin>::CreateSP(this, &SMobileStatusOverlay::WarmupPadding))
 		[
 			SAssignNew(WarmupPanel, SBorder)
 			.Visibility(EVisibility::Collapsed)
@@ -104,7 +110,7 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 			.BorderBackgroundColor(Panel)
 			.Padding(WarmupPad)
 			[
-				SNew(SBox).WidthOverride(WarmupWidth)
+				SNew(SBox).WidthOverride(TAttribute<FOptionalSize>::CreateSP(this, &SMobileStatusOverlay::WarmupCardWidth))
 				[
 					SNew(SVerticalBox)
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
@@ -142,6 +148,43 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+}
+
+void SMobileStatusOverlay::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
+{
+	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+	// The same safe frame the HUDs and menus use: the notch / island at the top, the home bar at the bottom.
+	const KartSafeArea::FKartSafeFrame Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const FVector2D Size = Safe.Size;
+	// The menus lay out on a canvas at least 1080 units on its short side, scaled down to fit (SKartScreenStack), so
+	// their hint bar rises HintBarRise() canvas units, times that fit, above the safe bottom.
+	const double Fit = FMath::Min(1.0, FMath::Min(Size.X, Size.Y) / KartUI::Metric::CanvasH);
+	const double HintTop = Safe.SafeMax.Y - KartWidgets::HintBarRise() * Fit;
+	BannerTop = Safe.bPhone ? static_cast<float>(FMath::Max<double>(BannerTopMargin, Safe.SafeMin.Y)) : BannerTopMargin;
+	WarmupBottom = static_cast<float>(FMath::Max<double>(WarmupBottomMargin, Size.Y - HintTop + WarmupHintGap * Fit));
+	SideRoom = static_cast<float>(FMath::Max(1.0, Safe.SafeSize().X));
+}
+
+FMargin SMobileStatusOverlay::BannerPadding() const
+{
+	return FMargin(0.f, BannerTop, 0.f, 0.f);
+}
+
+FMargin SMobileStatusOverlay::WarmupPadding() const
+{
+	return FMargin(0.f, 0.f, 0.f, WarmupBottom);
+}
+
+FOptionalSize SMobileStatusOverlay::WarmupCardWidth() const
+{
+	// Narrower than the design width on a phone held upright, inside the safe area with its padding.
+	return FMath::Min(WarmupWidth, SideRoom - 2.f * WarmupPad);
+}
+
+float SMobileStatusOverlay::BannerTextWidth() const
+{
+	// The banner's text wraps before the panel would leave the safe area (dot and padding beside it).
+	return FMath::Max(1.f, SideRoom - 2.f * BannerPadH - DotSize - BannerPadV);
 }
 
 void SMobileStatusOverlay::SetBanner(EConnectionBanner Banner)

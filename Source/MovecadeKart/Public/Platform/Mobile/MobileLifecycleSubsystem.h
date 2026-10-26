@@ -122,6 +122,8 @@ private:
 	TOptional<ENetworkConnectionType> SimulatedNetwork;
 	/** Mobile.Sim warmup=N: the pipelines left in a fake warm-up. */
 	TOptional<double> SimulatedWarmup;
+	/** Mobile.Sim banner=...: the connection banner held on screen (tests and screenshots). */
+	TOptional<MovecadeKart::Mobile::EConnectionBanner> SimulatedBanner;
 	/** The kart race paused for the app in Party Mode (resumed when the player is back). */
 	TWeakObjectPtr<AKartRaceManager> RacePausedForApp;
 

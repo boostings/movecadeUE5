@@ -38,11 +38,15 @@ namespace MovecadeKart::Mobile
 		TOptional<ENetworkConnectionType> Network;
 		/** A fake shader warm-up of this many pipelines (the desktop editor has no PSO cache to precompile). */
 		TOptional<uint32> Warmup;
+		/** The connection banner held on screen (banner=nonetwork|reconnecting|restored|lost), or released (banner=off). */
+		TOptional<EConnectionBanner> Banner;
+		bool bBannerOff = false;
 	};
 
 	/**
 	 * background | foreground | deactivate | reactivate | interrupt | interrupt-end | focus-lost | focus |
-	 * music | music-end | unplug | plug | network=none|wifi|cell|airplane | warmup=N. Unset when Text isn't one of those.
+	 * music | music-end | unplug | plug | network=none|wifi|cell|airplane | warmup=N |
+	 * banner=nonetwork|reconnecting|restored|lost|off. Unset when Text isn't one of those.
 	 */
 	FSimCommand ParseSimCommand(const FString& Text);
 
