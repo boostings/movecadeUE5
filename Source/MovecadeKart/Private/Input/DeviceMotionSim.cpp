@@ -97,7 +97,7 @@ namespace MovecadeKart::Input
 		constexpr int32 MotionFields = 15;
 		constexpr int32 ButtonFields = 4;
 		constexpr int32 TouchFields = 6;
-		constexpr int32 MaxButton = static_cast<int32>(EDeviceButton::Item);
+		constexpr int32 MaxButton = static_cast<int32>(EDeviceButton::SteerRight);
 
 		FString Vec(const FVector& V)
 		{

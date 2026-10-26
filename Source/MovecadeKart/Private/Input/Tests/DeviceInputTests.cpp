@@ -4,6 +4,7 @@
 #include "Input/DeviceControlsSettings.h"
 #include "Input/DeviceFrameBuilder.h"
 #include "Input/DeviceTouchGestures.h"
+#include "Input/DeviceTouchZones.h"
 #include "Input/KartDeviceControls.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -340,6 +341,120 @@ bool FKartDeviceControlsTest::RunTest(const FString&)
 	TestTrue(TEXT("GAS up, BRAKE down"), !Pressed.bForward && Pressed.bBackward);
 	Now += Net::SensorStaleSeconds + 0.1;
 	TestEqual(TEXT("stale tilt steers straight"), Seat->Read().SteeringX, 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartTouchSteeringTest, "MovecadeKart.Input.KartTouchSteering", DeviceTestFlags)
+bool FKartTouchSteeringTest::RunTest(const FString&)
+{
+	// Without tilt (no sensors, or turned off) the kart steers with on-screen arrows sent as button steering.
+	double Now = 20.0;
+	TSharedRef<FKartDeviceSeat> Seat = MakeShared<FKartDeviceSeat>([&Now]() { return Now; });
+	FKartDeviceControls Scheme;
+	FLocalDeviceController Controller(TSharedRef<IDeviceControlScheme>(MakeShareable(&Scheme, [](IDeviceControlScheme*) {})), Seat);
+	const FMotionConvention Convention = FMotionConvention::IOS();
+	auto Step = [&](double Seconds, bool bMotion)
+	{
+		for (double End = Now + Seconds; Now < End;)
+		{
+			Now += 1.0 / 60.0;
+			if (bMotion)
+			{
+				FDeviceMotion M = FDeviceGestures::Wheel(20.0);
+				M.TimeSeconds = Now;
+				Controller.PushMotion(FromEngine(ToEngine(M, Convention), Convention));
+			}
+			Controller.Tick(Now);
+		}
+	};
+	auto HasArrows = [&Scheme]()
+	{
+		return Scheme.GetLayout().Buttons.ContainsByPredicate([](const FDeviceButtonSpec& B) { return B.Button == EDeviceButton::SteerLeft; });
+	};
+	const uint32 TiltRevision = Scheme.GetLayoutRevision();
+	Step(0.5, false);
+	TestFalse(TEXT("the sensors get a moment to start"), Controller.IsTouchSteering() || HasArrows());
+	Step(FLocalDeviceController::FirstMotionGraceSeconds, false);
+	TestTrue(TEXT("no sensors: the arrows come up"), Controller.IsTouchSteering() && HasArrows());
+	TestNotEqual(TEXT("the overlay sees a new layout"), Scheme.GetLayoutRevision(), TiltRevision);
+
+	Controller.PushButton(EDeviceButton::SteerRight, true, Now);
+	Step(FKartDeviceControls::SteerRampSeconds * 0.5, false);
+	const double Half = Seat->Read().SteeringX;
+	TestTrue(TEXT("a short press turns part way, to the right (negative)"), Half < -0.2 && Half > -0.8);
+	Step(FKartDeviceControls::SteerRampSeconds, false);
+	TestEqual(TEXT("held, it reaches full right lock"), Seat->Read().SteeringX, -1.0);
+	Controller.PushButton(EDeviceButton::SteerRight, false, Now);
+	Step(FKartDeviceControls::SteerRampSeconds * 1.5, false);
+	TestEqual(TEXT("let go, it centres"), Seat->Read().SteeringX, 0.0);
+	Controller.PushButton(EDeviceButton::SteerLeft, true, Now);
+	Step(Net::SensorStaleSeconds + 0.5, false);
+	TestEqual(TEXT("left is positive, and button steering never goes stale"), Seat->Read().SteeringX, 1.0);
+	Controller.PushButton(EDeviceButton::SteerLeft, false, Now);
+
+	// The sensors wake up: tilt takes over again and the arrows go.
+	Step(0.5, true);
+	TestTrue(TEXT("motion back: tilt again"), !Controller.IsTouchSteering() && !HasArrows());
+	const int32 FramesWithTilt = Seat->GetState().SensorFrames;
+	TestTrue(TEXT("tilt frames flow"), FramesWithTilt > 0);
+
+	// The player turns tilt off: the arrows show and the device's frames stop, even though it still moves.
+	Controller.SetMotionSteeringWanted(false);
+	Step(0.5, true);
+	TestTrue(TEXT("tilt off: the arrows"), Controller.IsTouchSteering() && HasArrows());
+	TestEqual(TEXT("no more tilt frames"), Seat->GetState().SensorFrames, 0);
+	TestEqual(TEXT("the leftover tilt is gone"), Seat->Read().SteeringX, 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDeviceTouchZonesTest, "MovecadeKart.Input.TouchZones", DeviceTestFlags)
+bool FDeviceTouchZonesTest::RunTest(const FString&)
+{
+	// Every scheme's controls stay inside the safe area, finger-sized, and apart, on the largest and smallest phones.
+	FKartDeviceControls Kart;
+	FKartDeviceSeat Seat([]() { return 0.0; });
+	const FDeviceLayout Tilt = Kart.GetLayout();
+	Kart.SetTouchSteering(true, 0.0, Seat);
+	const FDeviceLayout Arrows = Kart.GetLayout();
+	struct FScreen { const TCHAR* Name; FVector2D Size; FMargin Insets; };
+	const FScreen Screens[] = {
+		{ TEXT("iPhone 15 Pro"), FVector2D(2556.0, 1179.0), FMargin(177.f, 0.f, 177.f, 63.f) },
+		{ TEXT("iPhone SE"), FVector2D(1334.0, 750.0), FMargin(0.f) },
+	};
+	for (const FScreen& Screen : Screens)
+	{
+		for (const FDeviceLayout* Layout : { &Tilt, &Arrows })
+		{
+			FDeviceTouchZones::FRowOptions Row;
+			Row.bSettingsOpen = true;
+			Row.bSteering = true;
+			const FDeviceTouchZones Z = FDeviceTouchZones::Compute(*Layout, Screen.Size, Screen.Insets, Row);
+			const FBox2D Safe(FVector2D(Screen.Insets.Left, Screen.Insets.Top), Screen.Size - FVector2D(Screen.Insets.Right, Screen.Insets.Bottom));
+			const double MinTarget = FMath::Min(Safe.GetSize().X, Safe.GetSize().Y) * FDeviceTouchZones::MinTargetShare - 0.01;
+			const FString What = FString::Printf(TEXT("%s, %s"), Screen.Name, Layout == &Tilt ? TEXT("tilt") : TEXT("arrows"));
+			TestEqual(What + TEXT(": one zone per button"), Z.Buttons.Num(), Layout->Buttons.Num());
+			for (const FTouchButtonZone& B : Z.Buttons)
+			{
+				TestTrue(FString::Printf(TEXT("%s: button %d is inside the safe area"), *What, B.Index), Safe.IsInside(FBox2D(B.Centre - FVector2D(B.Radius, B.Radius), B.Centre + FVector2D(B.Radius, B.Radius))));
+				TestTrue(FString::Printf(TEXT("%s: button %d is finger-sized"), *What, B.Index), B.Radius * 2.0 >= MinTarget);
+				TestEqual(FString::Printf(TEXT("%s: button %d hits itself"), *What, B.Index), Z.ButtonAt(B.Centre), B.Index);
+				for (const FTouchButtonZone& Other : Z.Buttons)
+				{
+					TestTrue(FString::Printf(TEXT("%s: buttons %d and %d do not overlap"), *What, B.Index, Other.Index),
+						Other.Index == B.Index || FVector2D::Distance(B.Centre, Other.Centre) >= B.Radius + Other.Radius);
+				}
+			}
+			TestTrue(What + TEXT(": the settings row has calibrate, - , + and steering"), Z.Chips.Num() == 6 && Z.Chips.Last().Target == ETouchTarget::Steering);
+			for (const FTouchChipZone& Chip : Z.Chips)
+			{
+				TestTrue(FString::Printf(TEXT("%s: chip %d is inside the safe area"), *What, static_cast<int32>(Chip.Target)), Safe.IsInside(Chip.Bounds()));
+				TestTrue(FString::Printf(TEXT("%s: chip %d is finger-sized"), *What, static_cast<int32>(Chip.Target)), Chip.Size.Y >= MinTarget);
+				TestTrue(FString::Printf(TEXT("%s: chip %d is clear of the buttons"), *What, static_cast<int32>(Chip.Target)),
+					!Z.Buttons.ContainsByPredicate([&Chip](const FTouchButtonZone& B) { return Chip.Bounds().Intersect(B.HitBounds()); }));
+			}
+			TestTrue(What + TEXT(": the pause chip answers"), Z.ChipAt(Z.Chips[0].Pos + Z.Chips[0].Size * 0.5) == &Z.Chips[0]);
+		}
+	}
 	return true;
 }
 

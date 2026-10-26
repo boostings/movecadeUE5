@@ -36,6 +36,9 @@ namespace MovecadeKart::Input
 		Brake,
 		Drift,
 		Item,
+		/** The kart's on-screen steering (when tilt is off or the device has no motion sensors); drawn as arrows. */
+		SteerLeft,
+		SteerRight,
 	};
 
 	/** Where a button sits on screen. */
@@ -49,6 +52,10 @@ namespace MovecadeKart::Input
 		LeftRaised,
 		/** The middle of the bottom edge (a portrait game's one big button). */
 		BottomCentre,
+		/** On the bottom edge just inside the bottom-left one (the kart's right-steer button). */
+		BottomLeftInner,
+		/** On the bottom edge just inside the bottom-right one (the kart's brake, with on-screen steering). */
+		BottomRightInner,
 	};
 
 	struct FDeviceButtonSpec
@@ -103,6 +110,15 @@ namespace MovecadeKart::Input
 		virtual ~IDeviceControlScheme() = default;
 
 		virtual const FDeviceLayout& GetLayout() const = 0;
+		/** Moves whenever GetLayout changes while the scheme runs (the kart's on-screen steering coming and going). */
+		virtual uint32 GetLayoutRevision() const { return 0; }
+		/**
+		 * The scheme can stand in for the device's motion with on-screen controls the player may choose (the kart's
+		 * left / right buttons instead of tilt). Schemes whose touch fallback is always there (the swipe surface) say no.
+		 */
+		virtual bool HasTouchSteering() const { return false; }
+		/** Motion steering is off (the player's choice) or unavailable (no sensor readings): use the on-screen controls. */
+		virtual void SetTouchSteering(bool bOn, double Now, IDeviceInputSink& Sink) {}
 		/**
 		 * Every motion sample, already a wire frame (calibrated and rounded), before the send-rate throttle: where a
 		 * phone runs its own detectors. The controller forwards frames to the sink at SendHz itself.
@@ -141,8 +157,21 @@ namespace MovecadeKart::Input
 		void PushMotion(const FDeviceMotion& Motion);
 		void PushButton(EDeviceButton Button, bool bDown, double Now);
 		void PushTouch(const FDeviceTouch& Touch);
-		/** Once a frame: the fallback's motion, then the scheme's own clock. */
+		/** Once a frame: the steering choice, the fallback's motion, then the scheme's own clock. */
 		void Tick(double Now);
+
+		/**
+		 * The player wants motion steering (the default). Off, or with no sensor reading for MotionLostSeconds (none
+		 * within FirstMotionGraceSeconds of starting), a scheme with touch steering switches to it and the device's
+		 * frames stop, so its on-screen controls alone steer.
+		 */
+		void SetMotionSteeringWanted(bool bWanted) { bMotionSteeringWanted = bWanted; }
+		bool IsTouchSteering() const { return bTouchSteering; }
+		/** The device has sent motion recently (or is still within the start-up grace). */
+		bool IsMotionAvailable(double Now) const;
+
+		static constexpr double FirstMotionGraceSeconds = 1.0;
+		static constexpr double MotionLostSeconds = 1.5;
 
 		const FDeviceLayout& GetLayout() const { return Scheme->GetLayout(); }
 		IDeviceControlScheme& GetScheme() const { return *Scheme; }
@@ -165,6 +194,9 @@ namespace MovecadeKart::Input
 		double LastDeviceMotionAt = -1000.0;
 		bool bSynthesizing = false;
 		int32 FramesSent = 0;
+		double StartedAt = -1.0;
+		bool bMotionSteeringWanted = true;
+		bool bTouchSteering = false;
 	};
 
 	/** Small helpers the schemes share for building a phone's JSON payloads. */

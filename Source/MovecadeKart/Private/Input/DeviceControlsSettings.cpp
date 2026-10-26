@@ -6,3 +6,9 @@ void UDeviceControlsSettings::NudgeSensitivity(int32 Steps)
 	Sensitivity = FMath::RoundToFloat(Next / SensitivityStep) * SensitivityStep;
 	SaveConfig();
 }
+
+void UDeviceControlsSettings::SetTiltSteering(bool bTilt)
+{
+	bTiltSteering = bTilt;
+	SaveConfig();
+}
