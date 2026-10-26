@@ -1,6 +1,7 @@
 #include "Platform/Mobile/SMobileStatusOverlay.h"
 
 #include "Styling/CoreStyle.h"
+#include "Styling/SlateBrush.h"
 #include "UI/KartUIStyle.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -22,17 +23,15 @@ namespace
 	constexpr float DotSize = 14.f;
 	constexpr float BannerTitleSize = 24.f;
 	constexpr float BannerDetailSize = 18.f;
-	constexpr float WarmupWidth = 560.f;
+	constexpr float WarmupBottomMargin = 56.f;
+	constexpr float WarmupWidth = 620.f;
 	constexpr float WarmupPad = 32.f;
 	constexpr float WarmupTitleSize = 30.f;
 	constexpr float WarmupBodySize = 19.f;
 	constexpr float WarmupBarHeight = 14.f;
 	constexpr float PanelAlpha = 0.92f;
-
-	const FSlateBrush* Solid()
-	{
-		return FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
-	}
+	constexpr float PanelRadius = 22.f;
+	constexpr float PanelOutline = 3.f;
 
 	FLinearColor AccentOf(EConnectionBanner Banner)
 	{
@@ -51,6 +50,13 @@ namespace
 void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 {
 	SetVisibility(EVisibility::HitTestInvisible);
+	// Rounded panels with the menus' light outline; colours are tints, so one white brush serves every accent.
+	PanelBrush = FSlateRoundedBoxBrush(FLinearColor::White, PanelRadius, KartUI::Color::WithAlpha(KartUI::Color::Sky, 0.9f), PanelOutline);
+	DotBrush = FSlateRoundedBoxBrush(FLinearColor::White, DotSize / 2.f);
+	BarStyle = FProgressBarStyle()
+		.SetBackgroundImage(FSlateRoundedBoxBrush(KartUI::Color::NavyDim, WarmupBarHeight / 2.f))
+		.SetFillImage(FSlateRoundedBoxBrush(KartUI::Color::Sun, WarmupBarHeight / 2.f))
+		.SetMarqueeImage(FSlateRoundedBoxBrush(KartUI::Color::Sun, WarmupBarHeight / 2.f));
 	const FLinearColor Panel = KartUI::Color::WithAlpha(KartUI::Color::Night, PanelAlpha);
 
 	ChildSlot
@@ -60,7 +66,7 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 		[
 			SAssignNew(BannerPanel, SBorder)
 			.Visibility(EVisibility::Collapsed)
-			.BorderImage(Solid())
+			.BorderImage(&PanelBrush)
 			.BorderBackgroundColor(Panel)
 			.Padding(FMargin(BannerPadH, BannerPadV))
 			[
@@ -69,7 +75,7 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 				[
 					SNew(SBox).WidthOverride(DotSize).HeightOverride(DotSize)
 					[
-						SAssignNew(BannerDot, SBorder).BorderImage(Solid())
+						SAssignNew(BannerDot, SBorder).BorderImage(&DotBrush)
 					]
 				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
@@ -90,11 +96,11 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 				]
 			]
 		]
-		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, WarmupBottomMargin)
 		[
 			SAssignNew(WarmupPanel, SBorder)
 			.Visibility(EVisibility::Collapsed)
-			.BorderImage(Solid())
+			.BorderImage(&PanelBrush)
 			.BorderBackgroundColor(Panel)
 			.Padding(WarmupPad)
 			[
@@ -115,15 +121,15 @@ void SMobileStatusOverlay::Construct(const FArguments& InArgs)
 						.ColorAndOpacity(KartUI::Color::Paper)
 						.Justification(ETextJustify::Center)
 						.AutoWrapText(true)
-						.Text(LOCTEXT("WarmupBody", "Preparing graphics for this phone. This only happens on the first launch."))
+						.Text(LOCTEXT("WarmupBody", "Preparing graphics for this phone. This only happens after an install or an update."))
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 12.f, 0.f, 6.f)
 					[
 						SNew(SBox).HeightOverride(WarmupBarHeight)
 						[
 							SAssignNew(WarmupBar, SProgressBar)
+							.Style(&BarStyle)
 							.Percent(0.f)
-							.FillColorAndOpacity(KartUI::Color::Sun)
 						]
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)

@@ -48,6 +48,8 @@ namespace
 	const TCHAR* const LocalPauseReason = TEXT("local");
 	const TCHAR* const MusicClassPath = TEXT("/Game/UI/Audio/SC_Music.SC_Music");
 	constexpr float MusicDuckFadeSeconds = 0.3f;
+	/** Mobile.Sim warmup=N: pipelines "compiled" per second. */
+	constexpr double SimulatedWarmupRate = 60.0;
 
 	const FName ThrowCues[] = { TEXT("kart.projectile-launch"), TEXT("kart.hazard-drop") };
 
@@ -81,7 +83,7 @@ namespace
 	}
 
 	FAutoConsoleCommandWithWorldAndArgs GMobileSimCommand(TEXT("Mobile.Sim"),
-		TEXT("Simulates a phone OS event: background, foreground, deactivate, reactivate, interrupt, interrupt-end, focus-lost, focus, music, music-end, unplug, plug, network=none|wifi|cell|airplane"),
+		TEXT("Simulates a phone OS event: background, foreground, deactivate, reactivate, interrupt, interrupt-end, focus-lost, focus, music, music-end, unplug, plug, network=none|wifi|cell|airplane, warmup=N"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunSimConsoleCommand));
 
 	FAutoConsoleCommand GMobileHapticsCommand(TEXT("Mobile.Haptics"), TEXT("Mobile.Haptics 0|1: the player's haptics switch (saved)."),
@@ -297,6 +299,11 @@ void UMobileLifecycleSubsystem::SimulateNetwork(ENetworkConnectionType Type)
 bool UMobileLifecycleSubsystem::RunSimCommand(const FString& Command)
 {
 	const FSimCommand Parsed = ParseSimCommand(Command);
+	if (Parsed.Warmup.IsSet())
+	{
+		SimulatedWarmup = static_cast<double>(*Parsed.Warmup);
+		return true;
+	}
 	if (Parsed.Network.IsSet())
 	{
 		SimulateNetwork(*Parsed.Network);
@@ -443,6 +450,12 @@ bool UMobileLifecycleSubsystem::Tick(float DeltaSeconds)
 
 	UWorld* World = GetGameWorld();
 	PlayState = World ? ReadPlayState(*World) : EPlayState::Menu;
+	if (PlayState == EPlayState::Playing && !Lifecycle.IsAttentive())
+	{
+		// A game that started while the player was away (the level finished loading behind a call): pause it now.
+		PauseCurrentGame(false);
+		PlayState = World ? ReadPlayState(*World) : EPlayState::Menu;
+	}
 	if (bPhoneBehaviour && NetworkPollAccumulator >= NetworkPollSeconds && !SimulatedNetwork.IsSet())
 	{
 #if PLATFORM_IOS || PLATFORM_ANDROID
@@ -517,6 +530,7 @@ void UMobileLifecycleSubsystem::UpdateRoom(double T)
 	View.bWasOpen = bRoomWasOpen;
 	View.bDeviceOffline = Recovery.IsDeviceOffline();
 	View.SinceRestored = RoomRestoredAt >= 0.0 ? T - RoomRestoredAt : -1.0;
+	View.bInGame = PlayState != EPlayState::Menu;
 	Banner = ChooseBanner(View);
 }
 
@@ -532,6 +546,7 @@ void UMobileLifecycleSubsystem::UpdatePolicy()
 	{
 		bScreenKeptAwake = Policy.bKeepScreenAwake;
 		GEngine->EnableScreenSaver(!Policy.bKeepScreenAwake);
+		UE_LOG(LogMobileLifecycle, Log, TEXT("Screen %s"), Policy.bKeepScreenAwake ? TEXT("kept awake") : TEXT("may sleep"));
 	}
 	if (!bPolicyApplied || Policy.FrameCap != AppliedFrameCap)
 	{
@@ -547,6 +562,7 @@ void UMobileLifecycleSubsystem::UpdatePolicy()
 			if (MaxFPS->GetFloat() != Target)
 			{
 				MaxFPS->Set(Target, ECVF_SetByCode);
+				UE_LOG(LogMobileLifecycle, Log, TEXT("Frame cap %.0f (%s)"), Target, PlayState == EPlayState::Playing ? TEXT("playing") : TEXT("menu or paused"));
 			}
 		}
 		AppliedFrameCap = Policy.FrameCap;
@@ -556,8 +572,12 @@ void UMobileLifecycleSubsystem::UpdatePolicy()
 
 void UMobileLifecycleSubsystem::UpdateWarmup()
 {
-	const bool bPrecompiling = FShaderPipelineCache::IsPrecompiling();
-	const uint32 Remaining = bPrecompiling ? FShaderPipelineCache::NumPrecompilesRemaining() : 0;
+	uint32 Remaining = FShaderPipelineCache::IsPrecompiling() ? FShaderPipelineCache::NumPrecompilesRemaining() : 0;
+	if (SimulatedWarmup.IsSet())
+	{
+		SimulatedWarmup = FMath::Max(0.0, *SimulatedWarmup - SimulatedWarmupRate * PollSeconds);
+		Remaining = static_cast<uint32>(FMath::CeilToDouble(*SimulatedWarmup));
+	}
 	MaxPrecompilesSeen = FMath::Max(MaxPrecompilesSeen, Remaining);
 	// Big batches while nobody is playing; background-sized ones during play keep the frame time steady.
 	const bool bFast = Remaining > 0 && PlayState != EPlayState::Playing;
@@ -585,6 +605,13 @@ void UMobileLifecycleSubsystem::UpdateOnboarding()
 		return;
 	}
 	if (IsMoviePlayerEnabled() && GetMoviePlayer() && GetMoviePlayer()->IsMovieCurrentlyPlaying())
+	{
+		return;
+	}
+	// The front end or the Party Mode lobby: the kart level with no race on it (a race's own wait is no menu).
+	const UWorld* World = GetGameWorld();
+	const AKartGameMode* KartMode = World ? Cast<AKartGameMode>(World->GetAuthGameMode()) : nullptr;
+	if (!KartMode || KartMode->GetRaceManager())
 	{
 		return;
 	}
@@ -660,6 +687,7 @@ void UMobileLifecycleSubsystem::PrepareLoadingScreen()
 	Splash.bMoviesAreSkippable = false;
 	Splash.WidgetLoadingScreen = SNew(SMobileBootSplash);
 	GetMoviePlayer()->SetupLoadingScreen(Splash);
+	UE_LOG(LogMobileLifecycle, Log, TEXT("Loading splash up"));
 }
 
 void UMobileLifecycleSubsystem::EnsureOverlay(UWorld& World)

@@ -200,6 +200,12 @@ bool FMobileBannerTest::RunTest(const FString& Parameters)
 		View.SinceRestored = SinceRestored;
 		return ChooseBanner(View);
 	};
+	FConnectionView InLobby;
+	InLobby.Room = EMcConnection::Reconnecting;
+	InLobby.bWasOpen = true;
+	InLobby.bDeviceOffline = true;
+	InLobby.bInGame = false;
+	TestEqual(TEXT("menus and the lobby show the room's state themselves"), ChooseBanner(InLobby), EConnectionBanner::None);
 	TestEqual(TEXT("no room, no banner (even offline)"), Banner(EMcConnection::Idle, false, true, -1.0), EConnectionBanner::None);
 	TestEqual(TEXT("first connect: the lobby shows it"), Banner(EMcConnection::Connecting, false, false, -1.0), EConnectionBanner::None);
 	TestEqual(TEXT("open"), Banner(EMcConnection::Open, true, false, -1.0), EConnectionBanner::None);
@@ -282,6 +288,7 @@ bool FMobileSimFlagsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("background"), EventOf(TEXT("background")), EAppEvent::WillEnterBackground);
 	TestEqual(TEXT("case-insensitive"), EventOf(TEXT(" Interrupt-End ")), EAppEvent::AudioInterruptEnded);
 	TestEqual(TEXT("network"), ParseSimCommand(TEXT("network=wifi")).Network.Get(ENetworkConnectionType::Unknown), ENetworkConnectionType::WiFi);
+	TestEqual(TEXT("fake warm-up"), ParseSimCommand(TEXT("warmup=300")).Warmup.Get(0u), 300u);
 	TestFalse(TEXT("unknown network"), ParseSimCommand(TEXT("network=5g")).Network.IsSet());
 	TestFalse(TEXT("unknown command"), ParseSimCommand(TEXT("explode")).Event.IsSet());
 	return true;

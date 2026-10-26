@@ -18,7 +18,8 @@ namespace MovecadeKart::Mobile
 			for (const FString& Step : Steps)
 			{
 				FString At, Command;
-				if (Step.Split(TEXT(":"), &At, &Command) && At.IsNumeric() && (ParseSimCommand(Command).Event || ParseSimCommand(Command).Network))
+				const FSimCommand Parsed = ParseSimCommand(Step.Split(TEXT(":"), &At, &Command) ? Command : FString());
+				if (At.IsNumeric() && (Parsed.Event || Parsed.Network || Parsed.Warmup))
 				{
 					Flags.Script.Add({ FCString::Atod(*At), Command.TrimStartAndEnd() });
 				}
@@ -61,6 +62,12 @@ namespace MovecadeKart::Mobile
 
 		FSimCommand Out;
 		const FString Command = Text.TrimStartAndEnd();
+		FString Count;
+		if (Command.Split(TEXT("="), nullptr, &Count) && Command.StartsWith(TEXT("warmup="), ESearchCase::IgnoreCase) && Count.IsNumeric())
+		{
+			Out.Warmup = static_cast<uint32>(FMath::Max(0, FCString::Atoi(*Count)));
+			return Out;
+		}
 		FString Network;
 		if (Command.Split(TEXT("="), nullptr, &Network) && Command.StartsWith(TEXT("network="), ESearchCase::IgnoreCase))
 		{

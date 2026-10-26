@@ -169,6 +169,8 @@ namespace MovecadeKart::Mobile
 		EMcConnection Room = EMcConnection::Idle;
 		/** The room has been Open since it was last opened: a later Connecting or Failed is a lost connection. */
 		bool bWasOpen = false;
+		/** A game is up (playing or paused). Menus and the lobby show the room's state themselves. */
+		bool bInGame = true;
 		bool bDeviceOffline = false;
 		/** Seconds since the room last came back to Open after being down, or < 0 if it never went down. */
 		double SinceRestored = -1.0;

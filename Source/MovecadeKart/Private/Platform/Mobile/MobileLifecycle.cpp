@@ -232,7 +232,7 @@ namespace MovecadeKart::Mobile
 
 	EConnectionBanner ChooseBanner(const FConnectionView& View)
 	{
-		if (View.Room == EMcConnection::Idle)
+		if (View.Room == EMcConnection::Idle || !View.bInGame)
 		{
 			return EConnectionBanner::None;
 		}

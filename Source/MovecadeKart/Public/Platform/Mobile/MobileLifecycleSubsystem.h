@@ -120,6 +120,8 @@ private:
 	double RoomRestoredAt = -1.0;
 	EMcConnection LastRoomConnection = EMcConnection::Idle;
 	TOptional<ENetworkConnectionType> SimulatedNetwork;
+	/** Mobile.Sim warmup=N: the pipelines left in a fake warm-up. */
+	TOptional<double> SimulatedWarmup;
 	/** The kart race paused for the app in Party Mode (resumed when the player is back). */
 	TWeakObjectPtr<AKartRaceManager> RacePausedForApp;
 
