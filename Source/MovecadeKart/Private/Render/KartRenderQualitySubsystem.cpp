@@ -32,6 +32,11 @@ namespace
 		TEXT("Debug: this many seconds after startup, log a 120-frame average of the stat tree (stat dumpave), once. 0 = off. ")
 		TEXT("Used by Tools/ue/mobile_audit.ps1 -Profile to find render-thread costs."));
 
+	TAutoConsoleVariable<FString> CVarExecAfterLoad(
+		TEXT("kart.Render.ExecAfterLoad"), TEXT(""),
+		TEXT("Debug: console commands (separated by ';', '~' for a space where the command line can't carry one) run once ")
+		TEXT("through the game viewport after each map load, e.g. 'show~Fog' for the mobile audit's diagnostics."));
+
 	TAutoConsoleVariable<int32> CVarForceThermal(
 		TEXT("kart.Render.ForceThermalState"), -1,
 		TEXT("Debug: act as if the OS reported this thermal state (0 unknown, 1 good, 2 bad, 3 serious, 4 critical). -1 = the OS's."));
@@ -354,6 +359,24 @@ void UKartRenderQualitySubsystem::HandlePostLoadMap(UWorld* World)
 		World ? *World->GetMapName() : *LoadingMap, MapLoadStartSeconds > 0.0 ? FPlatformTime::Seconds() - MapLoadStartSeconds : 0.0,
 		Memory.UsedPhysical / (1024.0 * 1024.0), Memory.PeakUsedPhysical / (1024.0 * 1024.0));
 	MapLoadStartSeconds = 0.0;
+#if !UE_BUILD_SHIPPING
+	TArray<FString> Commands;
+	CVarExecAfterLoad.GetValueOnGameThread().ParseIntoArray(Commands, TEXT(";"));
+	for (FString& Command : Commands)
+	{
+		Command.ReplaceCharInline(TEXT('~'), TEXT(' '));
+		UE_LOG(LogKartRender, Log, TEXT("Exec after load: %s"), *Command);
+		// Through the game viewport, so viewport commands (show flags, stats) work as typed in the console.
+		if (UGameViewportClient* Viewport = GetGameInstance() ? GetGameInstance()->GetGameViewportClient() : nullptr)
+		{
+			Viewport->ConsoleCommand(Command.TrimStartAndEnd());
+		}
+		else
+		{
+			GEngine->Exec(World, *Command.TrimStartAndEnd());
+		}
+	}
+#endif
 }
 
 bool UKartRenderQualitySubsystem::Tick(float DeltaSeconds)
