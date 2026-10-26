@@ -409,6 +409,8 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 	Frame.SafeMax = Safe.SafeMax;
 	Frame.bPortrait = Safe.bPortrait;
 	Frame.bPhone = Safe.bPhone;
+	// Phone menus read bigger: every reading face the stack paints (the layout units stay the same).
+	const KartSafeArea::FPhoneMenuTextScope PhoneText(Safe.bPhone);
 	Frame.Now = FSlateApplication::Get().GetCurrentTime();
 	Frame.Device = GetDevice();
 	Frame.Direction = Direction;

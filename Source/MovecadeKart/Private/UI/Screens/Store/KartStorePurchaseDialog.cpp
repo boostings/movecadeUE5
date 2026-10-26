@@ -12,6 +12,8 @@ namespace
 {
 	/** The dialog card and its parts, in layout units (1920 x 1080 reference). */
 	const FVector2D DialogSize(1000.0, 600.0);
+	/** A phone's bigger text (KartSafeArea::FPhoneMenuTextScope) gets a bigger card: the lines stay above the buttons. */
+	const FVector2D PhoneDialogSize(1240.0, 780.0);
 	const FVector2D ArtSize(340.0, 340.0);
 	constexpr double DialogPadding = 40.0;
 	constexpr double DialogTop = 56.0;
@@ -121,7 +123,7 @@ void FKartStorePurchaseDialog::Paint(const FKartPainter& P, const FKartScreenFra
 	const FKartStore* Store = UKartStoreSubsystem::Active();
 	const float In = Ease::OutBack(static_cast<float>(Frame.Age / 0.3), 1.8f);
 	P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, 0.66f * FMath::Min(1.f, static_cast<float>(Frame.Age / 0.2))));
-	const FVector2D& Size = DialogSize;
+	const FVector2D& Size = Frame.bPhone ? PhoneDialogSize : DialogSize;
 	const FVector2D Pos = Frame.Centre() - Size * 0.5;
 	const FKartPainter D = P.Transformed(Frame.Centre(), 0.7f + 0.3f * In);
 	const FLinearColor Accent = PhaseAccent(Phase);

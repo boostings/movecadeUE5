@@ -43,6 +43,8 @@ namespace
 			Frame.Age = 10.0; // well past every entrance animation: painted settled
 			const UKartUISubsystem* UI = UKartUISubsystem::Get(Widget->GetWorld());
 			Frame.Device = UI ? UI->GetInputDevice() : EKartInputDevice::Keyboard;
+			// Painted menu text (the hint bar) reads bigger on a phone, as the screen stack's does.
+			const KartSafeArea::FPhoneMenuTextScope PhoneText(Safe.bPhone);
 			Widget->OnPaintKart(P, Frame);
 			return Layer;
 		}

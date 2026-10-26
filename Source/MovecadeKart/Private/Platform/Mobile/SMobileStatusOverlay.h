@@ -4,6 +4,7 @@
 #include "Platform/Mobile/MobileLifecycle.h"
 #include "Styling/SlateBrush.h"
 #include "Styling/SlateTypes.h"
+#include "Types/SlateStructs.h"
 #include "Widgets/SCompoundWidget.h"
 
 class SBorder;
@@ -29,7 +30,20 @@ public:
 	/** bShow with Progress 0..1. */
 	void SetWarmup(bool bShow, float Progress);
 
+	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
+
 private:
+	// Placement, refreshed each tick from the safe area (UI/KartSafeArea): the banner under the notch or island,
+	// the warm-up card above the menus' hint bar, both inside the safe width.
+	FMargin BannerPadding() const;
+	FMargin WarmupPadding() const;
+	FOptionalSize WarmupCardWidth() const;
+	float BannerTextWidth() const;
+
+	float BannerTop = 28.f;
+	float WarmupBottom = 56.f;
+	float SideRoom = 1920.f;
+
 	MovecadeKart::Mobile::EConnectionBanner Shown = MovecadeKart::Mobile::EConnectionBanner::None;
 	int32 ShownPercent = -1;
 

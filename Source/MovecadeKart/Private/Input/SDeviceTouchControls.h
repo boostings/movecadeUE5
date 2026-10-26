@@ -2,19 +2,22 @@
 
 #include "CoreMinimal.h"
 #include "Input/DeviceControls.h"
+#include "Input/DeviceTouchZones.h"
 #include "Mobile/MovecadeOrientation.h"
 #include "Widgets/SLeafWidget.h"
 
 class UDeviceControlsSubsystem;
 
 /**
- * The on-screen half of the device controls, over the game: the scheme's buttons (A, B, gas, brake, drift, item),
- * the touch surface for its swipe fallback, and the pause and settings chips at the right edge (settings opens calibrate and sensitivity - / +).
+ * The on-screen half of the device controls, over the game: the scheme's buttons (A, B, gas, brake, drift, item, the
+ * kart's steering arrows), the touch surface for its swipe fallback, and the pause and settings chips (settings opens
+ * calibrate, sensitivity - / + and, for the kart, tilt or on-screen steering).
  * Multi-touch: each finger keeps the control it landed on until it lifts. The mouse works the same way on the desktop.
  *
- * Every target is at least 44 pt: sizes are fractions of the screen's short side, and the smallest is 44 / 320 of it
- * (a 320 pt phone is the narrowest iOS screen). While the game's own menus are up the overlay hides and lets every
- * touch through to them. Owned by UDeviceControlsSubsystem (added to the viewport on Activate).
+ * Where everything goes is MovecadeKart::Input::FDeviceTouchZones (public, so the HUDs can keep clear of it); every
+ * target is at least 44 pt. While the game's own menus are up the overlay hides and lets every touch through to them.
+ * A scheme whose layout changes while it runs (GetLayoutRevision) is picked up on the next tick. Owned by
+ * UDeviceControlsSubsystem (added to the viewport on Activate).
  */
 class SDeviceTouchControls : public SLeafWidget
 {
@@ -30,22 +33,6 @@ public:
 	TFunction<bool()> IsMenuOpen;
 	TFunction<void()> OpenPause;
 
-	/** The smallest target, as a share of the screen's short side: 44 pt on a 320 pt screen. */
-	static constexpr float MinTargetShare = 44.f / 320.f;
-
-	enum class ETarget : uint8 { None, Button, Surface, Pause, Settings, Calibrate, SensitivityDown, SensitivityUp };
-
-	struct FHit
-	{
-		ETarget Target = ETarget::None;
-		int32 Button = INDEX_NONE;
-	};
-
-	/** The control at a local point (buttons are hit a little outside their circle, as fingers are wide). */
-	FHit HitAt(const FVector2D& Local, const FVector2D& Size) const;
-	/** Centre and radius of button Index for a widget of Size. */
-	void ButtonCircle(int32 Index, const FVector2D& Size, FVector2D& OutCentre, float& OutRadius) const;
-
 	// SWidget
 	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1920.0, 1080.0); }
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -59,23 +46,29 @@ public:
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
 private:
-	struct FChip
+	using ETarget = MovecadeKart::Input::ETouchTarget;
+
+	struct FHit
 	{
 		ETarget Target = ETarget::None;
-		FVector2D Pos = FVector2D::ZeroVector;
-		FVector2D Size = FVector2D::ZeroVector;
+		int32 Button = INDEX_NONE;
 	};
 
-	void Chips(const FVector2D& Size, TArray<FChip, TInlineAllocator<6>>& Out) const;
-	/** The safe area of a widget of Size: where every control goes. */
-	void SafeRect(const FVector2D& Size, FVector2D& OutOrigin, FVector2D& OutSize) const;
+	/** Every control for a widget of Size, with this tick's safe area and settings row. */
+	MovecadeKart::Input::FDeviceTouchZones Zones(const FVector2D& Size) const;
+	/** The control at a local point. */
+	FHit HitAt(const FVector2D& Local, const FVector2D& Size) const;
 	FReply Down(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
 	FReply Move(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
 	FReply Up(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
+	void ReleaseAll(const FVector2D& Size);
 	bool IsBlocked() const;
+	bool HasSteeringChoice() const;
 
 	TWeakObjectPtr<UDeviceControlsSubsystem> Owner;
 	MovecadeKart::Input::FDeviceLayout Layout;
+	/** The scheme's layout revision Layout was copied at. */
+	uint32 LayoutRevision = 0;
 	/** What each finger (pointer index; the mouse is MousePointer) is holding. */
 	TMap<int32, FHit> Held;
 	/** Buttons down, for the pressed look. */
@@ -85,6 +78,9 @@ private:
 	FString SensitivityLabel;
 	/** The settings chip opened the calibrate / sensitivity row. */
 	bool bSettingsOpen = false;
+	/** On-screen steering is up (refreshed each tick), for the steering chip's label. */
+	bool bTouchSteering = false;
+	bool bMotionAvailable = true;
 	/** Seconds the controls have been up (frame time), for the hint. */
 	double HintAge = 0.0;
 	double ShownSensitivity = -1.0;

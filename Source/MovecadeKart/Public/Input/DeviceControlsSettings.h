@@ -22,8 +22,15 @@ public:
 	UPROPERTY(Config)
 	float Sensitivity = 1.f;
 
+	/** Kart: steer by tilting the device (true) or with the on-screen arrows (false). Without motion sensors the
+	 *  arrows show either way. */
+	UPROPERTY(Config)
+	bool bTiltSteering = true;
+
 	static UDeviceControlsSettings* Get() { return GetMutableDefault<UDeviceControlsSettings>(); }
 	/** Steps the sensitivity by Steps x SensitivityStep (clamped, rounded to the step) and saves. */
 	void NudgeSensitivity(int32 Steps);
+	/** Sets and saves the steering choice. */
+	void SetTiltSteering(bool bTilt);
 	float GetSensitivity() const { return FMath::Clamp(Sensitivity, MinSensitivity, MaxSensitivity); }
 };

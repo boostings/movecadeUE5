@@ -19,7 +19,7 @@ namespace MovecadeKart::Mobile
 			{
 				FString At, Command;
 				const FSimCommand Parsed = ParseSimCommand(Step.Split(TEXT(":"), &At, &Command) ? Command : FString());
-				if (At.IsNumeric() && (Parsed.Event || Parsed.Network || Parsed.Warmup))
+				if (At.IsNumeric() && (Parsed.Event || Parsed.Network || Parsed.Warmup || Parsed.Banner || Parsed.bBannerOff))
 				{
 					Flags.Script.Add({ FCString::Atod(*At), Command.TrimStartAndEnd() });
 				}
@@ -66,6 +66,25 @@ namespace MovecadeKart::Mobile
 		if (Command.Split(TEXT("="), nullptr, &Count) && Command.StartsWith(TEXT("warmup="), ESearchCase::IgnoreCase) && Count.IsNumeric())
 		{
 			Out.Warmup = static_cast<uint32>(FMath::Max(0, FCString::Atoi(*Count)));
+			return Out;
+		}
+		FString BannerName;
+		if (Command.Split(TEXT("="), nullptr, &BannerName) && Command.StartsWith(TEXT("banner="), ESearchCase::IgnoreCase))
+		{
+			static const TPair<const TCHAR*, EConnectionBanner> Banners[] = {
+				{ TEXT("nonetwork"), EConnectionBanner::NoNetwork },
+				{ TEXT("reconnecting"), EConnectionBanner::Reconnecting },
+				{ TEXT("restored"), EConnectionBanner::Restored },
+				{ TEXT("lost"), EConnectionBanner::Lost },
+			};
+			Out.bBannerOff = BannerName.Equals(TEXT("off"), ESearchCase::IgnoreCase);
+			for (const TPair<const TCHAR*, EConnectionBanner>& Entry : Banners)
+			{
+				if (BannerName.Equals(Entry.Key, ESearchCase::IgnoreCase))
+				{
+					Out.Banner = Entry.Value;
+				}
+			}
 			return Out;
 		}
 		FString Network;

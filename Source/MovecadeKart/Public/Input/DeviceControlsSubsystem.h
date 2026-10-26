@@ -4,6 +4,7 @@
 #include "Input/DeviceControls.h"
 #include "Input/DeviceControlsFlags.h"
 #include "Input/DeviceMotionSim.h"
+#include "Input/DeviceTouchZones.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "DeviceControlsSubsystem.generated.h"
 
@@ -47,6 +48,21 @@ public:
 
 	/** The running scheme, or null. */
 	MovecadeKart::Input::IDeviceControlScheme* GetScheme() const { return Controller ? &Controller->GetScheme() : nullptr; }
+
+	/**
+	 * Where the running scheme's touch controls sit on a widget of Size whose unsafe border is Insets (same units):
+	 * what SDeviceTouchControls draws and hit-tests, and what the HUDs keep clear of. Empty when inactive.
+	 */
+	MovecadeKart::Input::FDeviceTouchZones GetTouchZones(const FVector2D& Size, const FMargin& Insets, bool bSettingsOpen = false) const;
+
+	/** The running scheme lets the player choose tilt or on-screen steering (the kart). */
+	bool HasSteeringChoice() const;
+	/** On-screen steering is up (the player's choice, or the device sends no motion). */
+	bool IsTouchSteering() const;
+	/** The device's motion sensors are reporting. */
+	bool IsMotionAvailable() const;
+	/** The player's steering choice: saved, and applied at once to a running scheme. */
+	void SetTiltSteering(bool bTilt);
 
 	// What the input preprocessor and the touch overlay call.
 	void HandleMotion(const MovecadeKart::Input::FEngineMotionReading& Reading);

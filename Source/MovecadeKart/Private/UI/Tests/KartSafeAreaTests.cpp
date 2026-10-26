@@ -1,7 +1,7 @@
 #include "Games/ArcadeFraming.h"
 #include "Input/DeviceControls.h"
 #include "Input/KartDeviceControls.h"
-#include "Input/SDeviceTouchControls.h"
+#include "Input/DeviceTouchZones.h"
 #include "Misc/AutomationTest.h"
 #include "UI/KartSafeArea.h"
 #include "UI/KartUIStyle.h"
@@ -52,7 +52,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartSafeAreaTouchZonesTest, "MovecadeKart.UI.S
 bool FKartSafeAreaTouchZonesTest::RunTest(const FString& Parameters)
 {
 	using namespace MovecadeKart::Input;
-	// The zones must cover every button exactly where the touch overlay draws and hits it.
+	// The frame's zones are Input's own rectangles (FDeviceTouchZones, what the overlay draws and hits): every
+	// button's hit circle and the pause / settings chips are kept clear.
 	auto Check = [this](const TCHAR* Name, const FDeviceLayout& Layout, const FVector2D& Size)
 	{
 		FKartDisplay Display;
@@ -60,23 +61,23 @@ bool FKartSafeAreaTouchZonesTest::RunTest(const FString& Parameters)
 		Display.bPortrait = Size.Y > Size.X;
 		Display.Controls = &Layout;
 		const FKartSafeFrame F = FKartSafeFrame::Make(Size, 1.f, Display);
-		const TSharedRef<SDeviceTouchControls> Overlay = SNew(SDeviceTouchControls).Layout(Layout);
-		for (int32 i = 0; i < Layout.Buttons.Num(); ++i)
+		const FDeviceTouchZones Zones = FDeviceTouchZones::Compute(Layout, Size, FMargin());
+		for (const FTouchButtonZone& Button : Zones.Buttons)
 		{
-			FVector2D Centre;
-			float Radius = 0.f;
-			Overlay->ButtonCircle(i, Size, Centre, Radius);
-			const FBox2D Circle(Centre - FVector2D(Radius, Radius), Centre + FVector2D(Radius, Radius));
-			const bool bCovered = (F.TouchLeft.bIsValid && F.TouchLeft.IsInside(Circle)) || (F.TouchRight.bIsValid && F.TouchRight.IsInside(Circle))
-				|| (F.TouchCentre.bIsValid && F.TouchCentre.IsInside(Circle));
-			TestTrue(FString::Printf(TEXT("%s: button %d is inside a touch zone"), Name, i), bCovered);
-			TestTrue(FString::Printf(TEXT("%s: a centred card stops above button %d"), Name, i),
-				F.BottomClearOfTouch(Centre.X, 1.0) <= Centre.Y - Radius);
+			const FBox2D Hit = Button.HitBounds();
+			const bool bCovered = (F.TouchLeft.bIsValid && F.TouchLeft.IsInside(Hit)) || (F.TouchRight.bIsValid && F.TouchRight.IsInside(Hit))
+				|| (F.TouchCentre.bIsValid && F.TouchCentre.IsInside(Hit));
+			TestTrue(FString::Printf(TEXT("%s: button %d is inside a touch zone"), Name, Button.Index), bCovered);
+			TestTrue(FString::Printf(TEXT("%s: a centred card stops above button %d"), Name, Button.Index),
+				F.BottomClearOfTouch(Button.Centre.X, 1.0) <= Button.Centre.Y - Button.Radius);
 		}
-		TestTrue(FString::Printf(TEXT("%s: the chips are reserved"), Name), F.Chips.bIsValid);
+		TestTrue(FString::Printf(TEXT("%s: the chips are reserved"), Name), F.Chips.bIsValid && F.Chips.IsInside(Zones.PauseAndSettings()));
 	};
-	const FKartDeviceControls Kart;
+	FKartDeviceControls Kart;
 	Check(TEXT("kart, landscape"), Kart.GetLayout(), FVector2D(2340.0, 1080.0));
+	FKartDeviceSeat Seat([]() { return 0.0; });
+	Kart.SetTouchSteering(true, 0.0, Seat);
+	Check(TEXT("kart with on-screen steering, landscape"), Kart.GetLayout(), FVector2D(2340.0, 1080.0));
 
 	FDeviceLayout Portrait;
 	Portrait.Buttons = { { EDeviceButton::A, FText::GetEmpty(), EButtonAnchor::BottomCentre, true } };
@@ -86,6 +87,46 @@ bool FKartSafeAreaTouchZonesTest::RunTest(const FString& Parameters)
 	Pad.Buttons = { { EDeviceButton::A, FText::GetEmpty(), EButtonAnchor::BottomRight, true } };
 	Pad.Chips = EChipPlacement::LeftEdge;
 	Check(TEXT("one thumb button, landscape"), Pad, FVector2D(2340.0, 1080.0));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartPhoneMenuTextTest, "MovecadeKart.UI.SafeArea.PhoneMenuText",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FKartPhoneMenuTextTest::RunTest(const FString& Parameters)
+{
+	using KartUI::EFont;
+	auto Size = [](EFont Face, float S) { return KartSafeArea::PhoneMenuTextSize(static_cast<uint8>(Face), S); };
+	// ~11 pt on a 6-inch phone: a 1080-unit canvas on ~393 pt of glass.
+	TestTrue(TEXT("the body floor reads ~11 pt"), KartSafeArea::PhoneMenuMinBodySize * 393.f / 1080.f >= 10.8f);
+	for (const float Design : { 17.f, 18.f, 21.f, 24.f })
+	{
+		TestTrue(FString::Printf(TEXT("body %.0f is lifted to the floor"), Design), Size(EFont::Body, Design) >= KartSafeArea::PhoneMenuMinBodySize);
+	}
+	TestEqual(TEXT("big body text gets the HUD boost"), Size(EFont::Body, 30.f), 30.f * KartSafeArea::PhoneHudBoost);
+	TestEqual(TEXT("labels get the HUD boost"), Size(EFont::Label, 20.f), 20.f * KartSafeArea::PhoneHudBoost);
+	TestEqual(TEXT("button labels are capped"), Size(EFont::Button, 30.f), KartSafeArea::PhoneMenuLabelCap);
+	TestEqual(TEXT("big captions stay as designed"), Size(EFont::Button, 40.f), 40.f);
+	TestEqual(TEXT("display stays as designed"), Size(EFont::Display, 46.f), 46.f);
+	TestEqual(TEXT("titles stay as designed"), Size(EFont::Title, 34.f), 34.f);
+	bool bMonotonic = true;
+	for (const EFont Face : { EFont::Body, EFont::Button, EFont::Label })
+	{
+		for (float S = 10.f; S < 60.f; S += 0.5f)
+		{
+			bMonotonic &= Size(Face, S + 0.5f) >= Size(Face, S);
+		}
+	}
+	TestTrue(TEXT("monotonic: a screen's shrink-to-fit still shrinks"), bMonotonic);
+	{
+		const KartSafeArea::FPhoneMenuTextScope Pc(false);
+		TestFalse(TEXT("a PC's scope does nothing"), KartSafeArea::FPhoneMenuTextScope::IsActive());
+	}
+	{
+		const KartSafeArea::FPhoneMenuTextScope Phone(true);
+		TestTrue(TEXT("a phone's scope is on while it lives"), KartSafeArea::FPhoneMenuTextScope::IsActive());
+	}
+	TestFalse(TEXT("and off after"), KartSafeArea::FPhoneMenuTextScope::IsActive());
 	return true;
 }
 

@@ -30,6 +30,9 @@ namespace KartWidgets
 
 	/** The hint bar along the bottom-right of the safe area. */
 	MOVECADEKART_API void Hints(const FKartPainter& P, const FKartScreenFrame& Frame, const TArray<FKartHint>& Hints);
+	/** How far the hint bar's pill reaches above the safe area's bottom edge (menu canvas units): what overlays over
+	 *  the menus stay above. */
+	MOVECADEKART_API double HintBarRise();
 
 	/** Title (and optional subtitle) at the top-left of the safe area, with an accent tag. */
 	MOVECADEKART_API void Header(const FKartPainter& P, const FKartScreenFrame& Frame, const FText& Title, const FText& Subtitle, const FLinearColor& Accent);

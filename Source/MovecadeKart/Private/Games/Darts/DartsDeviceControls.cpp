@@ -41,6 +41,8 @@ FDartsDeviceControls::FDartsDeviceControls()
 	Layout.SendHz = DartsSendHz;
 	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Throw", "HOLD"), EButtonAnchor::BottomCentre, true } };
 	Layout.bSurface = true;
+	// The board fills a portrait screen's width: pause and settings flank the HOLD button instead of its rim.
+	Layout.Chips = EChipPlacement::BottomCorners;
 	Layout.Hint = LOCTEXT("Hint", "Hold, throw, let go · or flick a finger up");
 }
 

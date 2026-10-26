@@ -593,6 +593,12 @@ namespace KartWidgets
 		}
 	}
 
+	double HintBarRise()
+	{
+		// The pill is centred half a glyph above the safe bottom and pads PillPadY around the glyphs.
+		return HintsArt::GlyphHeight + HintsArt::PillPadY;
+	}
+
 	void Header(const FKartPainter& P, const FKartScreenFrame& Frame, const FText& Title, const FText& Subtitle, const FLinearColor& Accent)
 	{
 		using namespace HeaderArt;

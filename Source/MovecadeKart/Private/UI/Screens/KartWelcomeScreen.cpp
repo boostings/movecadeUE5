@@ -17,6 +17,9 @@ namespace
 	constexpr double MaxCardSize = 520.0;
 	constexpr double CardsTop = 170.0;
 	constexpr double CardRoomBelow = 380.0;
+	/** On a phone the cards grow taller (up to this) for the bigger text, which also takes height from the art. */
+	constexpr double PhoneMaxCardHeight = 600.0;
+	constexpr double PhoneArtHeight = 0.28;
 	constexpr float DimSeconds = 0.3f;
 	constexpr float DimAlpha = 0.62f;
 	constexpr float PlayInAt = 0.5f;
@@ -259,7 +262,7 @@ namespace
 			};
 			const double Gap = CardGap;
 			const double CardW = FMath::Min(MaxCardSize, (Frame.SafeSize().X - Gap * 2.0) / 3.0);
-			const double CardH = FMath::Min(MaxCardSize, Frame.SafeSize().Y - CardRoomBelow);
+			const double CardH = FMath::Min(Frame.bPhone ? PhoneMaxCardHeight : MaxCardSize, Frame.SafeSize().Y - CardRoomBelow);
 			const double Total = CardW * 3.0 + Gap * 2.0;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
 			const double Top = Frame.SafeMin.Y + CardsTop;
@@ -274,7 +277,7 @@ namespace
 				const FKartPainter Card = P.Transformed(Pos + Size * 0.5, PopFrom + PopGrowth * In).Faded(In);
 				Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, Shadow, Color::White, Rim);
 				const FVector2D ArtPos = Pos + FVector2D(ArtInset, ArtInset);
-				const FVector2D ArtSize(CardW - 2.0 * ArtInset, CardH * ArtHeight);
+				const FVector2D ArtSize(CardW - 2.0 * ArtInset, CardH * (Frame.bPhone ? PhoneArtHeight : ArtHeight));
 				Card.Gradient(ArtPos, ArtSize, Panels[i].Accent, FMath::Lerp(Panels[i].Accent, Color::Night, ArtShade), true, Metric::Radius);
 				// The step number on the art.
 				static const FString StepNumbers[] = { TEXT("1"), TEXT("2"), TEXT("3") };

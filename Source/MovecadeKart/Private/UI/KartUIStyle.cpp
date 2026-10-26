@@ -3,6 +3,7 @@
 #include "Engine/FontFace.h"
 #include "Fonts/CompositeFont.h"
 #include "Styling/CoreStyle.h"
+#include "UI/KartSafeArea.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKartUIStyle, Log, All);
 
@@ -132,6 +133,11 @@ namespace KartUI
 		if (!IsInGameThread())
 		{
 			return MakeFont(Face, Size, OutlineSize, OutlineColor);
+		}
+		// A phone's menus read at arm's length on a small screen (KartSafeArea::FPhoneMenuTextScope).
+		if (KartSafeArea::FPhoneMenuTextScope::IsActive())
+		{
+			Size = KartSafeArea::PhoneMenuTextSize(static_cast<uint8>(Face), Size);
 		}
 		// Screens ask for the same few dozen fonts every frame: keep the built infos (bounded; HUD sizes scale per view).
 		using FKey = TTuple<uint8, uint32, uint32, uint32>;

@@ -98,6 +98,7 @@ void UDeviceControlsSubsystem::Activate(TSharedRef<IDeviceControlScheme> Scheme,
 	Convention = FMotionConvention::ForPlatform();
 	Controller = MakeUnique<FLocalDeviceController>(Scheme, Sink);
 	Controller->SetSensitivity(UDeviceControlsSettings::Get()->GetSensitivity());
+	Controller->SetMotionSteeringWanted(UDeviceControlsSettings::Get()->bTiltSteering);
 	ActivatedAt = Now();
 	StartMotionSource();
 	ShowOverlay();
@@ -205,6 +206,43 @@ void UDeviceControlsSubsystem::NudgeSensitivity(int32 Steps)
 double UDeviceControlsSubsystem::GetSensitivity() const
 {
 	return UDeviceControlsSettings::Get()->GetSensitivity();
+}
+
+FDeviceTouchZones UDeviceControlsSubsystem::GetTouchZones(const FVector2D& Size, const FMargin& Insets, bool bSettingsOpen) const
+{
+	if (!Controller)
+	{
+		return FDeviceTouchZones();
+	}
+	FDeviceTouchZones::FRowOptions Row;
+	Row.bSettingsOpen = bSettingsOpen;
+	Row.bSteering = HasSteeringChoice();
+	return FDeviceTouchZones::Compute(Controller->GetLayout(), Size, Insets, Row);
+}
+
+bool UDeviceControlsSubsystem::HasSteeringChoice() const
+{
+	return Controller && Controller->GetScheme().HasTouchSteering();
+}
+
+bool UDeviceControlsSubsystem::IsTouchSteering() const
+{
+	return Controller && Controller->IsTouchSteering();
+}
+
+bool UDeviceControlsSubsystem::IsMotionAvailable() const
+{
+	return Controller && Controller->IsMotionAvailable(Now());
+}
+
+void UDeviceControlsSubsystem::SetTiltSteering(bool bTilt)
+{
+	UDeviceControlsSettings::Get()->SetTiltSteering(bTilt);
+	if (Controller)
+	{
+		Controller->SetMotionSteeringWanted(bTilt);
+	}
+	UE_LOG(LogDeviceControls, Display, TEXT("Steering: %s"), bTilt ? TEXT("tilt") : TEXT("on-screen"));
 }
 
 void UDeviceControlsSubsystem::HandleMotion(const FEngineMotionReading& Reading)

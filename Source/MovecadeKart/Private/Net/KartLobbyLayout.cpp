@@ -21,6 +21,7 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Net/RoomHostSubsystem.h"
 #include "UI/KartPaintWidget.h"
+#include "UI/KartSafeArea.h"
 #include "UI/KartTrackCatalog.h"
 #include "UI/KartUIStyle.h"
 #include "UI/KartWidgets.h"
@@ -193,6 +194,8 @@ namespace MovecadeKart::Lobby
 
 void UKartLobbyWidget::BuildTree()
 {
+	// The texts' fonts are fixed here, so a phone's bigger menu text applies while the tree is built.
+	const KartSafeArea::FPhoneMenuTextScope PhoneText(KartSafeArea::FKartDisplay::Get(FVector2D(KartUI::Metric::CanvasW, KartUI::Metric::CanvasH)).bPhone);
 	const FWidgetFactory Make(*WidgetTree);
 	UOverlay* Root = WidgetTree->ConstructWidget<UOverlay>();
 	WidgetTree->RootWidget = Root;
@@ -261,7 +264,12 @@ UWidget* UKartLobbyWidget::BuildJoinCard(const FWidgetFactory& Make)
 	CodeText = Make.Text(TEXT("------"), Font(EFont::Display, 68.f), Color::Hot);
 	FWidgetFactory::StackCentred(Column, CodeText, 4.f);
 	UrlText = Make.Text(TEXT(""), Font(EFont::Body, 18.f), Color::NavyDim);
-	FWidgetFactory::StackCentred(Column, UrlText, 12.f);
+	// The link never runs past the card (a phone's bigger text): it shrinks to the card's inner width instead.
+	UScaleBox* UrlFit = WidgetTree->ConstructWidget<UScaleBox>();
+	UrlFit->SetStretch(EStretch::ScaleToFitX);
+	UrlFit->SetStretchDirection(EStretchDirection::DownOnly);
+	UrlFit->SetContent(UrlText);
+	FWidgetFactory::StackCentred(Column, Make.Sized(UrlFit, LobbyMetric::JoinCardWidth - LobbyMetric::JoinCardPadding.GetTotalSpaceAlong<Orient_Horizontal>(), 0.f), 12.f);
 
 	ConnectionText = Make.WrappedText(TEXT("Connecting to the room server..."), Font(EFont::Body, 18.f), Color::Navy);
 	ConnectionText->SetJustification(ETextJustify::Center);

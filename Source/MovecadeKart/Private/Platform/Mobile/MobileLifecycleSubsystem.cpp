@@ -304,6 +304,16 @@ bool UMobileLifecycleSubsystem::RunSimCommand(const FString& Command)
 		SimulatedWarmup = static_cast<double>(*Parsed.Warmup);
 		return true;
 	}
+	if (Parsed.Banner.IsSet())
+	{
+		SimulatedBanner = *Parsed.Banner;
+		return true;
+	}
+	if (Parsed.bBannerOff)
+	{
+		SimulatedBanner.Reset();
+		return true;
+	}
 	if (Parsed.Network.IsSet())
 	{
 		SimulateNetwork(*Parsed.Network);
@@ -465,6 +475,10 @@ bool UMobileLifecycleSubsystem::Tick(float DeltaSeconds)
 #endif
 	}
 	UpdateRoom(T);
+	if (SimulatedBanner.IsSet())
+	{
+		Banner = *SimulatedBanner; // -MobileSimScript banner=...: the banner without a room server
+	}
 	if (!bPhoneBehaviour || !World)
 	{
 		return true;

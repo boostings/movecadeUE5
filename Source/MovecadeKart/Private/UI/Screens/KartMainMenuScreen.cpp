@@ -36,6 +36,8 @@ namespace
 	constexpr double CardDrop = 30.0;
 	constexpr double CardInset = 18.0;
 	constexpr double CardArtHeight = 270.0;
+	/** A phone's bigger detail text takes this much from the art; the icon, name and detail move up with it. */
+	constexpr double PhoneCardArtTrim = 80.0;
 	constexpr float CardInAt = 0.2f;
 	constexpr double CardPopSeconds = 0.35;
 	constexpr float CardPopOvershoot = 2.f;
@@ -161,11 +163,13 @@ namespace
 		{
 			const FMenuEntry& Entry = MenuEntries()[Focus.Cursor.Index];
 			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / CardPopSeconds), CardPopOvershoot);
+			const double Trim = Frame.bPhone ? PhoneCardArtTrim : 0.0;
+			const double ArtHeight = CardArtHeight - Trim;
 			const FVector2D CardPos(Frame.SafeMax.X - CardSize.X, Frame.Size.Y * 0.5 - CardSize.Y * 0.5 + CardDrop);
 			const FKartPainter Card = P.Transformed(CardPos + CardSize * 0.5, CardPopFrom + CardPopGrowth * Pop, (1.f - Pop) * CardPopTilt)
 				.Faded(KartWidgets::Entrance(Frame, CardInAt));
 			Card.Card(CardPos, CardSize, Color::Paper, Metric::RadiusLarge, CardShadow, Color::White, CardRim);
-			Card.Box(CardPos + FVector2D(CardInset, CardInset), FVector2D(CardSize.X - 2.0 * CardInset, CardArtHeight), Entry.Accent, Metric::Radius);
+			Card.Box(CardPos + FVector2D(CardInset, CardInset), FVector2D(CardSize.X - 2.0 * CardInset, ArtHeight), Entry.Accent, Metric::Radius);
 			const double ArtLeft = CardPos.X + CardInset;
 			const double ArtRight = CardPos.X + CardSize.X - CardInset;
 			for (int32 Stripe = 0; Stripe < Stripes; ++Stripe)
@@ -175,12 +179,12 @@ namespace
 				const double X1 = FMath::Clamp(X + StripeWidth, ArtLeft, ArtRight);
 				if (X1 > X0 + MinStripe)
 				{
-					Card.Box(FVector2D(X0, CardPos.Y + CardInset), FVector2D(X1 - X0, CardArtHeight), Color::WithAlpha(Color::White, StripeAlpha));
+					Card.Box(FVector2D(X0, CardPos.Y + CardInset), FVector2D(X1 - X0, ArtHeight), Color::WithAlpha(Color::White, StripeAlpha));
 				}
 			}
-			Entry.Icon(Card, CardPos + FVector2D(CardSize.X * 0.5, CardIconY), CardIconSize, Frame.Now);
-			Card.Text(Entry.Name, Font(EFont::Title, CardNameSize), CardPos + CardNamePos, Color::Navy);
-			Card.TextWrapped(Entry.Detail, Font(EFont::Body, CardDetailSize), CardPos + CardDetailPos, CardSize.X - 2.0 * CardDetailPos.X, Color::NavyDim);
+			Entry.Icon(Card, CardPos + FVector2D(CardSize.X * 0.5, CardIconY - Trim * 0.5), CardIconSize, Frame.Now);
+			Card.Text(Entry.Name, Font(EFont::Title, CardNameSize), CardPos + CardNamePos - FVector2D(0.0, Trim), Color::Navy);
+			Card.TextWrapped(Entry.Detail, Font(EFont::Body, CardDetailSize), CardPos + CardDetailPos - FVector2D(0.0, Trim), CardSize.X - 2.0 * CardDetailPos.X, Color::NavyDim);
 		}
 
 		void Activate(EMainMenuItem Item)

@@ -4,6 +4,7 @@
 #include "Engine/GameViewportClient.h"
 #include "Input/DeviceControls.h"
 #include "Input/DeviceControlsSubsystem.h"
+#include "Input/DeviceTouchZones.h"
 #include "Layout/Geometry.h"
 #include "Mobile/MovecadeOrientationSubsystem.h"
 #include "UI/KartUIStyle.h"
@@ -17,25 +18,6 @@ namespace KartSafeArea
 		/** Room kept between a HUD element and a touch control, in design units. */
 		constexpr float TouchClearance = 14.f;
 
-		/**
-		 * SDeviceTouchControls' geometry (Private/Input/SDeviceTouchControls.cpp: ButtonCircle, Chips, HitSlop): sizes
-		 * are shares of the safe area's short side. The button specs themselves (which buttons, anchors, large or not,
-		 * where the chips go) come from the running scheme's FDeviceLayout; only these proportions are mirrored, and
-		 * MovecadeKart.UI.SafeArea.TouchZones pins them to the overlay's own hit test.
-		 */
-		namespace Overlay
-		{
-			constexpr float MarginShare = 0.05f;
-			constexpr float LargeButtonShare = 0.25f;
-			constexpr float ButtonShare = 0.19f;
-			constexpr float ChipShare = 0.14f;
-			constexpr float ChipColumnTop = 0.3f;
-			constexpr float ChipGap = 0.25f;
-			constexpr float RaisedInset = 0.35f;
-			constexpr float RaisedGap = 0.06f;
-			constexpr float HitSlop = 1.15f;
-		}
-
 		/** The running scheme's layout, when the device controls are up in the game viewport's world. */
 		const MovecadeKart::Input::FDeviceLayout* ActiveControls()
 		{
@@ -46,51 +28,71 @@ namespace KartSafeArea
 		}
 	}
 
-	/** The device controls' buttons and chips as zones of F (InsetsLocal: the notch and home bar, local units). */
+	/**
+	 * The device controls' buttons and chips as zones of F (InsetsLocal: the notch and home bar, local units), grown
+	 * by the clearance. The rectangles are Input's own (FDeviceTouchZones, what the touch overlay draws and hits).
+	 */
 	static void AddTouchZones(FKartSafeFrame& F, const MovecadeKart::Input::FDeviceLayout& Layout, const FMargin& InsetsLocal)
 	{
 		using namespace MovecadeKart::Input;
-		const FVector2D Origin(InsetsLocal.Left, InsetsLocal.Top);
-		const FVector2D Size(FMath::Max(1.0, F.Size.X - InsetsLocal.Left - InsetsLocal.Right), FMath::Max(1.0, F.Size.Y - InsetsLocal.Top - InsetsLocal.Bottom));
-		const double Short = FMath::Min(Size.X, Size.Y);
-		const double Margin = Short * Overlay::MarginShare;
+		const FDeviceTouchZones Zones = FDeviceTouchZones::Compute(Layout, F.Size, InsetsLocal);
 		const double Clear = TouchClearance * F.Scale;
-		for (const FDeviceButtonSpec& Spec : Layout.Buttons)
+		for (const FTouchButtonZone& Button : Zones.Buttons)
 		{
-			const double D = Short * (Spec.bLarge ? Overlay::LargeButtonShare : Overlay::ButtonShare);
-			const double R = D * 0.5;
-			const double RaisedY = Size.Y - Margin - Short * Overlay::LargeButtonShare - Short * Overlay::RaisedGap - R;
-			FVector2D C;
-			switch (Spec.Anchor)
-			{
-			case EButtonAnchor::BottomLeft: C = FVector2D(Margin + R, Size.Y - Margin - R); break;
-			case EButtonAnchor::LeftRaised: C = FVector2D(Margin + R + D * Overlay::RaisedInset, RaisedY); break;
-			case EButtonAnchor::RightRaised: C = FVector2D(Size.X - Margin - R - D * Overlay::RaisedInset, RaisedY); break;
-			case EButtonAnchor::BottomCentre: C = FVector2D(Size.X * 0.5, Size.Y - Margin - R); break;
-			default: C = FVector2D(Size.X - Margin - R, Size.Y - Margin - R); break;
-			}
-			C += Origin;
-			const double Reach = R * Overlay::HitSlop + Clear;
-			const FBox2D Box(C - FVector2D(Reach, Reach), C + FVector2D(Reach, Reach));
-			FBox2D& Zone = Spec.Anchor == EButtonAnchor::BottomCentre ? F.TouchCentre : (C.X < F.Size.X * 0.5 ? F.TouchLeft : F.TouchRight);
+			const FBox2D Box = Button.HitBounds(Clear);
+			FBox2D& Zone = Button.Anchor == EButtonAnchor::BottomCentre ? F.TouchCentre : (Button.Centre.X < F.Size.X * 0.5 ? F.TouchLeft : F.TouchRight);
 			Zone = Zone.bIsValid ? Zone + Box : Box;
 		}
-		// Pause and settings: a pair at the top centre in landscape, else a column at an edge.
-		const double H = Short * Overlay::ChipShare;
-		FVector2D ChipPos;
-		FVector2D ChipSize;
-		if (Layout.Chips == EChipPlacement::Auto && Size.X > Size.Y)
+		const FBox2D Chips = Zones.PauseAndSettings();
+		if (Chips.bIsValid)
 		{
-			ChipPos = Origin + FVector2D(Size.X * 0.5 - H * (1.0 + Overlay::ChipGap * 0.5), Margin * 0.5);
-			ChipSize = FVector2D(H * (2.0 + Overlay::ChipGap), H);
+			F.Chips = Chips.ExpandBy(Clear);
 		}
-		else
+	}
+
+	namespace
+	{
+		/** Nesting depth of live FPhoneMenuTextScopes (game thread only: Slate paints there). */
+		int32 GPhoneMenuTextDepth = 0;
+	}
+
+	float PhoneMenuTextSize(uint8 Face, float Size)
+	{
+		using KartUI::EFont;
+		const EFont F = static_cast<EFont>(Face);
+		if (F == EFont::Display || F == EFont::Title)
 		{
-			const double X = Layout.Chips == EChipPlacement::LeftEdge ? Margin : Size.X - Margin - H;
-			ChipPos = Origin + FVector2D(X, Size.Y * Overlay::ChipColumnTop);
-			ChipSize = FVector2D(H, H * (2.0 + Overlay::ChipGap));
+			return Size;
 		}
-		F.Chips = FBox2D(ChipPos - FVector2D(Clear, Clear), ChipPos + ChipSize + FVector2D(Clear, Clear));
+		const float Boosted = Size * PhoneHudBoost;
+		switch (F)
+		{
+		case EFont::Body:
+			// Reading text: the boost, and never under the floor.
+			return FMath::Max(Boosted, PhoneMenuMinBodySize);
+		case EFont::Button:
+			// Labels and values sit in fixed pills and rows: the boost, but labels already past PhoneMenuLabelCap
+			// (button captions) stay as designed. Monotonic, so a caller's shrink-to-fit still shrinks.
+			return FMath::Min(Boosted, FMath::Max(Size, PhoneMenuLabelCap));
+		default:
+			return Boosted;
+		}
+	}
+
+	FPhoneMenuTextScope::FPhoneMenuTextScope(bool bPhone)
+		: bActive(bPhone && IsInGameThread())
+	{
+		GPhoneMenuTextDepth += bActive ? 1 : 0;
+	}
+
+	FPhoneMenuTextScope::~FPhoneMenuTextScope()
+	{
+		GPhoneMenuTextDepth -= bActive ? 1 : 0;
+	}
+
+	bool FPhoneMenuTextScope::IsActive()
+	{
+		return GPhoneMenuTextDepth > 0 && IsInGameThread();
 	}
 
 	FKartDisplay FKartDisplay::Get(const FVector2D& ViewportPx)

@@ -28,7 +28,8 @@ namespace MovecadeKart::Input
 	void FLocalDeviceController::PushMotion(const FDeviceMotion& Motion)
 	{
 		LastDeviceMotionAt = Motion.TimeSeconds;
-		if (!bSynthesizing)
+		// On-screen steering replaces the device's frames entirely: a tilt left over would fight the buttons.
+		if (!bSynthesizing && !bTouchSteering)
 		{
 			Sample(Motion);
 		}
@@ -44,8 +45,31 @@ namespace MovecadeKart::Input
 		Scheme->OnSurface(Touch, *Sink);
 	}
 
+	bool FLocalDeviceController::IsMotionAvailable(double Now) const
+	{
+		if (StartedAt < 0.0 || LastDeviceMotionAt < StartedAt - MotionLostSeconds)
+		{
+			// Nothing from the sensors yet: they get a moment to start before the buttons come up.
+			return StartedAt < 0.0 || Now - StartedAt < FirstMotionGraceSeconds;
+		}
+		return Now - LastDeviceMotionAt <= MotionLostSeconds;
+	}
+
 	void FLocalDeviceController::Tick(double Now)
 	{
+		if (StartedAt < 0.0)
+		{
+			StartedAt = Now;
+		}
+		if (Scheme->HasTouchSteering())
+		{
+			const bool bTouch = !bMotionSteeringWanted || !IsMotionAvailable(Now);
+			if (bTouch != bTouchSteering)
+			{
+				bTouchSteering = bTouch;
+				Scheme->SetTouchSteering(bTouch, Now, *Sink);
+			}
+		}
 		FDeviceMotion Synth;
 		bSynthesizing = Scheme->SynthesizeMotion(Now, Synth);
 		if (bSynthesizing)

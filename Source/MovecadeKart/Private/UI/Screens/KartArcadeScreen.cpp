@@ -57,6 +57,7 @@ namespace
 		constexpr float Rim = 5.f;
 		constexpr double ArtInset = 18.0;
 		constexpr double ArtHeight = 250.0;
+		constexpr double PhoneArtTrim = 80.0;
 		/** The art's gradient darkens towards night by this much. */
 		constexpr float ArtShade = 0.35f;
 		constexpr double IconY = 143.0;
@@ -283,16 +284,18 @@ namespace
 		{
 			using namespace CardArt;
 			const FArcadePick& Pick = ArcadePick();
+			// A phone's bigger tagline takes room from the art, so it ends above the line-up.
+			const double Trim = Frame.bPhone ? PhoneArtTrim : 0.0;
 			const FArcadeGame& Game = ArcadeGames()[Pick.Game];
 			const float Pop = Ease::OutBack(static_cast<float>((Frame.Now - PickedAt) / PopSeconds), PopOvershoot);
 			const FKartPainter Card = P.Transformed(CardPos + Size * 0.5, PopFrom + PopGrowth * Pop, (1.f - Pop) * PopTilt * FKartAccessibility::MotionScale())
 				.Faded(KartWidgets::Entrance(Frame, InAt));
 			Card.Card(CardPos, Size, Color::Paper, Metric::RadiusLarge, Shadow, Color::White, Rim);
-			Card.Gradient(CardPos + FVector2D(ArtInset, ArtInset), FVector2D(Size.X - 2.0 * ArtInset, ArtHeight), Game.Accent, FMath::Lerp(Game.Accent, Color::Night, ArtShade), true,
+			Card.Gradient(CardPos + FVector2D(ArtInset, ArtInset), FVector2D(Size.X - 2.0 * ArtInset, ArtHeight - Trim), Game.Accent, FMath::Lerp(Game.Accent, Color::Night, ArtShade), true,
 				Metric::Radius);
-			Game.Icon(Card, CardPos + FVector2D(Size.X * 0.5, IconY), IconSize, Frame.Now);
-			Card.Text(Game.Name, Font(EFont::Display, NameSize), CardPos + NamePos, Color::Navy);
-			Card.TextWrapped(Game.Tagline, Font(EFont::Body, TaglineSize), CardPos + TaglinePos, Size.X - 2.0 * TaglinePos.X, Color::NavyDim);
+			Game.Icon(Card, CardPos + FVector2D(Size.X * 0.5, IconY - Trim * 0.5), IconSize, Frame.Now);
+			Card.Text(Game.Name, Font(EFont::Display, NameSize), CardPos + NamePos - FVector2D(0.0, Trim), Color::Navy);
+			Card.TextWrapped(Game.Tagline, Font(EFont::Body, TaglineSize), CardPos + TaglinePos - FVector2D(0.0, Trim), Size.X - 2.0 * TaglinePos.X, Color::NavyDim);
 
 			const int32 Seats = Pick.Players + Pick.House;
 			for (int32 i = 0; i < Game.MaxPlayers; ++i)

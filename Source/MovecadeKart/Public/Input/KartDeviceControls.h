@@ -59,17 +59,42 @@ namespace MovecadeKart::Input
 		double Sensitivity = 1.0;
 	};
 
-	/** The kart controller: frames in wheel mode at 30 Hz, the four buttons as kart-input events. */
+	/**
+	 * The kart controller: frames in wheel mode at 30 Hz, the four buttons as kart-input events. With tilt off (or no
+	 * motion sensors) it shows on-screen steering instead: left / right buttons under the left thumb (BRAKE moves in
+	 * beside GAS), sent the way the web controller's button steering is, as kart-input `steeringInput`, eased in so
+	 * a tap nudges and a hold reaches full lock.
+	 */
 	class MOVECADEKART_API FKartDeviceControls : public IDeviceControlScheme
 	{
 	public:
 		FKartDeviceControls();
 
-		virtual const FDeviceLayout& GetLayout() const override { return Layout; }
+		virtual const FDeviceLayout& GetLayout() const override { return bTouchSteering ? TouchLayout : Layout; }
+		virtual uint32 GetLayoutRevision() const override { return LayoutRevision; }
+		virtual bool HasTouchSteering() const override { return true; }
+		virtual void SetTouchSteering(bool bOn, double Now, IDeviceInputSink& Sink) override;
 		virtual void OnButton(EDeviceButton Button, bool bDown, double Now, IDeviceInputSink& Sink) override;
+		virtual void Tick(double Now, IDeviceInputSink& Sink) override;
 		virtual TSharedPtr<IDeviceMotionScript> MakeAutoplayScript() const override;
 
+		/** The on-screen steering's current value (kart convention: right is negative). */
+		double GetTouchSteering() const { return Steering; }
+		/** Seconds from centre to full lock (and back) while a steering button is held (released). */
+		static constexpr double SteerRampSeconds = 0.18;
+
 	private:
+		void SendSteering(IDeviceInputSink& Sink);
+
 		FDeviceLayout Layout;
+		FDeviceLayout TouchLayout;
+		uint32 LayoutRevision = 0;
+		bool bTouchSteering = false;
+		bool bLeftHeld = false;
+		bool bRightHeld = false;
+		double Steering = 0.0;
+		double SentSteering = 0.0;
+		double LastTickAt = -1.0;
+		double LastSentAt = -1.0;
 	};
 }
