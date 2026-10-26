@@ -14,6 +14,7 @@
 #include "Games/Bowling/BowlingAlley.h"
 #include "Games/Bowling/SBowlingHud.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Platform/Mobile/MobileHaptics.h"
 #include "Store/KartCosmetics.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBowling, Log, All);
@@ -544,6 +545,7 @@ void ABowlingGame::Launch(const FShot& InShot)
 	if (const FBowlerSeat* Bowler = GetBowler(); Bowler && Bowler->Kind == EBowlerKind::Local)
 	{
 		++LocalThrows;
+		MovecadeKart::Mobile::FHaptics::PlayForLocalPlayer(this, MovecadeKart::Mobile::EHaptic::Throw);
 	}
 	TrailCarry = 0.0;
 	SparkleCarry = 0.0;

@@ -279,6 +279,49 @@ void AArcadeGameModeBase::HandleRoomPaused(bool bPaused, const FString& Reason, 
 	}
 }
 
+void AArcadeGameModeBase::PauseForAppInterruption(bool bLocalOnly)
+{
+	IArcadeGame* Game = GetArcadeGame();
+	if (!Game || Game->GetArcadeFinishedAge() >= 0.0)
+	{
+		return;
+	}
+	if (!bRoomMatch)
+	{
+		if (Overlay.IsValid())
+		{
+			Overlay->OpenPause();
+		}
+		else
+		{
+			Game->SetArcadePaused(true);
+		}
+		return;
+	}
+	if (!bLocalOnly)
+	{
+		bPausedForApp = true;
+		Game->SetArcadePaused(true);
+	}
+}
+
+void AArcadeGameModeBase::ResumeAfterAppInterruption()
+{
+	IArcadeGame* Game = GetArcadeGame();
+	if (!bPausedForApp || !Game)
+	{
+		bPausedForApp = false;
+		return;
+	}
+	bPausedForApp = false;
+	const URoomHostSubsystem* Room = GetRoom();
+	const bool bRoomPaused = Room && Room->GetRoom().Status == EMcRoomStatus::Paused;
+	if (!bRoomPaused)
+	{
+		Game->SetArcadePaused(false);
+	}
+}
+
 void AArcadeGameModeBase::HandleRoomLobby()
 {
 	// The lobby lives on the front end's level; the room (a game instance subsystem) rides along.

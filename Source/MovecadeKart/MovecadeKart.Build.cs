@@ -37,6 +37,9 @@ public class MovecadeKart : ModuleRules
 			"StaticMeshDescription",
 		});
 
+		// Platform/Mobile/: the phone build's boot and level-load splash.
+		PrivateDependencyModuleNames.Add("MoviePlayer");
+
 		// Net/: the saved room's host token is sealed with DPAPI (CryptProtectData). Other platforms keep it in plaintext.
 		if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
