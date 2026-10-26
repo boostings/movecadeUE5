@@ -59,15 +59,12 @@ namespace MovecadeKart::Input
 		bool bLarge = false;
 	};
 
-	enum class EDeviceOrientationHint : uint8 { Portrait, Landscape };
-
 	/** What the touch overlay shows for a scheme, and how often frames go out. */
 	struct FDeviceLayout
 	{
 		EDeviceFrameKind FrameKind = EDeviceFrameKind::Attitude;
 		/** The phone controller's sendHz for this game (kart 30, samurai 100, the rest 60). */
 		double SendHz = 60.0;
-		EDeviceOrientationHint Orientation = EDeviceOrientationHint::Portrait;
 		TArray<FDeviceButtonSpec> Buttons;
 		/** A touch surface over the rest of the screen: the scheme's swipe fallback reads it. */
 		bool bSurface = false;

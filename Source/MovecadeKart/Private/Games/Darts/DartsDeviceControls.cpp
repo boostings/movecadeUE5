@@ -39,7 +39,6 @@ FDartsDeviceControls::FDartsDeviceControls()
 {
 	Layout.FrameKind = EDeviceFrameKind::Attitude;
 	Layout.SendHz = DartsSendHz;
-	Layout.Orientation = EDeviceOrientationHint::Portrait;
 	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Throw", "HOLD"), EButtonAnchor::BottomCentre, true } };
 	Layout.bSurface = true;
 	Layout.Hint = LOCTEXT("Hint", "Hold, throw, let go · or flick a finger up");
@@ -113,8 +112,9 @@ FDartGesture FDartsDeviceControls::SwipeGesture(const FTouchTrack& S)
 
 TSharedPtr<IDeviceMotionScript> FDartsDeviceControls::MakeAutoplayScript() const
 {
-	return MakeShared<FTimedDeviceScript>([](double T)
+	return MakeShared<FTimedDeviceScript>([](double Time)
 	{
+		const double T = FMath::Fmod(Time, SimPeriod);
 		const double U = (T - SimThrustAt) / SimThrustSeconds;
 		const double Push = U >= 0.0 && U <= 1.0 ? SimThrustPeakMs2 * FMath::Sin(UE_DOUBLE_PI * U) : 0.0;
 		return FDeviceGestures::Posed(FDeviceGestures::Upright(), FQuat::Identity, FVector3d::ZeroVector, FVector3d(0.0, Push, 0.0));

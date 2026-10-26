@@ -23,7 +23,7 @@ namespace MovecadeKart::Input
 		virtual FDeviceMotion Step(double T, TFunctionRef<void(EDeviceButton, bool)> Press) = 0;
 	};
 
-	/** A script from a motion function and a list of timed presses (repeating every Period seconds when > 0). */
+	/** A script from a motion function of the script's time and a list of timed presses (repeating every Period seconds when > 0). */
 	class MOVECADEKART_API FTimedDeviceScript : public IDeviceMotionScript
 	{
 	public:

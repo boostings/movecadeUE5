@@ -1,5 +1,6 @@
 #include "Games/Darts/DartsGameMode.h"
 
+#include "Games/Darts/DartsDeviceControls.h"
 #include "Art/KartMaterials.h"
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
@@ -116,7 +117,8 @@ void ADartsGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		const bool bLocal = i < InLaunch.Locals;
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EThrowerKind::Local : EThrowerKind::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? EThrowerKind::Phone : EThrowerKind::Local) : EThrowerKind::Bot;
 		Seat.Skill = bLocal ? LocalSkill : HouseSkillBase + HouseSkillStep * (i % 3);
 		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
 		Seat.Look = FKartLook::MakeVaried(i + LookSeedBase);
@@ -263,4 +265,9 @@ void ADartsGameMode::EndPlay(const EEndPlayReason::Type Reason)
 	GetWorldTimerManager().ClearTimer(AimTimer);
 	GetWorldTimerManager().ClearTimer(LocalAutoTimer);
 	Super::EndPlay(Reason);
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> ADartsGameMode::MakeDeviceControls()
+{
+	return MakeShared<FDartsDeviceControls>();
 }

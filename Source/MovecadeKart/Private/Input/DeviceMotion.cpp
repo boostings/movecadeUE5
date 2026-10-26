@@ -9,6 +9,8 @@ namespace MovecadeKart::Input
 		constexpr double GyroScale = 20.0;
 		constexpr double VectorScale = 1000.0;
 		constexpr double QuaternionScale = 16384.0;
+		/** cos(beta) under this is gimbal lock for the Z-X'-Y'' angles (beta within ~0.0006 degrees of +-90). */
+		constexpr double GimbalLockCos = 1e-5;
 
 		/** JS Math.round (halves go up), then the int16 clamp the encoder applies. */
 		int16 ToI16(double Value)
@@ -94,8 +96,19 @@ namespace MovecadeKart::Input
 		const FVector Ey = Q.RotateVector(FVector(0.0, 1.0, 0.0));
 		const FVector Ez = Q.RotateVector(FVector(0.0, 0.0, 1.0));
 		double Beta = FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(Ey.Z, -1.0, 1.0)));
-		double Alpha = FMath::RadiansToDegrees(FMath::Atan2(-Ey.X, Ey.Y));
-		double Gamma = FMath::RadiansToDegrees(FMath::Atan2(-Ex.Z, Ez.Z));
+		double Alpha = 0.0;
+		double Gamma = 0.0;
+		if (FMath::Sqrt(Ey.X * Ey.X + Ey.Y * Ey.Y) < GimbalLockCos)
+		{
+			// Upright (beta +-90, a portrait phone held to the face): only alpha + gamma is defined. Take gamma 0, so
+			// R = Rz(alpha) Rx(beta) and alpha comes from where x points.
+			Alpha = FMath::RadiansToDegrees(FMath::Atan2(Ex.Y, Ex.X));
+		}
+		else
+		{
+			Alpha = FMath::RadiansToDegrees(FMath::Atan2(-Ey.X, Ey.Y));
+			Gamma = FMath::RadiansToDegrees(FMath::Atan2(-Ex.Z, Ez.Z));
+		}
 		// W3C ranges: gamma within [-90, 90), beta carries the rest.
 		if (Gamma > 90.0 || Gamma < -90.0)
 		{
@@ -106,6 +119,19 @@ namespace MovecadeKart::Input
 		OutAlphaDeg = WrapDegrees(Alpha);
 		OutBetaDeg = Beta >= 180.0 ? Beta - 360.0 : Beta;
 		OutGammaDeg = Gamma;
+	}
+
+	EScreenOrientation ResolveOrientation(TOptional<EScreenOrientation> Reported, bool bPortraitShape)
+	{
+		if (Reported.IsSet())
+		{
+			const bool bReportedPortrait = *Reported == EScreenOrientation::Portrait || *Reported == EScreenOrientation::PortraitUpsideDown;
+			if (bReportedPortrait == bPortraitShape)
+			{
+				return *Reported;
+			}
+		}
+		return bPortraitShape ? EScreenOrientation::Portrait : EScreenOrientation::LandscapeLeft;
 	}
 
 	FDeviceMotion FromEngine(const FEngineMotionReading& Reading, const FMotionConvention& Convention)

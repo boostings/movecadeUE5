@@ -35,7 +35,6 @@ FBowlingDeviceControls::FBowlingDeviceControls()
 {
 	Layout.FrameKind = EDeviceFrameKind::Attitude;
 	Layout.SendHz = BowlingSendHz;
-	Layout.Orientation = EDeviceOrientationHint::Portrait;
 	Layout.Buttons = { { EDeviceButton::A, LOCTEXT("Grip", "GRIP"), EButtonAnchor::BottomCentre, true } };
 	Layout.bSurface = true;
 	Layout.Hint = LOCTEXT("Hint", "Hold GRIP, swing, let go · or roll a finger up");
@@ -97,8 +96,9 @@ FThrowRelease FBowlingDeviceControls::SwipeRelease(const FTouchTrack& S)
 
 TSharedPtr<IDeviceMotionScript> FBowlingDeviceControls::MakeAutoplayScript() const
 {
-	return MakeShared<FTimedDeviceScript>([](double T)
+	return MakeShared<FTimedDeviceScript>([](double Time)
 	{
+		const double T = FMath::Fmod(Time, SimPeriod);
 		const double U = (T - SimGripAt) / SimSwingSeconds;
 		const double Push = U >= 0.0 && U <= 1.0 ? SimPushMs2 * FMath::Sin(UE_DOUBLE_PI * U) : 0.0;
 		return FDeviceGestures::Posed(FDeviceGestures::Upright(), FQuat::Identity, FVector3d::ZeroVector, FVector3d(0.0, Push, Push * SimSideShare));

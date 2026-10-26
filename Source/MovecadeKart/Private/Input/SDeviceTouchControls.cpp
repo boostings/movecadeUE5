@@ -1,6 +1,7 @@
 #include "SDeviceTouchControls.h"
 
 #include "Input/DeviceControlsSubsystem.h"
+#include "Mobile/MovecadeOrientationSubsystem.h"
 #include "UI/KartUIPainter.h"
 #include "UI/KartUIStyle.h"
 
@@ -76,6 +77,10 @@ void SDeviceTouchControls::Tick(const FGeometry& AllottedGeometry, const double 
 			Up(Pointer, FVector2D(-1.0, -1.0), Size);
 		}
 	}
+	if (const UMovecadeOrientationSubsystem* Screen = UMovecadeOrientationSubsystem::Get(Owner.Get()))
+	{
+		SafeArea = Screen->GetSafeArea();
+	}
 	if (const UDeviceControlsSubsystem* Subsystem = Owner.Get(); Subsystem && Subsystem->GetSensitivity() != ShownSensitivity)
 	{
 		ShownSensitivity = Subsystem->GetSensitivity();
@@ -83,8 +88,18 @@ void SDeviceTouchControls::Tick(const FGeometry& AllottedGeometry, const double 
 	}
 }
 
-void SDeviceTouchControls::ButtonCircle(int32 Index, const FVector2D& Size, FVector2D& OutCentre, float& OutRadius) const
+void SDeviceTouchControls::SafeRect(const FVector2D& Size, FVector2D& OutOrigin, FVector2D& OutSize) const
 {
+	// Inside the notch, the rounded corners and the home indicator (UMovecadeOrientationSubsystem).
+	const FMargin Insets = SafeArea.Insets(Size);
+	OutOrigin = FVector2D(Insets.Left, Insets.Top);
+	OutSize = FVector2D(FMath::Max(1.0, Size.X - Insets.Left - Insets.Right), FMath::Max(1.0, Size.Y - Insets.Top - Insets.Bottom));
+}
+
+void SDeviceTouchControls::ButtonCircle(int32 Index, const FVector2D& FullSize, FVector2D& OutCentre, float& OutRadius) const
+{
+	FVector2D Origin, Size;
+	SafeRect(FullSize, Origin, Size);
 	const float Short = static_cast<float>(FMath::Min(Size.X, Size.Y));
 	const float Margin = Short * MarginShare;
 	const FDeviceButtonSpec& Spec = Layout.Buttons[Index];
@@ -100,16 +115,19 @@ void SDeviceTouchControls::ButtonCircle(int32 Index, const FVector2D& Size, FVec
 	case EButtonAnchor::BottomCentre: OutCentre = FVector2D(Size.X * 0.5, Size.Y - Margin - OutRadius); break;
 	default: OutCentre = FVector2D(Size.X - Margin - OutRadius, Size.Y - Margin - OutRadius); break;
 	}
+	OutCentre += Origin;
 }
 
-void SDeviceTouchControls::Chips(const FVector2D& Size, TArray<FChip, TInlineAllocator<4>>& Out) const
+void SDeviceTouchControls::Chips(const FVector2D& FullSize, TArray<FChip, TInlineAllocator<4>>& Out) const
 {
+	FVector2D Origin, Size;
+	SafeRect(FullSize, Origin, Size);
 	const float Short = static_cast<float>(FMath::Min(Size.X, Size.Y));
 	const float H = Short * ChipShare;
 	const float Gap = H * ChipGap;
 	const float Total = H + Gap + H * CalibrateChipWidth + Gap + H + H * SensitivityLabelWidth + H;
-	float X = static_cast<float>(Size.X - Total) * 0.5f;
-	const float Y = Short * MarginShare * 0.6f;
+	float X = static_cast<float>(Origin.X + (Size.X - Total) * 0.5);
+	const float Y = static_cast<float>(Origin.Y) + Short * MarginShare * 0.6f;
 	Out.Add({ ETarget::Pause, FVector2D(X, Y), FVector2D(H, H) });
 	X += H + Gap;
 	Out.Add({ ETarget::Calibrate, FVector2D(X, Y), FVector2D(H * CalibrateChipWidth, H) });

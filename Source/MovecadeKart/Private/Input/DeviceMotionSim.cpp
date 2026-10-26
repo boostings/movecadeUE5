@@ -23,8 +23,7 @@ namespace MovecadeKart::Input
 				++Cycle;
 			}
 		}
-		const double Local = Period > 0.0 ? FMath::Fmod(T, Period) : T;
-		FDeviceMotion M = Motion(Local);
+		FDeviceMotion M = Motion(T);
 		M.TimeSeconds = T;
 		return M;
 	}

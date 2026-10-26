@@ -49,7 +49,8 @@ void ADerbyGame::FeedPhone(const FString& PlayerId, const MovecadeKart::Net::FSe
 		return;
 	}
 	// The detector reports its peak on its own clock, after the swing came down: back to the game clock, less the trip.
-	const double PeakAt = Clock - (Detector.ClockMs() - Event->PeakAtMs) / 1000.0 - Tuning.PhoneLatencySeconds;
+	const double Latency = PlayerId == DeviceSeatId ? 0.0 : Tuning.PhoneLatencySeconds;
+	const double PeakAt = Clock - (Detector.ClockMs() - Event->PeakAtMs) / 1000.0 - Latency;
 	UE_LOG(LogDerby, Log, TEXT("Phone swing %s: %.0f dps, strength %.2f, direction %.2f (%s), %.0f ms ago"), *PlayerId, Event->PeakDps, Event->Strength,
 		Event->Direction, Event->Handed > 0.0 ? TEXT("R") : TEXT("L"), (Clock - PeakAt) * 1000.0);
 	if (Phase == EDerbyPhase::Pitch && !bSwingTaken)

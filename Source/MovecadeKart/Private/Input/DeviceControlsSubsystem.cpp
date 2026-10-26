@@ -8,6 +8,7 @@
 #include "Input/DeviceControlsSettings.h"
 #include "Input/Events.h"
 #include "Misc/FileHelper.h"
+#include "Mobile/MovecadeOrientationSubsystem.h"
 #include "SDeviceTouchControls.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDeviceControls, Log, All);
@@ -19,7 +20,7 @@ namespace
 	/** Over the game's HUDs and the arcade overlay's bar, under the pause menu's screens (which sit at 100+). */
 	constexpr int32 OverlayZOrder = 40;
 
-	EScreenOrientation CurrentOrientation(EScreenOrientation Fallback)
+	TOptional<EScreenOrientation> ReportedOrientation()
 	{
 		switch (FPlatformMisc::GetDeviceOrientation())
 		{
@@ -27,8 +28,17 @@ namespace
 		case EDeviceScreenOrientation::PortraitUpsideDown: return EScreenOrientation::PortraitUpsideDown;
 		case EDeviceScreenOrientation::LandscapeLeft: return EScreenOrientation::LandscapeLeft;
 		case EDeviceScreenOrientation::LandscapeRight: return EScreenOrientation::LandscapeRight;
-		default: return Fallback; // face up / down or unknown: the screen did not turn
+		default: return {}; // face up / down or unknown: the screen did not turn
 		}
+	}
+
+	/** The orientation the engine reoriented the reading for: the viewport's shape decides portrait or landscape. */
+	EScreenOrientation CurrentOrientation(const UObject* Context, EScreenOrientation Last)
+	{
+		const UMovecadeOrientationSubsystem* Screen = UMovecadeOrientationSubsystem::Get(Context);
+		const bool bPortrait = Screen ? Screen->IsPortrait() : (Last == EScreenOrientation::Portrait || Last == EScreenOrientation::PortraitUpsideDown);
+		const TOptional<EScreenOrientation> Reported = ReportedOrientation();
+		return ResolveOrientation(Reported.IsSet() ? Reported : TOptional<EScreenOrientation>(Last), bPortrait);
 	}
 }
 
@@ -49,7 +59,7 @@ public:
 			Reading.RotationRate = MotionEvent.GetRotationRate();
 			Reading.Gravity = MotionEvent.GetGravity();
 			Reading.Acceleration = MotionEvent.GetAcceleration();
-			Reading.Orientation = Orientation = CurrentOrientation(Orientation);
+			Reading.Orientation = Orientation = CurrentOrientation(Subsystem, Orientation);
 			Reading.TimeSeconds = Subsystem->Now();
 			Subsystem->HandleMotion(Reading);
 		}

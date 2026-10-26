@@ -96,7 +96,6 @@ namespace MovecadeKart::Input
 	{
 		Layout.FrameKind = EDeviceFrameKind::Wheel;
 		Layout.SendHz = KartSendHz;
-		Layout.Orientation = EDeviceOrientationHint::Landscape;
 		Layout.Buttons = {
 			{ EDeviceButton::Gas, LOCTEXT("Gas", "GAS"), EButtonAnchor::BottomRight, true },
 			{ EDeviceButton::Drift, LOCTEXT("Drift", "DRIFT"), EButtonAnchor::RightRaised, false },

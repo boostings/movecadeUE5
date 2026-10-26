@@ -88,6 +88,14 @@ namespace MovecadeKart::Input
 	/** The W3C deviceorientation angles of an attitude, degrees: alpha (-180, 180], beta [-180, 180), gamma [-90, 90]. */
 	MOVECADEKART_API void EulerFromAttitude(const FQuat& Attitude, double& OutAlphaDeg, double& OutBetaDeg, double& OutGammaDeg);
 
+	/**
+	 * The orientation the engine reoriented a reading for: the device's report, held to the viewport's shape
+	 * (UMovecadeOrientationSubsystem's Shape is the truth for portrait vs landscape; the device report only picks the
+	 * side). A report that disagrees with the shape (face up, unknown, mid-rotation) gives the shape's default side:
+	 * Portrait, or LandscapeLeft (the wire's kart hold).
+	 */
+	MOVECADEKART_API EScreenOrientation ResolveOrientation(TOptional<EScreenOrientation> Reported, bool bPortraitShape);
+
 	MOVECADEKART_API FDeviceMotion FromEngine(const FEngineMotionReading& Reading, const FMotionConvention& Convention);
 	MOVECADEKART_API FEngineMotionReading ToEngine(const FDeviceMotion& Motion, const FMotionConvention& Convention);
 

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Input/DeviceControls.h"
+#include "Mobile/MovecadeOrientation.h"
 #include "Widgets/SLeafWidget.h"
 
 class UDeviceControlsSubsystem;
@@ -66,6 +67,8 @@ private:
 	};
 
 	void Chips(const FVector2D& Size, TArray<FChip, TInlineAllocator<4>>& Out) const;
+	/** The safe area of a widget of Size: where every control goes. */
+	void SafeRect(const FVector2D& Size, FVector2D& OutOrigin, FVector2D& OutSize) const;
 	FReply Down(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
 	FReply Move(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
 	FReply Up(int32 Pointer, const FVector2D& Local, const FVector2D& Size);
@@ -77,6 +80,8 @@ private:
 	TMap<int32, FHit> Held;
 	/** Buttons down, for the pressed look. */
 	TArray<bool> ButtonDown;
+	/** The screen's safe area (UMovecadeOrientationSubsystem), refreshed each tick. */
+	MovecadeKart::Mobile::FMovecadeSafeArea SafeArea;
 	FString SensitivityLabel;
 	double ShownSensitivity = -1.0;
 };
