@@ -314,6 +314,7 @@ namespace
 			BoundStore = Store;
 			UnlockHandle = Store->OnUnlocked.AddSP(this, &FStoreScreen::OnUnlocked);
 			RestoreHandle = Store->OnRestored.AddSP(this, &FStoreScreen::OnRestored);
+			ApprovedHandle = Store->OnApproved.AddSP(this, &FStoreScreen::OnApproved);
 		}
 
 		void Unbind()
@@ -322,6 +323,7 @@ namespace
 			{
 				Store->OnUnlocked.Remove(UnlockHandle);
 				Store->OnRestored.Remove(RestoreHandle);
+				Store->OnApproved.Remove(ApprovedHandle);
 			}
 			BoundStore = nullptr;
 		}
@@ -339,7 +341,15 @@ namespace
 			if (bRestoreRequested)
 			{
 				bRestoreRequested = false;
-				Toast(bOk ? LOCTEXT("Restored", "Purchases restored from Steam") : LOCTEXT("RestoreFailed", "Couldn't reach Steam. Showing what we had."), bOk ? Color::Sky : Color::Hot);
+				Toast(RestoreDoneText(UKartStoreSubsystem::Active(), bOk), bOk ? Color::Sky : Color::Hot);
+			}
+		}
+
+		void OnApproved(int32 DefId)
+		{
+			if (const FItem* Item = FindItem(DefId))
+			{
+				Toast(ApprovedText(*Item), Color::Mint);
 			}
 		}
 
@@ -455,7 +465,7 @@ namespace
 				bRestoreRequested = true;
 				Store->Restore();
 				Host->PlaySound(EKartUISound::Accept);
-				Toast(LOCTEXT("Restoring", "Checking Steam for your items..."), Color::Sky);
+				Toast(RestoreStartedText(Store), Color::Sky);
 			}
 		}
 
@@ -600,7 +610,10 @@ namespace
 				PaintChip(T, ChipPos, LOCTEXT("ChipOwned", "OWNED"), Color::Sky, L::ChipHeight);
 				break;
 			case EItemState::OwnedUnconfirmed:
-				PaintChip(T, ChipPos, LOCTEXT("ChipUnconfirmed", "NEEDS STEAM"), Color::PaperShade, L::ChipHeight);
+				PaintChip(T, ChipPos, UnconfirmedChip(Store), Color::PaperShade, L::ChipHeight);
+				break;
+			case EItemState::AwaitingApproval:
+				PaintChip(T, ChipPos, LOCTEXT("ChipAwaiting", "WAITING"), Color::Sky, L::ChipHeight);
 				break;
 			case EItemState::Pending:
 				PaintSpinner(T, ChipPos + FVector2D(16.0, 15.0), 11.f, Frame.Now, Color::Sky);
@@ -713,7 +726,11 @@ namespace
 			}
 			else if (State == EItemState::OwnedUnconfirmed)
 			{
-				Card.Text(LOCTEXT("UnconfirmedNote", "Wear it once Steam confirms it."), Font(EFont::Body, 20.f), Line, Color::NavyDim);
+				Card.Text(UnconfirmedNote(Store), Font(EFont::Body, 20.f), Line, Color::NavyDim);
+			}
+			else if (State == EItemState::AwaitingApproval)
+			{
+				Card.Text(LOCTEXT("AwaitingNote", "Waiting for approval. Nothing charged yet."), Font(EFont::Body, 20.f), Line, Color::NavyDim);
 			}
 		}
 
@@ -754,6 +771,7 @@ namespace
 		FKartStore* BoundStore = nullptr;
 		FDelegateHandle UnlockHandle;
 		FDelegateHandle RestoreHandle;
+		FDelegateHandle ApprovedHandle;
 	};
 }
 

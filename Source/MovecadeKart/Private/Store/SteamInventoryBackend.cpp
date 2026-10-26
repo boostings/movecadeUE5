@@ -98,6 +98,7 @@ namespace MovecadeKart::Store
 		}
 
 		virtual FName GetName() const override { return TEXT("steam"); }
+		virtual EStorefront GetStorefront() const override { return EStorefront::Steam; }
 		virtual bool IsOnline() const override { return SteamUser() && SteamUser()->BLoggedOn(); }
 
 		virtual void Tick(double DeltaSeconds) override
@@ -485,9 +486,9 @@ namespace MovecadeKart::Store
 
 #else // MOVECADE_WITH_STEAM
 
-#if UE_BUILD_SHIPPING
-// MovecadeKart.Build.cs turns Steam on for every desktop Shipping game; a shipped store without it sells nothing and
-// confirms nothing. Reaching this means a platform or target the store hasn't been set up for.
+#if UE_BUILD_SHIPPING && PLATFORM_DESKTOP
+// MovecadeKart.Build.cs turns Steam on for every desktop Shipping game; a shipped desktop store without it sells nothing
+// and confirms nothing. (iOS and Android sell through their own backends: AppStoreBackend, GooglePlayBackend.)
 #error "Shipping builds need the Steam Inventory backend (MOVECADE_WITH_STEAM=1)."
 #endif
 

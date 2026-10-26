@@ -5,9 +5,9 @@
 #include "UI/Screens/Store/KartStorePresenter.h"
 
 /**
- * Buy one item: confirm (the price, what it is, that Steam takes the payment), then wait for the overlay, then the
- * result. Modal over the store screen, which pushes it. The store finishes the purchase whether or not this dialog
- * is still open.
+ * Buy one item: confirm (the price, what it is, who takes the payment: Steam, Apple or Google), then wait for the
+ * platform's checkout, then the result (or "waiting for approval" on mobile). Modal over the store screen, which
+ * pushes it. The store finishes the purchase whether or not this dialog is still open.
  */
 class FKartStorePurchaseDialog final : public FKartScreen
 {

@@ -62,7 +62,7 @@ namespace MovecadeKart::Store
 	void FKartStore::Start()
 	{
 		Load();
-		Restore();
+		Refresh(false);
 		TWeakPtr<bool> WeakAlive = Alive;
 		Backend->RequestPrices(PaidDefs(), [this, WeakAlive](bool bOk, const TMap<int32, FPrice>& NewPrices)
 		{
@@ -160,6 +160,10 @@ namespace MovecadeKart::Store
 			}
 			return IsEquipped(DefId) ? EItemState::Equipped : EItemState::Owned;
 		}
+		if (AwaitingApproval.Contains(DefId))
+		{
+			return EItemState::AwaitingApproval;
+		}
 		switch (Item->Source)
 		{
 		case ESource::Earned: return EItemState::Locked;
@@ -188,7 +192,7 @@ namespace MovecadeKart::Store
 		{
 			return LOCTEXT("Free", "Free");
 		}
-		// Only Steam's own number is shown: a price the checkout then contradicts is worse than none.
+		// Only the store's own price is shown: a price the checkout then contradicts is worse than none.
 		if (const FPrice* Price = Prices.Find(DefId))
 		{
 			return FormatPrice(*Price);
@@ -235,6 +239,11 @@ namespace MovecadeKart::Store
 			Refused = EPurchaseResult::Unavailable;
 			Why = TEXT("another purchase is open");
 		}
+		else if (AwaitingApproval.Contains(DefId))
+		{
+			Refused = EPurchaseResult::Pending;
+			Why = TEXT("waiting for approval");
+		}
 		else if (!Backend->IsOnline())
 		{
 			Refused = EPurchaseResult::Failed;
@@ -274,12 +283,22 @@ namespace MovecadeKart::Store
 			const FItem* Item = FindItem(DefId);
 			AddConfirmed(Item && Item->Slot == ESlot::Bundle ? Item->Contents : TArray<int32>{ DefId }, false);
 		}
+		else if (Result == EPurchaseResult::Pending)
+		{
+			// No charge yet: shown as waiting, never as owned. The backend reports it as an inventory change if it goes through.
+			AwaitingApproval.Add(DefId);
+		}
 		UE_LOG(LogKartStore, Log, TEXT("Purchase %d: %s %s"), DefId, ResultId(Result), *Detail);
 		Changed();
 		OnPurchaseFinished.Broadcast(DefId, Result, Detail);
 	}
 
 	void FKartStore::Restore()
+	{
+		Refresh(true);
+	}
+
+	void FKartStore::Refresh(bool bUserAsked)
 	{
 		if (bRestoring)
 		{
@@ -288,7 +307,7 @@ namespace MovecadeKart::Store
 		bRestoring = true;
 		Changed();
 		TWeakPtr<bool> WeakAlive = Alive;
-		Backend->RefreshInventory([this, WeakAlive](bool bOk, const TSet<int32>& NewOwned)
+		auto Done = [this, WeakAlive, bUserAsked](bool bOk, const TSet<int32>& NewOwned)
 		{
 			if (!WeakAlive.IsValid())
 			{
@@ -299,12 +318,26 @@ namespace MovecadeKart::Store
 			{
 				bHasInventory = true;
 				ApplyInventory(NewOwned, false);
+				if (bUserAsked)
+				{
+					// Still not here after the player asked the store again: put it back on sale (a declined Ask to Buy).
+					AwaitingApproval.Reset();
+				}
 			}
-			UE_LOG(LogKartStore, Log, TEXT("Inventory refresh: %s, %d owned"), bOk ? TEXT("ok") : TEXT("failed (kept the cache)"), Owned.Num());
+			UE_LOG(LogKartStore, Log, TEXT("Inventory %s: %s, %d owned"), bUserAsked ? TEXT("restore") : TEXT("refresh"),
+				bOk ? TEXT("ok") : TEXT("failed (kept the cache)"), Owned.Num());
 			EvaluateUnlocks();
 			Changed();
 			OnRestored.Broadcast(bOk);
-		});
+		};
+		if (bUserAsked)
+		{
+			Backend->RestorePurchases(MoveTemp(Done));
+		}
+		else
+		{
+			Backend->RefreshInventory(MoveTemp(Done));
+		}
 	}
 
 	bool FKartStore::Equip(int32 DefId)
@@ -373,6 +406,7 @@ namespace MovecadeKart::Store
 		Confirmed.Reset();
 		Equipped.Reset();
 		Stats.Reset();
+		AwaitingApproval.Reset();
 		PlaySeconds = 0.0;
 		bHasInventory = false;
 		Save();
@@ -422,6 +456,21 @@ namespace MovecadeKart::Store
 					OnUnlocked.Broadcast(Def);
 				}
 			}
+		}
+		// Purchases that were waiting for approval and are here now (bundles count once all their contents are).
+		TArray<int32> Approved;
+		for (int32 Def : AwaitingApproval)
+		{
+			if (IsOwned(Def))
+			{
+				Approved.Add(Def);
+			}
+		}
+		for (int32 Def : Approved)
+		{
+			AwaitingApproval.Remove(Def);
+			UE_LOG(LogKartStore, Log, TEXT("Purchase %d: approved"), Def);
+			OnApproved.Broadcast(Def);
 		}
 		Changed();
 	}

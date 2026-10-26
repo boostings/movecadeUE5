@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Store/MobileStoreBackends.h"
 #include "Store/MockStoreBackend.h"
 #include "Store/SteamInventoryBackend.h"
 
@@ -44,7 +45,7 @@ namespace
 		return DevEquip;
 	}
 
-	/** Development: -KartStoreBackend=mock skips Steam. Shipping always asks Steam first. */
+	/** Development: -KartStoreBackend=mock skips the platform store. Shipping always asks the platform first. */
 	bool WantsMockBackend()
 	{
 #if UE_BUILD_SHIPPING
@@ -55,20 +56,33 @@ namespace
 #endif
 	}
 
-	/** Steam Inventory when the build has it and Steam runs, else the offline mock. */
+	/** The platform's own store: StoreKit on iOS, Google Play Billing on Android, Steam Inventory on desktop; null if unavailable. */
+	TUniquePtr<IKartStoreBackend> MakePlatformBackend()
+	{
+#if PLATFORM_IOS
+		return MakeAppStoreBackend();
+#elif PLATFORM_ANDROID
+		return MakeGooglePlayBackend();
+#else
+		// Desktop. The editor and Development builds without MOVECADE_STEAM have no Steamworks: null, so the mock.
+		return MakeSteamBackend(UKartStoreSubsystem::DevAppId);
+#endif
+	}
+
+	/** The platform's store when the build has it and it answers, else the offline mock. */
 	TUniquePtr<IKartStoreBackend> MakeBackend(const TArray<int32>& DevEquip)
 	{
 		if (!WantsMockBackend())
 		{
-			if (TUniquePtr<IKartStoreBackend> Steam = MakeSteamBackend(UKartStoreSubsystem::DevAppId))
+			if (TUniquePtr<IKartStoreBackend> Platform = MakePlatformBackend())
 			{
-				return Steam;
+				return Platform;
 			}
 		}
 		TUniquePtr<FMockStoreBackend> Mock = MakeUnique<FMockStoreBackend>();
 #if UE_BUILD_SHIPPING
-		// A shipped game never hands out paid items without Steam: offline, the cache shows what is owned, and only
-		// free items are worn (FKartStore wears paid items once a backend confirms them).
+		// A shipped game never hands out paid items without its store: offline, the cache shows what is owned, and
+		// only free items are worn (FKartStore wears paid items once a backend confirms them).
 		Mock->SetOnline(false);
 #else
 		Mock->DevGrant(DevEquip);

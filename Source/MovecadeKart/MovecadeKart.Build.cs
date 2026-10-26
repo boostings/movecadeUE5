@@ -55,5 +55,25 @@ public class MovecadeKart : ModuleRules
 			PrivateDependencyModuleNames.Add("Steamworks");
 		}
 		PrivateDefinitions.Add("MOVECADE_WITH_STEAM=" + (bWithSteam ? "1" : "0"));
+
+		// Store/ on phones (Docs/Store/README.md "Mobile"). The Store/IOS and Store/Android folders build only on their
+		// platform (UBT skips other platforms' folders). iOS: StoreKit 2 through a small Swift file, so the module gets a
+		// Swift bridging header. Android: Google Play Billing through the engine's OnlineSubsystemGooglePlay.
+		if (Target.Platform == UnrealTargetPlatform.IOS)
+		{
+			SwiftInteropHeader = System.IO.Path.Combine(ModuleDirectory, "Private/Store/IOS/KartStoreKitInterop.h");
+			PublicFrameworks.Add("StoreKit");
+		}
+		if (Target.Platform == UnrealTargetPlatform.Android)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystem", "CoreOnline" });
+		}
+		// The Google Play purchase signature check (Store/GooglePlayReceipt.cpp) runs on Android and is tested on Win64.
+		bool bWithPlayVerify = Target.Platform == UnrealTargetPlatform.Android || Target.Platform == UnrealTargetPlatform.Win64;
+		if (bWithPlayVerify)
+		{
+			PrivateDependencyModuleNames.Add("OpenSSL");
+		}
+		PrivateDefinitions.Add("MOVECADE_WITH_PLAY_VERIFY=" + (bWithPlayVerify ? "1" : "0"));
 	}
 }

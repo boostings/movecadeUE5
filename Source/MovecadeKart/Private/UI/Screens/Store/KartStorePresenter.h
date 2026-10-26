@@ -48,13 +48,25 @@ namespace KartStoreUI
 
 	FStatus StatusFor(const FKartStore* Store);
 	bool IsMockStore(const FKartStore* Store);
+	/** Whose words the screens use: the store's storefront, or the build's own when there is no store. */
+	MovecadeKart::Store::EStorefront StorefrontOf(const FKartStore* Store);
+
+	/** Restore purchases: the toast while it runs, and when it ends. */
+	FText RestoreStartedText(const FKartStore* Store);
+	FText RestoreDoneText(const FKartStore* Store, bool bOk);
+	/** A paid item the cache lists but the store hasn't confirmed: the tile chip and the detail card's note. */
+	FText UnconfirmedChip(const FKartStore* Store);
+	FText UnconfirmedNote(const FKartStore* Store);
+	/** The toast when a purchase that waited for approval arrives. */
+	FText ApprovedText(const FItem& Item);
 
 	/** Where focus goes in a grid of Count tiles, Columns wide, moved by (DX, DY): it stays put at an edge. */
 	int32 MoveInGrid(int32 Focus, int32 Count, int32 Columns, int32 DX, int32 DY);
 
 	// -------------------------------------------------------------------------------------- Purchase dialog
 
-	enum class EDialogPhase : uint8 { Confirm, Waiting, Success, Cancelled, Failed };
+	/** Pending: the checkout ended waiting for Ask to Buy or a payment (mobile). */
+	enum class EDialogPhase : uint8 { Confirm, Waiting, Success, Cancelled, Failed, Pending };
 
 	/** The phase a finished checkout lands on. */
 	EDialogPhase PhaseAfter(MovecadeKart::Store::EPurchaseResult Result);
@@ -62,7 +74,7 @@ namespace KartStoreUI
 	FName DialogId(EDialogPhase Phase);
 	/** Confirm and Failed offer two buttons, and Success too when the item can be worn. */
 	int32 NumDialogButtons(EDialogPhase Phase, bool bCanEquip);
-	FText DialogTitle(EDialogPhase Phase, const FItem& Item);
+	FText DialogTitle(EDialogPhase Phase, const FItem& Item, MovecadeKart::Store::EStorefront Front);
 	/** The dialog's body lines (an empty line is skipped). Detail is the backend's reason for a failure. */
 	TArray<FText> DialogLines(EDialogPhase Phase, const FKartStore* Store, const FItem& Item, const FString& Detail);
 	TArray<FText> DialogButtons(EDialogPhase Phase, const FKartStore* Store, const FItem& Item);

@@ -25,16 +25,24 @@ namespace MovecadeKart::Store
 			return FLinearColor::FromSRGBColor(FColor::FromHex(Code));
 		}
 
-		/** Valve's price tiers: Steam localises each tier per currency. Cents are the US price (the mock's). */
+		/**
+		 * One price tier on every store. Steam: Valve's tier (localised per currency by Steam), Cents its US price.
+		 * App Store and Google Play: MobileCents, the matching US price point ($0.99 next to Steam's $1.00); both stores
+		 * derive the other currencies from it. Docs/Store/README.md "Pricing".
+		 */
 		struct FTier
 		{
 			const TCHAR* Category;
 			int32 Cents;
+			int32 MobileCents;
 		};
-		const FTier Tier100{ TEXT("1;VLV100"), 100 };
-		const FTier Tier150{ TEXT("1;VLV150"), 150 };
-		const FTier Tier400{ TEXT("1;VLV400"), 400 };
-		const FTier Tier500{ TEXT("1;VLV500"), 500 };
+		const FTier Tier100{ TEXT("1;VLV100"), 100, 99 };
+		const FTier Tier150{ TEXT("1;VLV150"), 150, 149 };
+		const FTier Tier400{ TEXT("1;VLV400"), 400, 399 };
+		const FTier Tier500{ TEXT("1;VLV500"), 500, 499 };
+
+		/** Every App Store and Google Play product id starts with this (both stores allow lowercase, digits and dots). */
+		const TCHAR* const ProductIdPrefix = TEXT("movecade.kart.");
 
 		FItem Paid(int32 DefId, const TCHAR* Key, FText Name, FText Description, ESlot Slot, const FTier& Price, const FVisual& Visual)
 		{
@@ -46,6 +54,7 @@ namespace MovecadeKart::Store
 			Item.Slot = Slot;
 			Item.Source = ESource::Paid;
 			Item.PriceCents = Price.Cents;
+			Item.MobilePriceCents = Price.MobileCents;
 			Item.PriceCategory = Price.Category;
 			Item.Visual = Visual;
 			return Item;
@@ -53,7 +62,7 @@ namespace MovecadeKart::Store
 
 		FItem Earned(int32 DefId, const TCHAR* Key, FText Name, FText Description, ESlot Slot, FName StatName, int32 Target, const TCHAR* Achievement, const FVisual& Visual)
 		{
-			FItem Item = Paid(DefId, Key, MoveTemp(Name), MoveTemp(Description), Slot, FTier{ TEXT(""), 0 }, Visual);
+			FItem Item = Paid(DefId, Key, MoveTemp(Name), MoveTemp(Description), Slot, FTier{ TEXT(""), 0, 0 }, Visual);
 			Item.Source = ESource::Earned;
 			Item.PriceCategory.Reset();
 			Item.Unlock = { StatName, Target, FName(Achievement) };
@@ -62,7 +71,7 @@ namespace MovecadeKart::Store
 
 		FItem Drop(int32 DefId, const TCHAR* Key, FText Name, FText Description, ESlot Slot, const FVisual& Visual)
 		{
-			FItem Item = Paid(DefId, Key, MoveTemp(Name), MoveTemp(Description), Slot, FTier{ TEXT(""), 0 }, Visual);
+			FItem Item = Paid(DefId, Key, MoveTemp(Name), MoveTemp(Description), Slot, FTier{ TEXT(""), 0, 0 }, Visual);
 			Item.Source = ESource::Drop;
 			Item.PriceCategory.Reset();
 			return Item;
@@ -215,12 +224,48 @@ namespace MovecadeKart::Store
 		case EPurchaseResult::Cancelled: return TEXT("cancelled");
 		case EPurchaseResult::Failed: return TEXT("failed");
 		case EPurchaseResult::AlreadyOwned: return TEXT("already-owned");
+		case EPurchaseResult::Pending: return TEXT("pending");
 		default: return TEXT("unavailable");
 		}
 	}
 
+	const TCHAR* StorefrontId(EStorefront Storefront)
+	{
+		switch (Storefront)
+		{
+		case EStorefront::AppStore: return TEXT("appstore");
+		case EStorefront::GooglePlay: return TEXT("googleplay");
+		default: return TEXT("steam");
+		}
+	}
+
+	FText StorefrontName(EStorefront Storefront)
+	{
+		switch (Storefront)
+		{
+		case EStorefront::AppStore: return LOCTEXT("StoreAppStore", "the App Store");
+		case EStorefront::GooglePlay: return LOCTEXT("StoreGooglePlay", "Google Play");
+		default: return LOCTEXT("StoreSteam", "Steam");
+		}
+	}
+
+	EStorefront NativeStorefront()
+	{
+#if PLATFORM_IOS
+		return EStorefront::AppStore;
+#elif PLATFORM_ANDROID
+		return EStorefront::GooglePlay;
+#else
+		return EStorefront::Steam;
+#endif
+	}
+
 	FText FormatPrice(const FPrice& Price)
 	{
+		if (!Price.Display.IsEmpty())
+		{
+			return Price.Display;
+		}
 		const FString Currency = Price.Currency.IsEmpty() ? FString(TEXT("USD")) : Price.Currency;
 		// Steam reports the price in the currency's base (minor) units; the culture formats symbol and decimals.
 		return FText::AsCurrencyBase(static_cast<int64>(Price.Amount), Currency);
@@ -345,6 +390,102 @@ namespace MovecadeKart::Store
 		TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 		Root->SetNumberField(TEXT("appid"), AppId);
 		Root->SetArrayField(TEXT("items"), Items);
+		FString Out;
+		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Out);
+		FJsonSerializer::Serialize(Root, Writer);
+		Out.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+		return Out + TEXT("\n");
+	}
+
+	bool IsSellable(const FItem& Item)
+	{
+		return Item.Source == ESource::Paid && !Item.bComingSoon;
+	}
+
+	FString ProductId(const FItem& Item)
+	{
+		// The key, not the def id, so App Store Connect and Play Console read well. Frozen like the def id: the
+		// MovecadeKart.Store.MobileProducts test fails if one changes (neither store lets a product id be reused).
+		return IsSellable(Item) ? FString(ProductIdPrefix) + Item.Key.ToString() : FString();
+	}
+
+	const FItem* FindItemByProductId(const FString& InProductId)
+	{
+		if (!InProductId.StartsWith(ProductIdPrefix, ESearchCase::CaseSensitive))
+		{
+			return nullptr;
+		}
+		const FItem* Item = FindItem(FName(*InProductId.RightChop(FCString::Strlen(ProductIdPrefix))));
+		return Item && IsSellable(*Item) && ProductId(*Item) == InProductId ? Item : nullptr;
+	}
+
+	TArray<FString> SellableProductIds()
+	{
+		TArray<FString> Out;
+		for (const FItem& I : Catalog())
+		{
+			if (IsSellable(I))
+			{
+				Out.Add(ProductId(I));
+			}
+		}
+		return Out;
+	}
+
+	FText StoreShortDescription(const FItem& Item)
+	{
+		// App Store Connect allows 45 characters for an in-app purchase description (the test checks it).
+		switch (Item.Slot)
+		{
+		case ESlot::KartPaint: return LOCTEXT("ShortPaint", "Cosmetic kart paint for Player 1.");
+		case ESlot::Colourway: return LOCTEXT("ShortWay", "Cosmetic outfit colours for your driver.");
+		case ESlot::Headwear: return LOCTEXT("ShortHat", "Cosmetic headwear for your driver.");
+		case ESlot::BowlingBall: return LOCTEXT("ShortBall", "Cosmetic bowling ball skin.");
+		case ESlot::Katana: return LOCTEXT("ShortKatana", "Cosmetic Samurai Slice blade skin.");
+		case ESlot::StackerBlock: return LOCTEXT("ShortBlock", "Cosmetic Sky Stacker block skin.");
+		case ESlot::Bundle: return FText::Format(LOCTEXT("ShortBundle", "{0} cosmetic items in one bundle."), Item.Contents.Num());
+		default: return LOCTEXT("ShortOther", "Cosmetic item.");
+		}
+	}
+
+	FString MakeMobileProductsJson()
+	{
+		// What to create in App Store Connect and Play Console, one entry per product (Docs/Store/README.md "Mobile").
+		TArray<TSharedPtr<FJsonValue>> Products;
+		for (const FItem& I : Catalog())
+		{
+			if (!IsSellable(I))
+			{
+				continue;
+			}
+			TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+			O->SetStringField(TEXT("productId"), ProductId(I));
+			O->SetNumberField(TEXT("defId"), I.DefId);
+			O->SetStringField(TEXT("kind"), I.Slot == ESlot::Bundle ? TEXT("bundle") : TEXT("item"));
+			O->SetStringField(TEXT("appStoreType"), TEXT("Non-Consumable"));
+			O->SetStringField(TEXT("playType"), TEXT("One-time product (never consumed)"));
+			O->SetStringField(TEXT("usdPrice"), FString::Printf(TEXT("%d.%02d"), I.MobilePriceCents / 100, I.MobilePriceCents % 100));
+			O->SetStringField(TEXT("steamPriceCategory"), I.PriceCategory);
+			O->SetStringField(TEXT("name"), I.Name.ToString());
+			O->SetStringField(TEXT("shortDescription"), StoreShortDescription(I).ToString());
+			O->SetStringField(TEXT("description"), I.Description.ToString());
+			if (I.Slot == ESlot::Bundle)
+			{
+				TArray<TSharedPtr<FJsonValue>> Parts;
+				for (int32 Def : I.Contents)
+				{
+					if (const FItem* Part = FindItem(Def))
+					{
+						Parts.Add(MakeShared<FJsonValueString>(ProductId(*Part)));
+					}
+				}
+				O->SetArrayField(TEXT("contents"), Parts);
+			}
+			Products.Add(MakeShared<FJsonValueObject>(O));
+		}
+		TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetStringField(TEXT("note"), TEXT("Generated from KartStoreCatalog.cpp. Never rename, delete or reuse a productId."));
+		Root->SetArrayField(TEXT("products"), Products);
 		FString Out;
 		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Out);
 		FJsonSerializer::Serialize(Root, Writer);

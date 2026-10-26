@@ -20,14 +20,22 @@ namespace MovecadeKart::Store
 	FMockStoreBackend::FMockStoreBackend(const FString& InSaveSlot) : SaveSlot(InSaveSlot)
 	{
 #if !UE_BUILD_SHIPPING
-		// Development: -KartStoreMock=succeed|cancel|fail picks how every checkout ends; =offline plays the store as a
-		// Shipping build without Steam sees it (nothing confirmed, nothing for sale).
+		// Development: -KartStoreMock=succeed|cancel|fail|pending picks how every checkout ends; =offline plays the store
+		// as a Shipping build without its store sees it (nothing confirmed, nothing for sale).
 		FString Outcome;
 		if (FParse::Value(FCommandLine::Get(), TEXT("KartStoreMock="), Outcome))
 		{
 			NextOutcome = Outcome.Equals(TEXT("cancel"), ESearchCase::IgnoreCase) ? EMockOutcome::Cancel
-				: Outcome.Equals(TEXT("fail"), ESearchCase::IgnoreCase) ? EMockOutcome::Fail : EMockOutcome::Succeed;
+				: Outcome.Equals(TEXT("fail"), ESearchCase::IgnoreCase) ? EMockOutcome::Fail
+				: Outcome.Equals(TEXT("pending"), ESearchCase::IgnoreCase) ? EMockOutcome::Pending : EMockOutcome::Succeed;
 			bOnline = !Outcome.Equals(TEXT("offline"), ESearchCase::IgnoreCase);
+		}
+		// -KartStoreFront=appstore|googleplay|steam: the storefront the mock plays (the phone store's words on PC).
+		FString Front;
+		if (FParse::Value(FCommandLine::Get(), TEXT("KartStoreFront="), Front))
+		{
+			Storefront = Front.Equals(TEXT("appstore"), ESearchCase::IgnoreCase) ? EStorefront::AppStore
+				: Front.Equals(TEXT("googleplay"), ESearchCase::IgnoreCase) ? EStorefront::GooglePlay : EStorefront::Steam;
 		}
 #endif
 		Load();
@@ -63,6 +71,12 @@ namespace MovecadeKart::Store
 		});
 	}
 
+	void FMockStoreBackend::RestorePurchases(TFunction<void(bool, const TSet<int32>&)> Done)
+	{
+		++RestoreSyncs;
+		RefreshInventory(MoveTemp(Done));
+	}
+
 	void FMockStoreBackend::RequestPrices(const TArray<int32>& DefIds, TFunction<void(bool, const TMap<int32, FPrice>&)> Done)
 	{
 		After(PriceSeconds, [this, DefIds, Done = MoveTemp(Done)]()
@@ -70,11 +84,19 @@ namespace MovecadeKart::Store
 			TMap<int32, FPrice> Prices;
 			if (bOnline)
 			{
+				const bool bMobile = Storefront != EStorefront::Steam;
 				for (int32 Def : DefIds)
 				{
-					if (const FItem* Item = FindItem(Def); Item && Item->Source == ESource::Paid && !Item->bComingSoon)
+					if (const FItem* Item = FindItem(Def); Item && IsSellable(*Item))
 					{
-						Prices.Add(Def, { static_cast<uint64>(Item->PriceCents), static_cast<uint64>(Item->PriceCents), TEXT("USD") });
+						// Steam gives numbers; the phone stores give their own formatted text as well (FPrice::Display).
+						const int32 Cents = bMobile ? Item->MobilePriceCents : Item->PriceCents;
+						FPrice Price{ static_cast<uint64>(Cents), static_cast<uint64>(Cents), TEXT("USD") };
+						if (bMobile)
+						{
+							Price.Display = FText::AsCurrencyBase(Cents, TEXT("USD"));
+						}
+						Prices.Add(Def, Price);
 					}
 				}
 			}
@@ -96,8 +118,9 @@ namespace MovecadeKart::Store
 			return;
 		}
 		const EMockOutcome Outcome = NextOutcome;
-		UE_LOG(LogKartStoreMock, Display, TEXT("Mock checkout for %d (%s): %s"), DefId, *Item->Key.ToString(),
-			Outcome == EMockOutcome::Succeed ? TEXT("approve") : Outcome == EMockOutcome::Cancel ? TEXT("cancel") : TEXT("fail"));
+		UE_LOG(LogKartStoreMock, Display, TEXT("Mock %s checkout for %d (%s): %s"), StorefrontId(Storefront), DefId, *Item->Key.ToString(),
+			Outcome == EMockOutcome::Succeed ? TEXT("approve") : Outcome == EMockOutcome::Cancel ? TEXT("cancel")
+			: Outcome == EMockOutcome::Pending ? TEXT("pending") : TEXT("fail"));
 		// Like the overlay: the player reads the checkout, then approves or closes it.
 		After(PurchaseSeconds, [this, DefId, Outcome, Done = MoveTemp(Done)]()
 		{
@@ -116,6 +139,10 @@ namespace MovecadeKart::Store
 			}
 			case EMockOutcome::Cancel:
 				Done(EPurchaseResult::Cancelled, TEXT("closed the checkout"));
+				break;
+			case EMockOutcome::Pending:
+				AwaitingApproval.Add(DefId);
+				Done(EPurchaseResult::Pending, TEXT("waiting for approval (mock)"));
 				break;
 			default:
 				Done(EPurchaseResult::Failed, TEXT("k_EResultFail (mock)"));
@@ -160,6 +187,24 @@ namespace MovecadeKart::Store
 		});
 	}
 
+	bool FMockStoreBackend::ResolvePending(int32 DefId, bool bApprove)
+	{
+		if (AwaitingApproval.Remove(DefId) == 0)
+		{
+			return false;
+		}
+		if (bApprove)
+		{
+			const FItem* Item = FindItem(DefId);
+			Grant(Item && Item->Slot == ESlot::Bundle ? Item->Contents : TArray<int32>{ DefId });
+			if (OnInventoryChanged)
+			{
+				OnInventoryChanged(Inventory);
+			}
+		}
+		return true;
+	}
+
 	void FMockStoreBackend::Revoke(int32 DefId)
 	{
 		if (Inventory.Remove(DefId) > 0)
@@ -176,6 +221,7 @@ namespace MovecadeKart::Store
 	{
 		Inventory.Reset();
 		Pending.Reset();
+		AwaitingApproval.Reset();
 		if (!SaveSlot.IsEmpty() && UGameplayStatics::DoesSaveGameExist(SaveSlot, 0))
 		{
 			UGameplayStatics::DeleteGameInSlot(SaveSlot, 0);
