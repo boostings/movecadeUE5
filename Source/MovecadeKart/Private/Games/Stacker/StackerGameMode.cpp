@@ -1,5 +1,6 @@
 #include "Games/Stacker/StackerGameMode.h"
 
+#include "Games/Stacker/StackerDeviceControls.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "Games/Stacker/StackerGame.h"
@@ -64,7 +65,8 @@ void AStackerGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		const bool bLocal = i < Locals;
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EBuilderKind::Local : EBuilderKind::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? EBuilderKind::Phone : EBuilderKind::Local) : EBuilderKind::Bot;
 		Seat.Skill = bLocal ? LocalSkill : HouseBotSkill + HouseBotSkillStep * (i % HouseBotSkillSteps);
 		Seat.Color = AStackerRooftop::LaneColor(i);
 		Seat.Look = FKartLook::MakeVaried(i + LocalLookSeed);
@@ -153,4 +155,9 @@ bool AStackerGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFin
 		Entry.Score = Tower.Score;
 	}
 	return true;
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> AStackerGameMode::MakeDeviceControls()
+{
+	return MakeShared<FStackerDeviceControls>();
 }

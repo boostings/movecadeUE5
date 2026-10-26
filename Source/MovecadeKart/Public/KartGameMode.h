@@ -10,6 +10,7 @@ class ATrackBuilder;
 class URoomHostSubsystem;
 struct FKartResult;
 struct FKartSeatSpec;
+namespace MovecadeKart::Input { class FKartDeviceSeat; }
 
 /**
  * Sets up a race on the level's track: finds the ATrackBuilder (or spawns one for DefaultTrackId),
@@ -44,6 +45,11 @@ public:
 
 	ATrackBuilder* GetTrackBuilder();
 	AKartRaceManager* GetRaceManager() const { return RaceManager; }
+	/**
+	 * A local race played with this device's own controls (Input/KartDeviceControls.h): the first local seat's tilt
+	 * and touch buttons, which AKartPlayerController adds to its keys. Null without device controls.
+	 */
+	MovecadeKart::Input::FKartDeviceSeat* GetDeviceSeat() const { return DeviceSeat.Get(); }
 
 	UPROPERTY(EditAnywhere, Category = "Kart")
 	FString DefaultTrackId = TEXT("sunset-harbor");
@@ -53,6 +59,7 @@ public:
 
 private:
 	void SetupLocalRace(TSharedPtr<const MovecadeKart::FTrack> Track);
+	void ActivateDeviceControls();
 	TArray<APlayerController*> MakeViewers(int32 Karts, int32 LocalPlayers, bool bSoloView);
 	URoomHostSubsystem* GetRoom() const;
 
@@ -87,6 +94,7 @@ private:
 	TArray<FString> RoomPlayerOf;
 	FTimerHandle LiveScoreTimer;
 	TArray<FTimerHandle> TestHookTimers;
+	TSharedPtr<MovecadeKart::Input::FKartDeviceSeat> DeviceSeat;
 
 	UPROPERTY()
 	TObjectPtr<ATrackBuilder> TrackBuilder;

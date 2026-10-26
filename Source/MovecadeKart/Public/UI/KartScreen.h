@@ -134,13 +134,29 @@ public:
 	virtual FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+	/** Touch: a tap clicks what it lands on (or the nearest target within a finger's reach); a vertical drag steps the
+	 *  focus up or down, which scrolls any list that overflows (the store's grid). */
+	virtual FReply OnTouchStarted(const FGeometry& MyGeometry, const FPointerEvent& TouchEvent) override;
+	virtual FReply OnTouchMoved(const FGeometry& MyGeometry, const FPointerEvent& TouchEvent) override;
+	virtual FReply OnTouchEnded(const FGeometry& MyGeometry, const FPointerEvent& TouchEvent) override;
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 
 	static constexpr double TransitionSeconds = 0.32;
+	/** The smallest touch target, as a share of the canvas's short side: 44 pt on a 320 pt screen. */
+	static constexpr double MinTouchTargetShare = 44.0 / 320.0;
+
+	/**
+	 * The hit for a finger at Local (canvas units) among Regions: an exact hit first, else the region whose rectangle,
+	 * grown to at least MinTarget on each side, holds the point and is nearest it. Pure, for the tests.
+	 */
+	static int32 TouchHitAmong(TConstArrayView<FKartHitRegion> Regions, const FVector2D& Local, double MinTarget);
 
 private:
 	void Show(const TSharedRef<FKartScreen>& Screen, float Direction);
 	int32 HitAt(const FVector2D& Local) const;
+	int32 TouchHitAt(const FVector2D& Local) const;
+	/** A synthetic menu action from a touch gesture (the drag's Up / Down). */
+	void SendTouchAction(EKartMenuAction Action);
 	/** Widget-local to canvas units (the canvas never gets shorter than the 1080-unit design height). */
 	FVector2D ToCanvas(const FGeometry& Geometry, const FVector2D& ScreenPos) const;
 
@@ -156,6 +172,11 @@ private:
 	mutable TArray<FKartHitRegion> Hits;
 	int32 HoverId = INDEX_NONE;
 	int32 PressedId = INDEX_NONE;
+	/** The finger being followed (the first one down), where it started and how far the drag has stepped. */
+	int32 TouchPointer = INDEX_NONE;
+	FVector2D TouchStart = FVector2D::ZeroVector;
+	int32 TouchSteps = 0;
+	bool bTouchDragging = false;
 	mutable FVector2D LastSize = FVector2D(1920.0, 1080.0);
 	/** Scale applied to fit the design canvas when the widget is shorter (a large UI scale); 1 otherwise. */
 	mutable float Fit = 1.f;

@@ -1,5 +1,6 @@
 #include "Games/Sumo/SumoGameMode.h"
 
+#include "Games/Sumo/SumoDeviceControls.h"
 #include "Dom/JsonObject.h"
 #include "EngineUtils.h"
 #include "Games/Sumo/SumoArena.h"
@@ -124,7 +125,8 @@ void ASumoGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		FSumoSeat& Seat = Seats.AddDefaulted_GetRef();
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[House % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? ESumoPilot::Local : ESumoPilot::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? ESumoPilot::Phone : ESumoPilot::Local) : ESumoPilot::Bot;
 		Seat.Skill = bLocal ? AutoLocalSkill : (DebugFlags.BotSkill >= 0.f ? DebugFlags.BotSkill : HouseBaseSkill + HouseSkillStep * (House % HouseSkillCycle));
 		Seat.Look = FKartLook::MakeVaried(i + LocalLookBase);
 	}
@@ -328,4 +330,9 @@ void ASumoGameMode::SendPowerFeedback(URoomHostSubsystem& Room, const FRingEvent
 		Detail = TEXT("The next hit bounces off");
 	}
 	Room.SendPlayFeedback(M.Pucks[Event.A].Id, Title, Detail, TEXT("success"), TEXT("impact"));
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> ASumoGameMode::MakeDeviceControls()
+{
+	return MakeShared<FSumoDeviceControls>();
 }

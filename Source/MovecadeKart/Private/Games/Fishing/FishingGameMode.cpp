@@ -1,5 +1,6 @@
 #include "Games/Fishing/FishingGameMode.h"
 
+#include "Games/Fishing/FishingDeviceControls.h"
 #include "Dom/JsonObject.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
@@ -145,7 +146,8 @@ void AFishingGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		const bool bLocal = i < InLaunch.Locals;
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EAnglerKind::Local : EAnglerKind::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? EAnglerKind::Phone : EAnglerKind::Local) : EAnglerKind::Bot;
 		Seat.Skill = bLocal ? AutoLocalSkill : HouseSkillBase + HouseSkillStep * (i % HouseSkillLevels);
 		Seat.Color = AFishingLake::LaneColor(i);
 		Seat.Look = FKartLook::MakeVaried(i + LookSeedOffset);
@@ -316,4 +318,9 @@ bool AFishingGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFin
 		UE_LOG(LogFishingMode, Display, TEXT("Fishing: complete-game %s"), *Line);
 	}
 	return true;
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> AFishingGameMode::MakeDeviceControls()
+{
+	return MakeShared<FFishingDeviceControls>();
 }

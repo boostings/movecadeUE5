@@ -1,5 +1,6 @@
 #include "Games/Derby/DerbyGameMode.h"
 
+#include "Games/Derby/DerbyDeviceControls.h"
 #include "Art/KartMaterials.h"
 #include "Dom/JsonObject.h"
 #include "EngineUtils.h"
@@ -122,7 +123,8 @@ void ADerbyGameMode::BuildLocalSeats(const FArcadeLaunchOptions& InLaunch)
 		const bool bLocal = i < InLaunch.Locals;
 		Seat.Id = FString::Printf(TEXT("seat-%d"), i);
 		Seat.Name = bLocal ? FString::Printf(TEXT("Player %d"), i + 1) : HouseNames[(i - InLaunch.Locals) % UE_ARRAY_COUNT(HouseNames)];
-		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? EDerbyKind::Local : EDerbyKind::Bot;
+		// The device seat plays through the phone path (AArcadeGameModeBase::MakeDeviceControls).
+		Seat.Kind = bLocal && !InLaunch.bAutoPlay ? (i == 0 && InLaunch.bDeviceSeat ? EDerbyKind::Phone : EDerbyKind::Local) : EDerbyKind::Bot;
 		Seat.Skill = bLocal ? LocalSkill : HouseBaseSkill + HouseSkillStep * (i % HouseSkillSteps);
 		Seat.Color = MovecadeKart::Art::Hex(SeatColors[i % UE_ARRAY_COUNT(SeatColors)]);
 		Seat.Look = FKartLook::MakeVaried(i + LookSeedBase);
@@ -261,4 +263,13 @@ bool ADerbyGameMode::CollectScores(TArray<FMcScoreEntry>& OutScores, bool bFinal
 		Entry.Score = FMath::Clamp(Batter.Score, 0, MovecadeKart::Net::MaxScore);
 	}
 	return true;
+}
+
+TSharedPtr<MovecadeKart::Input::IDeviceControlScheme> ADerbyGameMode::MakeDeviceControls()
+{
+	if (Game)
+	{
+		Game->SetDeviceSeat(DeviceSeatId());
+	}
+	return MakeShared<FDerbyDeviceControls>();
 }

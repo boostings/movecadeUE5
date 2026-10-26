@@ -6,6 +6,9 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
+#include "Input/DeviceControlsSettings.h"
+#include "Input/KartDeviceControls.h"
+#include "KartGameMode.h"
 
 namespace
 {
@@ -78,4 +81,34 @@ void AKartPlayerController::PlayerTick(float DeltaTime)
 	LocalInput.bJump = Held(Drift);
 	LocalInput.bUseItem = Held(UseItem);
 	bLookingBack = Held(LookBack);
+	AddDeviceInput();
+}
+
+void AKartPlayerController::AddDeviceInput()
+{
+	// The first local player is the device itself on a phone build: its tilt steers (over the stick), its buttons add
+	// to the keys. Same seat semantics as a room phone (FKartPhoneSeatInput).
+	const AKartGameMode* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<AKartGameMode>() : nullptr;
+	MovecadeKart::Input::FKartDeviceSeat* Device = Mode && IsPrimaryPlayer() ? Mode->GetDeviceSeat() : nullptr;
+	if (!Device)
+	{
+		return;
+	}
+	Device->SetSensitivity(UDeviceControlsSettings::Get()->GetSensitivity());
+	const MovecadeKart::FKartInput Phone = Device->Read();
+	if (Phone.SteeringX != 0.0)
+	{
+		LocalInput.SteeringX = Phone.SteeringX;
+	}
+	LocalInput.bForward |= Phone.bForward;
+	LocalInput.bBackward |= Phone.bBackward;
+	LocalInput.bJump |= Phone.bJump;
+	// An ITEM press is held for a moment, as a key is: the race reads input on its own fixed steps and turns a held
+	// item into one press, so a one-frame pulse could fall between two steps.
+	const double Now = GetWorld()->GetRealTimeSeconds();
+	if (Phone.bUseItem)
+	{
+		DeviceItemHeldUntil = Now + DeviceItemHoldSeconds;
+	}
+	LocalInput.bUseItem |= Now < DeviceItemHeldUntil;
 }
