@@ -30,6 +30,23 @@ The bar is **commercial AAA-casual quality**: polished, juicy, readable, fast. V
   `.\Tools\net-sim\e2e.ps1 -RoomGame <id> -QuitAfter N -SimSeconds N -Shots '..' -Bots 0`. The simulated phone is
   `Tools/net-sim/phone-sim.mjs --game <id>`. The lead's server may already be running on :1999; if so, reuse it.
 
+## Phone orientation and layouts on the desktop
+- Each catalog game has `FGameInfo::Orientation` (`Games/ArcadeCatalog.h`, `EArcadeOrientation`): darts, samurai and
+  bowling are **portrait**; stacker, sumo, derby and fishing **landscape**. Kart races, the front end and the Party
+  lobby (track levels) are landscape (`Arcade::KartOrientation`, `Arcade::MenuOrientation`); `OrientationForLevel`.
+- `UMovecadeOrientationSubsystem` (`Mobile/MovecadeOrientationSubsystem.h`) locks the device to the level's orientation
+  as each level loads (`FPlatformMisc::SetAllowedDeviceOrientation`). HUD/UI code reads one API:
+  `UMovecadeOrientationSubsystem::Get(this)->GetState()` gives `Shape` (the viewport's actual shape: **lay out by
+  this**, a desktop window stays landscape in a portrait game), `Wanted`, `ViewportSize` and `SafeArea` (fractions per
+  side); `State.SafeInsets(LocalSize)` gives the insets in your widget's units. `OnScreenChanged()` fires on any change
+  (level, rotation, resize, safe area). `SetOverride(...)` / `ClearOverride()` hold another orientation until the next level.
+- Preview a phone on Windows (not in Shipping): `.\Tools\ue\preview.ps1 -Map L_Darts -Orientation portrait -Shots '8' -QuitAfter 10 -Extra '-DartsPlayers=0 -DartsBots=2'`.
+  `-Orientation auto` (default) follows the level, `-Device iphone15pro|iphonese|pixel8`. It passes
+  `-MobilePreview=<portrait|landscape|auto>[,<device>]` to the game, which sizes the window to the phone's aspect
+  (1179x2556 or 2556x1179 scaled to the desktop), simulates its safe area through the engine's `SafeZone.Ratio.*`
+  overrides (SSafeZone agrees) and draws it as a translucent mask with the camera housing and home indicator
+  (`-MobilePreviewNoMask` hides it). Keep everything that matters inside the cyan line.
+
 ## Pitfalls we hit before
 - Bash heredocs with apostrophes break; write scripts to a file. PowerShell `Get-Content`/`Set-Content` mangle UTF-8
   and add a BOM. Use Python (`newline=""`), or the Edit/Write tools.
