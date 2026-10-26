@@ -7,6 +7,25 @@ using namespace MovecadeKart::Store;
 
 namespace KartStoreUI
 {
+	namespace
+	{
+		/** The store's name at the start of a sentence ("The App Store said: ..."). */
+		FText StorefrontTitle(EStorefront Front)
+		{
+			switch (Front)
+			{
+			case EStorefront::AppStore: return LOCTEXT("FrontTitleApple", "The App Store");
+			case EStorefront::GooglePlay: return LOCTEXT("FrontTitleGoogle", "Google Play");
+			default: return LOCTEXT("FrontTitleSteam", "Steam");
+			}
+		}
+	}
+
+	EStorefront StorefrontOf(const FKartStore* Store)
+	{
+		return Store ? Store->GetStorefront() : NativeStorefront();
+	}
+
 	FText TabName(ETab Tab)
 	{
 		switch (Tab)
@@ -69,8 +88,13 @@ namespace KartStoreUI
 			}
 			break;
 		case EItemState::OwnedUnconfirmed:
-			// Only Steam's answer unlocks a paid item; the local list could have been edited.
-			Out.Label = LOCTEXT("NeedsSteam", "Start Steam to wear");
+			// Only the store's answer unlocks a paid item; the local list could have been edited.
+			Out.Label = StorefrontOf(Store) == EStorefront::Steam ? LOCTEXT("NeedsSteam", "Start Steam to wear")
+				: FText::Format(LOCTEXT("NeedsStore", "Connect to {0} to wear"), StorefrontName(StorefrontOf(Store)));
+			Out.bEnabled = false;
+			break;
+		case EItemState::AwaitingApproval:
+			Out.Label = LOCTEXT("AwaitingApproval", "Waiting for approval");
 			Out.bEnabled = false;
 			break;
 		case EItemState::ForSale:
@@ -83,7 +107,7 @@ namespace KartStoreUI
 			}
 			break;
 		case EItemState::Pending:
-			Out.Label = LOCTEXT("Pending", "Waiting for Steam...");
+			Out.Label = FText::Format(LOCTEXT("PendingStore", "Waiting for {0}..."), StorefrontName(StorefrontOf(Store)));
 			Out.bEnabled = false;
 			break;
 		case EItemState::Locked:
@@ -117,15 +141,62 @@ namespace KartStoreUI
 		}
 		else if (IsMockStore(Store))
 		{
-			Out.Text = Store->IsOnline() ? LOCTEXT("StatusMock", "Demo store (offline test mode)") : LOCTEXT("StatusOffline", "Offline: showing items you own");
+			const EStorefront Front = Store->GetStorefront();
+			Out.Text = !Store->IsOnline() ? LOCTEXT("StatusOffline", "Offline: showing items you own")
+				: Front == EStorefront::AppStore ? LOCTEXT("StatusMockApple", "Demo App Store (test mode)")
+				: Front == EStorefront::GooglePlay ? LOCTEXT("StatusMockGoogle", "Demo Google Play (test mode)")
+				: LOCTEXT("StatusMock", "Demo store (offline test mode)");
 			Out.Level = Store->IsOnline() ? EStatusLevel::Demo : EStatusLevel::Offline;
 		}
 		else
 		{
-			Out.Text = Store->IsOnline() ? LOCTEXT("StatusSteam", "Steam Inventory") : LOCTEXT("StatusSteamOff", "Steam offline: showing items you own");
+			switch (Store->GetStorefront())
+			{
+			case EStorefront::AppStore:
+				Out.Text = Store->IsOnline() ? LOCTEXT("StatusApple", "App Store") : LOCTEXT("StatusAppleOff", "App Store offline: showing items you own");
+				break;
+			case EStorefront::GooglePlay:
+				Out.Text = Store->IsOnline() ? LOCTEXT("StatusGoogle", "Google Play") : LOCTEXT("StatusGoogleOff", "Google Play offline: showing items you own");
+				break;
+			default:
+				Out.Text = Store->IsOnline() ? LOCTEXT("StatusSteam", "Steam Inventory") : LOCTEXT("StatusSteamOff", "Steam offline: showing items you own");
+				break;
+			}
 			Out.Level = Store->IsOnline() ? EStatusLevel::Live : EStatusLevel::Offline;
 		}
 		return Out;
+	}
+
+	FText RestoreStartedText(const FKartStore* Store)
+	{
+		return FText::Format(LOCTEXT("RestoringStore", "Checking {0} for your items..."), StorefrontName(StorefrontOf(Store)));
+	}
+
+	FText RestoreDoneText(const FKartStore* Store, bool bOk)
+	{
+		const FText Name = StorefrontName(StorefrontOf(Store));
+		return bOk ? FText::Format(LOCTEXT("RestoredStore", "Purchases restored from {0}"), Name)
+			: FText::Format(LOCTEXT("RestoreFailedStore", "Couldn't reach {0}. Showing what we had."), Name);
+	}
+
+	FText UnconfirmedChip(const FKartStore* Store)
+	{
+		switch (StorefrontOf(Store))
+		{
+		case EStorefront::AppStore: return LOCTEXT("ChipUnconfirmedApple", "NEEDS APP STORE");
+		case EStorefront::GooglePlay: return LOCTEXT("ChipUnconfirmedGoogle", "NEEDS GOOGLE PLAY");
+		default: return LOCTEXT("ChipUnconfirmed", "NEEDS STEAM");
+		}
+	}
+
+	FText UnconfirmedNote(const FKartStore* Store)
+	{
+		return FText::Format(LOCTEXT("UnconfirmedNoteStore", "Wear it once {0} confirms it."), StorefrontName(StorefrontOf(Store)));
+	}
+
+	FText ApprovedText(const FItem& Item)
+	{
+		return FText::Format(LOCTEXT("ApprovedToast", "Approved: {0} is yours"), Item.Name);
 	}
 
 	int32 MoveInGrid(int32 Focus, int32 Count, int32 Columns, int32 DX, int32 DY)
@@ -145,7 +216,8 @@ namespace KartStoreUI
 	EDialogPhase PhaseAfter(EPurchaseResult Result)
 	{
 		return Result == EPurchaseResult::Success || Result == EPurchaseResult::AlreadyOwned ? EDialogPhase::Success
-			: Result == EPurchaseResult::Cancelled ? EDialogPhase::Cancelled : EDialogPhase::Failed;
+			: Result == EPurchaseResult::Cancelled ? EDialogPhase::Cancelled
+			: Result == EPurchaseResult::Pending ? EDialogPhase::Pending : EDialogPhase::Failed;
 	}
 
 	FName DialogId(EDialogPhase Phase)
@@ -158,20 +230,22 @@ namespace KartStoreUI
 		return Phase == EDialogPhase::Confirm || Phase == EDialogPhase::Failed || (Phase == EDialogPhase::Success && bCanEquip) ? 2 : 1;
 	}
 
-	FText DialogTitle(EDialogPhase Phase, const FItem& Item)
+	FText DialogTitle(EDialogPhase Phase, const FItem& Item, EStorefront Front)
 	{
 		switch (Phase)
 		{
 		case EDialogPhase::Confirm: return FText::Format(LOCTEXT("BuyTitle", "Buy {0}?"), Item.Name);
-		case EDialogPhase::Waiting: return LOCTEXT("WaitTitle", "Finish in Steam");
+		case EDialogPhase::Waiting: return Front == EStorefront::Steam ? LOCTEXT("WaitTitle", "Finish in Steam") : LOCTEXT("WaitTitleMobile", "Confirm your purchase");
 		case EDialogPhase::Success: return LOCTEXT("DoneTitle", "It's yours!");
 		case EDialogPhase::Cancelled: return LOCTEXT("CancelTitle", "Purchase cancelled");
+		case EDialogPhase::Pending: return LOCTEXT("PendingTitle", "Waiting for approval");
 		default: return LOCTEXT("FailTitle", "That didn't go through");
 		}
 	}
 
 	TArray<FText> DialogLines(EDialogPhase Phase, const FKartStore* Store, const FItem& Item, const FString& Detail)
 	{
+		const EStorefront Front = StorefrontOf(Store);
 		switch (Phase)
 		{
 		case EDialogPhase::Confirm:
@@ -183,21 +257,37 @@ namespace KartStoreUI
 				Out.Add(Have > 0 ? FText::Format(LOCTEXT("BundleHave", "You already own {0} of the {1} items. The bundle price stays the same."), Have, Item.Contents.Num())
 					: FText::Format(LOCTEXT("BundleAll", "{0} items, all at once."), Item.Contents.Num()));
 			}
-			Out.Add(IsMockStore(Store) ? LOCTEXT("MockPay", "Demo store: no real money. In the Steam version, you pay in the Steam overlay.")
-				: LOCTEXT("SteamPay", "You'll confirm and pay in the Steam overlay. Steam handles payment, receipts and refunds."));
+			if (IsMockStore(Store))
+			{
+				Out.Add(Front == EStorefront::AppStore ? LOCTEXT("MockPayApple", "Demo store: no real money. On iPhone and iPad you pay with your Apple Account.")
+					: Front == EStorefront::GooglePlay ? LOCTEXT("MockPayGoogle", "Demo store: no real money. On Android you pay with Google Play.")
+					: LOCTEXT("MockPay", "Demo store: no real money. In the Steam version, you pay in the Steam overlay."));
+			}
+			else
+			{
+				Out.Add(Front == EStorefront::AppStore ? LOCTEXT("ApplePay", "You'll confirm and pay with your Apple Account. Apple handles payment, receipts and refunds.")
+					: Front == EStorefront::GooglePlay ? LOCTEXT("GooglePay", "You'll confirm and pay with Google Play. Google handles payment, receipts and refunds.")
+					: LOCTEXT("SteamPay", "You'll confirm and pay in the Steam overlay. Steam handles payment, receipts and refunds."));
+			}
 			return Out;
 		}
 		case EDialogPhase::Waiting:
-			return { FText::Format(LOCTEXT("WaitBody", "The Steam overlay has your checkout for {0}. Approve it there, or close it to cancel."), Item.Name),
-				LOCTEXT("WaitNote", "You can close this; the item arrives as soon as Steam confirms.") };
+			return { Front == EStorefront::AppStore ? FText::Format(LOCTEXT("WaitBodyApple", "Apple's purchase sheet is open for {0}. Confirm it there, or cancel it."), Item.Name)
+					: Front == EStorefront::GooglePlay ? FText::Format(LOCTEXT("WaitBodyGoogle", "Google Play's purchase sheet is open for {0}. Confirm it there, or cancel it."), Item.Name)
+					: FText::Format(LOCTEXT("WaitBody", "The Steam overlay has your checkout for {0}. Approve it there, or close it to cancel."), Item.Name),
+				FText::Format(LOCTEXT("WaitNoteStore", "You can close this; the item arrives as soon as {0} confirms."), StorefrontName(Front)) };
 		case EDialogPhase::Success:
 			return { FText::Format(LOCTEXT("DoneBody", "{0} is in your collection."), Item.Name),
 				Item.IsEquippable() ? LOCTEXT("DoneEquip", "Wear it now, or later from the store.") : LOCTEXT("DoneBundle", "Everything inside is ready to equip in its tab.") };
 		case EDialogPhase::Cancelled:
 			return { LOCTEXT("CancelBody", "No charge was made. You can buy it any time.") };
+		case EDialogPhase::Pending:
+			return { FText::Format(LOCTEXT("PendingBody", "{0} needs approval first (Ask to Buy), or the payment is still clearing. Nothing has been charged yet."), Item.Name),
+				LOCTEXT("PendingNote", "It arrives by itself once it goes through. Restore purchases checks again.") };
 		default:
-			return { LOCTEXT("FailBody", "You weren't charged. Check that Steam is online and the overlay is on, then try again."),
-				Detail.IsEmpty() ? FText::GetEmpty() : FText::Format(LOCTEXT("FailDetail", "Steam said: {0}"), FText::FromString(Detail)) };
+			return { Front == EStorefront::Steam ? LOCTEXT("FailBody", "You weren't charged. Check that Steam is online and the overlay is on, then try again.")
+					: LOCTEXT("FailBodyMobile", "You weren't charged. Check your connection, then try again."),
+				Detail.IsEmpty() ? FText::GetEmpty() : FText::Format(LOCTEXT("FailDetailStore", "{0} said: {1}"), StorefrontTitle(Front), FText::FromString(Detail)) };
 		}
 	}
 
@@ -212,6 +302,7 @@ namespace KartStoreUI
 		case EDialogPhase::Success:
 			return Item.IsEquippable() ? TArray<FText>{ LOCTEXT("EquipNow", "Equip now"), LOCTEXT("Later", "Later") } : TArray<FText>{ LOCTEXT("Great", "Great!") };
 		case EDialogPhase::Cancelled:
+		case EDialogPhase::Pending:
 			return { LOCTEXT("Ok", "OK") };
 		default:
 			return { LOCTEXT("TryAgain", "Try again"), LOCTEXT("Close", "Close") };

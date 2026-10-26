@@ -67,6 +67,18 @@ public:
 	bool IsRoomMatch() const { return bRoomMatch; }
 	const FArcadeLaunchOptions& GetLaunch() const { return Launch; }
 	AActor* GetArcadeGameActor() const { return GameActor; }
+	/** The game as the interface, or null before SpawnGame / after the actor went away. */
+	IArcadeGame* GetArcadeGame() const { return GameActor ? ArcadeGame : nullptr; }
+
+	// ---- The phone app lost the player (UMobileLifecycleSubsystem: background, a call, headphones out).
+
+	/**
+	 * Local play opens the pause menu (the player resumes from it). Party Mode has no local pause menu: the game
+	 * pauses until ResumeAfterAppInterruption, or keeps running when bLocalOnly.
+	 */
+	void PauseForAppInterruption(bool bLocalOnly);
+	/** Party Mode: the player is back, the game resumes unless the room itself is paused. Local play stays on its menu. */
+	void ResumeAfterAppInterruption();
 
 protected:
 	// ---- Per-game configuration: set these in the derived constructor.
@@ -159,6 +171,8 @@ private:
 
 	FArcadeLaunchOptions Launch;
 	bool bRoomMatch = false;
+	/** Party Mode: PauseForAppInterruption paused the game, ResumeAfterAppInterruption lifts it. */
+	bool bPausedForApp = false;
 	TSharedPtr<SArcadeOverlay> Overlay;
 
 	TWeakObjectPtr<URoomHostSubsystem> BoundRoom;

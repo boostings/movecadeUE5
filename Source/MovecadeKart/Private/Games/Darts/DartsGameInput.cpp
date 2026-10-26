@@ -5,6 +5,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Games/Darts/DartsGameTuning.h"
 #include "InputCoreTypes.h"
+#include "Platform/Mobile/MobileHaptics.h"
 
 using namespace MovecadeKart::Darts;
 
@@ -162,6 +163,7 @@ void ADartsGame::ReleaseLocalDart(const APlayerController& PC, const FDartsSeat&
 	Local.bGripped = false;
 	Local.Power = 0.0;
 	Throw(Thrower.Id, Gesture);
+	MovecadeKart::Mobile::FHaptics::PlayForLocalPlayer(this, MovecadeKart::Mobile::EHaptic::Throw);
 	// The first dart is away: the coach marks have done their job.
 	if (bCoachShown && CoachDoneAt < 0.0)
 	{

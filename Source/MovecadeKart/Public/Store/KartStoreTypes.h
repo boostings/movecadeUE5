@@ -29,12 +29,20 @@ namespace MovecadeKart::Store
 	/** How an item is obtained. */
 	enum class ESource : uint8
 	{
-		/** Bought through the Steam overlay (StartPurchase). */
+		/** Bought through the platform's checkout (Steam overlay, App Store sheet, Google Play sheet). */
 		Paid,
-		/** Free, earned by reaching a play stat (promo item tied to an achievement on Steam). */
+		/** Free, earned by reaching a play stat (Steam: promo item tied to an achievement; mobile: kept on the device). */
 		Earned,
-		/** Free, dropped by the playtime generator while you play (TriggerItemDrop). */
+		/** Free, dropped while you play (Steam: the playtime generator; mobile: the same rules, run on the device). */
 		Drop,
+	};
+
+	/** Whose checkout sells the paid items: decides the words the store shows, the product ids and the price tiers. */
+	enum class EStorefront : uint8
+	{
+		Steam,
+		AppStore,
+		GooglePlay,
 	};
 
 	enum class EPurchaseResult : uint8
@@ -46,6 +54,11 @@ namespace MovecadeKart::Store
 		AlreadyOwned,
 		/** Not for sale (coming soon, free item, unknown id, offline). */
 		Unavailable,
+		/**
+		 * Mobile: the checkout ended without a charge yet (Ask to Buy waiting for a parent, a Google Play payment still
+		 * clearing). Not owned; if it goes through, the item arrives later as an inventory change.
+		 */
+		Pending,
 	};
 
 	/** A free unlock's goal: reach Target on Stat. */
@@ -81,6 +94,8 @@ namespace MovecadeKart::Store
 		ESource Source = ESource::Paid;
 		/** Mock and fallback price in US cents (Steam's own price, in the player's currency, wins when known). */
 		int32 PriceCents = 0;
+		/** The same tier on the App Store and Google Play, in US cents ($0.99 where Steam asks $1.00). */
+		int32 MobilePriceCents = 0;
 		/** Steam price tier ("1;VLV99"), written to itemdefs.json. */
 		FString PriceCategory;
 		FUnlockRule Unlock;
@@ -100,11 +115,22 @@ namespace MovecadeKart::Store
 		uint64 Amount = 0;
 		uint64 BaseAmount = 0;
 		FString Currency;
+		/**
+		 * The store's own formatted price ("1,09 €"), when it gives one (StoreKit's displayPrice, Google Play's
+		 * formattedPrice). Shown as is: it is exactly what the checkout sheet will say. Empty on Steam.
+		 */
+		FText Display;
 	};
 
 	MOVECADEKART_API const TCHAR* SlotId(ESlot Slot);
 	MOVECADEKART_API FText SlotName(ESlot Slot);
 	MOVECADEKART_API const TCHAR* ResultId(EPurchaseResult Result);
-	/** "$1.99", "1,99 €": a price in its own currency for the player's locale. */
+	/** "steam", "appstore", "googleplay". */
+	MOVECADEKART_API const TCHAR* StorefrontId(EStorefront Storefront);
+	/** The store's name as the player reads it: "Steam", "the App Store", "Google Play". */
+	MOVECADEKART_API FText StorefrontName(EStorefront Storefront);
+	/** The storefront this build sells through: the App Store on iOS, Google Play on Android, else Steam. */
+	MOVECADEKART_API EStorefront NativeStorefront();
+	/** "$1.99", "1,99 €": the store's own text when it gave one, else the amount in its currency for the player's locale. */
 	MOVECADEKART_API FText FormatPrice(const FPrice& Price);
 }
