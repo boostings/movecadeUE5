@@ -97,7 +97,8 @@ int32 SDartsHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeomet
 		return Layer;
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const float S = Safe.Scale;
 	// The big hit's flash washes the frame first, under everything else.
 	if (const float Flash = G->GetFlash(); Flash > MinFlash)
 	{
@@ -165,7 +166,7 @@ void SDartsHud::PaintBoard(const FKartPainter& P, const ADartsGame& G, float S) 
 	using namespace Scoreboard;
 	const FDartsMatch& M = G.GetMatch();
 	RowText.SetNum(M.Players.Num(), EAllowShrinking::No);
-	const FVector2D Origin = P.Size() * KartUI::Metric::SafeFraction;
+	const FVector2D Origin = Safe.SafeMin;
 	for (int32 r = 0; r < M.Players.Num(); ++r)
 	{
 		PaintBoardRow(P, G, r, Origin + FVector2D(0.f, r * (RowHeight * S + RowGap * S)), S);
@@ -231,12 +232,25 @@ void SDartsHud::PaintUp(const FKartPainter& P, const ADartsGame& G, float S) con
 	}
 	const FDartsSeat* Seat = G.SeatOf(*Up);
 	const int32 Visit = LiveVisit(*Up, M);
-	const FVector2D TopRight(P.Size().X * (1.f - KartUI::Metric::SafeFraction), P.Size().Y * KartUI::Metric::SafeFraction);
 	const FString& Round = RoundText.Get(Visit, [](int32 V) { return FText::Format(ARCADE_LABEL("Darts", "RoundOf", "ROUND {0} / {1}"), V + 1, RoundCount).ToString(); });
-	P.Text(Round, KartUI::Font(EFont::Display, RoundSize * S, RoundOutline * S), TopRight, KC::White, FVector2D(1.0, 0.0), RoundShadow * S);
-	// The bounty chip: the called sector's number in the wedge's gold, "x2".
 	const FVector2D Size = ChipSize * S;
-	const FVector2D ChipAt(TopRight.X - Size.X, TopRight.Y + ChipBelow * S);
+	FVector2D TopRight(Safe.SafeMax.X, Safe.SafeMin.Y);
+	FVector2D ChipAt(TopRight.X - Size.X, TopRight.Y + ChipBelow * S);
+	if (Safe.bPortrait)
+	{
+		// Under the scoreboard: the round on the left, the chip on the right, the darts in hand under the chip.
+		const int32 Rows = M.Players.Num();
+		const float BoardBottom = static_cast<float>(Safe.SafeMin.Y) + Rows * (Scoreboard::RowHeight + Scoreboard::RowGap) * S;
+		ChipAt = FVector2D(TopRight.X - Size.X, BoardBottom + Portrait::RoundRowGap * S);
+		TopRight.Y = ChipAt.Y - ChipBelow * S;
+		P.Text(Round, KartUI::Font(EFont::Display, Portrait::RoundSize * S, RoundOutline * S), FVector2D(Safe.SafeMin.X, ChipAt.Y + Size.Y / 2.f), KC::White, LeftMiddle,
+			RoundShadow * S);
+	}
+	else
+	{
+		P.Text(Round, KartUI::Font(EFont::Display, RoundSize * S, RoundOutline * S), TopRight, KC::White, FVector2D(1.0, 0.0), RoundShadow * S);
+	}
+	// The bounty chip: the called sector's number in the wedge's gold, "x2".
 	P.Card(ChipAt, Size, KC::WithAlpha(KC::Night, ChipAlpha), Chip.Radius * S, Chip.Shadow * S, KC::Sun, Chip.Outline * S);
 	P.Text(BountyLabel, KartUI::Font(EFont::Label, ChipLabelSize * S), ChipAt + FVector2D(ChipLabelX * S, Size.Y / 2.f), KC::Sun, LeftMiddle);
 	P.Text(BountyText.Get(BountyForRound(Visit), NumberText), KartUI::Font(EFont::Display, ChipNumberSize * S),
@@ -263,7 +277,7 @@ void SDartsHud::PaintCountdown(const FKartPainter& P, const ADartsGame& G, float
 	using namespace Countdown;
 	const FText& ThrowLabel = ARCADE_LABEL("Darts", "Throw", "THROW!");
 	const FDartsMatch& M = G.GetMatch();
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * CentreY);
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::CountdownY : CentreY));
 	if (M.Phase == EMatchPhase::Countdown)
 	{
 		const double Remaining = M.CountdownRemainingMs / 1000.0;
@@ -279,7 +293,7 @@ void SDartsHud::PaintCountdown(const FKartPainter& P, const ADartsGame& G, float
 	if (M.Phase == EMatchPhase::Playing && Since < ThrowSeconds)
 	{
 		const float A = FMath::Clamp(static_cast<float>((ThrowSeconds - Since) / ThrowFade), 0.f, 1.f);
-		const FVector2D ThrowAt(P.Size().X / 2.f, P.Size().Y * ThrowY);
+		const FVector2D ThrowAt(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::CountdownY : ThrowY));
 		P.Faded(A).Text(ThrowLabel, KartUI::Font(EFont::Display, ThrowSize * S, ThrowOutline * S, KC::Night), ThrowAt, KC::Mint, Centred, ThrowShadow * S);
 	}
 }
@@ -395,7 +409,7 @@ void SDartsHud::PaintVisit(const FKartPainter& P, const ADartsGame& G, float S) 
 	const FDartsSeat* Seat = G.SeatOf(V.PlayerId);
 	const FLinearColor Lane = Seat ? Seat->Color : KC::Sky;
 	const bool bBig = IsBigVisit(V);
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * CentreY);
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::VisitCentreY : CentreY));
 	const FKartPainter C = P.Transformed(Centre, PopScale(Age, PopSeconds)).Faded(A);
 	const FVector2D CardSize = Size * S;
 	const FVector2D Pos = Centre - CardSize / 2.f;
@@ -503,10 +517,18 @@ void SDartsHud::PaintControls(const FKartPainter& P, const ADartsGame& G, float 
 	{
 		return;
 	}
-	const FVector2D Centre(P.Size().X * (1.f - KartUI::Metric::SafeFraction) - LeftOfSafeRight * S, P.Size().Y * CentreY);
+	const bool bLocal = Thrower->Kind == EThrowerKind::Local;
+	FVector2D Centre(Safe.SafeMax.X - LeftOfSafeRight * S, P.Size().Y * CentreY);
+	if (Safe.bPortrait || Safe.HasTouchZones())
+	{
+		// Centred along the bottom (between the touch controls on a landscape phone).
+		const FVector2D Card = (bLocal ? LocalCard : RemoteCard) * S;
+		Centre.X = P.Size().X / 2.f;
+		Centre.Y = Safe.BottomClearOfTouch(Centre.X, Card.X / 2.f) - Card.Y / 2.f;
+	}
 	const int32 SeatIndex = static_cast<int32>(Thrower - G.GetSeats().GetData());
 	const FString& Up = UpText.Get(SeatIndex, [Thrower](int32) { return FText::Format(ARCADE_LABEL("Darts", "Up", "{0} is up"), FText::FromString(Thrower->Name)).ToString(); });
-	if (Thrower->Kind != EThrowerKind::Local)
+	if (!bLocal)
 	{
 		const FText& Hint = Thrower->Kind == EThrowerKind::Phone ? PhoneHint : BotHint;
 		P.Card(Centre - RemoteCard / 2.0 * S, RemoteCard * S, KC::WithAlpha(KC::Night, CardAlpha), Remote.Radius * S, Remote.Shadow * S, Thrower->Color, Remote.Outline * S);
@@ -561,7 +583,8 @@ void SDartsHud::PaintCoach(const FKartPainter& P, const ADartsGame& G, float S) 
 	const FLocalThrow& L = G.GetLocal();
 	const FKartPainter F = P.Faded(A);
 	const int32 Current = L.bGripped ? LetGoStep : (L.Aim.IsNearlyZero(AimedAway) ? AimStep : HoldStep);
-	const FVector2D Origin(P.Size().X * KartUI::Metric::SafeFraction, P.Size().Y * TopY);
+	const FVector2D Origin = Safe.bPortrait ? FVector2D(P.Size().X / 2.f - CardSize.X / 2.0 * S, P.Size().Y * Portrait::CoachTopY)
+		: FVector2D(Safe.SafeMin.X, P.Size().Y * TopY);
 	for (int32 i = 0; i < UE_ARRAY_COUNT(Steps); ++i)
 	{
 		const bool bOn = i == Current;
@@ -587,9 +610,11 @@ void SDartsHud::PaintIntro(const FKartPainter& P, const ADartsGame& G, float S) 
 	const double Life = ADartsGame::IntroSeconds;
 	const float A = FMath::Clamp(static_cast<float>(Age / FadeInSeconds), 0.f, 1.f) * FMath::Clamp(static_cast<float>((Life - Age) / FadeOutSeconds), 0.f, 1.f);
 	const FKartPainter F = P.Faded(A);
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * CentreY);
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::IntroCentreY : CentreY));
 	const FVector2D TitleAt = Centre - FVector2D(0.f, TitleAbove * S);
-	F.Transformed(TitleAt, PopScale(Age, PopSeconds)).Text(Title, KartUI::Font(EFont::Display, TitleSize * S, TitleOutline * S), TitleAt, KC::Hot, Centred, TitleShadow * S);
+	const float TitleS = Safe.bPortrait ? S * Portrait::IntroTitleScale : S;
+	F.Transformed(TitleAt, PopScale(Age, PopSeconds)).Text(Title, KartUI::Font(EFont::Display, TitleSize * TitleS, TitleOutline * TitleS), TitleAt, KC::Hot, Centred,
+		TitleShadow * TitleS);
 	// The seats don't change for the game's life: the line-up is joined once.
 	const FString& Names = IntroNames.Get(G.GetSeats().Num(), [&G](int32)
 	{
@@ -601,8 +626,17 @@ void SDartsHud::PaintIntro(const FKartPainter& P, const ADartsGame& G, float S) 
 		return Joined;
 	});
 	F.Text(Names, KartUI::Font(EFont::Title, NamesSize * S, NamesOutline * S), Centre + FVector2D(0.f, NamesBelow * S), KC::White, Centred, NamesShadow * S);
-	F.Text(Rules, KartUI::Font(EFont::Body, RulesSize * S, RulesOutline * S), Centre + FVector2D(0.f, RulesBelow * S), KC::WithAlpha(KC::White, RulesAlpha), Centred,
-		RulesShadow * S);
+	const FSlateFontInfo RulesFont = KartUI::Font(EFont::Body, RulesSize * S, RulesOutline * S);
+	if (Safe.bPortrait)
+	{
+		// Wrapped to the width, hanging from where the single line's middle would be.
+		F.TextWrapped(Rules, RulesFont, Centre + FVector2D(0.f, (RulesBelow - RulesSize / 2.f) * S), Safe.SafeSize().X, KC::WithAlpha(KC::White, RulesAlpha), 0.5,
+			RulesShadow * S);
+	}
+	else
+	{
+		F.Text(Rules, RulesFont, Centre + FVector2D(0.f, RulesBelow * S), KC::WithAlpha(KC::White, RulesAlpha), Centred, RulesShadow * S);
+	}
 }
 
 void SDartsHud::PaintStandings(const FKartPainter& P, const ADartsGame& G, float S) const
@@ -615,14 +649,15 @@ void SDartsHud::PaintStandings(const FKartPainter& P, const ADartsGame& G, float
 	StandingText.SetNum(Order.Num(), EAllowShrinking::No);
 	const double Age = G.GetFinishedAge();
 	const FKartPainter F = P.Faded(FMath::Clamp(static_cast<float>(Age / FadeInSeconds), 0.f, 1.f));
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * TitleY);
+	const float TopFraction = Safe.bPortrait ? Portrait::StandingsTopY : TopY;
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::StandingsTitleY : TitleY));
 	F.Text(FinalTitle, KartUI::Font(EFont::Display, TitleSize * S, TitleOutline * S), Centre, KC::Sun, Centred, TitleShadow * S);
 	for (int32 i = 0; i < Order.Num(); ++i)
 	{
 		const FDartsPlayer& Player = M.Players[Order[i]];
 		const FDartsSeat* Seat = G.SeatOf(Player);
 		const float In = PopScale(Age - (RowDelay + i * RowStagger), RowPopSeconds);
-		const FVector2D Pos(P.Size().X / 2.f - RowSize.X / 2.0 * S, P.Size().Y * TopY + i * RowPitch * S);
+		const FVector2D Pos(P.Size().X / 2.f - RowSize.X / 2.0 * S, P.Size().Y * TopFraction + i * RowPitch * S);
 		const FKartPainter RowPainter = F.Transformed(Pos + RowSize / 2.0 * S, In);
 		const bool bWinner = M.WinnerIds.Contains(Player.Id);
 		RowPainter.Card(Pos, RowSize * S, bWinner ? KC::Paper : KC::WithAlpha(KC::Night, IdleAlpha), Row.Radius * S, Row.Shadow * S, Seat ? Seat->Color : KC::Sky,

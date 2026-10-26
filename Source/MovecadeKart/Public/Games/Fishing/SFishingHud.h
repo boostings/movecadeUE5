@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Games/ArcadeHud.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class AFishingGame;
@@ -94,6 +95,8 @@ private:
 	FLaneTexts& TextsOf(int32 Lane) const;
 
 	TWeakObjectPtr<AFishingGame> Game;
+	/** This paint's safe area and scale (a landscape phone moves the player panels to the top, clear of the touch controls). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 
 	mutable FCachedText ClockText;
 	mutable TArcadeCachedText<FRecordKey> RecordText;

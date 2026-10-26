@@ -198,6 +198,8 @@ private:
 	void UpdateCamera(float Dt);
 	/** The framing this phase wants (the camera eases toward it). */
 	FBowlingCameraShot PickCameraShot() const;
+	/** The shot re-framed for the screen's shape (unchanged in landscape). */
+	FBowlingCameraShot ForAspect(FBowlingCameraShot Want, double Aspect) const;
 	/** The decaying wobble of the last impact, in web units. */
 	FVector CameraJolt() const;
 

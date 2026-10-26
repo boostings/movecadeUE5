@@ -6,7 +6,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
-#include "Engine/GameViewportClient.h"
+#include "Games/ArcadeFraming.h"
 #include "Games/Darts/DartsGameTuning.h"
 #include "Games/Darts/DartsPub.h"
 
@@ -96,16 +96,58 @@ namespace
 			FMath::Lerp(FVector(0.0, ADartsPub::BoardY, 0.0), At, ReactLookShare), ReactFov - ReactZoomFov * Settle };
 	}
 
-	/** three.js gives a vertical field of view; UE's is horizontal. */
-	double HorizontalFov(double VerticalFov, double Aspect)
+	/**
+	 * A phone held upright (9:19.5): the board fills the width, sitting just below the middle so the scoreboard has the top and the prompts the bottom. The home and aim shots set the lens so
+	 * BoardHalfWidth (the board and its number ring, with a sliver of wall) spans the screen; the reaction keeps the whole board in; the intro and results keep the middle of their frame.
+	 */
+	namespace Portrait
 	{
-		return 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(VerticalFov) / 2.0) * Aspect));
+		constexpr double BoardHalfWidth = 0.72;
+		/** The look point rises this share of the board's half width above its centre, so the board sits just
+		 *  below the middle, clear of the scoreboard (the visit card and the controls fit under it). */
+		constexpr double LookRaiseShare = 0.18;
+		constexpr double ReactHalfWidth = 0.66;
+		constexpr double IntroKeepShare = 0.45;
+		constexpr double ResultsKeepShare = 0.6;
+	}
+
+	enum class EShotKind : uint8 { Home, Aim, Reaction, Intro, Results };
+
+	/** The shot re-framed for the screen's shape (unchanged in landscape). */
+	FDartsShot ForAspect(FDartsShot Shot, EShotKind Kind, double Aspect)
+	{
+		if (!ArcadeFraming::IsPortrait(Aspect))
+		{
+			return Shot;
+		}
+		using namespace Portrait;
+		const double Distance = FVector::Dist(Shot.Pos, Shot.Look);
+		switch (Kind)
+		{
+		case EShotKind::Home:
+		case EShotKind::Aim:
+			Shot.Fov = ArcadeFraming::VerticalFovForWidth(BoardHalfWidth, Distance, Aspect);
+			Shot.Look.Y += BoardHalfWidth * LookRaiseShare;
+			break;
+		case EShotKind::Reaction:
+			Shot.Fov = FMath::Max(Shot.Fov, ArcadeFraming::VerticalFovForWidth(ReactHalfWidth, Distance, Aspect));
+			break;
+		case EShotKind::Intro:
+			Shot.Fov = ArcadeFraming::KeepWidth(Shot.Fov, Aspect, IntroKeepShare);
+			break;
+		case EShotKind::Results:
+			Shot.Fov = ArcadeFraming::KeepWidth(Shot.Fov, Aspect, ResultsKeepShare);
+			break;
+		}
+		return Shot;
 	}
 }
 
 void ADartsGame::UpdateCamera(float Dt)
 {
+	const double Aspect = ArcadeFraming::ViewportAspect(GetWorld());
 	FDartsShot Shot = HomeShot(Clock);
+	EShotKind Kind = EShotKind::Home;
 	bool bCut = false;
 	bReacting = false;
 	switch (Stage)
@@ -116,6 +158,7 @@ void ADartsGame::UpdateCamera(float Dt)
 		Shot.Pos = FMath::Lerp(IntroPos, Shot.Pos, T * IntroPush);
 		Shot.Look = FMath::Lerp(FVector(0.0, ADartsPub::BoardY, IntroLookZ), Shot.Look, T);
 		Shot.Fov = FMath::Lerp(IntroFov, HomeFov, T);
+		Kind = EShotKind::Intro;
 		break;
 	}
 	case EDartsStage::Match:
@@ -133,18 +176,22 @@ void ADartsGame::UpdateCamera(float Dt)
 			Shot = ReactionShot(LastLanding, Since);
 			bCut = Since < ReactCutSeconds;
 			bReacting = true;
+			Kind = EShotKind::Reaction;
 		}
 		else if ((GetReticle(Aim) || bBotUp) && Match.Phase == EMatchPhase::Playing)
 		{
 			const FVector Oche(ADartsPub::ThrowerX, ADartsPub::FloorY, ADartsPub::OcheZ);
 			Shot = { Oche + AimOffset, FVector(0.0, ADartsPub::BoardY, 0.0) + AimLookOffset, AimFov };
+			Kind = EShotKind::Aim;
 		}
 		break;
 	}
 	case EDartsStage::Finished:
 		Shot = { ResultsPos, ResultsLook, ResultsFov };
+		Kind = EShotKind::Results;
 		break;
 	}
+	Shot = ForAspect(Shot, Kind, Aspect);
 	if (!bCamPlaced || bCut)
 	{
 		CamPos = Shot.Pos;
@@ -163,12 +210,5 @@ void ADartsGame::UpdateCamera(float Dt)
 	const FVector From = ToWorld(CamPos + Shake);
 	const FVector To = ToWorld(CamLook);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());
-	double Aspect = 16.0 / 9.0;
-	if (const UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
-	{
-		FVector2D Size;
-		Viewport->GetViewportSize(Size);
-		Aspect = Size.Y > 0.0 ? Size.X / Size.Y : Aspect;
-	}
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov(FMath::Max(MinFov, CamFov - PunchFov * Punch), Aspect)));
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), FMath::Max(MinFov, CamFov - PunchFov * Punch));
 }

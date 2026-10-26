@@ -5,6 +5,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Games/ArcadeFraming.h"
 #include "Engine/GameViewportClient.h"
 #include "Games/Sumo/SumoPresentation.h"
 
@@ -160,7 +161,6 @@ void ASumoGame::UpdateCamera(float Dt)
 	const FVector From = (CamPos + Jolt) * 100.0;
 	const FVector To = CamLook * 100.0;
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation() + FRotator(0.0, 0.0, FMath::Sin(Clock * ShakeRollRate) * Shake * ShakeRollDeg));
-	// CamFov is vertical (it fits the ring's depth); the camera takes a horizontal field for this aspect.
-	const double HorizontalFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(CamFov) / 2.0) * Aspect));
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov));
+	// CamFov is vertical (it fits the ring's depth).
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), CamFov);
 }

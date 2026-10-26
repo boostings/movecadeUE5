@@ -38,6 +38,8 @@ namespace
 	/** The landing tag only shows when its spot is well inside the frame (0..1 of the viewport). */
 	constexpr double TagMinX = 0.05;
 	constexpr double TagMaxX = 0.95;
+	/** The batter's prompt card's half width (it stays between the touch controls on a landscape phone). */
+	constexpr float PromptHalfWidth = 330.f;
 	constexpr double TagMinY = 0.44;
 	constexpr double TagMaxY = 0.92;
 	/** It hangs this far above where the ball came down (cm). */
@@ -170,7 +172,8 @@ int32 SDerbyHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeomet
 		return Layer;
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const float S = Safe.Scale;
 	switch (G->GetPhase())
 	{
 	case EDerbyPhase::Intro:
@@ -204,8 +207,7 @@ void SDerbyHud::PaintBug(const FKartPainter& P, const ADerbyGame& G, float S) co
 	}
 	FBatterText& Text = BatterText(G, G.GetBatterIndex());
 	const FMatch& M = G.GetMatch();
-	const float Margin = P.Size().Y * KartUI::Metric::SafeFraction;
-	const FVector2D Pos(Margin, Margin);
+	const FVector2D Pos = Safe.SafeMin;
 	const FVector2D Size(500.f * S, 150.f * S);
 	P.Card(Pos, Size, KC::WithAlpha(KC::Night, 0.88f), 20.f * S, 6.f * S, KC::WithAlpha(KC::White, 0.15f), 2.f * S);
 	// The batter's colour down the left edge, the name and points.
@@ -243,9 +245,8 @@ void SDerbyHud::PaintBoard(const FKartPainter& P, const ADerbyGame& G, float S) 
 	{
 		return;
 	}
-	const float Margin = P.Size().Y * KartUI::Metric::SafeFraction;
 	const float W = 330.f * S, RowH = 50.f * S;
-	const FVector2D Pos(P.Size().X - Margin - W, Margin);
+	const FVector2D Pos(Safe.SafeMax.X - W, Safe.SafeMin.Y);
 	P.Card(Pos, FVector2D(W, RowH * M.Batters.Num() + 16.f * S), KC::WithAlpha(KC::Night, 0.8f), 18.f * S, 6.f * S);
 	const FDerbySeat* Up = G.GetBatter();
 	for (int32 i = 0; i < M.Batters.Num(); ++i)
@@ -277,8 +278,7 @@ void SDerbyHud::PaintPitch(const FKartPainter& P, const ADerbyGame& G, float S) 
 		return;
 	}
 	// The radar gun, under the score bug: it pops in as the pitch leaves the hand.
-	const float Margin = P.Size().Y * KartUI::Metric::SafeFraction;
-	const FVector2D Pos(Margin, Margin + 166.f * S);
+	const FVector2D Pos(Safe.SafeMin.X, Safe.SafeMin.Y + 166.f * S);
 	const double Age = Phase == EDerbyPhase::Pitch ? G.GetPhaseAge() : LongAgo;
 	const float In = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / RadarPopSeconds), 0.f, 1.f));
 	const FKartPainter F = P.Transformed(Pos + FVector2D(0.f, 26.f * S), FMath::Max(0.01f, In));
@@ -408,7 +408,7 @@ void SDerbyHud::PaintControls(const FKartPainter& P, const ADerbyGame& G, float 
 	{
 		return;
 	}
-	const FVector2D Base(P.Size().X / 2.f, P.Size().Y * (1.f - KartUI::Metric::SafeFraction));
+	const FVector2D Base(P.Size().X / 2.f, Safe.BottomClearOfTouch(P.Size().X / 2.f, PromptHalfWidth * S));
 	if (Up->Kind == EDerbyKind::Phone)
 	{
 		PaintPhonePrompt(P, G, *Up, Base, S);
@@ -481,7 +481,7 @@ void SDerbyHud::PaintStepIn(const FKartPainter& P, const ADerbyGame& G, float S)
 	const float In = KartUI::Ease::OutCubic(FMath::Clamp(static_cast<float>(Age / StepInSlideSeconds), 0.f, 1.f));
 	const float Out = FMath::Clamp(static_cast<float>((G.GetTuning().StepInSeconds - Age) / StepInFadeSeconds), 0.f, 1.f);
 	const FKartPainter F = P.Faded(Out);
-	const float X = P.Size().Y * KartUI::Metric::SafeFraction + (1.f - In) * -400.f * S;
+	const float X = Safe.SafeMin.X + (1.f - In) * -400.f * S;
 	const FVector2D Pos(X, P.Size().Y * 0.6f);
 	F.Box(Pos, FVector2D(760.f * S, 64.f * S), Up->Color, 10.f * S);
 	F.Text(ARCADE_LABEL("Derby", "NowBatting", "NOW BATTING"), KartUI::Font(EFont::Label, 28.f * S), Pos + FVector2D(24.f * S, 32.f * S), KC::TextOn(Up->Color), FVector2D(0.0, 0.5));

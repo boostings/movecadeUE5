@@ -1,6 +1,7 @@
 #include "UI/KartPaintWidget.h"
 
 #include "Framework/Application/SlateApplication.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 namespace
@@ -33,8 +34,11 @@ namespace
 			const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
 			FKartScreenFrame Frame;
 			Frame.Size = P.Size();
-			Frame.SafeMin = Frame.Size * KartUI::Metric::SafeFraction;
-			Frame.SafeMax = Frame.Size - Frame.SafeMin;
+			const KartSafeArea::FKartSafeFrame Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+			Frame.SafeMin = Safe.SafeMin;
+			Frame.SafeMax = Safe.SafeMax;
+			Frame.bPortrait = Safe.bPortrait;
+			Frame.bPhone = Safe.bPhone;
 			Frame.Now = FSlateApplication::Get().GetCurrentTime();
 			Frame.Age = 10.0; // well past every entrance animation: painted settled
 			const UKartUISubsystem* UI = UKartUISubsystem::Get(Widget->GetWorld());

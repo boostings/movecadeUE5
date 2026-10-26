@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Sim/KartItems.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class AKartRaceManager;
@@ -81,6 +82,11 @@ private:
 		FVector2D Min;
 		FVector2D Max;
 		float Scale = 1.f;
+		/** Where the bottom-left and bottom-right widgets sit: Max.Y, or above the touch controls on a phone. */
+		double BottomLeft = 0.0;
+		double BottomRight = 0.0;
+		/** The solo minimap's height. */
+		float MapHeight = 0.f;
 		/** 0 while the widgets slide in at the countdown, 1 settled. */
 		float SlideIn = 1.f;
 	};
@@ -117,6 +123,8 @@ private:
 	/** Per seat; mutable because paint keeps each seat's text cache up to date. */
 	mutable TArray<FSeatAnim> Seats;
 	mutable TArray<FView, TInlineAllocator<4>> Views;
+	/** This paint's safe area (the notch and the touch controls on a phone; the TV margin on a PC). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 
 	/** The minimap road: the centreline sampled once per track (world units), and the per-paint screen copy. */
 	mutable const void* MinimapTrack = nullptr;

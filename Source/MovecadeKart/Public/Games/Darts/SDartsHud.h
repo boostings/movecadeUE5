@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Games/ArcadeHud.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class ADartsGame;
@@ -53,6 +54,8 @@ private:
 	void RefreshVisitText(const FDartsVisitSummary& Visit, float S) const;
 
 	TWeakObjectPtr<ADartsGame> Game;
+	/** This paint's safe area and scale (portrait stacks the panels top to bottom). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 
 	struct FFitted
 	{

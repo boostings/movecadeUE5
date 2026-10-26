@@ -101,6 +101,12 @@ private:
 	UFUNCTION()
 	void HandleReturnedToLobby();
 
+	/** Pads the layout inside the screen: the TV margin, or a phone's notch and home bar (UpdateSafePadding). */
+	UPROPERTY()
+	TObjectPtr<UBorder> SafeBorder;
+	FMargin ShownSafePadding;
+	void UpdateSafePadding(const FGeometry& MyGeometry);
+
 	// The join card.
 	UPROPERTY()
 	TObjectPtr<UImage> QrImage;

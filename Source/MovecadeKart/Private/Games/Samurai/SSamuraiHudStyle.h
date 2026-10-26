@@ -106,6 +106,15 @@ namespace MovecadeKart::Samurai::HudStyle
 		constexpr FTextStyle Out{ EFont::Display, 44.f, 3.f, 4.f };
 		constexpr float OutY = 59.f;
 	}
+	/** A phone held upright: the lane panels in a grid under the clock, the banner lower, wide cards shrunk to fit. */
+	namespace Portrait
+	{
+		constexpr int32 LaneColumns = 2;
+		constexpr float LanesBelowClock = 18.f;
+		constexpr float BannerY01 = 0.42f;
+		/** The intro's widest line (its ink stroke and the seat chips). */
+		constexpr float IntroWidth = 1240.f;
+	}
 	namespace Focus
 	{
 		constexpr float FromRight = 186.f;

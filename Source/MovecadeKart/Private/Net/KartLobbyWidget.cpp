@@ -6,6 +6,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Components/Border.h"
 #include "Components/PanelWidget.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -16,8 +17,10 @@
 #include "Kismet/GameplayStatics.h"
 #include "KartCoords.h"
 #include "Misc/PackageName.h"
+#include "Net/KartLobbyLayout.h"
 #include "Net/RoomHostSubsystem.h"
 #include "TrackBuilder.h"
+#include "UI/KartSafeArea.h"
 #include "UI/KartSessionSettings.h"
 #include "UI/KartTrackCatalog.h"
 #include "UI/KartUISubsystem.h"
@@ -162,9 +165,35 @@ void UKartLobbyWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	if (GetVisibility() != ESlateVisibility::Collapsed)
 	{
 		UpdateBackdrop(InDeltaTime);
+		UpdateSafePadding(MyGeometry);
 	}
 	UpdatePartyContinue();
 	RefreshIfChanged();
+}
+
+void UKartLobbyWidget::UpdateSafePadding(const FGeometry& MyGeometry)
+{
+	if (!SafeBorder)
+	{
+		return;
+	}
+	// At least the TV margin (the bottom keeps the hint bar's room); more where a phone's notch or home bar reaches.
+	using MovecadeKart::Lobby::LobbyMetric::SafeArea;
+	const KartSafeArea::FKartSafeFrame Safe = KartSafeArea::FKartSafeFrame::ForHud(MyGeometry);
+	FMargin Inset = SafeArea;
+	if (Safe.bPhone)
+	{
+		const FVector2D Far = Safe.Size - Safe.SafeMax;
+		Inset.Left = FMath::Max(SafeArea.Left, static_cast<float>(Safe.SafeMin.X));
+		Inset.Top = FMath::Max(SafeArea.Top, static_cast<float>(Safe.SafeMin.Y));
+		Inset.Right = FMath::Max(SafeArea.Right, static_cast<float>(Far.X));
+		Inset.Bottom = FMath::Max(SafeArea.Bottom, static_cast<float>(Far.Y) + SafeArea.Bottom - SafeArea.Top);
+	}
+	if (Inset != ShownSafePadding)
+	{
+		ShownSafePadding = Inset;
+		SafeBorder->SetPadding(Inset);
+	}
 }
 
 FReply UKartLobbyWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)

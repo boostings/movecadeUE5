@@ -4,6 +4,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Games/ArcadeFraming.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -105,12 +106,6 @@ namespace
 		static constexpr double AmountY = 0.1;
 	};
 	constexpr double DefaultAspect = 16.0 / 9.0;
-
-	/** The horizontal FOV for a vertical one at an aspect: what a camera component with no constraint takes. */
-	double HorizontalFov(double VerticalDeg, double Aspect)
-	{
-		return 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(VerticalDeg) / 2.0) * Aspect));
-	}
 
 	/** How far back a camera with this vertical FOV must stand to see HalfWidth either side. */
 	double FitDistance(double HalfWidth, double FovDeg, double Aspect, double Share)
@@ -291,5 +286,5 @@ void AStackerGame::UpdateCamera(float Dt)
 	const FVector From = W(CamPos + Jolt);
 	const FVector To = W(CamLook);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov(CamFov, Aspect)));
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), CamFov);
 }

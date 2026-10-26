@@ -24,6 +24,24 @@ namespace
 	constexpr float MinNameSize = 15.f;
 	constexpr float NameRoom = 166.f;
 
+	/**
+	 * A phone held upright: a narrower sheet (it must fit 1080 units less the margins), the frame and ball line under
+	 * it, the controls and the coach centred, the swing read-outs in a column, and wide words fitted to the width.
+	 */
+	namespace Portrait
+	{
+		constexpr float NameRoom = 98.f;
+		/** Under the sheet: the "FRAME n" line and the ball line beside it. */
+		constexpr float UpGap = 16.f;
+		constexpr float FrameSize = 40.f;
+		constexpr float CoachY01 = 0.36f;
+		constexpr float SwingY01 = 0.62f;
+		constexpr float SwingPitch = 62.f;
+		constexpr float BeatY01 = 0.42f;
+		/** The intro's widest row: four seat chips. */
+		constexpr float IntroWidth = 1060.f;
+	}
+
 	// Fixed labels are ARCADE_LABELs (made once); labels with values are formatted only when the value changes.
 
 	/** The keycaps' labels. */
@@ -55,15 +73,15 @@ namespace
 	{
 		float RowH, Gap, NameW, FrameW, TenthW, TotalW, Width;
 
-		static FSheetLayout For(int32 Rows, float S)
+		static FSheetLayout For(int32 Rows, float S, bool bPortrait)
 		{
 			FSheetLayout L;
 			L.RowH = (Rows > 2 ? 64.f : 72.f) * S;
 			L.Gap = 8.f * S;
-			L.NameW = 222.f * S;
-			L.FrameW = 64.f * S;
-			L.TenthW = 92.f * S;
-			L.TotalW = 108.f * S;
+			L.NameW = (bPortrait ? 150.f : 222.f) * S;
+			L.FrameW = (bPortrait ? 56.f : 64.f) * S;
+			L.TenthW = (bPortrait ? 82.f : 92.f) * S;
+			L.TotalW = (bPortrait ? 96.f : 108.f) * S;
 			L.Width = L.NameW + L.FrameW * 9.f + L.TenthW + 10.f * S + L.TotalW;
 			return L;
 		}
@@ -247,11 +265,12 @@ int32 SBowlingHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 		return Layer;
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const float S = Safe.Scale;
 	PaintFlash(P, *G);
 	if (G->GetPhase() == EBowlingPhase::Intro)
 	{
-		PaintIntro(P, *G, S);
+		PaintIntro(P, *G, Safe.bPortrait ? Safe.FitWidth(Portrait::IntroWidth) : S);
 		return Layer;
 	}
 	if (G->GetPhase() == EBowlingPhase::Finished)
@@ -285,9 +304,10 @@ const SBowlingHud::FRowCache& SBowlingHud::Row(const ABowlingGame& G, int32 Seat
 	{
 		RebuildRow(R, Seat, Card);
 	}
-	if (R.Name != Seat.Name || R.FittedScale != S)
+	const float Room = (Safe.bPortrait ? Portrait::NameRoom : NameRoom) * S;
+	if (R.Name != Seat.Name || R.FittedRoom != Room)
 	{
-		FitName(R, Seat.Name, S);
+		FitName(R, Seat.Name, Room, S);
 	}
 	return R;
 }
@@ -323,12 +343,11 @@ void SBowlingHud::RebuildRow(FRowCache& R, const FBowlerSeat& Seat, const FCard*
 		R.Strikes, R.Spares).ToString();
 }
 
-void SBowlingHud::FitName(FRowCache& R, const FString& Name, float S)
+void SBowlingHud::FitName(FRowCache& R, const FString& Name, float Room, float S)
 {
 	// Long names shrink to the column, then lose letters, so they never run into frame 1.
 	R.Name = Name;
-	R.FittedScale = S;
-	const float Room = NameRoom * S;
+	R.FittedRoom = Room;
 	R.FittedSize = NameSize * S;
 	R.FittedName = Name;
 	const double NaturalW = FKartPainter::Measure(R.FittedName, KartUI::Font(EFont::Title, R.FittedSize)).X;
@@ -378,9 +397,9 @@ void SBowlingHud::PaintFlash(const FKartPainter& P, const ABowlingGame& G) const
 void SBowlingHud::PaintSheet(const FKartPainter& P, const ABowlingGame& G, float S) const
 {
 	// One row per bowler: colour tab, name, ten frames (ball marks in cells over the running total), the score.
-	const FVector2D Origin = P.Size() * KartUI::Metric::SafeFraction;
+	const FVector2D Origin = Safe.SafeMin;
 	const int32 Count = G.GetSeats().Num();
-	const FSheetLayout L = FSheetLayout::For(Count, S);
+	const FSheetLayout L = FSheetLayout::For(Count, S, Safe.bPortrait);
 	const int32 Up = G.GetBowlerSeat();
 	for (int32 r = 0; r < Count; ++r)
 	{
@@ -400,7 +419,9 @@ void SBowlingHud::PaintSheet(const FKartPainter& P, const ABowlingGame& G, float
 		if (Seat.Streak >= 2)
 		{
 			const FString& Streak = C.StreakText.Get(Seat.Streak, [](int32 Value) { return FText::Format(ARCADE_LABEL("Bowling", "StreakChip", "{0}X"), Value).ToString(); });
-			Chip(P, Streak, Pos + FVector2D(L.Width + 40.f * S, L.RowH / 2.f), 18.f, Seat.Streak >= 3 ? KC::Sun : KC::Hot, S, KC::Night);
+			// Beside the row; upright there is no room beside it, so it sits on the row's top edge by the score.
+			const FVector2D ChipAt = Safe.bPortrait ? Pos + FVector2D(L.Width - L.TotalW / 2.f, 0.f) : Pos + FVector2D(L.Width + 40.f * S, L.RowH / 2.f);
+			Chip(P, Streak, ChipAt, 18.f, Seat.Streak >= 3 ? KC::Sun : KC::Hot, S, KC::Night);
 		}
 	}
 }
@@ -413,14 +434,24 @@ void SBowlingHud::PaintUp(const FKartPainter& P, const ABowlingGame& G, float S)
 		return;
 	}
 	const FRowCache& C = Row(G, G.GetBowlerSeat(), S);
-	const FVector2D TopRight(P.Size().X * (1.f - KartUI::Metric::SafeFraction), P.Size().Y * KartUI::Metric::SafeFraction);
 	const FString& Frame = FrameText.Get(C.Frame, [](int32 Number) { return FString::Printf(TEXT("FRAME %d"), Number); });
-	P.Text(Frame, KartUI::Font(EFont::Display, 50.f * S, 3.f * S), TopRight, KC::White, FVector2D(1.0, 0.0), 4.f * S);
 	const int32 Ball = G.GetMatch().RollInFrame, Standing = G.GetStanding();
 	const FString& BallLine = BallText.Get(Ball * 100 + Standing, [Ball, Standing](int32)
 	{
 		return FString::Printf(TEXT("BALL %d  ·  %d %s STANDING"), Ball, Standing, Standing == 1 ? TEXT("PIN") : TEXT("PINS"));
 	});
+	if (Safe.bPortrait)
+	{
+		// Under the sheet: the frame on the left, the ball line on the right.
+		const int32 Count = G.GetSeats().Num();
+		const FSheetLayout L = FSheetLayout::For(Count, S, true);
+		const float Y = static_cast<float>(Safe.SafeMin.Y) + Count * (L.RowH + L.Gap) + Portrait::UpGap * S;
+		const FVector2D FrameSize = P.Text(Frame, KartUI::Font(EFont::Display, Portrait::FrameSize * S, 3.f * S), FVector2D(Safe.SafeMin.X, Y), KC::White, FVector2D(0.0, 0.0), 4.f * S);
+		P.Text(BallLine, KartUI::Font(EFont::Label, 20.f * S, 2.f * S), FVector2D(Safe.SafeMax.X, Y + FrameSize.Y / 2.f), KC::Sun, FVector2D(1.0, 0.5), 2.f * S);
+		return;
+	}
+	const FVector2D TopRight(Safe.SafeMax.X, Safe.SafeMin.Y);
+	P.Text(Frame, KartUI::Font(EFont::Display, 50.f * S, 3.f * S), TopRight, KC::White, FVector2D(1.0, 0.0), 4.f * S);
 	P.Text(BallLine, KartUI::Font(EFont::Label, 20.f * S, 2.f * S), TopRight + FVector2D(0.f, 66.f * S), KC::Sun, FVector2D(1.0, 0.0), 2.f * S);
 }
 
@@ -435,7 +466,13 @@ void SBowlingHud::PaintControls(const FKartPainter& P, const ABowlingGame& G, fl
 	const FKartPainter F = P.Faded(In);
 	// Lower right, clear of the bowler standing in the middle of the shot.
 	const FVector2D Size(760.f * S, 168.f * S);
-	const FVector2D Pos(P.Size().X * (1.f - KartUI::Metric::SafeFraction) - Size.X, P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Size.Y + (1.f - In) * 30.f * S);
+	FVector2D Pos(Safe.SafeMax.X - Size.X, Safe.SafeMax.Y - Size.Y + (1.f - In) * 30.f * S);
+	if (Safe.bPortrait || Safe.HasTouchZones())
+	{
+		// Centred along the bottom (between the touch controls on a landscape phone).
+		Pos.X = P.Size().X / 2.f - Size.X / 2.f;
+		Pos.Y = Safe.BottomClearOfTouch(P.Size().X / 2.f, Size.X / 2.f) - Size.Y + (1.f - In) * 30.f * S;
+	}
 	const FString& Up = UpText.Get(G.GetBowlerSeat(), [Bowler](int32)
 	{
 		return FText::Format(ARCADE_LABEL("Bowling", "Up", "{0} is up"), FText::FromString(Bowler->Name)).ToString();
@@ -547,7 +584,7 @@ void SBowlingHud::PaintCoach(const FKartPainter& P, const ABowlingGame& G, float
 	const FText& PadHelp = ARCADE_LABEL("Bowling", "CoachPad", "Pad: sticks to aim and hook, hold RT");
 	const FText& MouseHelp = ARCADE_LABEL("Bowling", "CoachMouse", "Mouse: move to aim, click and flick up");
 	const FVector2D Size(500.f * S, 350.f * S);
-	const FVector2D Pos(P.Size().X * KartUI::Metric::SafeFraction, P.Size().Y * 0.37f);
+	const FVector2D Pos = Safe.bPortrait ? FVector2D(P.Size().X / 2.f - Size.X / 2.f, P.Size().Y * Portrait::CoachY01) : FVector2D(Safe.SafeMin.X, P.Size().Y * 0.37f);
 	const FKartPainter F = P.Transformed(Pos + FVector2D(0.f, Size.Y / 2.f), FMath::Max(0.01f, In)).Faded(Keep);
 	F.Card(Pos, Size, KC::WithAlpha(KC::Navy, 0.93f), 24.f * S, 8.f * S, KC::Sun, 3.f * S);
 	F.Text(Title, KartUI::Font(EFont::Display, 30.f * S, 2.f * S), Pos + FVector2D(28.f * S, 34.f * S), KC::Sun, FVector2D(0.0, 0.5), 2.f * S);
@@ -629,7 +666,9 @@ void SBowlingHud::PaintSwing(const FKartPainter& P, const ABowlingGame& G, float
 		{
 			continue;
 		}
-		const FVector2D C(P.Size().X / 2.f + (i - 1) * 330.f * S, Y);
+		// In a row under the lane; upright, a column (the row is wider than the screen).
+		const FVector2D C = Safe.bPortrait ? FVector2D(P.Size().X / 2.f, P.Size().Y * Portrait::SwingY01 + i * Portrait::SwingPitch * S)
+			: FVector2D(P.Size().X / 2.f + (i - 1) * 330.f * S, Y);
 		Chip(P.Transformed(C, FMath::Max(0.01f, In)).Faded(Out), Items[i].Text, C, 21.f, Items[i].Color, S);
 	}
 }
@@ -648,8 +687,11 @@ void SBowlingHud::PaintBeat(const FKartPainter& P, const ABowlingGame& G, float 
 	const FBeatCache& Words = Beat(G, S);
 	const float In = KartUI::Ease::OutBack(FMath::Clamp(static_cast<float>(Age / 0.35), 0.f, 1.f), bHuge ? 2.6f : 1.7f);
 	const float Out = FMath::Clamp(static_cast<float>((Hold - Age) / 0.3), 0.f, 1.f);
-	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * 0.4f);
+	const FVector2D Centre(P.Size().X / 2.f, P.Size().Y * (Safe.bPortrait ? Portrait::BeatY01 : 0.4f));
 	const FLinearColor Color = BeatColor(BeatKind);
+	// The word (and the turkey's stars) shrink to fit a narrow screen.
+	const float StarsRoom = BeatKind == EBowlingBeat::Turkey ? 120.f * S : 0.f;
+	const float Fit = FMath::Min(1.f, static_cast<float>(Safe.SafeSize().X) / FMath::Max(1.f, 2.f * (Words.HalfWidth + StarsRoom)));
 	if (bBig)
 	{
 		// A burst of rays behind the word, turning slowly.
@@ -666,7 +708,7 @@ void SBowlingHud::PaintBeat(const FKartPainter& P, const ABowlingGame& G, float 
 	}
 	// Big words shudder for a beat as they land.
 	const float Jolt = bHuge ? static_cast<float>(FMath::Max(0.0, 0.35 - Age) * 30.0 * FMath::Sin(Age * 80.0)) * S : 0.f;
-	const FKartPainter Pop = P.Transformed(Centre, FMath::Max(0.01f, In), -4.f * (1.f - In), FVector2D(Jolt, 0.f)).Faded(Out);
+	const FKartPainter Pop = P.Transformed(Centre, FMath::Max(0.01f, In) * Fit, -4.f * (1.f - In), FVector2D(Jolt, 0.f)).Faded(Out);
 	const float Size = BeatWordSize(BeatKind);
 	Pop.Text(Words.Word, KartUI::Font(EFont::Display, Size * S, 7.f * S, KC::Night), Centre, Color, FVector2D(0.5, 0.5), 9.f * S);
 	if (BeatKind == EBowlingBeat::Turkey)

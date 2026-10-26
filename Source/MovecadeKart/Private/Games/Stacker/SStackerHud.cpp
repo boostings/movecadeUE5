@@ -76,7 +76,8 @@ int32 SStackerHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 		return Layer;
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const float S = Safe.Scale;
 	if (G->GetStage() != EStackerStage::Finished)
 	{
 		bStandingsCached = false;
@@ -109,7 +110,7 @@ void SStackerHud::PaintClock(const FKartPainter& P, const AStackerGame& G, float
 {
 	using C = L::FClock;
 	const FMatch& M = G.GetMatch();
-	const FVector2D Top(P.Size().X / 2.f, P.Size().Y * KartUI::Metric::SafeFraction);
+	const FVector2D Top(P.Size().X / 2.f, Safe.SafeMin.Y);
 	const int32 Seconds = FMath::CeilToInt32(M.TimeRemainingMs / 1000.0);
 	const bool bLate = Seconds <= C::LateSeconds && M.Phase == EMatchPhase::Playing;
 	const float Pulse = bLate ? 1.f + C::Pulse * FMath::Abs(FMath::Sin(static_cast<float>(G.GetClock()) * C::PulseRate)) : 1.f;
@@ -184,11 +185,28 @@ void SStackerHud::PaintLanes(const FKartPainter& P, const AStackerGame& G, const
 	}
 	Width = FMath::Max(Width, Pn::MinWidth * S);
 	const float Height = Pn::Height * S;
+	if (Safe.HasTouchZones())
+	{
+		// A landscape phone: the bottom corners are the touch controls', so the panels line the top, either side of
+		// the clock and the wind.
+		const float Gap = Pn::Gap * S, CentreGap = Pn::PhoneClockRoom * S;
+		const KartSafeArea::FKartSafeFrame::FTopPanels Panels = Safe.TopPanels(M.Towers.Num(), Pn::MaxWidth * S, 0.f, Height, Gap, CentreGap);
+		Width = Panels.Width;
+		for (int32 t = 0; t < M.Towers.Num(); ++t)
+		{
+			const FVector2D Pos = Panels.Pos(t);
+			// The lean coach hangs above PanelAt: set it low enough that the coach sits under the panel instead.
+			using Co = L::FCoach;
+			PanelAt[t] = Pos + FVector2D(Width / 2.f, Height + (Co::LeanAbovePanel + Co::PointerGap + Co::LeanHeight + Pn::Gap) * S);
+			PaintLanePanel(P, G, t, Pos, Width, S);
+		}
+		return;
+	}
 	for (int32 t = 0; t < M.Towers.Num(); ++t)
 	{
 		const float Margin = Pn::ScreenMargin * S + Width / 2.f;
 		const float Centre = FMath::Clamp(Centres[t], Margin, static_cast<float>(P.Size().X) - Margin);
-		const FVector2D Pos(Centre - Width / 2.f, P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Height);
+		const FVector2D Pos(Centre - Width / 2.f, Safe.SafeMax.Y - Height);
 		PanelAt[t] = Pos + FVector2D(Width / 2.f, 0.f);
 		PaintLanePanel(P, G, t, Pos, Width, S);
 	}

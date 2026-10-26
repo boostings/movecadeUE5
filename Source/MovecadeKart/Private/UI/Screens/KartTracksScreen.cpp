@@ -75,6 +75,9 @@ namespace
 	constexpr double ArrowBob = 5.0;
 	constexpr double ArrowBobSpeed = 6.0;
 	constexpr float ArrowSize = 24.f;
+	/** Room kept for each arrow beside the row, and the smallest the cards shrink to. */
+	constexpr double ArrowRoom = 40.0;
+	constexpr double MinCardFit = 0.6;
 	constexpr float StartButtonInAt = 0.35f;
 	constexpr double StartButtonDrop = 66.0;
 	constexpr int32 StartHit = 99;
@@ -160,21 +163,26 @@ namespace
 			const TArray<FKartTrackInfo>& Tracks = FKartTrackCatalog::All();
 			const UKartSessionSettings* Session = SessionOf(Host);
 			const FKartRaceSetup* Setup = Session ? &Session->GetSetup() : nullptr;
-			const double Total = Tracks.Num() * CardSize.X + (Tracks.Num() - 1) * CardGap;
+			// The row shrinks to fit between the arrows inside the safe area (three cards and more outgrow the canvas).
+			const double Natural = Tracks.Num() * CardSize.X + (Tracks.Num() - 1) * CardGap;
+			const double Room = Frame.SafeSize().X - 2.0 * (ArrowGap + ArrowRoom);
+			const float Fit = static_cast<float>(FMath::Clamp(Room / FMath::Max(Natural, 1.0), MinCardFit, 1.0));
+			const double Total = Natural * Fit;
 			const double Left = Frame.Size.X * 0.5 - Total * 0.5;
-			const double Top = Frame.Size.Y * 0.5 - CardSize.Y * 0.5 - CardsLift;
+			const double Top = Frame.Size.Y * 0.5 - CardSize.Y * Fit * 0.5 - CardsLift;
 			{
 				const FKartPaintGroup Group(P);
 				for (int32 i = 0; i < Tracks.Num(); ++i)
 				{
 					Group.Next();
 					const float In = KartWidgets::Entrance(Frame, CardInAt + i * CardStagger, CardInSeconds);
-					const FVector2D Pos(Left + i * (CardSize.X + CardGap) + KartWidgets::SlideX(Frame), Top + (1.0 - In) * CardRise);
-					PaintTrackCard(P, Frame, Tracks[i], i, Pos, In, Setup);
+					const FVector2D Centre(Left + (i * (CardSize.X + CardGap) + CardSize.X * 0.5) * Fit + KartWidgets::SlideX(Frame),
+						Top + CardSize.Y * Fit * 0.5 + (1.0 - In) * CardRise);
+					PaintTrackCard(P, Frame, Tracks[i], i, Centre, Fit, In, Setup);
 				}
 			}
 			// Arrows either side when there is more to pick.
-			const double MidY = Top + CardSize.Y * 0.5;
+			const double MidY = Top + CardSize.Y * Fit * 0.5;
 			const double Bob = FMath::Sin(Frame.Now * ArrowBobSpeed) * ArrowBob;
 			if (Focus.Cursor.Index > 0)
 			{
@@ -187,21 +195,26 @@ namespace
 			FItemState Start;
 			Start.bFocused = true;
 			Start.FocusAge = Frame.Now - Focus.FocusAt;
-			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, StartButtonInAt)), FVector2D(Frame.Size.X * 0.5, Top + CardSize.Y + StartButtonDrop),
+			KartWidgets::PrimaryButton(P.Faded(KartWidgets::Entrance(Frame, StartButtonInAt)), FVector2D(Frame.Size.X * 0.5, Top + CardSize.Y * Fit + StartButtonDrop),
 				LOCTEXT("StartRaceButton", "START RACE"), EKartMenuAction::Accept, Frame.Device, Start, StartHit);
 		}
 
 	private:
-		/** One track's card: the outline panel, name, tagline and stat chips; the cards not picked are dimmed. */
-		void PaintTrackCard(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartTrackInfo& Track, int32 Index, const FVector2D& Pos, float In,
-			const FKartRaceSetup* Setup)
+		/**
+		 * One track's card centred on Centre, drawn at Fit of its design size: the outline panel, name, tagline and stat
+		 * chips; the cards not picked are dimmed.
+		 */
+		void PaintTrackCard(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartTrackInfo& Track, int32 Index, const FVector2D& Centre, float Fit,
+			float In, const FKartRaceSetup* Setup)
 		{
 			using namespace TrackCardArt;
 			const bool bFocused = Index == Focus.Cursor.Index;
-			P.Hit(Index, Pos, CardSize);
+			P.Hit(Index, Centre - CardSize * Fit * 0.5, CardSize * Fit);
 			const float Pop = bFocused ? 1.f + FocusedPop * Ease::OutBack(static_cast<float>((Frame.Now - Focus.FocusAt) / FocusPopSeconds), FKartAccessibility::ReduceMotion() ? 0.f : FocusOvershoot)
 				: UnfocusedScale;
-			const FKartPainter Card = P.Transformed(Pos + CardSize * 0.5, Pop, bFocused ? FocusedTilt : 0.f).Faded(In);
+			// The card is laid out at its design size around Centre; the painter scales it to fit.
+			const FVector2D Pos = Centre - CardSize * 0.5;
+			const FKartPainter Card = P.Transformed(Centre, Pop * Fit, bFocused ? FocusedTilt : 0.f).Faded(In);
 			if (bFocused)
 			{
 				Card.Box(Pos - FVector2D(GlowPad, GlowPad), CardSize + FVector2D(2.0 * GlowPad, 2.0 * GlowPad), Color::WithAlpha(Track.Accent, GlowAlpha),

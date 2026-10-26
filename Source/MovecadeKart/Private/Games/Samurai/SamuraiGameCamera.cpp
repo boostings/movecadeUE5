@@ -5,11 +5,18 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Games/ArcadeFraming.h"
 #include "Engine/GameViewportClient.h"
 #include "Games/Samurai/SamuraiTuning.h"
 
 using namespace MovecadeKart::Samurai;
 using namespace MovecadeKart::Samurai::Tuning;
+
+namespace
+{
+	/** Held upright: how far the look point rises, as a share of the frame's half height. */
+	constexpr double PortraitLookRaiseShare = 0.22;
+}
 
 double ASamuraiGame::ViewportAspect() const
 {
@@ -30,17 +37,27 @@ void ASamuraiGame::UpdateCamera(float Dt)
 	const double Aspect = ViewportAspect();
 	// Back far enough that every lane fits the (vertical) field of view at this aspect.
 	const double HalfWidth = (LaneCount() - 1) * LaneHalfSpan + LaneEdgeMargin;
-	const double Fit = HalfWidth / (FMath::Tan(FMath::DegreesToRadians(BaseFov / 2.0)) * Aspect * FitAspectSlack) + FitExtraDistance;
+	// Held upright, backing off would put the dojo's walls in the frame: the camera stays where a 16:9 screen has
+	// it and opens the lens until the lanes fit across instead (the fruit's arcs get the extra height).
+	const bool bPortrait = ArcadeFraming::IsPortrait(Aspect);
+	const double FitAspect = bPortrait ? ArcadeFraming::DesignAspect : Aspect;
+	const double Fit = HalfWidth / (FMath::Tan(FMath::DegreesToRadians(BaseFov / 2.0)) * FitAspect * FitAspectSlack) + FitExtraDistance;
 	const double Distance = FMath::Max(MinDistance, Fit);
 	FVector Position(FMath::Sin(Clock * SwayRate) * SwayAmplitude, Height + BobAmplitude * FMath::Sin(Clock * BobRate), Distance);
 	FVector Look(0.0, LookY, 0.0);
-	double Fov = BaseFov;
+	const double PlayFov = bPortrait ? FMath::Max(BaseFov, ArcadeFraming::VerticalFovForWidth(HalfWidth, Distance, Aspect, FitAspectSlack)) : BaseFov;
+	double Fov = PlayFov;
+	if (bPortrait)
+	{
+		// The look rises so the dojo sits lower, under the score panels, with the fruit's arcs above the swordsmen.
+		Look.Y += Distance * FMath::Tan(FMath::DegreesToRadians(PlayFov / 2.0)) * PortraitLookRaiseShare;
+	}
 	if (Stage == ESamuraiStage::Intro)
 	{
 		const double T = Ease::Smooth(0.0, 1.0, GetStageAge() / IntroSweepSeconds);
 		Position = FMath::Lerp(FVector(IntroFromX, IntroFromY, Distance + IntroExtraDistance), Position, T);
 		Look = FMath::Lerp(FVector(0.0, IntroLookY, IntroLookZ), Look, T);
-		Fov = FMath::Lerp(IntroFov, BaseFov, T);
+		Fov = FMath::Lerp(FMath::Max(IntroFov, PlayFov), PlayFov, T);
 	}
 	else if (Stage == ESamuraiStage::Finished)
 	{
@@ -68,7 +85,6 @@ void ASamuraiGame::UpdateCamera(float Dt)
 	const FVector From = ToWorld(CameraPosition + Jolt);
 	const FVector To = ToWorld(CameraLook);
 	Camera->SetActorLocationAndRotation(From, (To - From).Rotation());
-	// The web's field of view is vertical; UE's camera takes the horizontal one.
-	const double HorizontalFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(CameraFov) / 2.0) * Aspect));
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HorizontalFov));
+	// The web's field of view is vertical.
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), CameraFov);
 }

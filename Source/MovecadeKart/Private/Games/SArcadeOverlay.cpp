@@ -8,6 +8,8 @@
 #include "Games/ArcadeGame.h"
 #include "Games/ArcadeOverlayScreens.h"
 #include "Games/ArcadeSession.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "UI/KartScreen.h"
 #include "UI/KartUISubsystem.h"
 
@@ -23,6 +25,30 @@ namespace
 	constexpr int32 OverlayZOrder = 30;
 	/** When the catalog has no results delay for a game. */
 	constexpr double DefaultResultsDelay = 2.0;
+
+	/**
+	 * Screenshot hooks for the overlay's layouts (not in Shipping): -ArcadePauseAt=N opens the pause menu and
+	 * -ArcadeResultsAt=N the results bar N seconds after the overlay appears, whatever the game is doing.
+	 */
+	struct FOverlayShotFlags
+	{
+		double PauseAt = -1.0;
+		double ResultsAt = -1.0;
+
+		static const FOverlayShotFlags& Get()
+		{
+			static const FOverlayShotFlags Flags = []()
+			{
+				FOverlayShotFlags Out;
+#if !UE_BUILD_SHIPPING
+				FParse::Value(FCommandLine::Get(), TEXT("ArcadePauseAt="), Out.PauseAt);
+				FParse::Value(FCommandLine::Get(), TEXT("ArcadeResultsAt="), Out.ResultsAt);
+#endif
+				return Out;
+			}();
+			return Flags;
+		}
+	};
 }
 
 SArcadeOverlay::~SArcadeOverlay()
@@ -185,6 +211,30 @@ void SArcadeOverlay::Tick(const FGeometry& AllottedGeometry, const double InCurr
 	if (!G)
 	{
 		return;
+	}
+	if (AttachedAt < 0.0)
+	{
+		AttachedAt = InCurrentTime;
+	}
+	if (!bShotHookFired)
+	{
+		const FOverlayShotFlags& Shot = FOverlayShotFlags::Get();
+		const double Age = InCurrentTime - AttachedAt;
+		if (Shot.PauseAt >= 0.0 && Age >= Shot.PauseAt)
+		{
+			bShotHookFired = true;
+			OpenPause();
+		}
+		else if (Shot.ResultsAt >= 0.0 && Age >= Shot.ResultsAt)
+		{
+			bShotHookFired = true;
+			ShowResults();
+			return;
+		}
+	}
+	if (bShotHookFired && bResultsShown && G->GetArcadeFinishedAge() < 0.0)
+	{
+		return; // the forced results bar stays up over the running game
 	}
 	const double FinishedAge = G->GetArcadeFinishedAge();
 	if (FinishedAge < 0.0)

@@ -13,6 +13,7 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
 #include "Components/Overlay.h"
+#include "Components/ScaleBox.h"
 #include "Components/OverlaySlot.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
@@ -197,14 +198,19 @@ void UKartLobbyWidget::BuildTree()
 	WidgetTree->RootWidget = Root;
 	BuildBackdrop(Make, *Root);
 
-	UBorder* Safe = Make.Card(FLinearColor::Transparent, 0.f, LobbyMetric::SafeArea);
-	if (UOverlaySlot* SafeSlot = Root->AddChildToOverlay(Safe))
+	SafeBorder = Make.Card(FLinearColor::Transparent, 0.f, LobbyMetric::SafeArea);
+	if (UOverlaySlot* SafeSlot = Root->AddChildToOverlay(SafeBorder))
 	{
 		SafeSlot->SetHorizontalAlignment(HAlign_Fill);
 		SafeSlot->SetVerticalAlignment(VAlign_Fill);
 	}
+	// The whole layout shrinks to fit the safe area (a short window, a phone's notch and home bar), never grows.
+	UScaleBox* Fit = WidgetTree->ConstructWidget<UScaleBox>();
+	Fit->SetStretch(EStretch::ScaleToFit);
+	Fit->SetStretchDirection(EStretchDirection::DownOnly);
+	SafeBorder->SetContent(Fit);
 	UHorizontalBox* Columns = Make.Row();
-	Safe->SetContent(Columns);
+	Fit->SetContent(Columns);
 
 	// Left: how to join. Right: the title, the game, the track, the seats and Start.
 	FWidgetFactory::Line(Columns, Make.Sized(BuildJoinCard(Make), LobbyMetric::JoinCardWidth, 0.f), LobbyMetric::ColumnGap);

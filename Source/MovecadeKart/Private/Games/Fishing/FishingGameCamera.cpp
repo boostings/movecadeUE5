@@ -2,6 +2,7 @@
 // the lake, the weigh-in's low shot of the anglers with the sunset behind them, and the shake.
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Games/ArcadeFraming.h"
 #include "Engine/GameViewportClient.h"
 #include "Games/Fishing/FishingGame.h"
 #include "Games/Fishing/FishingGameInternal.h"
@@ -100,7 +101,5 @@ void AFishingGame::UpdateCamera(float Dt)
 	const FVector Jolt(0.0, FMath::Sin(Clock * ShakeFreqY) * Shake * ShakeAmpY, FMath::Sin(Clock * ShakeFreqZ + 1.1) * Shake * ShakeAmpZ);
 	const FVector From = CamPos + Jolt;
 	Camera->SetActorLocationAndRotation(From, (CamLook - From).Rotation());
-	// The camera component takes a horizontal field of view.
-	const double HFov = 2.0 * FMath::RadiansToDegrees(FMath::Atan(FMath::Tan(FMath::DegreesToRadians(CamFov) / 2.0) * Aspect));
-	Camera->GetCameraComponent()->SetFieldOfView(static_cast<float>(HFov));
+	ArcadeFraming::SetVerticalFov(*Camera->GetCameraComponent(), CamFov);
 }

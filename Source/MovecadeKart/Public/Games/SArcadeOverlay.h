@@ -71,4 +71,7 @@ private:
 	bool bCursorShown = false;
 	bool bResultsShown = false;
 	bool bRecorded = false;
+	/** The screenshot hooks (-ArcadePauseAt / -ArcadeResultsAt): when the overlay first ticked, and whether one fired. */
+	double AttachedAt = -1.0;
+	bool bShotHookFired = false;
 };
