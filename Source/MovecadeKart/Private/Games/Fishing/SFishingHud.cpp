@@ -16,6 +16,9 @@ namespace
 	constexpr float LaneGap = 18.f;
 	constexpr float LaneMaxWidth = 440.f;
 	constexpr float LaneHeight = 150.f;
+	/** On a landscape phone the cards line the top, leaving this much in the middle for the clock and the record. */
+	constexpr float PhoneClockRoom = 440.f;
+	constexpr float PhoneMinLaneWidth = 400.f;
 	/** The tension or cast meter's height, and the share of the bar the tension scale covers (1.2 = 20% past the red line). */
 	constexpr float MeterHeight = 22.f;
 	constexpr double TensionScaleMax = 1.2;
@@ -124,7 +127,8 @@ int32 SFishingHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeom
 		LaneTexts.SetNum(G->LaneCount());
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const FFrame F{ P, *G, static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH), FArcadeHudView::Capture(G->GetViewer()) };
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const FFrame F{ P, *G, Safe.Scale, FArcadeHudView::Capture(G->GetViewer()) };
 	switch (G->GetStage())
 	{
 	case EFishingStage::Intro:
@@ -152,7 +156,7 @@ void SFishingHud::PaintClock(const FFrame& F) const
 	const FKartPainter& P = F.P;
 	const float S = F.S;
 	const FMatch& M = F.Game.GetMatch();
-	const FVector2D Top(P.Size().X / 2.f, P.Size().Y * KartUI::Metric::SafeFraction);
+	const FVector2D Top(P.Size().X / 2.f, Safe.SafeMin.Y);
 	const int32 Seconds = FMath::CeilToInt32(M.TimeRemainingMs / 1000.0);
 	const bool bLate = Seconds <= LateSeconds && M.Phase == EMatchPhase::Playing;
 	const float Pulse = bLate ? 1.f + 0.06f * FMath::Abs(FMath::Sin(static_cast<float>(F.Game.GetClock()) * 6.f)) : 1.f;
@@ -224,9 +228,22 @@ void SFishingHud::PaintLanes(const FFrame& F) const
 	const float Width = FMath::Min(LaneMaxWidth * S, (P.Size().X * 0.94f - Gap * (N - 1)) / FMath::Max(1, N));
 	const float Height = LaneHeight * S;
 	const float Left = (P.Size().X - (Width * N + Gap * (N - 1))) / 2.f;
+	if (Safe.HasTouchZones())
+	{
+		// A landscape phone: the bottom corners are the touch controls', so the cards line the top, either side of
+		// the clock and the record line.
+		const float CentreGap = PhoneClockRoom * S;
+		// Stacked down each side when side by side would squeeze the cards' name and weight together.
+		const KartSafeArea::FKartSafeFrame::FTopPanels Cards = Safe.TopPanels(N, LaneMaxWidth * S, PhoneMinLaneWidth * S, Height, Gap, CentreGap);
+		for (int32 i = 0; i < N; ++i)
+		{
+			PaintLaneCard(F, i, Cards.Pos(i), Cards.Size());
+		}
+		return;
+	}
 	for (int32 i = 0; i < N; ++i)
 	{
-		const FVector2D Pos(Left + i * (Width + Gap), P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Height);
+		const FVector2D Pos(Left + i * (Width + Gap), Safe.SafeMax.Y - Height);
 		PaintLaneCard(F, i, Pos, FVector2D(Width, Height));
 	}
 }

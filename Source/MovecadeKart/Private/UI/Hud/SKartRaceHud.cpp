@@ -188,6 +188,7 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 	int32 Layer = LayerId;
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
 	const FVector2D Screen = P.Size();
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
 	const double Now = FSlateApplication::Get().GetCurrentTime();
 	const EKartRacePhase Phase = Race->GetPhase();
 
@@ -227,9 +228,9 @@ int32 SKartRaceHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 void SKartRaceHud::PaintClock(const FKartPainter& P, const AKartRaceManager& Race, const FVector2D& Screen, double Now) const
 {
 	using namespace ClockArt;
-	const FVector2D Margin = Screen * Metric::SafeFraction;
+	const FVector2D Margin(Screen.X - Safe.SafeMax.X, Safe.SafeMin.Y);
 	const bool bSingle = Views.Num() == 1;
-	const float Scale = bSingle ? 1.f : SplitScale;
+	const float Scale = bSingle ? (Safe.bPhone ? KartSafeArea::PhoneHudBoost : 1.f) : SplitScale;
 	// The race clock: under the lap counter in a single view, on the split line otherwise.
 	const int64 Second = FMath::FloorToInt64(FMath::Max(0.0, Race.GetRaceMs()) / 1000.0);
 	if (Second != ClockSecond)

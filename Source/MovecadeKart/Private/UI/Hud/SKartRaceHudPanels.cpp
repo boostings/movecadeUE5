@@ -410,7 +410,7 @@ void SKartRaceHud::PaintIntro(const FKartPainter& P, const AKartRaceManager& Rac
 	const float In = Ease::OutBack(static_cast<float>((T - InAt) / InSeconds), Overshoot);
 	const float Out = Ease::InCubic(static_cast<float>((T - OutAt) / OutSeconds));
 	const double Slide = (1.0 - In) * -SlideIn - Out * SlideOut;
-	const FVector2D Margin = Screen * Metric::SafeFraction;
+	const FVector2D Margin(Safe.SafeMin.X, Screen.Y - Safe.SafeMax.Y);
 	const double Y = Screen.Y - Margin.Y - Lift;
 	P.Gradient(FVector2D(0.0, Screen.Y * ShadeTop), FVector2D(Screen.X, Screen.Y * ShadeHeight), Color::WithAlpha(Color::Night, 0.f),
 		Color::WithAlpha(Color::Night, ShadeAlpha * (1.f - Out)));
@@ -446,8 +446,8 @@ void SKartRaceHud::PaintIntro(const FKartPainter& P, const AKartRaceManager& Rac
 		const UKartUISubsystem* UI = UKartUISubsystem::Get(Race.GetWorld());
 		FKartScreenFrame Frame;
 		Frame.Size = Screen;
-		Frame.SafeMin = Margin;
-		Frame.SafeMax = Screen - Margin;
+		Frame.SafeMin = Safe.SafeMin;
+		Frame.SafeMax = Safe.SafeMax;
 		Frame.Device = UI ? UI->GetInputDevice() : EKartInputDevice::Keyboard;
 		KartWidgets::Hints(P.Faded(In * (1.f - Out)), Frame, { { Frame.Device == EKartInputDevice::Gamepad ? EKartMenuAction::Start : EKartMenuAction::Accept, LOCTEXT("Skip", "Skip") } });
 	}

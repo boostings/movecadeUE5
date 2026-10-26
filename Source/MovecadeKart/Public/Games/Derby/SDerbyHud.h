@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Games/ArcadeHud.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class ADerbyGame;
@@ -69,6 +70,8 @@ private:
 	FBatterText& BatterText(const ADerbyGame& Game, int32 BatterIndex) const;
 
 	TWeakObjectPtr<ADerbyGame> Game;
+	/** This paint's safe area and scale (a landscape phone moves the player panels to the top, clear of the touch controls). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 
 	mutable TArray<FBatterText> Batters;
 	/** "1", "2", ...: the final standings' places. */

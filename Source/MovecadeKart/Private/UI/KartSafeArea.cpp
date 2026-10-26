@@ -1,103 +1,31 @@
 #include "UI/KartSafeArea.h"
 
-#include "Framework/Application/SlateApplication.h"
-#include "GenericPlatform/GenericApplication.h"
 #include "Layout/Geometry.h"
-#include "Misc/CommandLine.h"
-#include "Misc/Parse.h"
+#include "Mobile/MovecadeOrientationSubsystem.h"
 #include "UI/KartUIStyle.h"
 
 namespace KartSafeArea
 {
 	namespace
 	{
-		/** The emulated phone (-MobilePreview): an iPhone 15 Pro's safe-area insets in points, on its 393 x 852 point
-		 *  screen. Portrait: the Dynamic Island on top, the home bar below; landscape: the island on one side (iOS
-		 *  insets both sides alike, so the island can be on either), the home bar below. */
-		constexpr double PhoneShortPt = 393.0;
-		constexpr double PhoneLongPt = 852.0;
-		constexpr double PortraitTopPt = 59.0;
-		constexpr double PortraitBottomPt = 34.0;
-		constexpr double LandscapeSidePt = 59.0;
-		constexpr double LandscapeBottomPt = 21.0;
-
 		/** A phone's own margin inside its insets, in design units (no TV overscan to allow for). */
 		constexpr float PhonePad = 22.f;
-#if PLATFORM_IOS || PLATFORM_ANDROID
-		/** The device insets are re-read at most this often (seconds): they only move on a rotation. */
-		constexpr double InsetsRefreshSeconds = 0.5;
-
-		/** The engine's safe zone, cached: FDisplayMetrics carries the monitor list, so reading it allocates. A
-		 *  deliberate process-wide cache, refreshed on a timer and when the viewport changes size. */
-		struct FInsetsCache
-		{
-			FVector2D ViewportPx = FVector2D::ZeroVector;
-			double ReadAt = -1.0;
-			FMargin InsetsPx;
-		};
-
-		FMargin DeviceInsets(const FVector2D& ViewportPx)
-		{
-			static FInsetsCache Cache;
-			const double Now = FPlatformTime::Seconds();
-			if (Cache.ViewportPx != ViewportPx || Now - Cache.ReadAt > InsetsRefreshSeconds)
-			{
-				Cache.ViewportPx = ViewportPx;
-				Cache.ReadAt = Now;
-				Cache.InsetsPx = FMargin();
-				if (FSlateApplication::IsInitialized())
-				{
-					FDisplayMetrics Metrics;
-					FSlateApplication::Get().GetCachedDisplayMetrics(Metrics);
-					const FVector4 Pad = Metrics.TitleSafePaddingSize; // left, top, right, bottom (pixels)
-					Cache.InsetsPx = FMargin(static_cast<float>(Pad.X), static_cast<float>(Pad.Y), static_cast<float>(Pad.Z), static_cast<float>(Pad.W));
-				}
-			}
-			return Cache.InsetsPx;
-		}
-#endif
-
-		FMargin PreviewInsets(bool bPortrait, const FVector2D& ViewportPx)
-		{
-			if (bPortrait)
-			{
-				const double PerPt = ViewportPx.Y / PhoneLongPt;
-				return FMargin(0.f, static_cast<float>(PortraitTopPt * PerPt), 0.f, static_cast<float>(PortraitBottomPt * PerPt));
-			}
-			const double PerPt = ViewportPx.Y / PhoneShortPt;
-			const float Side = static_cast<float>(LandscapeSidePt * PerPt);
-			return FMargin(Side, 0.f, Side, static_cast<float>(LandscapeBottomPt * PerPt));
-		}
-	}
-
-	EPreview GetPreview()
-	{
-		static const EPreview Preview = []()
-		{
-			FString Value;
-			if (FParse::Value(FCommandLine::Get(), TEXT("MobilePreview="), Value))
-			{
-				return Value.Equals(TEXT("portrait"), ESearchCase::IgnoreCase) ? EPreview::Portrait : EPreview::Landscape;
-			}
-			return EPreview::None;
-		}();
-		return Preview;
 	}
 
 	FKartDisplay FKartDisplay::Get(const FVector2D& ViewportPx)
 	{
 		FKartDisplay Display;
 		Display.bPortrait = ViewportPx.Y > ViewportPx.X;
-		if (GetPreview() != EPreview::None)
-		{
-			Display.bPhone = true;
-			Display.InsetsPx = PreviewInsets(Display.bPortrait, ViewportPx);
-			return Display;
-		}
 #if PLATFORM_IOS || PLATFORM_ANDROID
 		Display.bPhone = true;
-		Display.InsetsPx = DeviceInsets(ViewportPx);
 #endif
+		// The orientation subsystem owns the screen's shape and safe area (the device's, or the -MobilePreview phone's).
+		if (const UMovecadeOrientationSubsystem* Screen = UMovecadeOrientationSubsystem::Get())
+		{
+			const FMovecadeScreenState& State = Screen->GetState();
+			Display.bPhone |= State.bPreview;
+			Display.InsetsPx = State.SafeInsets(ViewportPx);
+		}
 		return Display;
 	}
 
@@ -112,6 +40,46 @@ namespace KartSafeArea
 			}
 		}
 		return Bottom;
+	}
+
+	FKartSafeFrame::FTopPanels FKartSafeFrame::TopPanels(int32 Count, float MaxWidth, float MinWidth, float Height, float Gap, float CentreGap) const
+	{
+		FTopPanels Panels;
+		Panels.Count = Count;
+		Panels.Height = Height;
+		Panels.Gap = Gap;
+		Panels.SafeMin = SafeMin;
+		Panels.SafeMax = SafeMax;
+		const int32 PerSide = FMath::Max(1, (Count + 1) / 2);
+		const float Side = static_cast<float>(SafeSize().X) / 2.f - CentreGap / 2.f - Gap;
+		Panels.Width = FMath::Max(1.f, FMath::Min(MaxWidth, (Side - (PerSide - 1) * Gap) / PerSide));
+		if (Panels.Width < MinWidth && PerSide > 1)
+		{
+			Panels.bStacked = true;
+			Panels.Width = FMath::Max(1.f, FMath::Min(MaxWidth, Side));
+		}
+		return Panels;
+	}
+
+	FVector2D FKartSafeFrame::FTopPanels::Pos(int32 Index) const
+	{
+		const int32 Left = (Count + 1) / 2;
+		const bool bLeft = Index < Left;
+		const int32 Slot = bLeft ? Index : Index - Left;
+		const int32 OnSide = bLeft ? Left : Count - Left;
+		if (bStacked)
+		{
+			const double Y = SafeMin.Y + Slot * (Height + Gap);
+			return FVector2D(bLeft ? SafeMin.X : SafeMax.X - Width, Y);
+		}
+		// Side by side, filling inwards from the safe edges.
+		return bLeft ? FVector2D(SafeMin.X + Slot * (Width + Gap), SafeMin.Y) : FVector2D(SafeMax.X - (OnSide - Slot) * (Width + Gap) + Gap, SafeMin.Y);
+	}
+
+	double FKartSafeFrame::FTopPanels::Bottom() const
+	{
+		const int32 Rows = bStacked ? (Count + 1) / 2 : 1;
+		return SafeMin.Y + Rows * Height + (Rows - 1) * Gap;
 	}
 
 	FKartSafeFrame FKartSafeFrame::ForHud(const FGeometry& Geometry)

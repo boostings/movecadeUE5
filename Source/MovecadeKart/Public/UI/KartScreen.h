@@ -46,6 +46,10 @@ struct FKartScreenFrame
 	float Direction = 1.f;
 	EKartInputDevice Device = EKartInputDevice::Keyboard;
 	double Now = 0.0;
+	/** Taller than wide (a phone held upright: the arcade overlay over a portrait game). Size.X is then 1080. */
+	bool bPortrait = false;
+	/** A phone: SafeMin / SafeMax keep clear of its notch and home bar. */
+	bool bPhone = false;
 
 	FVector2D SafeSize() const { return SafeMax - SafeMin; }
 	FVector2D Centre() const { return Size * 0.5; }
@@ -157,7 +161,8 @@ private:
 	int32 HoverId = INDEX_NONE;
 	int32 PressedId = INDEX_NONE;
 	mutable FVector2D LastSize = FVector2D(1920.0, 1080.0);
-	/** Scale applied to fit the design canvas when the widget is shorter (a large UI scale); 1 otherwise. */
+	/** Scale applied to fit the design canvas when the widget is shorter (narrower, held upright) than it, e.g. a
+	 *  large UI scale; 1 otherwise. */
 	mutable float Fit = 1.f;
 	/** The top screen's hints, refreshed when the screen, the device or its state (an input) changes. */
 	mutable TArray<FKartHint> CachedHints;

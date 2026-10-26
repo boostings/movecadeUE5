@@ -51,6 +51,20 @@ namespace
 		const FVector2D HelpSize(530.0, 490.0);
 		constexpr double HelpTextWidth = 466.0;
 		constexpr double HelpPulseSeconds = 0.6;
+
+		/** Held upright: one column, the title, the buttons full width, then how to play under them. */
+		namespace Portrait
+		{
+			constexpr double CardWidth = 940.0;
+			constexpr double Inset = 50.0;
+			constexpr double ButtonsY = 210.0;
+			constexpr double HelpGap = 28.0;
+			constexpr double HelpHeight = 380.0;
+			constexpr double TaglineY = 280.0;
+			constexpr double Bottom = 50.0;
+		}
+		/** The landscape card's tagline, down its help panel. */
+		constexpr double TaglineY = 380.0;
 	}
 
 	// The results band along the bottom (canvas units).
@@ -67,6 +81,17 @@ namespace
 		constexpr double ButtonsAboveSafeBottom = 92.0;
 		/** The party chips sit this far above the buttons. */
 		constexpr double ChipsAboveButtons = 84.0;
+
+		/** Held upright: the buttons two by two, the chips three to a row, in a taller band. */
+		namespace Portrait
+		{
+			constexpr int32 ButtonColumns = 2;
+			constexpr int32 ChipColumns = 3;
+			constexpr double BandHeight = 640.0;
+			constexpr double RowGap = 14.0;
+			/** The buttons widen to share the safe width, up to this. */
+			constexpr double MaxButtonWidth = 480.0;
+		}
 	}
 
 	enum class EPauseItem : int32 { Resume, Restart, HowTo, Settings, ChangeGame, MainMenu, Count };
@@ -203,41 +228,59 @@ namespace
 			const FLinearColor Accent = Info ? Info->Accent : Color::Sun;
 			const float In = KartWidgets::Entrance(Frame, 0.f, FadeSeconds);
 			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, DimAlpha * In));
-			const FVector2D Pos = Frame.Centre() - CardSize * 0.5;
+			// Buttons beside how to play on a wide screen; one column held upright.
+			const int32 Count = static_cast<int32>(EPauseItem::Count);
+			const double ButtonsHeight = Count * (ButtonSize.Y + ButtonGap) - ButtonGap;
+			const FVector2D Size = Frame.bPortrait
+				? FVector2D(Portrait::CardWidth, Portrait::ButtonsY + ButtonsHeight + Portrait::HelpGap + Portrait::HelpHeight + Portrait::Bottom) : CardSize;
+			const double TitleAt = Frame.bPortrait ? Size.X * 0.5 : TitleX;
+			const FVector2D Pos = Frame.Centre() - Size * 0.5;
 			// The card pops in from 80 % with an overshoot; the buttons ride it until it settles.
 			const float Pop = Ease::OutBack(static_cast<float>(Frame.Age / PopSeconds), 2.f);
 			const FKartPainter Card = P.Transformed(Frame.Centre(), 0.8f + 0.2f * Pop);
-			Card.Card(Pos, CardSize, Color::WithAlpha(Color::Night, 0.94f), Metric::RadiusLarge, 12.f, Accent, 5.f);
-			Card.Text(ARCADE_LABEL("ArcadeOverlay", "Paused", "PAUSED"), Font(EFont::Display, 84.f, 5.f), Pos + FVector2D(TitleX, 92.0), Accent, FVector2D(0.5, 0.5), 5.f);
+			Card.Card(Pos, Size, Color::WithAlpha(Color::Night, 0.94f), Metric::RadiusLarge, 12.f, Accent, 5.f);
+			Card.Text(ARCADE_LABEL("ArcadeOverlay", "Paused", "PAUSED"), Font(EFont::Display, 84.f, 5.f), Pos + FVector2D(TitleAt, 92.0), Accent, FVector2D(0.5, 0.5), 5.f);
 			if (Info)
 			{
-				Card.Text(Info->Name, Font(EFont::Title, 30.f), Pos + FVector2D(TitleX, 160.0), Color::WithAlpha(Color::White, 0.85f), FVector2D(0.5, 0.5));
+				Card.Text(Info->Name, Font(EFont::Title, 30.f), Pos + FVector2D(TitleAt, 160.0), Color::WithAlpha(Color::White, 0.85f), FVector2D(0.5, 0.5));
 			}
 			const FKartPainter& ButtonPainter = Frame.Age > PopSeconds ? P : Card;
-			for (int32 i = 0; i < static_cast<int32>(EPauseItem::Count); ++i)
+			const FVector2D FirstButton = Frame.bPortrait ? FVector2D(Portrait::Inset, Portrait::ButtonsY) : ButtonsAt;
+			const FVector2D ButtonExtent = Frame.bPortrait ? FVector2D(Size.X - 2.0 * Portrait::Inset, ButtonSize.Y) : ButtonSize;
+			for (int32 i = 0; i < Count; ++i)
 			{
-				const FVector2D ButtonPos = Pos + ButtonsAt + FVector2D(0.0, i * (ButtonSize.Y + ButtonGap));
-				KartWidgets::Button(ButtonPainter, ButtonPos, ButtonSize, Labels[i], Buttons.State(i, Frame.Now), Accents[i], i);
+				const FVector2D ButtonPos = Pos + FirstButton + FVector2D(0.0, i * (ButtonSize.Y + ButtonGap));
+				KartWidgets::Button(ButtonPainter, ButtonPos, ButtonExtent, Labels[i], Buttons.State(i, Frame.Now), Accents[i], i);
 			}
-			PaintHelp(Card, Frame, Pos + HelpAt, Accent);
+			if (Frame.bPortrait)
+			{
+				const FVector2D HelpPos = Pos + FVector2D(Portrait::Inset, Portrait::ButtonsY + ButtonsHeight + Portrait::HelpGap);
+				PaintHelp(Card, Frame, HelpPos, FVector2D(Size.X - 2.0 * Portrait::Inset, Portrait::HelpHeight), Portrait::TaglineY, Accent);
+			}
+			else
+			{
+				PaintHelp(Card, Frame, Pos + HelpAt, HelpSize, TaglineY, Accent);
+			}
 		}
 
 	private:
 		/** The right half: how to play this game, always in view while paused. */
-		void PaintHelp(const FKartPainter& Card, const FKartScreenFrame& Frame, const FVector2D& Help, const FLinearColor& Accent) const
+		void PaintHelp(const FKartPainter& Card, const FKartScreenFrame& Frame, const FVector2D& Help, const FVector2D& Size, double TaglineAt,
+			const FLinearColor& Accent) const
 		{
 			using namespace PauseLayout;
-			Card.Box(Help, HelpSize, Color::WithAlpha(Color::White, 0.06f), 28.f);
+			const double TextWidth = Size.X - (HelpSize.X - HelpTextWidth);
+			Card.Box(Help, Size, Color::WithAlpha(Color::White, 0.06f), 28.f);
 			Card.Text(ARCADE_LABEL("ArcadeOverlay", "HowToTitle", "HOW TO PLAY"), Font(EFont::Label, 22.f, 2.f), Help + FVector2D(32.0, 44.0), Accent, FVector2D(0.0, 0.5));
 			if (Info)
 			{
-				Card.TextWrapped(Info->HowTo, Font(EFont::Body, 26.f), Help + FVector2D(32.0, 84.0), HelpTextWidth, Color::White);
-				Card.TextWrapped(Info->Tagline, Font(EFont::Body, 20.f), Help + FVector2D(32.0, 380.0), HelpTextWidth, Color::WithAlpha(Color::White, 0.6f));
+				Card.TextWrapped(Info->HowTo, Font(EFont::Body, 26.f), Help + FVector2D(32.0, 84.0), TextWidth, Color::White);
+				Card.TextWrapped(Info->Tagline, Font(EFont::Body, 20.f), Help + FVector2D(32.0, TaglineAt), TextWidth, Color::WithAlpha(Color::White, 0.6f));
 			}
 			if (bHelpPulse)
 			{
 				const float Pulse = static_cast<float>(FMath::Max(0.0, 1.0 - (Frame.Now - HelpPulseAt) / HelpPulseSeconds));
-				Card.Card(Help, HelpSize, FLinearColor::Transparent, 28.f, 0.f, Color::WithAlpha(Accent, Pulse), 5.f);
+				Card.Card(Help, Size, FLinearColor::Transparent, 28.f, 0.f, Color::WithAlpha(Accent, Pulse), 5.f);
 			}
 		}
 
@@ -363,10 +406,13 @@ namespace
 				return;
 			}
 			const float In = KartWidgets::Entrance(Frame, 0.f, 0.45f);
-			// A band along the bottom that the game's own standings stay clear of.
-			P.Gradient(FVector2D(0.0, Frame.Size.Y - BandHeight), FVector2D(Frame.Size.X, BandHeight), Color::WithAlpha(Color::Night, 0.f),
+			// A band along the bottom that the game's own standings stay clear of (taller held upright, where the
+			// buttons and the chips wrap into rows).
+			const double Band = Frame.bPortrait ? Portrait::BandHeight : BandHeight;
+			P.Gradient(FVector2D(0.0, Frame.Size.Y - Band), FVector2D(Frame.Size.X, Band), Color::WithAlpha(Color::Night, 0.f),
 				Color::WithAlpha(Color::Night, BandAlpha * In), true);
-			const double ButtonsY = Frame.SafeMax.Y - ButtonSize.Y - ButtonsAboveSafeBottom;
+			const int32 ButtonRows = Frame.bPortrait ? FMath::DivideAndRoundUp(static_cast<int32>(EResultsItem::Count), Portrait::ButtonColumns) : 1;
+			const double ButtonsY = Frame.SafeMax.Y - ButtonsAboveSafeBottom - ButtonRows * ButtonSize.Y - (ButtonRows - 1) * Portrait::RowGap;
 			PaintPartyTable(P, Frame, In, ButtonsY - ChipsAboveButtons);
 			PaintButtons(P, Frame, ButtonsY);
 		}
@@ -383,14 +429,18 @@ namespace
 			}
 			const TArray<FArcadePartyRow>& Table = Session->GetPartyTable();
 			CacheTableText(*Session);
-			P.Faded(In).Text(PartyLabel, Font(EFont::Label, 18.f, 2.f), FVector2D(Frame.Centre().X, ChipsY - 26.0), Color::Sun, FVector2D(0.5, 0.5));
 			const int32 Shown = FMath::Min(Table.Num(), MaxChips);
-			const double Left = Frame.Centre().X - (Shown * ChipSize.X + (Shown - 1) * ChipGap) * 0.5;
+			// One row on a wide screen; rows of three held upright, the last row just over the buttons.
+			const int32 Columns = FMath::Max(1, Frame.bPortrait ? FMath::Min(Shown, Portrait::ChipColumns) : Shown);
+			const int32 Rows = FMath::DivideAndRoundUp(Shown, Columns);
+			const double Left = Frame.Centre().X - (Columns * ChipSize.X + (Columns - 1) * ChipGap) * 0.5;
+			const double TopY = ChipsY - (Rows - 1) * (ChipSize.Y + Portrait::RowGap);
+			P.Faded(In).Text(PartyLabel, Font(EFont::Label, 18.f, 2.f), FVector2D(Frame.Centre().X, TopY - 26.0), Color::Sun, FVector2D(0.5, 0.5));
 			for (int32 i = 0; i < Shown; ++i)
 			{
 				const FArcadePartyRow& Row = Table[i];
 				const float ChipIn = KartWidgets::Entrance(Frame, 0.15f + i * 0.06f, 0.35f);
-				const FVector2D Pos(Left + i * (ChipSize.X + ChipGap), ChipsY + (1.0 - ChipIn) * 30.0);
+				const FVector2D Pos(Left + (i % Columns) * (ChipSize.X + ChipGap), TopY + (i / Columns) * (ChipSize.Y + Portrait::RowGap) + (1.0 - ChipIn) * 30.0);
 				const FKartPainter C = P.Faded(ChipIn);
 				const bool bLeader = i == 0;
 				C.Card(Pos, ChipSize, bLeader ? Color::Paper : Color::WithAlpha(Color::Night, 0.9f), 29.f, 4.f, Row.Color, 3.f);
@@ -444,12 +494,16 @@ namespace
 			const FText* Labels[] = { &PlayAgain, &NextLabel, bRoom ? &Lobby : &ChangeGame, bRoom ? &Leave : &MainMenu };
 			const FLinearColor Accents[] = { Color::Hot, Next->Accent, Color::Mint, Color::Sky };
 			const int32 Count = static_cast<int32>(EResultsItem::Count);
-			const double Left = Frame.Centre().X - (Count * ButtonSize.X + (Count - 1) * ButtonGap) * 0.5;
+			// One row on a wide screen; two by two held upright.
+			const int32 Columns = Frame.bPortrait ? Portrait::ButtonColumns : Count;
+			const FVector2D Size = Frame.bPortrait
+				? FVector2D(FMath::Min(Portrait::MaxButtonWidth, (Frame.SafeSize().X - (Columns - 1) * ButtonGap) / Columns), ButtonSize.Y) : ButtonSize;
+			const double Left = Frame.Centre().X - (Columns * Size.X + (Columns - 1) * ButtonGap) * 0.5;
 			const float ButtonsIn = KartWidgets::Entrance(Frame, 0.25f, 0.4f);
 			for (int32 i = 0; i < Count; ++i)
 			{
-				const FVector2D Pos(Left + i * (ButtonSize.X + ButtonGap), Y + (1.0 - ButtonsIn) * 80.0);
-				KartWidgets::Button(P.Faded(ButtonsIn), Pos, ButtonSize, *Labels[i], Buttons.State(i, Frame.Now), Accents[i], i);
+				const FVector2D Pos(Left + (i % Columns) * (Size.X + ButtonGap), Y + (i / Columns) * (Size.Y + Portrait::RowGap) + (1.0 - ButtonsIn) * 80.0);
+				KartWidgets::Button(P.Faded(ButtonsIn), Pos, Size, *Labels[i], Buttons.State(i, Frame.Now), Accents[i], i);
 			}
 			if (bRoom && !bTouched)
 			{

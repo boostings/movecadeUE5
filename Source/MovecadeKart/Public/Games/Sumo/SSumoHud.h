@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Games/ArcadeHud.h"
+#include "UI/KartSafeArea.h"
 #include "Widgets/SLeafWidget.h"
 
 class ASumoGame;
@@ -59,6 +60,8 @@ private:
 	void PaintStandings(const FKartPainter& P, const ASumoGame& Game, float S) const;
 
 	TWeakObjectPtr<ASumoGame> Game;
+	/** This paint's safe area and scale (a landscape phone moves the player panels to the top, clear of the touch controls). */
+	mutable KartSafeArea::FKartSafeFrame Safe;
 
 	mutable FCachedText RoundText;
 	mutable FCachedText ShrinkWarningText;

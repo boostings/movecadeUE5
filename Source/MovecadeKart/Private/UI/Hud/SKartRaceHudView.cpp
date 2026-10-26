@@ -45,6 +45,12 @@ namespace
 		/** The view's own minimap: fixed height in one view (above the speed), a share of the view in two. */
 		constexpr float SoloMapHeight = 300.f;
 		constexpr double SoloMapLift = 190.0;
+		/** A phone: the speed and the place sit this far above the touch controls, the minimap is smaller. */
+		constexpr double TouchClearance = 12.0;
+		constexpr float PhoneMapHeight = 200.f;
+		constexpr double PhoneMapLift = 150.0;
+		/** A phone's place digits: smaller, so they clear the standings rail above them. */
+		constexpr float PhonePlaceScale = 0.78f;
 		constexpr double SplitMapHeight = 0.4;
 		constexpr double SplitMapWidth = 1.6;
 	}
@@ -266,14 +272,15 @@ void SKartRaceHud::PaintView(const FKartPainter& P, const AKartRaceManager& Race
 	{
 		PaintStandings(P, Race, FVector2D(L.Max.X, L.Min.Y + StandingsDrop), 1.f);
 	}
-	PaintPlace(P, Racer, FVector2D(L.Max.X + Slide * BottomSlide * L.Scale, L.Max.Y), L.Scale, Now);
-	PaintSpeed(P, Anim, S, FVector2D(L.Min.X - Slide * BottomSlide * L.Scale, L.Max.Y), L.Scale);
+	PaintPlace(P, Racer, FVector2D(L.Max.X + Slide * BottomSlide * L.Scale, L.BottomRight), Safe.HasTouchZones() ? L.Scale * PhonePlaceScale : L.Scale, Now);
+	PaintSpeed(P, Anim, S, FVector2D(L.Min.X - Slide * BottomSlide * L.Scale, L.BottomLeft), L.Scale);
 
 	// Minimap: its own in one or two views; shared in three or four.
 	if (NumViews <= 2)
 	{
-		const float H = NumViews == 1 ? SoloMapHeight : static_cast<float>(View.Size.Y * SplitMapHeight);
-		const FVector2D MapPos = NumViews == 1 ? FVector2D(L.Min.X, L.Max.Y - SoloMapLift - H)
+		const float H = NumViews == 1 ? L.MapHeight : static_cast<float>(View.Size.Y * SplitMapHeight);
+		const double Lift = Safe.HasTouchZones() ? PhoneMapLift * L.Scale : SoloMapLift;
+		const FVector2D MapPos = NumViews == 1 ? FVector2D(L.Min.X, L.BottomLeft - Lift - H)
 			: FVector2D(L.Max.X - H * SplitMapWidth, View.Pos.Y + View.Size.Y * 0.5 - H * 0.5);
 		PaintMinimap(P, Race, MapPos, H, View.Seat);
 	}
@@ -289,6 +296,18 @@ SKartRaceHud::FViewLayout SKartRaceHud::LayoutView(const FKartPainter& P, const 
 	const FVector2D Margin(FMath::Max(View.Size.X * MarginX, MinMarginX), FMath::Max(View.Size.Y * MarginY, MinMarginY));
 	L.Min = View.Pos + Margin;
 	L.Max = View.Pos + View.Size - Margin;
+	L.MapHeight = SoloMapHeight;
+	if (NumViews == 1 && Safe.bPhone)
+	{
+		// A phone: inside the notch and the home bar, bigger for a hand-held screen, and the bottom corners' widgets
+		// lifted above the touch controls.
+		L.Min = Safe.SafeMin;
+		L.Max = Safe.SafeMax;
+		L.Scale = static_cast<float>(View.Size.Y / Metric::CanvasH) * KartSafeArea::PhoneHudBoost;
+		L.MapHeight = PhoneMapHeight * L.Scale;
+	}
+	L.BottomLeft = Safe.TouchLeft.bIsValid && NumViews == 1 ? Safe.TouchLeft.Min.Y - TouchClearance * L.Scale : L.Max.Y;
+	L.BottomRight = Safe.TouchRight.bIsValid && NumViews == 1 ? Safe.TouchRight.Min.Y - TouchClearance * L.Scale : L.Max.Y;
 	if (NumViews >= 4)
 	{
 		// Keep the corner each view shares with the centre minimap clear: push the inner side's elements out.

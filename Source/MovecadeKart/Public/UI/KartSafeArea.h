@@ -10,10 +10,9 @@ struct FGeometry;
  * Screen shape and safe area for the HUDs and menus: which way the screen is held, whether it is a phone, and the
  * rectangle that is clear of the notch, the home bar, the rounded corners and (on a TV) the overscan.
  *
- * FKartDisplay::Get is the one place that asks the platform. Today it reads the viewport's aspect ratio and the
- * engine's safe zone (FDisplayMetrics::TitleSafePaddingSize, which iOS fills from the safe-area insets), plus the
- * -MobilePreview=portrait|landscape window flag, which emulates an iPhone's insets on the desktop. When the mobile
- * orientation subsystem lands, Get reads orientation and insets from it instead; nothing else changes.
+ * FKartDisplay::Get is the one place that asks: the shape is the viewport's, the safe area comes from
+ * UMovecadeOrientationSubsystem (the device's insets, or the -MobilePreview phone's on the desktop), and a phone is a
+ * mobile platform or that preview.
  *
  * FKartSafeFrame turns that into a widget's local units: every HUD and menu lays out against SafeMin / SafeMax and
  * Scale instead of the old fixed 5 % TV margin. On a 16:9 PC it reproduces the old layout exactly.
@@ -25,7 +24,7 @@ namespace KartSafeArea
 	{
 		/** Taller than wide. */
 		bool bPortrait = false;
-		/** A phone-sized touch screen (a mobile platform, or the -MobilePreview emulation): bigger text, insets,
+		/** A phone-sized touch screen (a mobile platform, or the -MobilePreview phone): bigger text, insets,
 		 *  touch-control zones. */
 		bool bPhone = false;
 		/** The unsafe border (notch, home bar, rounded corners), in viewport pixels. */
@@ -34,10 +33,6 @@ namespace KartSafeArea
 		/** For a viewport of ViewportPx pixels. */
 		static FKartDisplay Get(const FVector2D& ViewportPx);
 	};
-
-	/** -MobilePreview: none, a portrait or a landscape phone (parsed once). */
-	enum class EPreview : uint8 { None, Portrait, Landscape };
-	MOVECADEKART_API EPreview GetPreview();
 
 	/** A full-viewport widget's layout frame, in its local (Slate) units. */
 	struct MOVECADEKART_API FKartSafeFrame
@@ -65,6 +60,29 @@ namespace KartSafeArea
 		 *  touch zones when it would overlap them. */
 		double BottomClearOfTouch(double CentreX, double HalfWidth) const;
 		bool HasTouchZones() const { return TouchLeft.bIsValid || TouchRight.bIsValid; }
+		/**
+		 * Where the per-player panels go on a landscape phone, whose bottom corners belong to the touch controls: along
+		 * the top of the safe area, half either side of a CentreGap (local units) left for the clock or round card.
+		 * Side by side when each can be at least MinWidth wide, else stacked down each side.
+		 */
+		struct FTopPanels
+		{
+			float Width = 0.f;
+			float Height = 0.f;
+			float Gap = 0.f;
+			int32 Count = 0;
+			bool bStacked = false;
+			FVector2D SafeMin = FVector2D::ZeroVector;
+			FVector2D SafeMax = FVector2D::ZeroVector;
+
+			/** Panel Index's top-left corner: the first half on the left, filling inwards; the rest on the right. */
+			FVector2D Pos(int32 Index) const;
+			FVector2D Size() const { return FVector2D(Width, Height); }
+			/** The bottom of the panels' block. */
+			double Bottom() const;
+		};
+		FTopPanels TopPanels(int32 Count, float MaxWidth, float MinWidth, float Height, float Gap, float CentreGap) const;
+
 		/** Scale, or less so DesignWidth (design units) fits across the safe area: for wide banners and cards. */
 		float FitWidth(float DesignWidth) const
 		{

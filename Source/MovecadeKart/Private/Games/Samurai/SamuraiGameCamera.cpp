@@ -12,6 +12,12 @@
 using namespace MovecadeKart::Samurai;
 using namespace MovecadeKart::Samurai::Tuning;
 
+namespace
+{
+	/** Held upright: how far the look point rises, as a share of the frame's half height. */
+	constexpr double PortraitLookRaiseShare = 0.22;
+}
+
 double ASamuraiGame::ViewportAspect() const
 {
 	FVector2D Size(16.0, 9.0);
@@ -41,6 +47,11 @@ void ASamuraiGame::UpdateCamera(float Dt)
 	FVector Look(0.0, LookY, 0.0);
 	const double PlayFov = bPortrait ? FMath::Max(BaseFov, ArcadeFraming::VerticalFovForWidth(HalfWidth, Distance, Aspect, FitAspectSlack)) : BaseFov;
 	double Fov = PlayFov;
+	if (bPortrait)
+	{
+		// The look rises so the dojo sits lower, under the score panels, with the fruit's arcs above the swordsmen.
+		Look.Y += Distance * FMath::Tan(FMath::DegreesToRadians(PlayFov / 2.0)) * PortraitLookRaiseShare;
+	}
 	if (Stage == ESamuraiStage::Intro)
 	{
 		const double T = Ease::Smooth(0.0, 1.0, GetStageAge() / IntroSweepSeconds);

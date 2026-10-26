@@ -2,6 +2,7 @@
 
 #include "Engine/World.h"
 #include "Framework/Application/SlateApplication.h"
+#include "UI/KartSafeArea.h"
 #include "UI/KartWidgets.h"
 
 #define LOCTEXT_NAMESPACE "KartScreen"
@@ -268,19 +269,25 @@ int32 SKartScreenStack::OnPaint(const FPaintArgs& Args, const FGeometry& Allotte
 {
 	int32 Layer = LayerId;
 	Hits.Reset();
-	// Screens are laid out on a canvas at least 1080 units tall. A UI scale above 100 % makes the widget shorter
-	// than that; the menus then scale back down to fit (the HUDs still grow), so no layout ever runs off screen.
+	// Screens are laid out on a canvas at least 1080 units tall (1080 wide, held upright). A UI scale above 100 %
+	// makes the widget smaller than that; the menus then scale back down to fit (the HUDs still grow), so no layout
+	// ever runs off screen.
 	const FVector2D Allotted(AllottedGeometry.GetLocalSize());
-	Fit = Allotted.Y > 1.0 ? FMath::Min(1.f, static_cast<float>(Allotted.Y / KartUI::Metric::CanvasH)) : 1.f;
+	const bool bTall = Allotted.Y > Allotted.X;
+	const double Short = bTall ? Allotted.X : Allotted.Y;
+	Fit = Short > 1.0 ? FMath::Min(1.f, static_cast<float>(Short / KartUI::Metric::CanvasH)) : 1.f;
 	const FGeometry Canvas = Fit < 1.f ? AllottedGeometry.MakeChild(FVector2f(Allotted / Fit), FSlateLayoutTransform(Fit)) : AllottedGeometry;
 	FKartPainter P(Canvas, OutDrawElements, Layer, &Hits);
 
 	FKartScreenFrame Frame;
 	Frame.Size = P.Size();
 	LastSize = Frame.Size;
-	const FVector2D Margin = Frame.Size * KartUI::Metric::SafeFraction;
-	Frame.SafeMin = Margin;
-	Frame.SafeMax = Frame.Size - Margin;
+	// The TV margin on a PC; the notch and home bar (plus a thin pad) on a phone.
+	const KartSafeArea::FKartSafeFrame Safe = KartSafeArea::FKartSafeFrame::Make(Frame.Size, Canvas.GetAccumulatedLayoutTransform().GetScale());
+	Frame.SafeMin = Safe.SafeMin;
+	Frame.SafeMax = Safe.SafeMax;
+	Frame.bPortrait = Safe.bPortrait;
+	Frame.bPhone = Safe.bPhone;
 	Frame.Now = FSlateApplication::Get().GetCurrentTime();
 	Frame.Device = GetDevice();
 	Frame.Direction = Direction;

@@ -344,7 +344,8 @@ int32 SSumoHud::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometr
 		return Layer;
 	}
 	const FKartPainter P(AllottedGeometry, OutDrawElements, Layer);
-	const float S = static_cast<float>(P.Size().Y / KartUI::Metric::CanvasH);
+	Safe = KartSafeArea::FKartSafeFrame::ForHud(AllottedGeometry);
+	const float S = Safe.Scale;
 	switch (G->GetStage())
 	{
 	case ESumoStage::Intro:
@@ -378,7 +379,7 @@ void SSumoHud::PaintTop(const FKartPainter& P, const ASumoGame& G, float S) cons
 {
 	using namespace TopCard;
 	const FMatch& M = G.GetMatch();
-	const FVector2D Top(P.Size().X / 2.f, P.Size().Y * KartUI::Metric::SafeFraction);
+	const FVector2D Top(P.Size().X / 2.f, Safe.SafeMin.Y);
 	const FVector2D CardSize = Size * S;
 	P.Card(Top - FVector2D(CardSize.X / 2.f, 0.f), CardSize, KC::WithAlpha(KC::Night, Alpha), Radius * S, Shadow * S, KC::Sun, Outline * S);
 	P.Text(RoundText.Get(M.Round, RoundTitle), KartUI::Font(EFont::Display, TitleFont * S, TitleOutline * S, KC::Night), Top + FVector2D(0.f, TitleY * S), KC::White,
@@ -442,7 +443,19 @@ void SSumoHud::PaintPanels(const FKartPainter& P, const ASumoGame& G, float S) c
 	const float Width = FMath::Min(Panel::MaxWidth * S, (P.Size().X * Panel::ScreenShare - Gap * (N - 1)) / FMath::Max(1, N));
 	const float Height = Panel::Height * S;
 	const float Total = Width * N + Gap * (N - 1);
-	const float Y = P.Size().Y * (1.f - KartUI::Metric::SafeFraction) - Height;
+	const float Y = Safe.SafeMax.Y - Height;
+	if (Safe.HasTouchZones())
+	{
+		// A landscape phone: the bottom corners are the touch controls', so the panels line the top, either side of
+		// the round card.
+		const float CentreGap = (TopCard::Size.X + Panel::Gap) * S;
+		const KartSafeArea::FKartSafeFrame::FTopPanels Panels = Safe.TopPanels(N, Panel::MaxWidth * S, 0.f, Height, Gap, CentreGap);
+		for (int32 i = 0; i < N; ++i)
+		{
+			PaintPanel(P, G, i, Panels.Pos(i), Panels.Size(), S);
+		}
+		return;
+	}
 	for (int32 i = 0; i < N; ++i)
 	{
 		PaintPanel(P, G, i, FVector2D(P.Size().X / 2.f - Total / 2.f + i * (Width + Gap), Y), FVector2D(Width, Height), S);
@@ -533,7 +546,9 @@ void SSumoHud::PaintFeed(const FKartPainter& P, const ASumoGame& G, float S) con
 	using namespace Feed;
 	const FMatch& M = G.GetMatch();
 	const TArray<FSumoFeedLine>& Lines = G.GetFeed();
-	const FVector2D Right(P.Size().X * (1.f - KartUI::Metric::SafeFraction), P.Size().Y * KartUI::Metric::SafeFraction + TopGap * S);
+	// Under the player panels when they line the top (a landscape phone).
+	const float Below = Safe.HasTouchZones() ? (Panel::Height + Panel::Gap) * S : 0.f;
+	const FVector2D Right(Safe.SafeMax.X, Safe.SafeMin.Y + TopGap * S + Below);
 	const FSlateFontInfo Font = KartUI::Font(EFont::Title, NameFont * S);
 	int32 Row = 0;
 	for (int32 k = Lines.Num() - 1; k >= 0 && Row < Rows; --k)
@@ -680,7 +695,7 @@ void SSumoHud::PaintStandings(const FKartPainter& P, const ASumoGame& G, float S
 	StandingText.SetNum(Order.Num());
 	const double Age = G.GetFinishedAge();
 	const FKartPainter F = P.Faded(FMath::Clamp(static_cast<float>((Age - At) / FadeSeconds), 0.f, 1.f));
-	const FVector2D Head(P.Size().X - HeadFromRight * S - P.Size().X * KartUI::Metric::SafeFraction, P.Size().Y * HeadY);
+	const FVector2D Head(Safe.SafeMax.X - HeadFromRight * S, P.Size().Y * HeadY);
 	F.Text(ARCADE_LABEL("Sumo", "Final", "FINAL STANDINGS"), KartUI::Font(EFont::Display, HeadFont * S, HeadOutline * S), Head, KC::Sun, FVector2D(0.5, 0.5), HeadShadow * S);
 	for (int32 k = 0; k < Order.Num(); ++k)
 	{

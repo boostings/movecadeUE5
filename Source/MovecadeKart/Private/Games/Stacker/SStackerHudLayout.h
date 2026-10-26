@@ -70,6 +70,8 @@ namespace MovecadeKart::Stacker::Hud
 			static constexpr float Height = 168.f;
 			static constexpr float MaxWidth = 460.f;
 			static constexpr float MinWidth = 300.f;
+			/** On a landscape phone the panels line the top, leaving this much in the middle for the clock and wind. */
+			static constexpr float PhoneClockRoom = 300.f;
 			/** All the panels share this much of the screen, with a gap each; never closer than NeighbourGap. */
 			static constexpr float ScreenShare = 0.96f;
 			static constexpr float Gap = 16.f;
