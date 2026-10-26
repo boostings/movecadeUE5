@@ -2,6 +2,7 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
@@ -48,6 +49,24 @@ namespace
 	constexpr double BurstSpawnSeconds = 0.1;
 	/** Destroyed streams (finished projectile trails, departed karts) are forgotten this often. */
 	constexpr double StreamSweepSeconds = 5.0;
+
+	/** Particle budget per device: phones' device profiles lower it (Config/DefaultDeviceProfiles.ini); 1 on PC. */
+	TAutoConsoleVariable<float> CVarSpawnScale(
+		TEXT("kart.FX.SpawnScale"), 1.f,
+		TEXT("Scales every kart FX burst count and stream rate (0.25-1). Set per device profile; 1 = the full look."),
+		ECVF_Scalability);
+
+	float SpawnScale()
+	{
+		return FMath::Clamp(CVarSpawnScale.GetValueOnGameThread(), 0.25f, 1.f);
+	}
+
+	/** A burst's count under the budget: never below one particle, so every cue still shows. */
+	int32 ScaledCount(int32 Count)
+	{
+		const float Scale = SpawnScale();
+		return Scale >= 1.f ? Count : FMath::Max(1, FMath::RoundToInt32(Count * Scale));
+	}
 }
 
 UKartFxSubsystem* UKartFxSubsystem::Get(const UObject* WorldContext)
@@ -182,7 +201,7 @@ void UKartFxSubsystem::Emit(const FKartFxEmit& O)
 		return;
 	}
 	ApplyOptions(C, O);
-	C->SetVariableInt(PCount, O.Count);
+	C->SetVariableInt(PCount, ScaledCount(O.Count));
 	C->SetVariableFloat(PRate, 0.f);
 	C->Activate(true);
 	Bursts.Add({ C, World->GetTimeSeconds() + BurstSpawnSeconds });
@@ -270,7 +289,7 @@ void UKartFxSubsystem::UpdateStream(UNiagaraComponent* Stream, const FKartFxEmit
 	{
 		// No subsystem to remember the stream: push everything and never deactivate.
 		ApplyOptions(Stream, Options);
-		Stream->SetVariableFloat(PRate, static_cast<float>(FMath::Max(0.0, Rate)));
+		Stream->SetVariableFloat(PRate, static_cast<float>(FMath::Max(0.0, Rate)) * SpawnScale());
 		if (Rate > 0.0 && !Stream->IsActive())
 		{
 			Stream->SetVariableInt(PCount, 0);
@@ -287,7 +306,7 @@ void UKartFxSubsystem::UpdateStream(UNiagaraComponent* Stream, const FKartFxEmit
 			State.Sent = Options;
 			State.bSent = true;
 		}
-		const float NewRate = static_cast<float>(Rate);
+		const float NewRate = static_cast<float>(Rate) * SpawnScale();
 		if (NewRate != State.Rate)
 		{
 			Stream->SetVariableFloat(PRate, NewRate);
