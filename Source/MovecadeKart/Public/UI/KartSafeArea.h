@@ -116,6 +116,35 @@ namespace KartSafeArea
 
 	/** The phone's HUD text boost over the TV design (a 6-inch screen at arm's length vs. a TV from the couch). */
 	constexpr float PhoneHudBoost = 1.2f;
+
+	/**
+	 * Menu text on a phone. The menus keep their 1080-unit canvas (so every layout still fits), which puts a 1080-unit
+	 * short side on ~390 pt of glass: 1 canvas unit is ~0.36 pt, and the TV design's 18-24 unit detail text would be
+	 * 7-9 pt. On a phone the menu stack (and the lobby, as it builds) runs inside an FPhoneMenuTextScope, and
+	 * KartUI::Font sizes the reading faces with PhoneMenuTextSize: the HUD's 1.2x boost everywhere, Body text never
+	 * under PhoneMenuMinBodySize (~11 pt on a 6-inch screen), and Button-face labels capped at PhoneMenuLabelCap (or
+	 * their own size when bigger) so captions keep fitting their pills. Label (small caps, key caps) gets the boost
+	 * only; Display and Title are big already and stay as designed. Every mapping is monotonic, so a screen's own
+	 * shrink-to-fit still shrinks. Nothing changes on a PC.
+	 */
+	constexpr float PhoneMenuMinBodySize = 30.f;
+	constexpr float PhoneMenuLabelCap = 34.f;
+	/** Size for Face at the design Size on a phone's menus (see above); pure, for the tests. Face: KartUI::EFont. */
+	MOVECADEKART_API float PhoneMenuTextSize(uint8 Face, float Size);
+
+	/** While one is alive (on the game thread), KartUI::Font gives phone menu sizes. bPhone false makes it a no-op. */
+	struct MOVECADEKART_API FPhoneMenuTextScope
+	{
+		explicit FPhoneMenuTextScope(bool bPhone);
+		~FPhoneMenuTextScope();
+		FPhoneMenuTextScope(const FPhoneMenuTextScope&) = delete;
+		FPhoneMenuTextScope& operator=(const FPhoneMenuTextScope&) = delete;
+
+		static bool IsActive();
+
+	private:
+		bool bActive = false;
+	};
 	/** Design units per screen width in portrait (the HUD is laid out 1080 units across). */
 	constexpr float PortraitDesignWidth = 1080.f;
 	/** The design height in landscape. */

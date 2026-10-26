@@ -90,6 +90,46 @@ bool FKartSafeAreaTouchZonesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartPhoneMenuTextTest, "MovecadeKart.UI.SafeArea.PhoneMenuText",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FKartPhoneMenuTextTest::RunTest(const FString& Parameters)
+{
+	using KartUI::EFont;
+	auto Size = [](EFont Face, float S) { return KartSafeArea::PhoneMenuTextSize(static_cast<uint8>(Face), S); };
+	// ~11 pt on a 6-inch phone: a 1080-unit canvas on ~393 pt of glass.
+	TestTrue(TEXT("the body floor reads ~11 pt"), KartSafeArea::PhoneMenuMinBodySize * 393.f / 1080.f >= 10.8f);
+	for (const float Design : { 17.f, 18.f, 21.f, 24.f })
+	{
+		TestTrue(FString::Printf(TEXT("body %.0f is lifted to the floor"), Design), Size(EFont::Body, Design) >= KartSafeArea::PhoneMenuMinBodySize);
+	}
+	TestEqual(TEXT("big body text gets the HUD boost"), Size(EFont::Body, 30.f), 30.f * KartSafeArea::PhoneHudBoost);
+	TestEqual(TEXT("labels get the HUD boost"), Size(EFont::Label, 20.f), 20.f * KartSafeArea::PhoneHudBoost);
+	TestEqual(TEXT("button labels are capped"), Size(EFont::Button, 30.f), KartSafeArea::PhoneMenuLabelCap);
+	TestEqual(TEXT("big captions stay as designed"), Size(EFont::Button, 40.f), 40.f);
+	TestEqual(TEXT("display stays as designed"), Size(EFont::Display, 46.f), 46.f);
+	TestEqual(TEXT("titles stay as designed"), Size(EFont::Title, 34.f), 34.f);
+	bool bMonotonic = true;
+	for (const EFont Face : { EFont::Body, EFont::Button, EFont::Label })
+	{
+		for (float S = 10.f; S < 60.f; S += 0.5f)
+		{
+			bMonotonic &= Size(Face, S + 0.5f) >= Size(Face, S);
+		}
+	}
+	TestTrue(TEXT("monotonic: a screen's shrink-to-fit still shrinks"), bMonotonic);
+	{
+		const KartSafeArea::FPhoneMenuTextScope Pc(false);
+		TestFalse(TEXT("a PC's scope does nothing"), KartSafeArea::FPhoneMenuTextScope::IsActive());
+	}
+	{
+		const KartSafeArea::FPhoneMenuTextScope Phone(true);
+		TestTrue(TEXT("a phone's scope is on while it lives"), KartSafeArea::FPhoneMenuTextScope::IsActive());
+	}
+	TestFalse(TEXT("and off after"), KartSafeArea::FPhoneMenuTextScope::IsActive());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKartSafeAreaTopPanelsTest, "MovecadeKart.UI.SafeArea.TopPanels",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

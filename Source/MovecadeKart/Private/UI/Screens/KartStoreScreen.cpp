@@ -79,6 +79,8 @@ namespace
 		{
 			static constexpr double ArtInset = 10.0;
 			static constexpr double ArtHeight = 116.0;
+			/** On a phone the art gives this much height to the bigger name (it moves up with it). */
+			static constexpr double PhoneArtTrim = 20.0;
 			static constexpr float PreviewSize = 48.f;
 			static constexpr double LockRight = 24.0;
 			static constexpr double LockTop = 30.0;
@@ -107,6 +109,8 @@ namespace
 		{
 			static constexpr double ArtInset = 18.0;
 			static constexpr double ArtHeight = 230.0;
+			/** On a phone the preview gives up height to the bigger text (KartSafeArea::FPhoneMenuTextScope). */
+			static constexpr double PhoneArtHeight = 120.0;
 			static constexpr float PreviewSize = 96.f;
 			static constexpr double TextLeft = 30.0;
 			static constexpr double BodyLeft = 32.0;
@@ -579,7 +583,8 @@ namespace
 			const FLinearColor Edge = bFocused ? Color::Sun : State == EItemState::Equipped ? Color::Mint : FLinearColor::Transparent;
 			T.Card(Pos, Size, bDim ? Color::PaperShade : Color::Paper, Metric::Radius, bFocused ? 10.f : 6.f, Edge, bFocused ? 6.f : 4.f);
 			const FVector2D Art(Pos.X + L::ArtInset, Pos.Y + L::ArtInset);
-			const FVector2D ArtSize(Size.X - 2.0 * L::ArtInset, L::ArtHeight);
+			const double Trim = Frame.bPhone ? L::PhoneArtTrim : 0.0;
+			const FVector2D ArtSize(Size.X - 2.0 * L::ArtInset, L::ArtHeight - Trim);
 			T.Gradient(Art, ArtSize, Lighter(Item.Visual.Primary, 0.6f), Lighter(Item.Visual.Primary, 0.3f), true, Metric::Radius - 6.f);
 			// Only the focused tile animates.
 			PaintPreview(bDim || bUnearned ? T.Faded(0.55f) : T, Item, Art + ArtSize * 0.5, L::PreviewSize, bFocused ? Frame.Now : 0.0);
@@ -593,7 +598,7 @@ namespace
 			{
 				NameSize -= 1.f;
 			}
-			T.Text(Item.Name, Font(EFont::Button, NameSize), FVector2D(Pos.X + L::NameLeft, Pos.Y + L::NameTop), Color::Navy);
+			T.Text(Item.Name, Font(EFont::Button, NameSize), FVector2D(Pos.X + L::NameLeft, Pos.Y + L::NameTop - Trim), Color::Navy);
 			PaintTileState(T, Frame, Store, Item, State, FVector2D(Pos.X + L::StateLeft, Pos.Y + Size.Y - L::StateFromBottom));
 		}
 
@@ -653,7 +658,7 @@ namespace
 			Card.Card(Pos, Size, Color::Paper, Metric::RadiusLarge, 10.f, Color::White, 5.f);
 			// The preview over light stripes drifting across.
 			const FVector2D Art(Pos.X + L::ArtInset, Pos.Y + L::ArtInset);
-			const FVector2D ArtSize(Size.X - 2.0 * L::ArtInset, L::ArtHeight);
+			const FVector2D ArtSize(Size.X - 2.0 * L::ArtInset, Frame.bPhone ? L::PhoneArtHeight : L::ArtHeight);
 			Card.Gradient(Art, ArtSize, Lighter(Item.Visual.Primary, 0.5f), FMath::Lerp(Item.Visual.Primary, Color::Night, 0.15f), true, Metric::Radius);
 			for (int32 Stripe = 0; Stripe < L::Stripes; ++Stripe)
 			{
@@ -677,7 +682,7 @@ namespace
 			Y += 60.0;
 			const double TextWidth = Size.X - 2.0 * L::BodyLeft;
 			Y += Card.TextWrapped(Item.Description, Font(EFont::Body, L::BodySize), FVector2D(Pos.X + L::BodyLeft, Y), TextWidth, Color::NavyDim).Y + 12.0;
-			PaintDetailState(Card, Store, Item, State, FVector2D(Pos.X + L::BodyLeft, Y), TextWidth);
+			PaintDetailState(Card, Store, Item, State, FVector2D(Pos.X + L::BodyLeft, Y), TextWidth, Frame.bPhone);
 
 			const FPrimaryAction Primary = PrimaryFor(Store, Item);
 			FActionButton Button;
@@ -695,8 +700,20 @@ namespace
 		}
 
 		/** The detail card's state line: a price, the unlock progress, or how to get it. */
-		static void PaintDetailState(const FKartPainter& Card, const FKartStore* Store, const FItem& Item, EItemState State, const FVector2D& Line, double Width)
+		static void PaintDetailState(const FKartPainter& Card, const FKartStore* Store, const FItem& Item, EItemState State, const FVector2D& Line, double Width, bool bWrapNotes)
 		{
+			// The notes run one line on a PC; a phone's bigger text wraps them inside the card.
+			auto Note = [&](const FText& Text, const FLinearColor& Ink)
+			{
+				if (bWrapNotes)
+				{
+					Card.TextWrapped(Text, Font(EFont::Body, 20.f), Line, Width, Ink);
+				}
+				else
+				{
+					Card.Text(Text, Font(EFont::Body, 20.f), Line, Ink);
+				}
+			};
 			if (State == EItemState::Locked && Store)
 			{
 				int32 Cur = 0, Target = 1;
@@ -722,15 +739,15 @@ namespace
 			}
 			else if (State == EItemState::NotDropped)
 			{
-				Card.Text(LOCTEXT("DropNote", "Arcade gifts drop now and then while you play. Free."), Font(EFont::Body, 20.f), Line, Color::Grape);
+				Note(LOCTEXT("DropNote", "Arcade gifts drop now and then while you play. Free."), Color::Grape);
 			}
 			else if (State == EItemState::OwnedUnconfirmed)
 			{
-				Card.Text(UnconfirmedNote(Store), Font(EFont::Body, 20.f), Line, Color::NavyDim);
+				Note(UnconfirmedNote(Store), Color::NavyDim);
 			}
 			else if (State == EItemState::AwaitingApproval)
 			{
-				Card.Text(LOCTEXT("AwaitingNote", "Waiting for approval. Nothing charged yet."), Font(EFont::Body, 20.f), Line, Color::NavyDim);
+				Note(LOCTEXT("AwaitingNote", "Waiting for approval. Nothing charged yet."), Color::NavyDim);
 			}
 		}
 

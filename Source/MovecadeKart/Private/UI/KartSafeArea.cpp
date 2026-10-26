@@ -50,6 +50,51 @@ namespace KartSafeArea
 		}
 	}
 
+	namespace
+	{
+		/** Nesting depth of live FPhoneMenuTextScopes (game thread only: Slate paints there). */
+		int32 GPhoneMenuTextDepth = 0;
+	}
+
+	float PhoneMenuTextSize(uint8 Face, float Size)
+	{
+		using KartUI::EFont;
+		const EFont F = static_cast<EFont>(Face);
+		if (F == EFont::Display || F == EFont::Title)
+		{
+			return Size;
+		}
+		const float Boosted = Size * PhoneHudBoost;
+		switch (F)
+		{
+		case EFont::Body:
+			// Reading text: the boost, and never under the floor.
+			return FMath::Max(Boosted, PhoneMenuMinBodySize);
+		case EFont::Button:
+			// Labels and values sit in fixed pills and rows: the boost, but labels already past PhoneMenuLabelCap
+			// (button captions) stay as designed. Monotonic, so a caller's shrink-to-fit still shrinks.
+			return FMath::Min(Boosted, FMath::Max(Size, PhoneMenuLabelCap));
+		default:
+			return Boosted;
+		}
+	}
+
+	FPhoneMenuTextScope::FPhoneMenuTextScope(bool bPhone)
+		: bActive(bPhone && IsInGameThread())
+	{
+		GPhoneMenuTextDepth += bActive ? 1 : 0;
+	}
+
+	FPhoneMenuTextScope::~FPhoneMenuTextScope()
+	{
+		GPhoneMenuTextDepth -= bActive ? 1 : 0;
+	}
+
+	bool FPhoneMenuTextScope::IsActive()
+	{
+		return GPhoneMenuTextDepth > 0 && IsInGameThread();
+	}
+
 	FKartDisplay FKartDisplay::Get(const FVector2D& ViewportPx)
 	{
 		FKartDisplay Display;
