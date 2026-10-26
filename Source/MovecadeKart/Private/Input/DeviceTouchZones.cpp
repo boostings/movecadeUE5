@@ -73,6 +73,13 @@ namespace MovecadeKart::Input
 			Z.Chips.Add({ ETouchTarget::Pause, FVector2D(X, Y), Chip });
 			Z.Chips.Add({ ETouchTarget::Settings, FVector2D(X + H * (1.f + ChipGap), Y), Chip });
 		}
+		else if (Layout.Chips == EChipPlacement::BottomCorners)
+		{
+			// Level with the bottom row's big buttons, at the safe area's two edges.
+			const double Y = Origin.Y + Size.Y - Margin - Large * 0.5 - H * 0.5;
+			Z.Chips.Add({ ETouchTarget::Pause, FVector2D(Origin.X + Margin, Y), Chip });
+			Z.Chips.Add({ ETouchTarget::Settings, FVector2D(Origin.X + Size.X - Margin - H, Y), Chip });
+		}
 		else
 		{
 			const double X = Layout.Chips == EChipPlacement::LeftEdge ? Origin.X + Margin : Origin.X + Size.X - Margin - H;

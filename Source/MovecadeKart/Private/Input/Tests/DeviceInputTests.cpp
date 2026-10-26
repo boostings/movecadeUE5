@@ -455,6 +455,23 @@ bool FDeviceTouchZonesTest::RunTest(const FString&)
 			TestTrue(What + TEXT(": the pause chip answers"), Z.ChipAt(Z.Chips[0].Pos + Z.Chips[0].Size * 0.5) == &Z.Chips[0]);
 		}
 	}
+
+	// A portrait game with one big bottom button and the chips in the bottom corners (darts): beside it, not on it.
+	FDeviceLayout Corners;
+	Corners.Buttons = { { EDeviceButton::A, FText::GetEmpty(), EButtonAnchor::BottomCentre, true } };
+	Corners.Chips = EChipPlacement::BottomCorners;
+	for (const FVector2D& Size : { FVector2D(1179.0, 2556.0), FVector2D(750.0, 1334.0) })
+	{
+		const FDeviceTouchZones Z = FDeviceTouchZones::Compute(Corners, Size, FMargin());
+		const FBox2D Button = Z.Buttons[0].HitBounds();
+		for (const FTouchChipZone& Chip : Z.Chips)
+		{
+			TestFalse(TEXT("corner chip clear of the big button"), Chip.Bounds().Intersect(Button));
+			TestTrue(TEXT("corner chip level with the big button"), Chip.Pos.Y < Z.Buttons[0].Centre.Y && Chip.Pos.Y + Chip.Size.Y > Z.Buttons[0].Centre.Y);
+			TestTrue(TEXT("corner chip inside the screen"), FBox2D(FVector2D::ZeroVector, Size).IsInside(Chip.Bounds()));
+		}
+		TestTrue(TEXT("pause left, settings right"), Z.Chips[0].Pos.X < Z.Buttons[0].Centre.X && Z.Chips[1].Pos.X > Z.Buttons[0].Centre.X);
+	}
 	return true;
 }
 

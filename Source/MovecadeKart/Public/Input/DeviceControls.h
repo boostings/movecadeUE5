@@ -73,6 +73,9 @@ namespace MovecadeKart::Input
 		Auto,
 		/** A column at the left edge (a landscape HUD with its title at the top centre). */
 		LeftEdge,
+		/** Pause in the bottom-left corner and settings in the bottom-right, either side of a bottom-centre button
+		 *  (a portrait game whose subject fills the width, like the dart board). */
+		BottomCorners,
 	};
 
 	/** What the touch overlay shows for a scheme, and how often frames go out. */
