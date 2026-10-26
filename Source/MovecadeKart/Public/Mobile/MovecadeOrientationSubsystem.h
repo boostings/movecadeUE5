@@ -50,7 +50,8 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnMovecadeScreenChanged, const FMovecadeScr
  *  - Exposes: GetState() (wanted orientation, the viewport's actual shape and size, the safe area) and
  *    OnScreenChanged(), which fires on any change (level, rotation, window resize, safe area).
  *  - Desktop preview (not in Shipping): -MobilePreview=portrait|landscape|auto[,device] sizes the window to a phone
- *    and simulates its safe area through Slate's custom safe zone (so SSafeZone/USafeZone agree with GetState()).
+ *    and simulates its safe area through the engine's SafeZone.Ratio.* overrides (so SSafeZone/USafeZone agree with
+ *    GetState()), drawn as a translucent mask unless -MobilePreviewNoMask.
  *    See Docs/Agents/BRIEF.md "Phone layouts on the desktop".
  *
  * Use:
@@ -105,7 +106,11 @@ private:
 	/** -MobilePreview: resizes the window to the phone for Shape and sets the simulated safe area. */
 	void ApplyPreview();
 	bool CenterPreviewWindow(float DeltaSeconds);
+	/** Puts the safe area mask on the game viewport (travel removes viewport widgets). */
+	void AttachPreviewMask();
 	TOptional<MovecadeKart::Mobile::FMobilePreview> Preview;
+	TSharedPtr<SWidget> PreviewMask;
+	bool bPreviewMask = true;
 	MovecadeKart::Mobile::EScreenShape PreviewShape = MovecadeKart::Mobile::EScreenShape::Landscape;
 	FTSTicker::FDelegateHandle CenterTicker;
 	int32 CenterAttempts = 0;

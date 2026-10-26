@@ -8,6 +8,8 @@
 #include "HAL/IConsoleManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/Parse.h"
+#include "Mobile/SMovecadeSafeAreaMask.h"
 #include "UObject/UObjectGlobals.h"
 #include "UnrealClient.h"
 #include "Widgets/SWindow.h"
@@ -31,6 +33,29 @@ namespace
 	{
 		return UWorld::RemovePIEPrefix(World.GetMapName());
 	}
+
+#if !UE_BUILD_SHIPPING
+	void SetCVar(const TCHAR* Name, float Value)
+	{
+		if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(Name))
+		{
+			CVar->Set(Value, ECVF_SetByCode);
+		}
+	}
+
+	/**
+	 * SafeZone.Ratio.<Side> is the share of the screen kept on that side's half (1 = nothing covered); zero area turns
+	 * the overrides off.
+	 */
+	void SetSafeZoneOverride(const Mobile::FMovecadeSafeArea& Area)
+	{
+		SetCVar(TEXT("SafeZone.EnableOverrides"), Area.IsZero() ? 0.f : 1.f);
+		SetCVar(TEXT("SafeZone.Ratio.Left"), 1.f - 2.f * Area.Fraction.Left);
+		SetCVar(TEXT("SafeZone.Ratio.Top"), 1.f - 2.f * Area.Fraction.Top);
+		SetCVar(TEXT("SafeZone.Ratio.Right"), 1.f - 2.f * Area.Fraction.Right);
+		SetCVar(TEXT("SafeZone.Ratio.Bottom"), 1.f - 2.f * Area.Fraction.Bottom);
+	}
+#endif
 }
 
 UMovecadeOrientationSubsystem* UMovecadeOrientationSubsystem::Get(const UObject* WorldContext)
@@ -67,6 +92,7 @@ void UMovecadeOrientationSubsystem::Initialize(FSubsystemCollectionBase& Collect
 	}
 	if (Preview.IsSet())
 	{
+		bPreviewMask = !FParse::Param(FCommandLine::Get(), TEXT("MobilePreviewNoMask"));
 		UE_LOG(LogMovecadeOrientation, Display, TEXT("Mobile preview on (%s)"), Preview->Device->Name);
 	}
 #endif
@@ -84,9 +110,10 @@ void UMovecadeOrientationSubsystem::Deinitialize()
 	FCoreDelegates::ApplicationReceivedScreenOrientationChangedNotificationDelegate.Remove(OrientationHandle);
 #if !UE_BUILD_SHIPPING
 	FTSTicker::GetCoreTicker().RemoveTicker(CenterTicker);
-	if (Preview.IsSet() && FSlateApplication::IsInitialized())
+	PreviewMask.Reset();
+	if (Preview.IsSet())
 	{
-		FSlateApplication::Get().ResetCustomSafeZone();
+		SetSafeZoneOverride({});
 	}
 #endif
 	ScreenChanged.Clear();
@@ -122,6 +149,12 @@ void UMovecadeOrientationSubsystem::HandlePostLoadMap(UWorld* World)
 		return;
 	}
 	ApplyForLevel(LevelName(*World));
+#if !UE_BUILD_SHIPPING
+	if (Preview.IsSet() && bPreviewMask)
+	{
+		AttachPreviewMask();
+	}
+#endif
 }
 
 void UMovecadeOrientationSubsystem::HandleViewportResized(FViewport* Viewport, uint32 Unused)
@@ -208,7 +241,7 @@ void UMovecadeOrientationSubsystem::Refresh()
 	if (Next != State)
 	{
 		State = Next;
-		UE_LOG(LogMovecadeOrientation, Verbose, TEXT("Screen %s %dx%d (wants %s), safe L%.3f T%.3f R%.3f B%.3f"), Mobile::LexToString(State.Shape),
+		UE_LOG(LogMovecadeOrientation, Log, TEXT("Screen %s %dx%d (wants %s), safe L%.3f T%.3f R%.3f B%.3f"), Mobile::LexToString(State.Shape),
 			State.ViewportSize.X, State.ViewportSize.Y, Arcade::LexToString(State.Wanted), State.SafeArea.Fraction.Left, State.SafeArea.Fraction.Top,
 			State.SafeArea.Fraction.Right, State.SafeArea.Fraction.Bottom);
 		ScreenChanged.Broadcast(State);
@@ -226,18 +259,20 @@ void UMovecadeOrientationSubsystem::ApplyPreview()
 		return;
 	}
 
-	// Slate's own safe zone, so SSafeZone / USafeZone and GetState() agree. The safe frame event makes widgets
-	// re-read it (and reaches Refresh).
+	// The engine's safe zone overrides (what mobile PIE uses), so Slate's SSafeZone / USafeZone and GetState() agree.
+	// Not Slate's custom safe zone: in editor builds ULocalPlayer clears that every frame unless a preview platform
+	// is active. Re-reading the display metrics applies them; the safe frame event makes widgets (and Refresh) see it.
+	SetSafeZoneOverride(Preview->Device->SafeAreaFor(Shape));
 	FSlateApplication& Slate = FSlateApplication::Get();
-	Slate.SetCustomSafeZone(Preview->Device->SafeAreaFor(Shape).ToSlateRatio());
-	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
-
 	FDisplayMetrics Metrics;
-	Slate.GetCachedDisplayMetrics(Metrics);
+	Slate.GetDisplayMetrics(Metrics);
+	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
 	const FPlatformRect& Work = Metrics.PrimaryDisplayWorkAreaRect;
 	const FIntPoint WorkArea(Work.Right - Work.Left, Work.Bottom - Work.Top - PreviewWindowChrome);
 	const FIntPoint Size = Mobile::FitPreviewWindow(Preview->Device->PixelsFor(Shape), WorkArea);
-	if (Size == ReadViewportSize() && Size == FIntPoint(GSystemResolution.ResX, GSystemResolution.ResY))
+	// Already asked for (the window may not exist yet), or already showing.
+	const FIntPoint Viewport = ReadViewportSize();
+	if (Size == FIntPoint(GSystemResolution.ResX, GSystemResolution.ResY) && (Viewport == Size || Viewport == FIntPoint::ZeroValue))
 	{
 		return;
 	}
@@ -275,6 +310,24 @@ bool UMovecadeOrientationSubsystem::CenterPreviewWindow(float DeltaSeconds)
 	CenterAttempts = 0;
 	Refresh();
 	return false;
+}
+
+void UMovecadeOrientationSubsystem::AttachPreviewMask()
+{
+	UGameViewportClient* Client = GetGameInstance() ? GetGameInstance()->GetGameViewportClient() : nullptr;
+	if (!Client)
+	{
+		return;
+	}
+	if (!PreviewMask.IsValid())
+	{
+		PreviewMask = SNew(SMovecadeSafeAreaMask, this);
+	}
+	// Above every game HUD and menu (they use small Z orders), so screenshots show what the phone covers.
+	constexpr int32 MaskZOrder = 10000;
+	Client->RemoveViewportWidgetContent(PreviewMask.ToSharedRef());
+	Client->AddViewportWidgetContent(PreviewMask.ToSharedRef(), MaskZOrder);
+	UE_LOG(LogMovecadeOrientation, Log, TEXT("Mobile preview: safe area mask on the viewport"));
 }
 
 #endif
