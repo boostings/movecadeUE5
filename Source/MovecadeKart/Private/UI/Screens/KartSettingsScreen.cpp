@@ -2,10 +2,14 @@
 
 #include "Engine/Engine.h"
 #include "GameFramework/GameUserSettings.h"
+#include "Input/DeviceControlsSettings.h"
+#include "Input/DeviceControlsSubsystem.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Platform/Mobile/MobileHaptics.h"
 #include "Render/KartGameUserSettings.h"
 #include "UI/KartAccessibility.h"
 #include "UI/KartPlayerPrefs.h"
+#include "UI/KartSafeArea.h"
 #include "UI/Screens/KartScreenCommon.h"
 
 #define LOCTEXT_NAMESPACE "KartSettings"
@@ -31,12 +35,20 @@ namespace
 	enum EGraphicsRow : int32 { Preset, Resolution, DisplayMode, VSync, FrameCap, RayTracing, MotionBlur, ApplyDisplay, GraphicsRows };
 	enum EAudioRow : int32 { Master, Music, Effects, AudioRows };
 	enum EAccessRow : int32 { UIScaleRow, ReduceMotionRow, ColorVisionRow, ReplayWelcomeRow, AccessRows };
+	/** The controls tab on a phone (or with -DeviceControls): the device's own settings instead of the key chart. */
+	enum EDeviceRow : int32 { HapticsRow, SensitivityRow, SteeringRow, CalibrateRow, DeviceRows };
 
-	/** The rows' column in the middle of the screen. */
+	/** The rows' column in the middle of the screen: 1040 wide, narrower where the safe area is (a portrait phone). */
 	constexpr double ColumnHalfWidth = 520.0;
+	/** The least room kept between the column (and the tab strip) and the safe area's sides. */
+	constexpr double ColumnSideMargin = 36.0;
+	/** Upright, the column is the screen's width: a wider margin, and the tabs and rows sit a little lower under the header. */
+	constexpr double PortraitSideMargin = 72.0;
+	constexpr double PortraitDrop = 60.0;
 	constexpr double RowsTop = 230.0;
-	const FVector2D RowSize(1040.0, 72.0);
+	const FVector2D DesignRowSize(1040.0, 72.0);
 	constexpr double RowGap = 12.0;
+	const FVector2D CalibrateButtonSize(620.0, 80.0);
 	constexpr double TabSlide = 60.0;
 	constexpr double TabSwitchSeconds = 0.25;
 	constexpr float DimSeconds = 0.3f;
@@ -70,6 +82,9 @@ namespace
 		constexpr float Rim = 4.f;
 		constexpr float GlyphHeight = 40.f;
 		constexpr double GlyphGap = 24.0;
+		/** Room kept for the shoulder glyph either side of the strip, and the label's inset inside its tab. */
+		constexpr double GlyphRoom = 90.0;
+		constexpr double LabelInset = 14.0;
 	}
 	/** Hit ids from here up are the tabs. */
 	constexpr int32 TabHit = 900;
@@ -134,7 +149,11 @@ namespace
 	class FSettingsScreen final : public FKartScreen
 	{
 	public:
-		explicit FSettingsScreen(int32 InTab) : Tab(FMath::Clamp(InTab, 0, NumTabs - 1))
+		explicit FSettingsScreen(int32 InTab)
+			: Tab(FMath::Clamp(InTab, 0, NumTabs - 1))
+			// A phone (or the desktop's -DeviceControls / -MobilePreview) plays with its own device: its controls tab
+			// sets haptics, tilt and steering. A PC keeps the key and pad chart.
+			, bDeviceControls(UDeviceControlsSubsystem::IsEnabled() || KartSafeArea::FKartDisplay::Get(FVector2D(Metric::CanvasW, Metric::CanvasH)).bPhone)
 		{
 			FIntPoint Current(1920, 1080);
 			if (const UGameUserSettings* S = GameSettings())
@@ -162,11 +181,11 @@ namespace
 		virtual TArray<FKartHint> GetHints() const override
 		{
 			TArray<FKartHint> Hints = { { EKartMenuAction::PrevTab, FText::GetEmpty() }, { EKartMenuAction::NextTab, LOCTEXT("Tabs", "Tabs") } };
-			if (Tab == AccessibilityTab && Focus.Cursor.Index == ReplayWelcomeRow)
+			if ((Tab == AccessibilityTab && Focus.Cursor.Index == ReplayWelcomeRow) || (IsDeviceTab() && Focus.Cursor.Index == CalibrateRow))
 			{
 				Hints.Add({ EKartMenuAction::Accept, LOCTEXT("Select", "Select") });
 			}
-			else if (Tab != ControlsTab)
+			else if (!IsReadOnlyTab())
 			{
 				Hints.Add({ EKartMenuAction::Left, LOCTEXT("Change", "Change") });
 			}
@@ -195,7 +214,7 @@ namespace
 				{
 					Apply();
 				}
-				else if (Tab != ControlsTab)
+				else if (!IsReadOnlyTab())
 				{
 					Change(Focus.Cursor.Index, 1);
 				}
@@ -233,7 +252,7 @@ namespace
 			{
 				Apply();
 			}
-			else if (Tab != ControlsTab)
+			else if (!IsReadOnlyTab())
 			{
 				Change(Base, KartWidgets::HitArrow(HitId) < 0 ? -1 : 1);
 			}
@@ -245,9 +264,12 @@ namespace
 			P.Box(FVector2D::ZeroVector, Frame.Size, Color::WithAlpha(Color::Night, DimAlpha * Dim));
 			KartWidgets::Header(P, Frame, LOCTEXT("SettingsTitle", "Settings"), FText::GetEmpty(), Color::Grape);
 			PaintTabs(P, Frame);
-			const double Left = Frame.Size.X * 0.5 - ColumnHalfWidth + KartWidgets::SlideX(Frame);
+			// The column keeps a margin inside the safe area: on a 16:9 PC that is the full 1040, upright on a phone less.
+			const double HalfWidth = FMath::Min(ColumnHalfWidth, Frame.SafeSize().X * 0.5 - (Frame.bPortrait ? PortraitSideMargin : ColumnSideMargin));
+			RowBox = FVector2D(2.0 * HalfWidth, DesignRowSize.Y);
+			const double Left = Frame.Size.X * 0.5 - HalfWidth + KartWidgets::SlideX(Frame);
 			const FKartPaintGroup Group(P);
-			const double Top = Frame.SafeMin.Y + RowsTop;
+			const double Top = Frame.SafeMin.Y + RowsTop + (Frame.bPortrait ? PortraitDrop : 0.0);
 			const float TabIn = Ease::OutCubic(static_cast<float>((Frame.Now - TabAt) / TabSwitchSeconds));
 			const FKartPainter Body = P.Faded(TabIn);
 			const FVector2D Pos(Left + (1.0 - TabIn) * TabSlide * TabDir, Top);
@@ -255,12 +277,25 @@ namespace
 			{
 			case GraphicsTab: PaintGraphics(Body, Frame, Group, Pos); break;
 			case AudioTab: PaintAudio(Body, Frame, Group, Pos); break;
-			case ControlsTab: PaintControls(Body, Frame, FVector2D(Pos.X, Pos.Y - ControlsArt::Lift)); break;
+			case ControlsTab:
+				if (bDeviceControls)
+				{
+					PaintDevice(Body, Frame, Group, Pos);
+				}
+				else
+				{
+					PaintControls(Body, Frame, FVector2D(Pos.X, Pos.Y - ControlsArt::Lift));
+				}
+				break;
 			default: PaintAccessibility(Body, Frame, Group, Pos); break;
 			}
 		}
 
 	private:
+		/** The PC's key and pad chart: nothing to change. */
+		bool IsReadOnlyTab() const { return Tab == ControlsTab && !bDeviceControls; }
+		bool IsDeviceTab() const { return Tab == ControlsTab && bDeviceControls; }
+
 		static const FText& OnOff(bool bOn)
 		{
 			static const FText On = LOCTEXT("On", "On");
@@ -318,14 +353,14 @@ namespace
 			const UKartGameUserSettings* S = GameSettings();
 			RefreshGraphicsText(S);
 			const bool bPending = S && S->IsDirty();
-			const double Step = RowSize.Y + RowGap;
+			const double Step = RowBox.Y + RowGap;
 			for (int32 Row = 0; Row < ApplyDisplay; ++Row)
 			{
 				Group.Next();
 				// Borderless always uses the desktop resolution; ray tracing needs hardware support.
 				const bool bEnabled = Row == Resolution ? GraphicsKey.Mode != static_cast<int32>(EWindowMode::WindowedFullscreen)
 					: Row == RayTracing ? GraphicsKey.bRayTracingSupported : true;
-				KartWidgets::OptionRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), RowSize, Labels[Row], GraphicsValues[Row], Focus.State(Row, Frame.Now, bEnabled), Row);
+				KartWidgets::OptionRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), RowBox, Labels[Row], GraphicsValues[Row], Focus.State(Row, Frame.Now, bEnabled), Row);
 			}
 			Group.Next();
 			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ApplyDisplay, Step) + ButtonGap), ApplyButtonSize,
@@ -337,11 +372,11 @@ namespace
 			static const FText Labels[AudioRows] = { LOCTEXT("Master", "Master volume"), LOCTEXT("MusicVol", "Music"), LOCTEXT("Sfx", "Sound effects") };
 			const UKartPlayerPrefs* Prefs = GetDefault<UKartPlayerPrefs>();
 			const float Values[AudioRows] = { Prefs->MasterVolume, Prefs->MusicVolume, Prefs->SfxVolume };
-			const double Step = RowSize.Y + RowGap + SliderExtraGap;
+			const double Step = RowBox.Y + RowGap + SliderExtraGap;
 			for (int32 Row = 0; Row < AudioRows; ++Row)
 			{
 				Group.Next();
-				KartWidgets::SliderRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), FVector2D(RowSize.X, SliderHeight), Labels[Row], Values[Row], Focus.State(Row, Frame.Now), Row);
+				KartWidgets::SliderRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), FVector2D(RowBox.X, SliderHeight), Labels[Row], Values[Row], Focus.State(Row, Frame.Now), Row);
 			}
 		}
 
@@ -364,27 +399,122 @@ namespace
 				ScaleText = FText::Format(LOCTEXT("ScalePercent", "{0}%"), ScalePercent);
 			}
 			const FText* Values[ReplayWelcomeRow] = { &ScaleText, &OnOff(Prefs->bReduceMotion), &Visions[static_cast<int32>(FKartAccessibility::ColorVision())] };
-			const double Step = RowSize.Y + RowGap;
+			const double Step = RowBox.Y + RowGap;
 			for (int32 Row = 0; Row < ReplayWelcomeRow; ++Row)
 			{
 				Group.Next();
 				// The colour-vision row shows the good / bad pair it uses as a swatch.
-				KartWidgets::OptionRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), RowSize, Labels[Row], *Values[Row], Focus.State(Row, Frame.Now), Row,
+				KartWidgets::OptionRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), RowBox, Labels[Row], *Values[Row], Focus.State(Row, Frame.Now), Row,
 					Row == ColorVisionRow ? FKartAccessibility::Good() : FLinearColor::Transparent);
 			}
 			Group.Next();
-			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ReplayWelcomeRow, Step) + ButtonGap), ReplayButtonSize,
+			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, ReplayWelcomeRow, Step) + ButtonGap), FVector2D(FMath::Min(ReplayButtonSize.X, RowBox.X), ReplayButtonSize.Y),
 				Prefs->bSeenHowItWorks ? LOCTEXT("ReplayWelcome", "Replay the welcome guide") : LOCTEXT("WelcomeQueued", "Guide shows at next start"),
 				Focus.State(ReplayWelcomeRow, Frame.Now, Prefs->bSeenHowItWorks), Color::Sky, ReplayWelcomeRow);
 			Group.Next();
 			const FText& Note = Notes[FMath::Clamp(Focus.Cursor.Index, 0, AccessRows - 1)];
-			P.TextWrapped(Note, Font(EFont::Body, NoteSize, NoteOutline), FVector2D(Pos.X + NoteInset, RowY(Pos.Y, AccessRows, Step) + NoteGap), RowSize.X - 2.0 * NoteInset,
+			P.TextWrapped(Note, Font(EFont::Body, NoteSize, NoteOutline), FVector2D(Pos.X + NoteInset, RowY(Pos.Y, AccessRows, Step) + NoteGap), RowBox.X - 2.0 * NoteInset,
 				Color::White);
+		}
+
+		/** The device's running controls (in a game), or null in the menus. */
+		UDeviceControlsSubsystem* ActiveDeviceControls() const
+		{
+			UDeviceControlsSubsystem* Controls = UDeviceControlsSubsystem::Get(Host ? Host->GetWorld() : nullptr);
+			return Controls && Controls->IsActive() ? Controls : nullptr;
+		}
+
+		/** The device's own controls: haptics, tilt sensitivity, the kart's steering, and calibrate. */
+		void PaintDevice(const FKartPainter& P, const FKartScreenFrame& Frame, const FKartPaintGroup& Group, const FVector2D& Pos)
+		{
+			static const FText Labels[CalibrateRow] = { LOCTEXT("Haptics", "Vibration"), LOCTEXT("Sensitivity", "Tilt sensitivity"), LOCTEXT("KartSteering", "Kart steering") };
+			static const FText Tilt = LOCTEXT("SteerTilt", "Tilt the phone");
+			static const FText Arrows = LOCTEXT("SteerArrows", "On-screen arrows");
+			static const FText Notes[DeviceRows] = {
+				LOCTEXT("HapticsNote", "Buzzes on throws, hits, landings and big moments."),
+				LOCTEXT("SensitivityNote", "How far you tilt for a full turn or a full lean. Higher reacts to smaller moves."),
+				LOCTEXT("SteeringNote", "Steer the kart by tilting the phone like a wheel, or with left and right arrows on screen. Without motion sensors the arrows always show."),
+				LOCTEXT("CalibrateNote", "Hold the phone the way you play and press: that pose becomes straight ahead. Each game also calibrates as it starts."),
+			};
+			const UDeviceControlsSettings* Settings = UDeviceControlsSettings::Get();
+			const int32 Tenths = FMath::RoundToInt32(Settings->GetSensitivity() * 10.f);
+			if (Tenths != SensitivityShown)
+			{
+				SensitivityShown = Tenths;
+				SensitivityText = FText::FromString(FString::Printf(TEXT("%.1fx"), Tenths / 10.f));
+			}
+			const FText* Values[CalibrateRow] = { &OnOff(MovecadeKart::Mobile::FHaptics::IsEnabled()), &SensitivityText, Settings->bTiltSteering ? &Tilt : &Arrows };
+			const double Step = RowBox.Y + RowGap;
+			for (int32 Row = 0; Row < CalibrateRow; ++Row)
+			{
+				Group.Next();
+				KartWidgets::OptionRow(P, FVector2D(Pos.X, RowY(Pos.Y, Row, Step)), RowBox, Labels[Row], *Values[Row], Focus.State(Row, Frame.Now), Row);
+			}
+			Group.Next();
+			// Calibrating needs a game running on the device's motion; in the menus each game does it as it starts.
+			const bool bCanCalibrate = ActiveDeviceControls() != nullptr;
+			KartWidgets::Button(P, FVector2D(Pos.X, RowY(Pos.Y, CalibrateRow, Step) + ButtonGap), FVector2D(FMath::Min(CalibrateButtonSize.X, RowBox.X), CalibrateButtonSize.Y),
+				bCanCalibrate ? LOCTEXT("CalibrateNow", "Calibrate now") : LOCTEXT("CalibrateInGame", "Calibrates in each game"),
+				Focus.State(CalibrateRow, Frame.Now, bCanCalibrate), Color::Mint, CalibrateRow);
+			Group.Next();
+			const FText& Note = Notes[FMath::Clamp(Focus.Cursor.Index, 0, DeviceRows - 1)];
+			P.TextWrapped(Note, Font(EFont::Body, NoteSize, NoteOutline), FVector2D(Pos.X + NoteInset, RowY(Pos.Y, DeviceRows, Step) + NoteGap), RowBox.X - 2.0 * NoteInset,
+				Color::White);
+		}
+
+		void ChangeDevice(int32 Row, int32 Dir)
+		{
+			UDeviceControlsSubsystem* Running = ActiveDeviceControls();
+			UDeviceControlsSettings* Settings = UDeviceControlsSettings::Get();
+			switch (Row)
+			{
+			case HapticsRow:
+				MovecadeKart::Mobile::FHaptics::SetEnabled(!MovecadeKart::Mobile::FHaptics::IsEnabled());
+				break;
+			case SensitivityRow:
+			{
+				const float Before = Settings->GetSensitivity();
+				if (Running)
+				{
+					Running->NudgeSensitivity(Dir); // saves, and applies to the game being played
+				}
+				else
+				{
+					Settings->NudgeSensitivity(Dir);
+				}
+				if (Settings->GetSensitivity() == Before)
+				{
+					Host->PlaySound(EKartUISound::Error);
+					return;
+				}
+				break;
+			}
+			case SteeringRow:
+				if (Running)
+				{
+					Running->SetTiltSteering(!Settings->bTiltSteering);
+				}
+				else
+				{
+					Settings->SetTiltSteering(!Settings->bTiltSteering);
+				}
+				break;
+			default:
+				if (!Running)
+				{
+					Host->PlaySound(EKartUISound::Error);
+					return;
+				}
+				Running->Calibrate();
+				Host->PlaySound(EKartUISound::Accept);
+				return;
+			}
+			Changed(Row, Dir);
 		}
 
 		void ResetCursor()
 		{
-			Focus.Cursor.Count = Tab == GraphicsTab ? GraphicsRows : Tab == AudioTab ? AudioRows : Tab == AccessibilityTab ? AccessRows : 0;
+			Focus.Cursor.Count = Tab == GraphicsTab ? GraphicsRows : Tab == AudioTab ? AudioRows : Tab == AccessibilityTab ? AccessRows : bDeviceControls ? DeviceRows : 0;
 			Focus.Cursor.Index = 0;
 			Focus.FocusAt = NowSeconds();
 		}
@@ -415,6 +545,12 @@ namespace
 			case GraphicsTab: ChangeGraphics(Row, Dir); break;
 			case AudioTab: ChangeVolume(Row, Dir); break;
 			case AccessibilityTab: ChangeAccessibility(Row, Dir); break;
+			case ControlsTab:
+				if (bDeviceControls)
+				{
+					ChangeDevice(Row, Dir);
+				}
+				break;
 			default: break;
 			}
 		}
@@ -604,24 +740,37 @@ namespace
 		{
 			using namespace TabArt;
 			static const FText Names[NumTabs] = { LOCTEXT("Graphics", "Graphics"), LOCTEXT("Audio", "Audio"), LOCTEXT("Controls", "Controls"), LOCTEXT("Accessibility", "Accessibility") };
-			const FSlateFontInfo TabFont = Font(EFont::Button, FontSize);
-			const FVector2D TabSize(Width, Height);
-			const double Total = static_cast<int32>(NumTabs) * Width + (NumTabs - 1) * Gap;
+			// Four 250-unit tabs on a PC; narrower where the safe area is (a portrait phone), keeping the glyphs' room.
+			const double TabW = FMath::Min(Width, (Frame.SafeSize().X - 2.0 * GlyphRoom - (NumTabs - 1) * Gap) / NumTabs);
+			const FVector2D TabSize(TabW, Height);
+			const double Total = static_cast<int32>(NumTabs) * TabW + (NumTabs - 1) * Gap;
 			const double X0 = Frame.Size.X * 0.5 - Total * 0.5;
-			const double Y = Frame.SafeMin.Y + Top;
+			const double Y = Frame.SafeMin.Y + Top + (Frame.bPortrait ? PortraitDrop : 0.0);
 			const float In = KartWidgets::Entrance(Frame, InAt);
+			// A label wider than its tab (a phone's bigger text, a narrow tab) shrinks to fit; on a PC every one fits.
+			FSlateFontInfo TabFonts[NumTabs];
+			for (int32 i = 0; i < NumTabs; ++i)
+			{
+				TabFonts[i] = Font(EFont::Button, FontSize);
+				const double Room = TabW - 2.0 * LabelInset;
+				const double Wide = FKartPainter::Measure(Names[i].ToString(), TabFonts[i]).X;
+				if (Wide > Room)
+				{
+					TabFonts[i] = Font(EFont::Button, FMath::FloorToFloat(FontSize * static_cast<float>(Room / Wide)));
+				}
+			}
 			{
 				const FKartPaintGroup Group(P);
 				for (int32 i = 0; i < NumTabs; ++i)
 				{
 					Group.Next();
-					const FVector2D Pos(X0 + i * (Width + Gap), Y + (1.0 - In) * -DropIn);
+					const FVector2D Pos(X0 + i * (TabW + Gap), Y + (1.0 - In) * -DropIn);
 					const bool bOn = i == Tab;
 					P.Hit(TabHit + i, Pos, TabSize);
 					const float TabPop = bOn ? 1.f + Pop * Ease::OutBack(static_cast<float>((Frame.Now - TabAt) / TabSwitchSeconds), PopOvershoot) : 1.f;
 					const FKartPainter T = P.Transformed(Pos + TabSize * 0.5, TabPop).Faded(In);
 					T.Card(Pos, TabSize, bOn ? Color::Sun : Color::WithAlpha(Color::Paper, IdleAlpha), Height * 0.5f, Shadow, bOn ? Color::White : FLinearColor::Transparent, Rim);
-					T.Text(Names[i], TabFont, Pos + TabSize * 0.5, Color::Navy, FVector2D(0.5, 0.5));
+					T.Text(Names[i], TabFonts[i], Pos + TabSize * 0.5, Color::Navy, FVector2D(0.5, 0.5));
 				}
 			}
 			KartWidgets::Glyph(P.Faded(In), EKartMenuAction::PrevTab, Frame.Device,
@@ -693,6 +842,12 @@ namespace
 		};
 
 		int32 Tab = GraphicsTab;
+		/** The controls tab sets the device's own controls (see the constructor). */
+		bool bDeviceControls = false;
+		/** This frame's row size: the design row, narrowed to the safe area's width. */
+		FVector2D RowBox = DesignRowSize;
+		int32 SensitivityShown = -1;
+		FText SensitivityText;
 		int32 TabDir = 1;
 		double TabAt = -10.0;
 		FListFocus Focus;

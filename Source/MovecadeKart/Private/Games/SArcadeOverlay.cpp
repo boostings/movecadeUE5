@@ -12,6 +12,7 @@
 #include "Misc/Parse.h"
 #include "UI/KartScreen.h"
 #include "UI/KartUISubsystem.h"
+#include "UI/Screens/KartScreens.h"
 
 namespace
 {
@@ -34,6 +35,9 @@ namespace
 	{
 		double PauseAt = -1.0;
 		double ResultsAt = -1.0;
+		/** -ArcadeSettingsAt=N[-ArcadeSettingsTab=T]: the pause menu's settings, on tab T, N seconds in. */
+		double SettingsAt = -1.0;
+		int32 SettingsTab = 0;
 
 		static const FOverlayShotFlags& Get()
 		{
@@ -43,6 +47,8 @@ namespace
 #if !UE_BUILD_SHIPPING
 				FParse::Value(FCommandLine::Get(), TEXT("ArcadePauseAt="), Out.PauseAt);
 				FParse::Value(FCommandLine::Get(), TEXT("ArcadeResultsAt="), Out.ResultsAt);
+				FParse::Value(FCommandLine::Get(), TEXT("ArcadeSettingsAt="), Out.SettingsAt);
+				FParse::Value(FCommandLine::Get(), TEXT("ArcadeSettingsTab="), Out.SettingsTab);
 #endif
 				return Out;
 			}();
@@ -224,6 +230,15 @@ void SArcadeOverlay::Tick(const FGeometry& AllottedGeometry, const double InCurr
 		{
 			bShotHookFired = true;
 			OpenPause();
+		}
+		else if (Shot.SettingsAt >= 0.0 && Age >= Shot.SettingsAt)
+		{
+			bShotHookFired = true;
+			OpenPause();
+			if (AreMenusOpen())
+			{
+				Menus->PushScreen(KartScreens::MakeSettings(Shot.SettingsTab));
+			}
 		}
 		else if (Shot.ResultsAt >= 0.0 && Age >= Shot.ResultsAt)
 		{
